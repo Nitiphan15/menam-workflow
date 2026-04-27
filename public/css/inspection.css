@@ -1,0 +1,153 @@
+.report-card {
+    border-radius: 1rem;
+}
+
+.report-section-title {
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6c757d;
+    font-weight: 600;
+}
+
+.report-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #9ca3af;
+}
+
+.table-report th {
+    white-space: nowrap;
+    font-size: 0.8rem;
+}
+.table-report td {
+    font-size: 0.8rem;
+    vertical-align: middle;
+}
+
+.status-pill {
+    border-radius: 999px;
+    padding: 0.15rem 0.9rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.table-spec,
+.table-meas {
+    table-layout: fixed;
+}
+.col-meta {
+    width: 160px;
+}
+.col-spec {
+    width: 70px;
+}
+
+/* QA table */
+.qa-table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.qa-table th,
+.qa-table td {
+    vertical-align: middle;
+    padding: 10px 12px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.qa-table thead th {
+    font-weight: 700;
+    color: #111827;
+    background: #fafafa;
+    border-top: 0;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.qa-table .col-num {
+    text-align: center;
+}
+.qa-table .col-right {
+    text-align: right;
+}
+.qa-table .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.qa-table .dt {
+    line-height: 1.15;
+    white-space: nowrap;
+}
+.qa-table .dt small {
+    display: block;
+    color: #6b7280;
+    font-weight: 500;
+    margin-top: 2px;
+}
+
+.qa-scroll {
+    max-height: 60vh;
+    overflow: auto;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+}
+
+.qa-thead-sticky th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: #fff; /* กันโปร่ง */
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Hardness */
+.hardness-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+.hardness-avg {
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 1.1;
+    text-align: right;
+}
+.hardness-avg-label {
+    font-weight: 500;
+    font-size: 11px;
+    opacity: 0.65;
+    margin-top: 2px;
+}
+.hardness-points {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+    max-width: 220px;
+}
+.hardness-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    border-radius: 999px;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+}
+.hardness-badge-label {
+    font-weight: 700;
+    color: #1d4ed8;
+}
+.hardness-badge-val {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: #0f172a;
+}

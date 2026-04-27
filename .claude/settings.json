@@ -1,0 +1,59 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./storage/app/private/**)",
+      "Bash(rm -rf *)",
+      "Bash(del /s /q *)",
+      "Bash(rmdir /s /q *)",
+      "Bash(php artisan migrate:fresh*)",
+      "Bash(php artisan migrate:refresh*)",
+      "Bash(php artisan db:wipe*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fd*)",
+      "Bash(git push*)",
+      "Bash(git pull*)",
+      "Bash(git rebase*)",
+      "Bash(git merge*)"
+    ],
+    "ask": [
+      "Bash(composer install*)",
+      "Bash(composer update*)",
+      "Bash(npm install*)",
+      "Bash(npm run build*)",
+      "Bash(php artisan migrate*)",
+      "Bash(php artisan queue:*)",
+      "Bash(php artisan schedule:*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Write(./app/**)",
+      "Write(./routes/**)",
+      "Write(./resources/**)",
+      "Write(./database/**)",
+      "Write(./config/**)",
+      "Edit(./app/**)",
+      "Edit(./routes/**)",
+      "Edit(./resources/**)",
+      "Edit(./database/**)",
+      "Edit(./config/**)"
+    ],
+    "allow": [
+      "Read(./CLAUDE.md)",
+      "Read(./docs/**)",
+      "Read(./app/**)",
+      "Read(./routes/**)",
+      "Read(./resources/**)",
+      "Read(./database/**)",
+      "Read(./config/**)",
+      "Read(./tests/**)",
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(php artisan route:list*)",
+      "Bash(php artisan migrate:status*)",
+      "Bash(php artisan test*)",
+      "Bash(composer dump-autoload*)"
+    ]
+  }
+}

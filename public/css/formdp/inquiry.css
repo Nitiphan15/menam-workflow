@@ -1,0 +1,183 @@
+/* =========================================================
+   DP Inquiry 
+   ========================================================= */
+
+/* ===============================
+   Filter (sticky top)
+================================ */
+.dp-inquiry-filter {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(6px);
+    background: rgba(249, 250, 251, 0.95);
+    border: 1px solid #eef2f7;
+    border-radius: 12px;
+    padding: 12px;
+}
+.dp-inquiry-filter hr {
+    margin: 10px 0;
+}
+
+/* ===============================
+   Filter Grid
+================================ */
+.dp-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+    align-items: end;
+}
+@media (max-width: 1200px) {
+    .dp-filter-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+@media (max-width: 768px) {
+    .dp-filter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* ===============================
+   KPI
+================================ */
+.dp-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+}
+.dp-kpi-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+.dp-kpi-num {
+    font-size: 20px;
+    font-weight: 900;
+}
+
+/* ===============================
+   Table wrapper / scrolling
+   (แนะนำให้ครอบ table ด้วย .dp-table-wrap)
+================================ */
+.dp-table-wrap {
+    max-height: calc(100vh - 200px);
+    overflow: auto; /* สำคัญ: ให้เลื่อนในกรอบ */
+    border: 1px solid #eef2f7;
+    border-radius: 12px;
+    background: #fff;
+}
+
+/* ===============================
+   Table: sticky header
+================================ */
+#inqTable {
+    width: 100%;
+}
+#inqTable thead th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    z-index: 10;
+    white-space: nowrap;
+}
+
+/* hover row */
+#inqTable tbody tr.data-row:hover {
+    background: #f8fafc;
+}
+
+/* revision color (ใช้ style="--rev: ...") */
+#inqTable tbody tr.data-row > * {
+    color: var(--rev) !important;
+}
+
+/* ===============================
+   Sticky Columns
+================================ */
+
+/* base sticky */
+#inqTable .sticky-col {
+    position: sticky;
+    background: #fff;
+    z-index: 2;
+}
+
+/* thead ให้สูงกว่า body */
+#inqTable thead .sticky-col {
+    background: #f8fafc;
+    z-index: 15;
+}
+
+/* left offsets (ปรับเลขให้ตรงกับความกว้างจริง) */
+#inqTable .c1 {
+    left: 0;
+} /* # */
+#inqTable .c2 {
+    left: 60px;
+} /* วันที่ส่งสินค้า */
+#inqTable .c3 {
+    left: 220px;
+} /* ลูกค้า */
+#inqTable .c4 {
+    left: 440px;
+} /* Part Desc */
+
+/* เงาขอบคอลัมน์สุดท้าย กันดูแบน */
+#inqTable .c4 {
+    box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.3);
+}
+
+/* กันข้อความล้นใน sticky column */
+#inqTable td.sticky-col,
+#inqTable th.sticky-col {
+    white-space: nowrap;
+}
+
+/* ===============================
+   Group row (หัวกลุ่ม)
+================================ */
+#inqTable tbody tr.group-row td {
+    position: sticky; /* optional: ถ้าอยากให้หัวกลุ่มไม่ขยับตอน scroll แนวนอน */
+    left: 0;
+    z-index: 1;
+    background: #e5e7eb;
+}
+
+/* ===============================
+   (เลือกใช้) ทำให้ตัวเลขชิดขวาอ่านง่าย
+================================ */
+#inqTable td.text-end {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ===============================
+   Modal History (ถ้ามีตาราง diff)
+================================ */
+.hist-diff td {
+    vertical-align: top;
+}
+
+/* ===============================
+   Small utilities
+================================ */
+.font-monospace.small {
+    font-size: 0.875rem;
+}
+
+.truck-cell {
+    min-width: 120px;
+    line-height: 1.25;
+}
+
+.truck-plate {
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.truck-meta {
+    font-size: 12px;
+    color: #6b7280;
+}
