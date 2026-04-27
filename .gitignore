@@ -13,6 +13,16 @@
 .env.*
 !.env.example
 
+# Local Claude / MCP settings
+.claude/settings.local.json
+.mcp.json
+
+# Debug / local only
+public/phpinfo.php
+
+# Backup archives
+*.zip
+
 .phpunit.result.cache
 Homestead.json
 Homestead.yaml
@@ -25,3 +35,4 @@ Thumbs.db
 
 /.idea
 /.vscode
+
