@@ -1,3 +1,253 @@
+(function inquiryTogglePanels() {
+    function bindToggle(buttonId, targetId) {
+        const btn = document.getElementById(buttonId);
+        const target = document.getElementById(targetId);
+        if (!btn || !target) return;
+
+        function setExpanded() {
+            btn.setAttribute("aria-expanded", target.classList.contains("show") ? "true" : "false");
+        }
+
+        btn.addEventListener("click", () => {
+            if (typeof bootstrap !== "undefined" && bootstrap.Collapse) {
+                bootstrap.Collapse.getOrCreateInstance(target, { toggle: false }).toggle();
+                return;
+            }
+
+            target.classList.toggle("show");
+            setExpanded();
+        });
+
+        target.addEventListener("shown.bs.collapse", setExpanded);
+        target.addEventListener("hidden.bs.collapse", setExpanded);
+        setExpanded();
+    }
+
+    bindToggle("btnToggleKpi", "kpiCollapse");
+    bindToggle("btnToggleFilter", "filterCollapse");
+})();
+
+(function inquiryExcelTable() {
+    const table = document.getElementById("inqTable");
+    const tbody = document.getElementById("inqTbody");
+    if (!table || !tbody || !table.tHead || !table.tBodies.length) return;
+
+    const headerRow = table.tHead.querySelector(".dp-inquiry-header-row");
+    if (!headerRow || table.tHead.querySelector(".dp-inquiry-filter-row")) return;
+
+    const dataRows = () => Array.from(tbody.querySelectorAll("tr.data-row"));
+    const groupRows = () => Array.from(tbody.querySelectorAll("tr.group-row"));
+    const originalGroupRows = groupRows();
+    const numericColumns = new Set([0, 6, 7, 14]);
+    const filterableColumns = new Set(
+        Array.from(headerRow.cells)
+            .map((_, idx) => idx)
+            .filter((idx) => ![0, 16, 17].includes(idx)),
+    );
+    const state = {
+        sortCol: null,
+        sortDir: 1,
+    };
+
+    function normalizeText(value) {
+        return String(value || "")
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function parseNum(value) {
+        return (
+            parseFloat(
+                String(value || "")
+                    .replace(/,/g, "")
+                    .replace(/[^\d.-]/g, ""),
+            ) || 0
+        );
+    }
+
+    function cellText(row, col) {
+        const cell = row.cells[col];
+        return cell ? cell.innerText.trim() : "";
+    }
+
+    function sortValue(row, col) {
+        if (col === 1) return row.dataset.ship || "";
+        if (col === 3) return row.dataset.customer || "";
+        if (col === 4) return row.dataset.part || "";
+        if (col === 6) return parseNum(row.dataset.qty || cellText(row, col));
+        if (col === 10) return row.dataset.so || "";
+        if (col === 14) return parseNum(row.dataset.rev || cellText(row, col));
+        return numericColumns.has(col) ? parseNum(cellText(row, col)) : normalizeText(cellText(row, col));
+    }
+
+    function compareFilter(cellValue, filterValue, isNumeric) {
+        const filter = String(filterValue || "").trim();
+        if (!filter) return true;
+
+        if (isNumeric) {
+            const cellNumber = parseNum(cellValue);
+            const match = filter.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+            if (match) {
+                const op = match[1] || ">=";
+                const n = parseFloat(match[2]);
+                if (op === ">=") return cellNumber >= n;
+                if (op === "<=") return cellNumber <= n;
+                if (op === ">") return cellNumber > n;
+                if (op === "<") return cellNumber < n;
+                if (op === "=") return Math.abs(cellNumber - n) < 0.0001;
+            }
+        }
+
+        return normalizeText(cellValue).includes(normalizeText(filter));
+    }
+
+    function activeFilters() {
+        return Array.from(table.querySelectorAll(".dp-col-filter"))
+            .map((input) => {
+                const col = parseInt(input.dataset.filterCol || "0", 10);
+                return {
+                    col,
+                    value: input.value,
+                    isNumeric: numericColumns.has(col),
+                };
+            })
+            .filter((item) => String(item.value || "").trim() !== "");
+    }
+
+    function setKpi(visibleRows) {
+        const rows = visibleRows || dataRows().filter((row) => row.style.display !== "none");
+        const total = dataRows().length;
+        const so = rows.filter((row) => String(row.dataset.mode || "").toUpperCase() !== "ACID").length;
+        const acid = rows.filter((row) => String(row.dataset.mode || "").toUpperCase() === "ACID").length;
+        const sellByLine = rows.filter((row) => String(row.dataset.sbl || "") === "1").length;
+
+        const visibleEl = document.getElementById("kpi_visible");
+        const totalEl = document.getElementById("kpi_total");
+        const soEl = document.getElementById("kpi_so");
+        const acidEl = document.getElementById("kpi_acid");
+        const sblEl = document.getElementById("kpi_sbl");
+        const countEl = document.getElementById("inqCount");
+
+        if (visibleEl) visibleEl.textContent = rows.length.toLocaleString();
+        if (totalEl) totalEl.textContent = total.toLocaleString();
+        if (soEl) soEl.textContent = so.toLocaleString();
+        if (acidEl) acidEl.textContent = acid.toLocaleString();
+        if (sblEl) sblEl.textContent = sellByLine.toLocaleString();
+        if (countEl) countEl.textContent = `${rows.length.toLocaleString()} / ${total.toLocaleString()} visible`;
+    }
+
+    function updateGroupRows() {
+        groupRows().forEach((groupRow) => {
+            const group = groupRow.dataset.group || "";
+            const hasVisible = dataRows().some(
+                (row) => row.dataset.group === group && row.style.display !== "none",
+            );
+            groupRow.style.display = hasVisible ? "" : "none";
+        });
+    }
+
+    function applyFilters() {
+        const filters = activeFilters();
+        const visibleRows = [];
+
+        dataRows().forEach((row) => {
+            const ok = filters.every((filter) =>
+                compareFilter(cellText(row, filter.col), filter.value, filter.isNumeric),
+            );
+            row.style.display = ok ? "" : "none";
+            if (ok) visibleRows.push(row);
+        });
+
+        updateGroupRows();
+        setKpi(visibleRows);
+    }
+
+    function applySort(col) {
+        const dir = state.sortCol === col ? state.sortDir * -1 : 1;
+        state.sortCol = col;
+        state.sortDir = dir;
+
+        Array.from(headerRow.cells).forEach((th) => {
+            const ind = th.querySelector(".sort-ind");
+            if (ind) ind.textContent = "";
+        });
+
+        const indicator = headerRow.cells[col]?.querySelector(".sort-ind");
+        if (indicator) indicator.textContent = dir === 1 ? "▲" : "▼";
+
+        const sorted = dataRows().sort((a, b) => {
+            const av = sortValue(a, col);
+            const bv = sortValue(b, col);
+            if (numericColumns.has(col)) return (Number(av) - Number(bv)) * dir;
+            return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
+        });
+
+        if (originalGroupRows.length) {
+            const fragment = document.createDocumentFragment();
+            const usedRows = new Set();
+
+            originalGroupRows.forEach((groupRow) => {
+                const group = groupRow.dataset.group || "";
+                const rows = sorted.filter((row) => row.dataset.group === group);
+
+                fragment.appendChild(groupRow);
+                rows.forEach((row) => {
+                    usedRows.add(row);
+                    fragment.appendChild(row);
+                });
+            });
+
+            sorted
+                .filter((row) => !usedRows.has(row))
+                .forEach((row) => fragment.appendChild(row));
+
+            tbody.appendChild(fragment);
+        } else {
+            sorted.forEach((row) => tbody.appendChild(row));
+        }
+
+        applyFilters();
+    }
+
+    Array.from(headerRow.cells).forEach((th, idx) => {
+        th.classList.add("sortable");
+        const indicator = document.createElement("span");
+        indicator.className = "sort-ind";
+        th.appendChild(indicator);
+        th.addEventListener("click", () => applySort(idx));
+    });
+
+    const filterRow = document.createElement("tr");
+    filterRow.className = "dp-inquiry-filter-row";
+
+    Array.from(headerRow.cells).forEach((th, idx) => {
+        const filterTh = document.createElement("th");
+        filterTh.className = th.className
+            .replace(/\bsortable\b/g, "")
+            .replace(/\bsticky-col\b/g, "")
+            .replace(/\bsticky-[1-4]\b/g, "")
+            .trim();
+
+        if (filterableColumns.has(idx)) {
+            const input = document.createElement("input");
+            input.type = "text";
+            input.className = "form-control form-control-sm dp-col-filter";
+            input.dataset.filterCol = String(idx);
+            input.placeholder = numericColumns.has(idx) ? ">= or text" : "Filter";
+            input.addEventListener("input", applyFilters);
+            input.addEventListener("click", (event) => event.stopPropagation());
+            filterTh.appendChild(input);
+        }
+
+        filterRow.appendChild(filterTh);
+    });
+
+    table.tHead.appendChild(filterRow);
+
+    applyFilters();
+})();
+
 (function truckModal() {
     const byId = (id) => document.getElementById(id);
     const CONFIG = window.DP_INQUIRY || {};
@@ -967,4 +1217,245 @@
             remarkEl.value = "";
         }
     });
+})();
+
+(function historyModal() {
+    const byId = (id) => document.getElementById(id);
+    const CONFIG = window.DP_INQUIRY || {};
+    const ROUTES = CONFIG.routes || {};
+
+    const modalEl = byId("historyModal");
+    const metaEl = byId("historyMeta");
+    const topViewEl = byId("histViewTop");
+    const dbViewEl = byId("histViewDb");
+    const tbodyEl = byId("historyTbody");
+    const colTitleEl = byId("histColTitle");
+    const dbTheadEl = byId("histDbThead");
+    const dbTbodyEl = byId("histDbTbody");
+    const currentBtn = byId("btnHistCurrent");
+    const stepBtn = byId("btnHistStep");
+    const dbBtn = byId("btnHistDb");
+
+    if (!modalEl || !tbodyEl) return;
+
+    const state = {
+        ordId: "",
+        mode: "current",
+        payload: null,
+        dbRows: null,
+        loadingDb: false,
+    };
+
+    function esc(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function historyUrl(ordId) {
+        return String(ROUTES.history || "").replace("__ID__", encodeURIComponent(String(ordId || "")));
+    }
+
+    function historyDbUrl(ordId) {
+        return String(ROUTES.historyDb || "").replace("__ID__", encodeURIComponent(String(ordId || "")));
+    }
+
+    function setButtons(mode) {
+        state.mode = mode;
+
+        if (currentBtn) {
+            currentBtn.classList.toggle("btn-primary", mode === "current");
+            currentBtn.classList.toggle("btn-outline-primary", mode !== "current");
+        }
+        if (stepBtn) {
+            stepBtn.classList.toggle("btn-secondary", mode === "step");
+            stepBtn.classList.toggle("btn-outline-secondary", mode !== "step");
+        }
+        if (dbBtn) {
+            dbBtn.classList.toggle("btn-dark", mode === "db");
+            dbBtn.classList.toggle("btn-outline-dark", mode !== "db");
+        }
+
+        if (topViewEl) topViewEl.classList.toggle("d-none", mode === "db");
+        if (dbViewEl) dbViewEl.classList.toggle("d-none", mode !== "db");
+    }
+
+    function setLoading(text) {
+        if (metaEl) metaEl.textContent = text || "Loading...";
+        tbodyEl.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-3">Loading...</td></tr>`;
+    }
+
+    function renderError(message) {
+        if (metaEl) metaEl.textContent = `ord_id: ${state.ordId || "-"}`;
+        tbodyEl.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">${esc(message || "Unable to load history")}</td></tr>`;
+    }
+
+    function formatPeriod(row) {
+        const start = row.sys_start || row.SysStartTime || "-";
+        const end = row.sys_end || row.SysEndTime || "-";
+        return `${esc(start)}<br><span class="text-muted">${esc(end)}</span>`;
+    }
+
+    function actorName(row) {
+        return row.revise_by_name || row.revise_user_name || row.created_by_name || row.revise_by || "-";
+    }
+
+    function renderDiffs(diffs) {
+        if (!Array.isArray(diffs) || diffs.length === 0) {
+            return '<span class="text-muted">No field changes</span>';
+        }
+
+        return `<div class="vstack gap-1">${diffs.map((d) => `
+            <div class="border rounded p-2 bg-light">
+                <div class="fw-semibold">${esc(d.label || d.field || "-")}</div>
+                <div class="small">
+                    <span class="text-danger">${esc(d.from || "-")}</span>
+                    <span class="text-muted mx-1">-&gt;</span>
+                    <span class="text-success">${esc(d.to || "-")}</span>
+                </div>
+            </div>
+        `).join("")}</div>`;
+    }
+
+    function renderTop() {
+        const payload = state.payload || {};
+        const versions = Array.isArray(payload.versions) ? payload.versions : [];
+        const diffKey = state.mode === "step" ? "diff_step" : "diff_current";
+
+        if (metaEl) {
+            metaEl.textContent = `ord_id: ${payload.ord_id || state.ordId || "-"} | current rev: ${payload.current_revision ?? "-"}`;
+        }
+        if (colTitleEl) {
+            colTitleEl.textContent = state.mode === "step"
+                ? "Changed Fields (step by step)"
+                : "Changed Fields (compare with current)";
+        }
+
+        if (versions.length === 0) {
+            tbodyEl.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No history versions found</td></tr>';
+            return;
+        }
+
+        tbodyEl.innerHTML = versions.map((row) => `
+            <tr>
+                <td class="text-center">${esc(row.revision_number ?? "-")}</td>
+                <td>${formatPeriod(row)}</td>
+                <td>${esc(actorName(row))}</td>
+                <td>${renderDiffs(row[diffKey])}</td>
+            </tr>
+        `).join("");
+    }
+
+    function renderDbRows(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+
+        if (!dbTheadEl || !dbTbodyEl) return;
+
+        if (list.length === 0) {
+            dbTheadEl.innerHTML = "";
+            dbTbodyEl.innerHTML = '<tr><td class="text-center text-muted py-3">No database history rows found</td></tr>';
+            return;
+        }
+
+        const columns = Object.keys(list[0]);
+        dbTheadEl.innerHTML = columns.map((c) => `<th>${esc(c)}</th>`).join("");
+        dbTbodyEl.innerHTML = list.map((row) => `
+            <tr>${columns.map((c) => `<td>${esc(row[c] ?? "")}</td>`).join("")}</tr>
+        `).join("");
+    }
+
+    async function loadHistory(ordId) {
+        state.ordId = ordId;
+        state.payload = null;
+        state.dbRows = null;
+        setButtons("current");
+        setLoading(`ord_id: ${ordId || "-"}`);
+
+        try {
+            const res = await fetch(historyUrl(ordId), {
+                headers: { Accept: "application/json" },
+                credentials: "same-origin",
+            });
+            const data = await res.json();
+
+            if (!res.ok || data.ok === false) {
+                renderError(data.message || `HTTP ${res.status}`);
+                return;
+            }
+
+            state.payload = data;
+            renderTop();
+        } catch (err) {
+            renderError(err && err.message ? err.message : "Unable to load history");
+        }
+    }
+
+    async function loadDbHistory() {
+        if (state.dbRows) {
+            renderDbRows(state.dbRows);
+            return;
+        }
+        if (state.loadingDb) return;
+
+        state.loadingDb = true;
+        if (dbTheadEl) dbTheadEl.innerHTML = "";
+        if (dbTbodyEl) {
+            dbTbodyEl.innerHTML = '<tr><td class="text-center text-muted py-3">Loading...</td></tr>';
+        }
+
+        try {
+            const res = await fetch(historyDbUrl(state.ordId), {
+                headers: { Accept: "application/json" },
+                credentials: "same-origin",
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                renderDbRows([]);
+                return;
+            }
+
+            state.dbRows = Array.isArray(data.rows) ? data.rows : [];
+            renderDbRows(state.dbRows);
+        } catch (err) {
+            if (dbTbodyEl) {
+                dbTbodyEl.innerHTML = `<tr><td class="text-center text-danger py-3">${esc(err && err.message ? err.message : "Unable to load database history")}</td></tr>`;
+            }
+        } finally {
+            state.loadingDb = false;
+        }
+    }
+
+    document.addEventListener("click", (e) => {
+        if (!(e.target instanceof Element)) return;
+
+        const btn = e.target.closest(".jsHistoryBtn");
+        if (!btn) return;
+
+        loadHistory(btn.dataset.ordId || "");
+    });
+
+    if (currentBtn) {
+        currentBtn.addEventListener("click", () => {
+            setButtons("current");
+            renderTop();
+        });
+    }
+
+    if (stepBtn) {
+        stepBtn.addEventListener("click", () => {
+            setButtons("step");
+            renderTop();
+        });
+    }
+
+    if (dbBtn) {
+        dbBtn.addEventListener("click", () => {
+            setButtons("db");
+            loadDbHistory();
+        });
+    }
 })();

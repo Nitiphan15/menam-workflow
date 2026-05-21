@@ -3,6 +3,10 @@
 @section('content')
     <div class="container">
         <div class="d-flex align-items-center justify-content-between mb-3">
+            <div>
+                <h5 class="mb-1">User Permission</h5>
+                <div class="text-muted small">Search a user, then manage permissions for the user's primary department.</div>
+            </div>
 
             <form class="d-flex" method="GET" action="{{ route('adminweb.user-permissions.index') }}">
                 <input class="form-control me-2" name="q" value="{{ $q }}" placeholder="ค้นหา name/email/code">
@@ -30,7 +34,14 @@
                                 <td>{{ $u->user_code }}</td>
                                 <td>{{ $u->name }}</td>
                                 <td>{{ $u->email }}</td>
-                                <td>{{ $u->department_id }}</td>
+                                <td>
+                                    @if ($u->department)
+                                        {{ $u->department->name }}
+                                        <small class="text-muted">({{ $u->department->code }})</small>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
                                 <td class="text-end">
                                     <a class="btn btn-sm btn-outline-primary"
                                         href="{{ route('adminweb.user-permissions.edit', $u->id) }}">

@@ -31,6 +31,10 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings
             'MFG No',
             'KG',
             'Stock FG',
+            'ขายระบุเส้น/ชิ้น',
+            'หน่วย',
+            'KG/เส้น',
+            'KG จากระบุเส้น',
             'สถานที่ส่ง',
             'SO',
             'เอกสารแนบ',
@@ -44,17 +48,54 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings
 
     public function collection()
     {
+        $displayRevision = trim((string) ($this->filters['display_revision_number'] ?? ''));
+
         $q = $this->baseQuery()
             ->selectRaw("
                 d.due_date,
-                d.ship_posted_at,
-                d.window_at,
+                CONVERT(varchar(10), d.ship_posted_at, 23) as ship_posted_at,
+                CONVERT(varchar(5), d.window_at, 108) as window_at,
                 COALESCE(NULLIF(LTRIM(RTRIM(c.name)), ''), CONCAT('#', d.customer_id)) as customer_name,
                 d.part_number,
                 d.part_desc,
                 d.mfg_no,
                 d.qty,
                 d.stock_qty,
+                CASE
+                    WHEN ISNULL(d.sell_by_line, 0) = 1 AND ISNULL(d.line_qty, 0) > 0
+                    THEN d.line_qty
+                    ELSE NULL
+                END as line_qty,
+                CASE
+                    WHEN ISNULL(d.sell_by_line, 0) = 1
+                        AND ISNULL(d.line_qty, 0) > 0
+                        AND ISNULL(d.qty, 0) = 0
+                    THEN N'ชิ้น'
+                    WHEN ISNULL(d.sell_by_line, 0) = 1
+                        AND ISNULL(d.line_qty, 0) > 0
+                    THEN N'เส้น'
+                    ELSE NULL
+                END as line_qty_unit,
+                CASE
+                    WHEN ISNULL(d.sell_by_line, 0) = 1
+                        AND ISNULL(d.line_qty, 0) > 0
+                        AND ISNULL(d.qty, 0) > 0
+                        AND UPPER(LTRIM(RTRIM(ISNULL(p.ref_unit, '')))) = '03'
+                        AND UPPER(LTRIM(RTRIM(ISNULL(d.part_number, '')))) LIKE '%E'
+                        AND ISNULL(p.ref_unit_qty, 0) > 0
+                    THEN p.ref_unit_qty
+                    ELSE NULL
+                END as kg_per_line,
+                CASE
+                    WHEN ISNULL(d.sell_by_line, 0) = 1
+                        AND ISNULL(d.line_qty, 0) > 0
+                        AND ISNULL(d.qty, 0) > 0
+                        AND UPPER(LTRIM(RTRIM(ISNULL(p.ref_unit, '')))) = '03'
+                        AND UPPER(LTRIM(RTRIM(ISNULL(d.part_number, '')))) LIKE '%E'
+                        AND ISNULL(p.ref_unit_qty, 0) > 0
+                    THEN ROUND(d.line_qty * p.ref_unit_qty, 3)
+                    ELSE NULL
+                END as line_calc_kg,
                 d.address,
                 d.so_number,
                 d.attach_docs,
@@ -76,7 +117,44 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings
             $q->whereRaw("CONVERT(date, d.ship_posted_at) = ?", [$this->shipDate]);
         }
 
-        return $q->orderBy('d.customer_id')->get();
+        $rows = $q->orderBy('d.customer_id')->get();
+
+        $parts = $rows
+            ->pluck('part_number')
+            ->map(fn($x) => trim((string) $x))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $stockMap = [];
+        if (!empty($parts)) {
+            $stockRows = DB::connection('pgsqlw')
+                ->table('parts')
+                ->select(['partnumber', 'totalonhand', 'onhand'])
+                ->whereIn('partnumber', $parts)
+                ->get();
+
+            foreach ($stockRows as $st) {
+                $pn = trim((string) $st->partnumber);
+                $stockMap[$pn] = [
+                    'totalonhand' => (float) ($st->totalonhand ?? 0),
+                    'onhand'      => (float) ($st->onhand ?? 0),
+                ];
+            }
+        }
+
+        foreach ($rows as $r) {
+            $partNo = trim((string) ($r->part_number ?? ''));
+            $stock = $stockMap[$partNo] ?? null;
+            $r->stock_qty = $stock['onhand'] ?? ($stock['totalonhand'] ?? 0);
+
+            if ($displayRevision !== '' && is_numeric($displayRevision)) {
+                $r->revision_number = (int) $displayRevision;
+            }
+        }
+
+        return $rows;
     }
 
     private function baseQuery()
@@ -85,7 +163,14 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings
             ->table('delivery_plan_data as d')
             ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
-            ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id');
+            ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
+            ->leftJoin('parts as p', function ($join) {
+                $join->on(
+                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
+                    '=',
+                    DB::raw("d.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
+                );
+            });
 
         [$shipFrom, $shipTo] = $this->resolveShipDateRange();
 
@@ -96,6 +181,9 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings
 
         $mode = strtoupper(trim((string) ($this->filters['mode'] ?? '')));
         $status = strtoupper(trim((string) ($this->filters['status'] ?? 'NEW')));
+        $revision = trim((string) ($this->filters['revision_number'] ?? ''));
+        $revisionMax = trim((string) ($this->filters['revision_max_number'] ?? ''));
+        $excludeVoidCancel = (string) ($this->filters['exclude_void_cancel'] ?? '') === '1';
         $so = trim((string) ($this->filters['so'] ?? ''));
         $customer = trim((string) ($this->filters['customer'] ?? ''));
         $shipto = trim((string) ($this->filters['shipto'] ?? ''));
@@ -128,6 +216,16 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings
 
         if ($status !== 'ALL' && $status !== '') {
             $q->where('d.status', $status);
+        }
+
+        if ($excludeVoidCancel) {
+            $q->whereRaw("ISNULL(d.status,'') NOT IN ('VOID','CANCEL')");
+        }
+
+        if ($revisionMax !== '' && is_numeric($revisionMax)) {
+            $q->where('d.revision_number', '<=', (int) $revisionMax);
+        } elseif ($revision !== '' && is_numeric($revision)) {
+            $q->where('d.revision_number', (int) $revision);
         }
 
         return $q;

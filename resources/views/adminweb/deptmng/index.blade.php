@@ -60,10 +60,9 @@
                                 <td>{{ $m->start_date }} — {{ $m->end_date ?: 'ปัจจุบัน' }}</td>
                                 <td>{{ $m->is_primary ? 'Yes' : 'No' }}</td>
                                 <td class="text-end">
-                                    <form method="POST" action="{{ route('adminweb.deptmgr.destroy', $m->id) }}"
-                                        onsubmit="return confirm('ลบรายการนี้?')">
+                                    <form method="POST" action="{{ route('adminweb.deptmgr.destroy', $m->id) }}">
                                         @csrf @method('DELETE')
-                                        <button class="btn btn-sm btn-outline-danger">ลบ</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger btn-delete">ลบ</button>
                                     </form>
                                 </td>
                             </tr>
@@ -95,6 +94,32 @@
                         callback();
                     });
             }
+        });
+
+        document.querySelectorAll('.btn-delete').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const form = this.closest('form');
+
+                if (!window.Swal) {
+                    form.submit();
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'ยืนยันการลบ?',
+                    text: 'ลบแล้วจะไม่สามารถกู้คืนได้',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: 'ลบ',
+                    cancelButtonText: 'ยกเลิก'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        form.submit();
+                    }
+                });
+            });
         });
     </script>
 @endpush

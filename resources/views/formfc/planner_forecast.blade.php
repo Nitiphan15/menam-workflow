@@ -245,6 +245,8 @@
                                 @foreach ($rows as $r)
                                     @php
                                         $meta = [
+                                            'fg_partnumber' => $r['fg_partnumber'] ?? '',
+                                            'fg_description' => $r['fg_description'] ?? '',
                                             'rm_partnumber' => $r['rm_partnumber'] ?? '',
                                             'rm_description' => $r['rm_description'] ?? '',
                                             'avg6' => (float) ($r['avg6'] ?? 0),

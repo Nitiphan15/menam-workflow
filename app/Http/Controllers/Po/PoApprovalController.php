@@ -214,7 +214,7 @@ class PoApprovalController extends Controller
 
         $stepBeforeApprove = (int) ($po->workflow?->current_step_no ?? 0);
 
-        WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'));
+        WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
 
         $wf = WfForm::query()->find($po->workflow_id);
         $po->status_code = $this->resolveStatusFromWorkflow($wf);
@@ -240,7 +240,7 @@ class PoApprovalController extends Controller
         $po = PoHeader::query()->findOrFail($id);
         abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
-        WorkflowEngine::reject((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'));
+        WorkflowEngine::reject((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
 
         $po->status_code = 'REJECTED';
         $po->updated_at = now();
@@ -260,7 +260,7 @@ class PoApprovalController extends Controller
         $po = PoHeader::query()->findOrFail($id);
         abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
-        WorkflowEngine::void((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'));
+        WorkflowEngine::void((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
 
         $po->status_code = 'CANCELLED';
         $po->updated_at = now();

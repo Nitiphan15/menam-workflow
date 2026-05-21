@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 use App\Http\Controllers\Controller;
-use App\Models\Users\DeptRole;
 use App\Support\SqlServerDb;
 
 class RoleAdminController extends Controller
@@ -15,7 +14,14 @@ class RoleAdminController extends Controller
     {
 
         $q = trim((string)$r->query('q', ''));
-        $roles  = DeptRole::orderBy('code')->get();
+        $roles = SqlServerDb::table('dept_roles')
+            ->when($q, fn($w) => $w->where(function ($x) use ($q) {
+                $x->where('code', 'like', "%$q%")
+                    ->orWhere('name', 'like', "%$q%");
+            }))
+            ->orderBy('code')
+            ->paginate(25)
+            ->withQueryString();
         $row    = [];
         return view('adminweb.roles.create', compact('roles', 'row', 'q'));
     }
@@ -26,7 +32,7 @@ class RoleAdminController extends Controller
             'code' => 'required|string|max:50|unique:sqlsrv_menam.dept_roles,code',
             'name' => 'required|string|max:100',
         ]);
-        DeptRole::create($data);
+        SqlServerDb::table('dept_roles')->insert($data);
         return back()->with('ok', 'เพิ่มตำแหน่งแล้ว');
     }
 
@@ -34,7 +40,14 @@ class RoleAdminController extends Controller
     {
 
         $q = trim((string)$r->query('q', ''));
-        $roles = DeptRole::orderBy('code')->get();
+        $roles = SqlServerDb::table('dept_roles')
+            ->when($q, fn($w) => $w->where(function ($x) use ($q) {
+                $x->where('code', 'like', "%$q%")
+                    ->orWhere('name', 'like', "%$q%");
+            }))
+            ->orderBy('code')
+            ->paginate(25)
+            ->withQueryString();
         $row = SqlServerDb::table('dept_roles')->where('id', $id)->first();
         return view('adminweb.roles.create', compact('roles', 'row', 'q'));
     }
@@ -66,5 +79,12 @@ class RoleAdminController extends Controller
         return redirect()
             ->route('adminweb.roles.create')
             ->with('ok', 'อัปเดตแล้ว');
+    }
+
+    public function destroy($id)
+    {
+        SqlServerDb::table('dept_roles')->where('id', $id)->delete();
+
+        return back()->with('ok', 'ลบแล้ว');
     }
 }

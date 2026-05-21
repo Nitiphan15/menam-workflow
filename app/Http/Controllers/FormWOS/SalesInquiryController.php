@@ -28,6 +28,17 @@ class SalesInquiryController extends Controller
         528615586 => 'คุณวรเดชา วัธนกุล',
     ];
 
+    private array $targetMonth = [
+        1506 => 60,
+        1507 => 240,
+        1431 => 68,
+        1433 => 85,
+        1434 => 205,
+        1435 => 101,
+        1436 => 1700000,
+        528615586 => 141,
+    ];
+
     private array $salesCodeToRequesterId = [
         'export sales 01' => 1506,
         'export sales 02' => 1507,
@@ -55,7 +66,7 @@ class SalesInquiryController extends Controller
         'D1' => 'D1 - คุณดิลก + คุณขวัญเรือน',
         'D2' => 'D2 - คุณปรียาพรรณ + คุณนิตยา',
         'D3' => 'D3 - คุณภควดี + คุณธนัชชา',
-        'D5' => 'D5 - คุณธัธลิญา + คุณกัณญิกา',
+        'D5' => 'D5 - คุณธัธลิญา + คุณเฌอร์ลิญา',
         'D6' => 'D6 - คุณสุรศักดิ์ + คุณคณัญญ์นิชา',
         'D7' => 'D7 - คุณศิรินภา + คุณมนพัทธ์',
         'D8' => 'D8 - คุณสาธิต + คุณสุธาสินี',
@@ -64,6 +75,28 @@ class SalesInquiryController extends Controller
 
     private array $groupOrder = ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D9', 'TOTAL', 'D8'];
 
+    private array $preferredTypeOrder = [
+        'CUT WIRE (CG)',
+        'MM BAR (CG)',
+        'MM BAR',
+        'Profile bar',
+        'Profile wire',
+        'MIG',
+        'WIRE',
+        'CUT WIRE',
+        'TIG',
+        'STD BAR',
+        'Steel bar',
+        'Steel wire',
+        'สินค้าจ้างผลิต',
+        'FG GRATING',
+    ];
+
+    private function weightedQtyExpr(string $itemAlias): string
+    {
+        return "{$itemAlias}.qty * CASE WHEN p.ref_unit = '03' THEN p.ref_unit_qty ELSE 1 END";
+    }
+
     public function index(Request $request)
     {
         $from = $request->query('from', '2026-01-01');
@@ -71,13 +104,85 @@ class SalesInquiryController extends Controller
 
         $monthBlocks = $this->getSummaryData($from, $to);
 
-        return view('formwos.sales_weekly', [
+        return view('formwos.sales_weekly.index', [
             'monthBlocks' => $monthBlocks,
             'filters' => [
                 'from' => $from,
                 'to' => $to,
             ],
         ]);
+    }
+
+    public function dashboard(Request $request)
+    {
+        $year = (int)$request->query('year', Carbon::now()->year);
+        $month = (int)$request->query('month', Carbon::now()->month);
+        $groupCodes = $this->sanitizeDashboardDivisions($request->query('division', ['D1']));
+        $groupCode = $groupCodes[0];
+
+        if ($year < 2000 || $year > 2100) {
+            $year = Carbon::now()->year;
+        }
+
+        if ($month < 1 || $month > 12) {
+            $month = Carbon::now()->month;
+        }
+
+        $dashboard = $this->buildDivisionDashboardData($groupCode, $year, $month);
+        $comparisonRows = $this->buildDivisionComparisonRows($groupCodes, $year, $month);
+        $dashboard['selected_division_codes'] = $groupCodes;
+        $dashboard['comparison_rows'] = $comparisonRows;
+        $dashboard['division_trend_datasets'] = $this->buildDivisionTrendDatasets($comparisonRows, $dashboard['unit'], $year);
+        $dashboard['trend_note'] = $this->buildDivisionTrendNote($comparisonRows, $dashboard['unit']);
+
+        return view('formwos.sales_weekly.dashboard', [
+            'dashboard' => $dashboard,
+            'divisionOptions' => $this->groupLabelMap,
+            'filters' => [
+                'division' => $groupCodes,
+                'year' => $year,
+                'month' => $month,
+            ],
+        ]);
+    }
+
+    public function dashboardPdf(Request $request)
+    {
+        $year = (int)$request->query('year', Carbon::now()->year);
+        $month = (int)$request->query('month', Carbon::now()->month);
+        $groupCodes = $this->sanitizeDashboardDivisions($request->query('division', ['D1']));
+        $groupCode = $groupCodes[0];
+
+        if ($year < 2000 || $year > 2100) {
+            $year = Carbon::now()->year;
+        }
+
+        if ($month < 1 || $month > 12) {
+            $month = Carbon::now()->month;
+        }
+
+        $dashboard = $this->buildDivisionDashboardData($groupCode, $year, $month);
+        $comparisonRows = $this->buildDivisionComparisonRows($groupCodes, $year, $month);
+        $dashboard['selected_division_codes'] = $groupCodes;
+        $dashboard['comparison_rows'] = $comparisonRows;
+        $dashboard['division_trend_datasets'] = $this->buildDivisionTrendDatasets($comparisonRows, $dashboard['unit'], $year);
+        $dashboard['trend_note'] = $this->buildDivisionTrendNote($comparisonRows, $dashboard['unit']);
+        $dashboard['all_type_drivers'] = $this->getDashboardTypeDrivers($groupCode, $year, $month, null);
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.wos-sales-weekly-dashboard', [
+            'dashboard' => $dashboard,
+            'divisionOptions' => $this->groupLabelMap,
+            'filters' => [
+                'division' => $groupCodes,
+                'year' => $year,
+                'month' => $month,
+            ],
+            'generatedAt' => Carbon::now('Asia/Bangkok'),
+        ])->setPaper('a4', 'landscape');
+
+        $fileName = 'WOS-Delivery-Volume-Dashboard-' . $groupCode . '-' . sprintf('%04d-%02d', $year, $month) . '.pdf';
+
+        return $pdf->download($fileName);
     }
 
     public function detail(Request $request, $salesId)
@@ -92,6 +197,7 @@ class SalesInquiryController extends Controller
             abort(404);
         }
 
+        $qtyExpr = $this->weightedQtyExpr('oi');
         $sql = "
         WITH sale1 AS (
             SELECT
@@ -109,7 +215,7 @@ class SalesInquiryController extends Controller
                 cus.name,
                 oi.description,
                 oi.unit AS unit2,
-                oi.qty * CASE WHEN p.ref_unit = '03' THEN p.ref_unit_qty ELSE 1 END AS qty,
+                $qtyExpr AS qty,
                 oi.sellprice,
                 oi.sellprice * oi.qty AS bath,
                 oi.reqdate,
@@ -185,7 +291,7 @@ class SalesInquiryController extends Controller
 
         $isD8 = (($this->salesToGroupMap[$requesterId] ?? '') === 'D8');
 
-        return view('formwos.sales_weekly_detail', [
+        return view('formwos.sales_weekly.detail', [
             'salesId' => $requesterId,
             'divisionName' => $divisionName,
             'isD8' => $isD8,
@@ -306,13 +412,14 @@ class SalesInquiryController extends Controller
     {
         $in = implode(',', array_fill(0, count($this->requesterIds), '?'));
         $metricExpr = "CASE WHEN requester_id = 1436 THEN bath ELSE qty END";
+        $qtyExpr = $this->weightedQtyExpr('oi');
 
         $sql = "
         WITH sale1 AS (
             SELECT
                 oe.requester_id,
                 oi.transdate,
-                oi.qty * CASE WHEN p.ref_unit = '03' THEN p.ref_unit_qty ELSE 1 END AS qty,
+                $qtyExpr AS qty,
                 oi.sellprice * oi.qty AS bath,
                 EXTRACT(MONTH FROM oi.transdate) AS month_number,
                 TO_CHAR(oi.transdate, 'Month') AS month_name,
@@ -375,6 +482,9 @@ class SalesInquiryController extends Controller
                     'group_code'   => $g,
                     'group_name'   => $r->group_name,
                     'requester_ids' => [],
+                    'target_month' => $g === 'D8'
+                        ? ((float)($this->targetMonth[(int)$r->requester_id] ?? 0) / 1000.0)
+                        : (float)($this->targetMonth[(int)$r->requester_id] ?? 0),
                     'is_baht'      => ($g === 'D8'),
                     'qtyw1' => 0.0,
                     'qtyw2' => 0.0,
@@ -404,6 +514,7 @@ class SalesInquiryController extends Controller
                 'group_code'   => 'TOTAL',
                 'group_name'   => 'TOTAL',
                 'requester_ids' => [],
+                'target_month' => 900.0,
                 'is_baht'      => false,
                 'qtyw1' => 0.0,
                 'qtyw2' => 0.0,
@@ -441,9 +552,603 @@ class SalesInquiryController extends Controller
         return $monthBlocks;
     }
 
+    private function buildDivisionDashboardData(string $groupCode, int $year, int $month): array
+    {
+        $salesIds = $this->getRequesterIdsByGroupCode($groupCode);
+        $isD8 = $groupCode === 'D8';
+        $target = $this->targetForGroup($groupCode);
+        $range = $this->monthRange($year, $month);
+        $previousRange = $this->monthRange($year - 1, $month);
+
+        $current = $this->getDivisionMonthStats($salesIds, $year, $month, $isD8);
+        $previous = $this->getDivisionMonthStats($salesIds, $year - 1, $month, $isD8);
+        $ytdCurrent = $this->getDivisionPeriodStats($salesIds, Carbon::create($year, 1, 1)->toDateString(), $range['to'], $isD8);
+        $ytdPrevious = $this->getDivisionPeriodStats($salesIds, Carbon::create($year - 1, 1, 1)->toDateString(), $previousRange['to'], $isD8);
+        $trendCurrent = $this->getDivisionYearTrend($salesIds, $year, $isD8);
+        $trendPrevious = $this->getDivisionYearTrend($salesIds, $year - 1, $isD8);
+        $customerMix = $this->getCustomerMix($salesIds, $range['from'], $range['to'], $previousRange['from'], $previousRange['to']);
+        $customerDrivers = $this->getTopChangeDrivers($salesIds, $range['from'], $range['to'], $previousRange['from'], $previousRange['to'], $isD8, 'customer');
+        $typeDrivers = $this->getDashboardTypeDrivers($groupCode, $year, $month, 8);
+
+        $change = $this->percentChange($current['total'], $previous['total']);
+        $working = $this->workingDayPace($year, $month, (float)$current['total']);
+        $targetPaceValue = null;
+        $paceGap = null;
+        $pacePercent = null;
+        if ($target > 0 && ($working['total_working_days'] ?? 0) > 0) {
+            $pacePercent = round(($working['elapsed_working_days'] / $working['total_working_days']) * 100, 2);
+            $targetPaceValue = round($target * ($working['elapsed_working_days'] / $working['total_working_days']), 2);
+            $paceGap = round((float)$current['total'] - $targetPaceValue, 2);
+        }
+        $requesterId = $salesIds[0] ?? 0;
+        $monthLabels = [];
+        for ($i = 1; $i <= 12; $i++) {
+            $monthLabels[] = $this->thaiShortMonths()[$i] ?? (string)$i;
+        }
+        $monthDetailUrls = $this->buildWeeklyMonthDetailUrls($requesterId, $year);
+
+        return [
+            'division_code' => $groupCode,
+            'division_name' => $this->groupLabelMap[$groupCode] ?? $groupCode,
+            'unit' => $isD8 ? 'Baht' : 'Ton',
+            'current' => $current,
+            'previous' => $previous,
+            'ytd_current' => $ytdCurrent,
+            'ytd_previous' => $ytdPrevious,
+            'ytd_change_percent' => $this->percentChange($ytdCurrent['total'], $ytdPrevious['total']),
+            'working_day_pace' => $working,
+            'target' => $target,
+            'target_achievement_percent' => $target > 0 ? round(((float)$current['total'] / $target) * 100, 2) : null,
+            'target_pace_percent' => $pacePercent,
+            'target_pace_value' => $targetPaceValue,
+            'target_pace_gap' => $paceGap,
+            'customer_mix' => $customerMix,
+            'customer_drivers' => $customerDrivers,
+            'type_drivers' => $typeDrivers,
+            'detail_url' => $requesterId > 0 ? route('wos.sales_weekly.detail', [
+                'salesId' => $requesterId,
+                'from' => $range['from'],
+                'to' => $range['to'],
+                'month' => $month,
+            ]) : null,
+            'change_percent' => $change,
+            'month_labels' => $monthLabels,
+            'month_detail_urls' => $monthDetailUrls,
+            'current_year_trend' => $trendCurrent,
+            'previous_year_trend' => $trendPrevious,
+            'insight' => $this->buildDashboardInsight('Ton', $change, $customerDrivers, $typeDrivers, $customerMix),
+            'kpis' => [
+                'selected_label' => $this->thaiMonthYearLabel($year, $month),
+                'previous_label' => $this->thaiMonthYearLabel($year - 1, $month),
+                'so_change_percent' => $this->percentChange($current['so_count'], $previous['so_count']),
+                'customer_change_percent' => $this->percentChange($current['customer_count'], $previous['customer_count']),
+            ],
+        ];
+    }
+
+    private function sanitizeDashboardDivisions(mixed $raw): array
+    {
+        $values = is_array($raw) ? $raw : [$raw];
+        $valid = [];
+
+        foreach ($values as $value) {
+            $code = strtoupper(trim((string)$value));
+            if ($code !== '' && array_key_exists($code, $this->groupLabelMap) && !in_array($code, $valid, true)) {
+                $valid[] = $code;
+            }
+        }
+
+        return $valid ?: ['D1'];
+    }
+
+    private function buildDivisionComparisonRows(array $groupCodes, int $year, int $month): array
+    {
+        $rows = [];
+
+        foreach ($groupCodes as $groupCode) {
+            $salesIds = $this->getRequesterIdsByGroupCode($groupCode);
+            $isD8 = $groupCode === 'D8';
+            $range = $this->monthRange($year, $month);
+            $previousRange = $this->monthRange($year - 1, $month);
+            $current = $this->getDivisionMonthStats($salesIds, $year, $month, $isD8);
+            $previous = $this->getDivisionMonthStats($salesIds, $year - 1, $month, $isD8);
+            $ytdCurrent = $this->getDivisionPeriodStats($salesIds, Carbon::create($year, 1, 1)->toDateString(), $range['to'], $isD8);
+            $ytdPrevious = $this->getDivisionPeriodStats($salesIds, Carbon::create($year - 1, 1, 1)->toDateString(), $previousRange['to'], $isD8);
+            $trendCurrent = $this->getDivisionYearTrend($salesIds, $year, $isD8);
+            $trendPrevious = $this->getDivisionYearTrend($salesIds, $year - 1, $isD8);
+            $requesterId = $salesIds[0] ?? 0;
+
+            $rows[] = [
+                'division_code' => $groupCode,
+                'division_name' => $this->groupLabelMap[$groupCode] ?? $groupCode,
+                'unit' => $isD8 ? 'Baht' : 'Ton',
+                'current_total' => (float)($current['total'] ?? 0),
+                'previous_total' => (float)($previous['total'] ?? 0),
+                'change_percent' => $this->percentChange((float)($current['total'] ?? 0), (float)($previous['total'] ?? 0)),
+                'ytd_current_total' => (float)($ytdCurrent['total'] ?? 0),
+                'ytd_previous_total' => (float)($ytdPrevious['total'] ?? 0),
+                'ytd_change_percent' => $this->percentChange((float)($ytdCurrent['total'] ?? 0), (float)($ytdPrevious['total'] ?? 0)),
+                'so_count' => (int)($current['so_count'] ?? 0),
+                'customer_count' => (int)($current['customer_count'] ?? 0),
+                'current_year_trend' => $trendCurrent,
+                'previous_year_trend' => $trendPrevious,
+                'current_month_detail_urls' => $this->buildWeeklyMonthDetailUrls($requesterId, $year),
+                'previous_month_detail_urls' => $this->buildWeeklyMonthDetailUrls($requesterId, $year - 1),
+                'detail_url' => $requesterId > 0 ? route('wos.sales_weekly.detail', [
+                    'salesId' => $requesterId,
+                    'from' => $range['from'],
+                    'to' => $range['to'],
+                    'month' => $month,
+                ]) : null,
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function buildDivisionTrendDatasets(array $comparisonRows, string $unit, int $year): array
+    {
+        $colors = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#4f46e5', '#64748b'];
+        $datasets = [];
+        $i = 0;
+
+        foreach ($comparisonRows as $row) {
+            if (($row['unit'] ?? $unit) !== $unit) {
+                continue;
+            }
+
+            $color = $colors[$i % count($colors)];
+            $code = $row['division_code'] ?? '';
+            $datasets[] = [
+                'label' => trim($code . ' ' . $year),
+                'data' => $row['current_year_trend'] ?? [],
+                'borderColor' => $color,
+                'backgroundColor' => 'transparent',
+                'tension' => .3,
+                'fill' => false,
+                'spanGaps' => false,
+                'pointRadius' => 3,
+                'detailUrls' => $row['current_month_detail_urls'] ?? [],
+            ];
+            $datasets[] = [
+                'label' => trim($code . ' ' . ($year - 1)),
+                'data' => $row['previous_year_trend'] ?? [],
+                'borderColor' => $color,
+                'backgroundColor' => 'transparent',
+                'borderDash' => [6, 4],
+                'tension' => .3,
+                'fill' => false,
+                'spanGaps' => false,
+                'pointRadius' => 3,
+                'detailUrls' => $row['previous_month_detail_urls'] ?? [],
+            ];
+            $i++;
+        }
+
+        return $datasets;
+    }
+
+    private function buildDivisionTrendNote(array $comparisonRows, string $unit): ?string
+    {
+        $excluded = array_values(array_filter($comparisonRows, fn($row) => ($row['unit'] ?? $unit) !== $unit));
+
+        if (empty($excluded)) {
+            return null;
+        }
+
+        $codes = implode(', ', array_map(fn($row) => (string)($row['division_code'] ?? ''), $excluded));
+
+        return 'กราฟเส้นแสดงเฉพาะ division ที่เป็นหน่วย ' . $unit . ' และไม่รวม ' . $codes . ' เพราะเป็นคนละหน่วย';
+    }
+
+    private function getDivisionMonthStats(array $salesIds, int $year, int $month, bool $isD8): array
+    {
+        $from = Carbon::create($year, $month, 1)->startOfMonth()->toDateString();
+        $to = Carbon::create($year, $month, 1)->endOfMonth()->toDateString();
+        $in = implode(',', array_fill(0, count($salesIds), '?'));
+        $metricExpr = $isD8 ? 'oi.sellprice * oi.qty' : $this->weightedQtyExpr('oi');
+        $divisor = $isD8 ? 1 : 1000;
+
+        $sql = "
+            SELECT
+                ROUND(COALESCE(SUM($metricExpr), 0) / $divisor, 2) AS total,
+                COUNT(DISTINCT oe.ordnumber) AS so_count,
+                COUNT(DISTINCT cus.id) AS customer_count,
+                ROUND(COALESCE(SUM(CASE WHEN CEIL(EXTRACT(DAY FROM oi.transdate) / 7.0) = 1 THEN $metricExpr END), 0) / $divisor, 2) AS w1,
+                ROUND(COALESCE(SUM(CASE WHEN CEIL(EXTRACT(DAY FROM oi.transdate) / 7.0) = 2 THEN $metricExpr END), 0) / $divisor, 2) AS w2,
+                ROUND(COALESCE(SUM(CASE WHEN CEIL(EXTRACT(DAY FROM oi.transdate) / 7.0) = 3 THEN $metricExpr END), 0) / $divisor, 2) AS w3,
+                ROUND(COALESCE(SUM(CASE WHEN CEIL(EXTRACT(DAY FROM oi.transdate) / 7.0) = 4 THEN $metricExpr END), 0) / $divisor, 2) AS w4,
+                ROUND(COALESCE(SUM(CASE WHEN CEIL(EXTRACT(DAY FROM oi.transdate) / 7.0) = 5 THEN $metricExpr END), 0) / $divisor, 2) AS w5
+            FROM orderitems oi
+            JOIN oe ON oi.trans_id = oe.id
+            JOIN customer cus ON oe.customer_id = cus.id
+            JOIN parts p ON oi.parts_id = p.id
+            JOIN partstype pt ON p.partstype_id = pt.id
+            WHERE pt.id <> 56
+              AND oe.ordnumber IS NOT NULL
+              AND oe.ordnumber LIKE 'SO%'
+              AND oe.requester_id IN ($in)
+              AND oi.transdate >= ?
+              AND oi.transdate <= ?
+              AND oi.unit <> ' '
+              AND p.partnumber LIKE 'F%'
+              AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+        ";
+
+        $row = DB::connection($this->conn)->selectOne($sql, array_merge($salesIds, [$from, $to]));
+
+        return [
+            'total' => (float)($row->total ?? 0),
+            'so_count' => (int)($row->so_count ?? 0),
+            'customer_count' => (int)($row->customer_count ?? 0),
+            'weeks' => [
+                (float)($row->w1 ?? 0),
+                (float)($row->w2 ?? 0),
+                (float)($row->w3 ?? 0),
+                (float)($row->w4 ?? 0),
+                (float)($row->w5 ?? 0),
+            ],
+        ];
+    }
+
+    private function getDivisionPeriodStats(array $salesIds, string $from, string $to, bool $isD8): array
+    {
+        $in = implode(',', array_fill(0, count($salesIds), '?'));
+        $metricExpr = $isD8 ? 'oi.sellprice * oi.qty' : $this->weightedQtyExpr('oi');
+        $divisor = $isD8 ? 1 : 1000;
+
+        $sql = "
+            SELECT
+                ROUND(COALESCE(SUM($metricExpr), 0) / $divisor, 2) AS total,
+                COUNT(DISTINCT oe.ordnumber) AS so_count,
+                COUNT(DISTINCT cus.id) AS customer_count
+            FROM orderitems oi
+            JOIN oe ON oi.trans_id = oe.id
+            JOIN customer cus ON oe.customer_id = cus.id
+            JOIN parts p ON oi.parts_id = p.id
+            JOIN partstype pt ON p.partstype_id = pt.id
+            WHERE pt.id <> 56
+              AND oe.ordnumber IS NOT NULL
+              AND oe.ordnumber LIKE 'SO%'
+              AND oe.requester_id IN ($in)
+              AND oi.transdate >= ?
+              AND oi.transdate <= ?
+              AND oi.unit <> ' '
+              AND p.partnumber LIKE 'F%'
+              AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+        ";
+
+        $row = DB::connection($this->conn)->selectOne($sql, array_merge($salesIds, [$from, $to]));
+
+        return [
+            'total' => (float)($row->total ?? 0),
+            'so_count' => (int)($row->so_count ?? 0),
+            'customer_count' => (int)($row->customer_count ?? 0),
+        ];
+    }
+
+    private function getCustomerMix(array $salesIds, string $from, string $to, string $previousFrom, string $previousTo): array
+    {
+        $current = $this->getCustomerSet($salesIds, $from, $to);
+        $previous = $this->getCustomerSet($salesIds, $previousFrom, $previousTo);
+
+        return [
+            'new' => count(array_diff($current, $previous)),
+            'retained' => count(array_intersect($current, $previous)),
+            'lost' => count(array_diff($previous, $current)),
+            'current_total' => count($current),
+            'previous_total' => count($previous),
+        ];
+    }
+
+    private function getCustomerSet(array $salesIds, string $from, string $to): array
+    {
+        $in = implode(',', array_fill(0, count($salesIds), '?'));
+        $sql = "
+            SELECT DISTINCT cus.id
+            FROM orderitems oi
+            JOIN oe ON oi.trans_id = oe.id
+            JOIN customer cus ON oe.customer_id = cus.id
+            JOIN parts p ON oi.parts_id = p.id
+            JOIN partstype pt ON p.partstype_id = pt.id
+            WHERE pt.id <> 56
+              AND oe.ordnumber IS NOT NULL
+              AND oe.ordnumber LIKE 'SO%'
+              AND oe.requester_id IN ($in)
+              AND oi.transdate >= ?
+              AND oi.transdate <= ?
+              AND oi.unit <> ' '
+              AND p.partnumber LIKE 'F%'
+              AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+        ";
+
+        return array_map(fn($row) => (string)$row->id, DB::connection($this->conn)->select($sql, array_merge($salesIds, [$from, $to])));
+    }
+
+    private function getDashboardTypeDrivers(string $groupCode, int $year, int $month, ?int $limit = 8): array
+    {
+        $salesIds = $this->getRequesterIdsByGroupCode($groupCode);
+        $isD8 = $groupCode === 'D8';
+        $range = $this->monthRange($year, $month);
+        $previousRange = $this->monthRange($year - 1, $month);
+
+        $rows = $this->getTopChangeDrivers($salesIds, $range['from'], $range['to'], $previousRange['from'], $previousRange['to'], $isD8, 'type', $limit);
+
+        usort($rows, function ($a, $b) {
+            $oa = array_search((string) ($a['label'] ?? ''), $this->preferredTypeOrder, true);
+            $ob = array_search((string) ($b['label'] ?? ''), $this->preferredTypeOrder, true);
+            $oa = $oa === false ? 999 : $oa;
+            $ob = $ob === false ? 999 : $ob;
+
+            return $oa === $ob
+                ? strcmp((string) ($a['label'] ?? ''), (string) ($b['label'] ?? ''))
+                : $oa <=> $ob;
+        });
+
+        return $rows;
+    }
+
+    private function getTopChangeDrivers(array $salesIds, string $from, string $to, string $previousFrom, string $previousTo, bool $isD8, string $mode, ?int $limit = 8): array
+    {
+        $current = $this->getDriverTotals($salesIds, $from, $to, $isD8, $mode);
+        $previous = $this->getDriverTotals($salesIds, $previousFrom, $previousTo, $isD8, $mode);
+        $keys = array_unique(array_merge(array_keys($current), array_keys($previous)));
+        $rows = [];
+
+        foreach ($keys as $key) {
+            $currentValue = (float)($current[$key] ?? 0);
+            $previousValue = (float)($previous[$key] ?? 0);
+            $rows[] = [
+                'label' => $key,
+                'current' => $currentValue,
+                'previous' => $previousValue,
+                'diff' => round($currentValue - $previousValue, 2),
+                'change_percent' => $this->percentChange($currentValue, $previousValue),
+            ];
+        }
+
+        usort($rows, fn($a, $b) => abs($b['diff']) <=> abs($a['diff']));
+
+        return $limit === null ? $rows : array_slice($rows, 0, $limit);
+    }
+
+    private function getDriverTotals(array $salesIds, string $from, string $to, bool $isD8, string $mode): array
+    {
+        $in = implode(',', array_fill(0, count($salesIds), '?'));
+        $metricExpr = $isD8 ? 'oi.sellprice * oi.qty' : $this->weightedQtyExpr('oi');
+        $divisor = $isD8 ? 1 : 1000;
+        $labelExpr = $mode === 'type'
+            ? "COALESCE(NULLIF(TRIM(pt.description), ''), 'UNKNOWN')"
+            : "COALESCE(NULLIF(TRIM(cus.name), ''), cus.customernumber, 'UNKNOWN')";
+
+        $sql = "
+            SELECT
+                $labelExpr AS label,
+                ROUND(COALESCE(SUM($metricExpr), 0) / $divisor, 2) AS total
+            FROM orderitems oi
+            JOIN oe ON oi.trans_id = oe.id
+            JOIN customer cus ON oe.customer_id = cus.id
+            JOIN parts p ON oi.parts_id = p.id
+            JOIN partstype pt ON p.partstype_id = pt.id
+            WHERE pt.id <> 56
+              AND oe.ordnumber IS NOT NULL
+              AND oe.ordnumber LIKE 'SO%'
+              AND oe.requester_id IN ($in)
+              AND oi.transdate >= ?
+              AND oi.transdate <= ?
+              AND oi.unit <> ' '
+              AND p.partnumber LIKE 'F%'
+              AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+            GROUP BY $labelExpr
+        ";
+
+        $rows = DB::connection($this->conn)->select($sql, array_merge($salesIds, [$from, $to]));
+        $totals = [];
+
+        foreach ($rows as $row) {
+            $totals[(string)$row->label] = (float)$row->total;
+        }
+
+        return $totals;
+    }
+
+    private function monthRange(int $year, int $month): array
+    {
+        $date = Carbon::create($year, $month, 1);
+
+        return [
+            'from' => $date->copy()->startOfMonth()->toDateString(),
+            'to' => $date->copy()->endOfMonth()->toDateString(),
+        ];
+    }
+
+    private function workingDayPace(int $year, int $month, float $total): array
+    {
+        $start = Carbon::create($year, $month, 1)->startOfMonth();
+        $end = $start->copy()->endOfMonth();
+        $today = Carbon::today('Asia/Bangkok');
+        $elapsedEnd = ($today->year === $year && $today->month === $month) ? ($today->lt($end) ? $today : $end) : $end;
+        $elapsed = $this->countWorkingDays($start, $elapsedEnd);
+        $totalWorking = $this->countWorkingDays($start, $end);
+        $average = $elapsed > 0 ? $total / $elapsed : 0.0;
+
+        return [
+            'elapsed_working_days' => $elapsed,
+            'total_working_days' => $totalWorking,
+            'average_per_day' => round($average, 2),
+            'projected_total' => round($average * $totalWorking, 2),
+        ];
+    }
+
+    private function countWorkingDays(Carbon $start, Carbon $end): int
+    {
+        $days = 0;
+        for ($d = $start->copy(); $d->lte($end); $d->addDay()) {
+            if (!$d->isWeekend()) {
+                $days++;
+            }
+        }
+
+        return $days;
+    }
+
+    private function getDivisionYearTrend(array $salesIds, int $year, bool $isD8): array
+    {
+        $from = Carbon::create($year, 1, 1)->startOfYear()->toDateString();
+        $to = Carbon::create($year, 12, 1)->endOfYear()->toDateString();
+        $in = implode(',', array_fill(0, count($salesIds), '?'));
+        $metricExpr = $isD8 ? 'oi.sellprice * oi.qty' : $this->weightedQtyExpr('oi');
+        $divisor = $isD8 ? 1 : 1000;
+
+        $sql = "
+            SELECT
+                EXTRACT(MONTH FROM oi.transdate) AS month_number,
+                ROUND(COALESCE(SUM($metricExpr), 0) / $divisor, 2) AS total
+            FROM orderitems oi
+            JOIN oe ON oi.trans_id = oe.id
+            JOIN customer cus ON oe.customer_id = cus.id
+            JOIN parts p ON oi.parts_id = p.id
+            JOIN partstype pt ON p.partstype_id = pt.id
+            WHERE pt.id <> 56
+              AND oe.ordnumber IS NOT NULL
+              AND oe.ordnumber LIKE 'SO%'
+              AND oe.requester_id IN ($in)
+              AND oi.transdate >= ?
+              AND oi.transdate <= ?
+              AND oi.unit <> ' '
+              AND p.partnumber LIKE 'F%'
+              AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+            GROUP BY month_number
+        ";
+
+        $rows = DB::connection($this->conn)->select($sql, array_merge($salesIds, [$from, $to]));
+        $trend = array_fill(1, 12, null);
+
+        foreach ($rows as $row) {
+            $trend[(int)$row->month_number] = (float)$row->total;
+        }
+
+        return array_values($trend);
+    }
+
+    private function buildWeeklyMonthDetailUrls(int $requesterId, int $year): array
+    {
+        $urls = array_fill(0, 12, null);
+        if ($requesterId <= 0) {
+            return $urls;
+        }
+
+        for ($month = 1; $month <= 12; $month++) {
+            $range = $this->monthRange($year, $month);
+            $urls[$month - 1] = route('wos.sales_weekly.detail', [
+                'salesId' => $requesterId,
+                'from' => $range['from'],
+                'to' => $range['to'],
+                'month' => $month,
+            ]);
+        }
+
+        return $urls;
+    }
+
+    private function buildDashboardInsight(string $unit, ?float $changePercent, array $customerDrivers, array $typeDrivers, array $customerMix): string
+    {
+        if ($changePercent === null && empty($customerDrivers) && empty($typeDrivers)) {
+            return 'ข้อมูลไม่เพียงพอสำหรับสรุป Insight';
+        }
+
+        $direction = ((float)$changePercent) < 0 ? 'ลดลง' : 'เพิ่มขึ้น';
+        $changeText = $changePercent === null ? 'เป็นรายการใหม่เมื่อเทียบกับปีก่อน' : $direction . ' ' . number_format(abs((float)$changePercent), 2) . '%';
+        $mainDriver = collect($typeDrivers)->first(fn($row) => (float)($row['diff'] ?? 0) !== 0.0)
+            ?: collect($customerDrivers)->first(fn($row) => (float)($row['diff'] ?? 0) !== 0.0);
+        $driverText = $mainDriver
+            ? ' สาเหตุหลักมาจาก ' . ($mainDriver['label'] ?? '-') . ' ' . (((float)($mainDriver['diff'] ?? 0) < 0) ? 'ลดลงมากที่สุด' : 'เพิ่มขึ้นมากที่สุด') . '.'
+            : '';
+        $newCustomerCount = (int)($customerMix['new'] ?? 0);
+        $newText = $newCustomerCount > 0 ? ' มีลูกค้าใหม่ ' . number_format($newCustomerCount) . ' ราย.' : '';
+        $newText = '';
+        return 'ยอด ' . $unit . ' เดือนนี้' . $changeText . ' เมื่อเทียบกับเดือนเดียวกันของปีก่อน.' . $driverText . $newText;
+    }
+
+    private function thaiShortMonths(): array
+    {
+        return [
+            1 => 'ม.ค.',
+            2 => 'ก.พ.',
+            3 => 'มี.ค.',
+            4 => 'เม.ย.',
+            5 => 'พ.ค.',
+            6 => 'มิ.ย.',
+            7 => 'ก.ค.',
+            8 => 'ส.ค.',
+            9 => 'ก.ย.',
+            10 => 'ต.ค.',
+            11 => 'พ.ย.',
+            12 => 'ธ.ค.',
+        ];
+    }
+
+    private function thaiMonthYearLabel(int $year, int $month): string
+    {
+        $months = [
+            1 => 'มกราคม',
+            2 => 'กุมภาพันธ์',
+            3 => 'มีนาคม',
+            4 => 'เมษายน',
+            5 => 'พฤษภาคม',
+            6 => 'มิถุนายน',
+            7 => 'กรกฎาคม',
+            8 => 'สิงหาคม',
+            9 => 'กันยายน',
+            10 => 'ตุลาคม',
+            11 => 'พฤศจิกายน',
+            12 => 'ธันวาคม',
+        ];
+
+        return ($months[$month] ?? (string)$month) . ' ' . $year;
+    }
+
+    private function getRequesterIdsByGroupCode(string $groupCode): array
+    {
+        $ids = [];
+
+        foreach ($this->salesToGroupMap as $requesterId => $code) {
+            if ($code === $groupCode) {
+                $ids[] = (int)$requesterId;
+            }
+        }
+
+        return $ids;
+    }
+
+    private function targetForGroup(string $groupCode): float
+    {
+        if ($groupCode === 'TOTAL') {
+            return 900.0;
+        }
+
+        foreach ($this->salesToGroupMap as $requesterId => $code) {
+            if ($code === $groupCode) {
+                return (float)($this->targetMonth[$requesterId] ?? 0);
+            }
+        }
+
+        return 0.0;
+    }
+
+    private function percentChange(float $current, float $previous): ?float
+    {
+        if ($previous == 0.0) {
+            return $current == 0.0 ? 0.0 : null;
+        }
+
+        return round((($current - $previous) / abs($previous)) * 100, 2);
+    }
+
     private function getDetailRowsByMonth(string $from, string $to, int $month): array
     {
         $in = implode(',', array_fill(0, count($this->requesterIds), '?'));
+        $qtyExpr = $this->weightedQtyExpr('oi');
 
         $sql = "
         SELECT
@@ -456,7 +1161,7 @@ class SalesInquiryController extends Controller
             oi.description,
             pt.description AS partstype,
             oi.unit AS unit2,
-            oi.qty * CASE WHEN p.ref_unit = '03' THEN p.ref_unit_qty ELSE 1 END AS qty,
+            $qtyExpr AS qty,
             oi.sellprice,
             oi.sellprice * oi.qty AS bath,
             oi.reqdate,
@@ -516,7 +1221,7 @@ class SalesInquiryController extends Controller
         $changeCount = Cache::get($keyCount, 0);
         $lastChange  = Cache::get($keyTime);
 
-        return view('formwos.sales_weekly_status', [
+        return view('formwos.sales_weekly.status', [
             'from' => $from,
             'to' => $to,
             'currentHash' => $currentHash,
@@ -578,7 +1283,7 @@ class SalesInquiryController extends Controller
 
         $html = Cache::remember("sw:data:$from:$to", 20, function () use ($from, $to) {
             $monthBlocks = $this->getSummaryData($from, $to);
-            return view('formwos._sales_weekly_table', compact('monthBlocks', 'from', 'to'))->render();
+            return view('formwos.sales_weekly._table', compact('monthBlocks', 'from', 'to'))->render();
         });
         return response()->json(['html' => $html]);
     }

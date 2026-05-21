@@ -151,7 +151,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center text-muted">ไม่พบข้อมูล</td>
+                                <td colspan="8" class="text-center text-muted">ไม่พบข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -161,6 +161,7 @@
         </div>
     </div>
 @endsection
+@push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const deleteButtons = document.querySelectorAll('.btn-delete');
@@ -191,3 +192,4 @@
         });
     });
 </script>
+@endpush

@@ -17,7 +17,12 @@
             $isLoggedIn &&
             (($u->is_superadmin ?? 0) == 1 || (method_exists($u, 'hasRoleCode') && $u->hasRoleCode('DPA')));
 
-        $tableColspan = 17;
+        $canDpMail =
+            $isLoggedIn &&
+            (($u->is_superadmin ?? 0) == 1 ||
+                (method_exists($u, 'hasRoleCode') && $u->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
+
+        $tableColspan = 18;
     @endphp
 
     <div class="container-fluid">
@@ -42,12 +47,12 @@
                         Filters
                     </button>
 
-                    @can('DPEMAIL')
+                    @if ($canDpMail)
                         <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal"
                             data-bs-target="#sendPlanMailModal">
                             <i class="fas fa-paper-plane me-1"></i> ส่งเมลแจ้งแผน
                         </button>
-                    @endcan
+                    @endif
                 </div>
 
 
@@ -180,7 +185,7 @@
             <div class="table-responsive dp-table-wrap">
                 <table class="table table-bordered table-sm align-middle mb-0" id="inqTable">
                     <thead class="table-light">
-                        <tr>
+                        <tr class="dp-inquiry-header-row">
                             <th class="sticky-col sticky-1">#</th>
 
                             <th class="sticky-col sticky-2">วันที่ส่งสินค้า</th>
@@ -190,7 +195,7 @@
                             <th>เลข MFG</th>
                             <th class="text-end">จำนวน/KG</th>
                             <th class="text-end">Stock FG</th>
-                            <th class="text-end">ขายระบุเส้น</th>
+                            <th class="text-end">ขายระบุเส้น/ชิ้น</th>
                             <th>สถานที่ส่ง</th>
                             <th>เลข SO</th>
                             <th>เอกสารแนบ</th>
@@ -220,7 +225,8 @@
                             @foreach ($items as $r)
                                 @php
                                     $revNo = (int) ($r->revision_number ?? 0);
-                                    $revColor = $revColorMap[$revNo] ?? '#111827';
+                                    $revLookup = $revNo > 5 ? 5 : $revNo;
+                                    $revColor = $revColorMap[$revLookup] ?? ($revColorMap[5] ?? '#111827');
                                     $assignedQty = is_numeric($r->assigned_weight_sum ?? null)
                                         ? (float) $r->assigned_weight_sum
                                         : 0.0;
@@ -257,10 +263,12 @@
                                     $sellByLine = (int) ($r->sell_by_line ?? 0) ? 1 : 0;
                                     $lineQty = is_numeric($r->line_qty ?? null) ? (float) $r->line_qty : null;
                                     $qty = is_numeric($r->qty ?? null) ? (float) $r->qty : 0.0;
+                                    $lineUnit = $sellByLine && $qty == 0.0 ? 'ชิ้น' : 'เส้น';
+                                    $linePrefix = $lineUnit === 'ชิ้น' ? 'ชิ้น : ' : 'ระบุเส้น : ';
 
                                     $lineQtyText =
                                         $lineQty !== null && $lineQty > 0
-                                            ? 'ระบุเส้น : ' . number_format($lineQty, 0) . ' เส้น '
+                                            ? $linePrefix . number_format($lineQty, 0) . ' ' . $lineUnit . ' '
                                             : '-';
 
                                     $customerText = (string) ($r->customer_name ?? '#' . ($r->customer_id ?? ''));
@@ -1055,6 +1063,10 @@
                                 <input type="number" name="revision_number" class="form-control"
                                     value="{{ old('revision_number', request('revision_number', 0)) }}" min="0"
                                     required>
+                                <div class="form-text">
+                                    Auto: เพิ่มเติม 1 = 10:00 AM, เพิ่มเติม 2 = 13:00 PM, เพิ่มเติม 3 = 16:00 PM.
+                                    เพิ่มเติม 4-6 = Sale Co. ส่งเอง
+                                </div>
                             </div>
 
                             <div class="col-md-12">
@@ -1123,5 +1135,5 @@
         };
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260421_2"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260507_1"></script>
 @endpush

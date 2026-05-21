@@ -39,7 +39,8 @@ class WocrViewController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        $canApprove = WorkflowDb::canApprove('wocr', (int) $wfForm->id, (int) auth()->id());
+        $canApprove = auth()->check()
+            && WorkflowDb::canApprove('wocr', (int) $wfForm->id, (int) auth()->id());
 
         return view('formwocr.view', [
             'form'       => $wfForm,

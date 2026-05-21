@@ -77,16 +77,54 @@
     width: 100%;
 }
 #inqTable thead th {
-    position: sticky;
-    top: 0;
+    position: static;
+    top: auto;
     background: #f8fafc;
     z-index: 10;
     white-space: nowrap;
 }
 
+#inqTable thead tr.dp-inquiry-filter-row th {
+    top: auto;
+    z-index: 11;
+    padding: 6px;
+    background: #fff;
+    position: static;
+    box-shadow: none;
+}
+
+#inqTable thead tr.dp-inquiry-filter-row th:first-child {
+    min-width: 42px;
+    width: 42px;
+}
+
+#inqTable th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+#inqTable th.sortable:hover {
+    background: #eef4ff !important;
+}
+
+#inqTable th .sort-ind {
+    color: #64748b;
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+#inqTable .dp-col-filter {
+    width: 100%;
+    min-width: 72px;
+    font-size: 12px;
+    padding: 4px 6px;
+    font-weight: 400;
+}
+
 /* hover row */
-#inqTable tbody tr.data-row:hover {
-    background: #f8fafc;
+#inqTable tbody tr.data-row:hover > td,
+#inqTable tbody tr.data-row:hover > th {
+    background: #f5f9ff !important;
 }
 
 /* revision color (ใช้ style="--rev: ...") */
@@ -100,7 +138,7 @@
 
 /* base sticky */
 #inqTable .sticky-col {
-    position: sticky;
+    position: static;
     background: #fff;
     z-index: 2;
 }
@@ -112,22 +150,27 @@
 }
 
 /* left offsets (ปรับเลขให้ตรงกับความกว้างจริง) */
+#inqTable .sticky-1,
 #inqTable .c1 {
-    left: 0;
+    left: auto;
 } /* # */
+#inqTable .sticky-2,
 #inqTable .c2 {
-    left: 60px;
+    left: auto;
 } /* วันที่ส่งสินค้า */
+#inqTable .sticky-3,
 #inqTable .c3 {
-    left: 220px;
+    left: auto;
 } /* ลูกค้า */
+#inqTable .sticky-4,
 #inqTable .c4 {
-    left: 440px;
+    left: auto;
 } /* Part Desc */
 
 /* เงาขอบคอลัมน์สุดท้าย กันดูแบน */
+#inqTable .sticky-4,
 #inqTable .c4 {
-    box-shadow: 6px 0 6px -6px rgba(0, 0, 0, 0.3);
+    box-shadow: none;
 }
 
 /* กันข้อความล้นใน sticky column */
@@ -140,8 +183,8 @@
    Group row (หัวกลุ่ม)
 ================================ */
 #inqTable tbody tr.group-row td {
-    position: sticky; /* optional: ถ้าอยากให้หัวกลุ่มไม่ขยับตอน scroll แนวนอน */
-    left: 0;
+    position: static;
+    left: auto;
     z-index: 1;
     background: #e5e7eb;
 }

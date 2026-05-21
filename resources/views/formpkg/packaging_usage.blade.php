@@ -276,6 +276,67 @@
             color: #6b7280;
         }
 
+        /* ===== Sticky table header + sticky ดู WO column ===== */
+        .pkg-table-scroll {
+            max-height: 70vh;
+            overflow: auto;
+            position: relative;
+        }
+
+        /* หัวตารางค้างด้านบน */
+        .pkg-sticky-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: #efe2b8;
+            box-shadow: inset 0 -1px 0 #d8d8d8;
+        }
+
+        /* ตรึงคอลัมน์แรก: ดู WO */
+        .pkg-sticky-table th:first-child,
+        .pkg-sticky-table td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 15;
+            background: #fff;
+            box-shadow: 1px 0 0 #d8d8d8;
+        }
+
+        /* จุดตัดระหว่างหัวตาราง + คอลัมน์ดู WO */
+        .pkg-sticky-table thead th:first-child {
+            z-index: 30;
+            background: #efe2b8;
+        }
+
+        /* กรณีแถวสีขาด/เสี่ยง ให้คอลัมน์ดู WO ตามสีแถว */
+        .pkg-sticky-table tr.row-shortage td:first-child {
+            background: #fff5f5;
+        }
+
+        .pkg-sticky-table tr.row-risk td:first-child {
+            background: #fffaf0;
+        }
+
+        /* กันปุ่ม ดู WO บีบ */
+        .pkg-sticky-table th:first-child,
+        .pkg-sticky-table td:first-child {
+            min-width: 86px;
+        }
+
+        .wo-table-scroll {
+            max-height: 65vh;
+            overflow: auto;
+            position: relative;
+        }
+
+        .wo-sticky-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: #f6f7f9;
+            box-shadow: inset 0 -1px 0 #dee2e6;
+        }
+
         @media (max-width: 991.98px) {
             .pkg-kpi .value {
                 font-size: 1.15rem;
@@ -458,76 +519,7 @@
             </div>
         </div>
 
-        {{-- Product / Site Summary --}}
-        @if ($productTotalsCol->isNotEmpty())
-            <div class="pkg-card mb-3">
-                <div class="pkg-card-header d-flex justify-content-between align-items-center">
-                    <button class="summary-collapse-btn" type="button" data-bs-toggle="collapse"
-                        data-bs-target="#productSiteSummaryBox" aria-expanded="true" aria-controls="productSiteSummaryBox">
-                        สรุปตาม Product / Site
-                    </button>
 
-                    <span class="sticky-note">คลิกเพื่อแสดง / ซ่อน</span>
-                </div>
-
-                <div class="collapse show" id="productSiteSummaryBox">
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-sm align-middle mb-0 table-summary">
-                            <thead>
-                                <tr>
-                                    <th>Product</th>
-                                    <th class="text-center">จาก</th>
-                                    <th class="text-end">เปิดผลิต</th>
-                                    <th class="text-end">ผลิตไปแล้ว</th>
-                                    <th class="text-end">ค้างผลิต</th>
-                                    <th class="text-end">
-                                        จำนวนบรรจุภัณฑ์ที่ต้องใช้ (ประมาณ)
-                                        <span class="summary-hint" data-bs-toggle="tooltip" data-bs-placement="top"
-                                            title="คำนวณจากค้างผลิต ÷ package_per_kg และอาจรวมหลายบรรจุภัณฑ์ตามที่ map ไว้ใน packaging master">
-                                            ?
-                                        </span>
-                                    </th>
-                                    <th class="text-end">WO</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach ($productTotalsCol as $pt)
-                                    @php
-                                        $sumSite = strtoupper((string) ($pt->source_site ?? ''));
-                                        $sumSiteClass = match ($sumSite) {
-                                            'WIRE' => 'site-wire',
-                                            'PLUS' => 'site-plus',
-                                            default => '',
-                                        };
-                                    @endphp
-                                    <tr>
-                                        <td>{{ $pt->product ?: '-' }}</td>
-                                        <td class="text-center">
-                                            <span class="site-badge {{ $sumSiteClass }}">
-                                                {{ $pt->source_site ?: '-' }}
-                                            </span>
-                                        </td>
-                                        <td class="text-end">{{ number_format((float) ($pt->sum_open_qty ?? 0), 2) }}</td>
-                                        <td class="text-end">{{ number_format((float) ($pt->sum_produced_qty ?? 0), 2) }}
-                                        </td>
-                                        <td class="text-end fw-semibold">
-                                            {{ number_format((float) ($pt->sum_balance_qty ?? 0), 2) }}</td>
-                                        <td class="text-end">
-                                            {{ number_format((float) ($pt->sum_packs_used ?? 0), 0) }} <span
-                                                class="text-muted"></span>
-                                        </td>
-                                        <td class="text-end">{{ number_format((int) ($pt->count_wo ?? 0)) }}</td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="summary-footnote">
-                        * จำนวนบรรจุภัณฑ์ที่ต้องใช้ (ประมาณ) คำนวณจากค้างผลิต ÷ package_per_kg
-                    </div>
-                </div>
-            </div>
-        @endif
 
         {{-- Main table --}}
         <div class="pkg-card">
@@ -548,8 +540,8 @@
                 ≥ 120% = พอ
             </div>
 
-            <div class="table-responsive">
-                <table class="table table-bordered align-middle mb-0 table-pkg">
+            <div class="table-responsive pkg-table-scroll">
+                <table class="table table-bordered align-middle mb-0 table-pkg pkg-sticky-table">
                     <thead>
                         <tr>
                             <th class="text-center">ดู WO</th>
@@ -723,6 +715,80 @@
                 </table>
             </div>
         </div>
+
+
+
+        {{-- Product / Site Summary --}}
+        @if ($productTotalsCol->isNotEmpty())
+            <div class="pkg-card mb-3">
+                <div class="pkg-card-header d-flex justify-content-between align-items-center">
+                    <button class="summary-collapse-btn" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#productSiteSummaryBox" aria-expanded="true"
+                        aria-controls="productSiteSummaryBox">
+                        สรุปตาม Product / Site
+                    </button>
+
+                    <span class="sticky-note">คลิกเพื่อแสดง / ซ่อน</span>
+                </div>
+
+                <div class="collapse show" id="productSiteSummaryBox">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm align-middle mb-0 table-summary">
+                            <thead>
+                                <tr>
+                                    <th>Product</th>
+                                    <th class="text-center">จาก</th>
+                                    <th class="text-end">เปิดผลิต</th>
+                                    <th class="text-end">ผลิตไปแล้ว</th>
+                                    <th class="text-end">ค้างผลิต</th>
+                                    <th class="text-end">
+                                        จำนวนบรรจุภัณฑ์ที่ต้องใช้ (ประมาณ)
+                                        <span class="summary-hint" data-bs-toggle="tooltip" data-bs-placement="top"
+                                            title="คำนวณจากค้างผลิต ÷ package_per_kg และอาจรวมหลายบรรจุภัณฑ์ตามที่ map ไว้ใน packaging master">
+                                            ?
+                                        </span>
+                                    </th>
+                                    <th class="text-end">WO</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($productTotalsCol as $pt)
+                                    @php
+                                        $sumSite = strtoupper((string) ($pt->source_site ?? ''));
+                                        $sumSiteClass = match ($sumSite) {
+                                            'WIRE' => 'site-wire',
+                                            'PLUS' => 'site-plus',
+                                            default => '',
+                                        };
+                                    @endphp
+                                    <tr>
+                                        <td>{{ $pt->product ?: '-' }}</td>
+                                        <td class="text-center">
+                                            <span class="site-badge {{ $sumSiteClass }}">
+                                                {{ $pt->source_site ?: '-' }}
+                                            </span>
+                                        </td>
+                                        <td class="text-end">{{ number_format((float) ($pt->sum_open_qty ?? 0), 2) }}</td>
+                                        <td class="text-end">{{ number_format((float) ($pt->sum_produced_qty ?? 0), 2) }}
+                                        </td>
+                                        <td class="text-end fw-semibold">
+                                            {{ number_format((float) ($pt->sum_balance_qty ?? 0), 2) }}</td>
+                                        <td class="text-end">
+                                            {{ number_format((float) ($pt->sum_packs_used ?? 0), 0) }} <span
+                                                class="text-muted"></span>
+                                        </td>
+                                        <td class="text-end">{{ number_format((int) ($pt->count_wo ?? 0)) }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="summary-footnote">
+                        * จำนวนบรรจุภัณฑ์ที่ต้องใช้ (ประมาณ) คำนวณจากค้างผลิต ÷ package_per_kg
+                    </div>
+                </div>
+            </div>
+        @endif
     </div>
 
     {{-- Modals --}}
@@ -760,8 +826,8 @@
                     </div>
 
                     <div class="modal-body">
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-sm wo-subtable align-middle">
+                        <div class="table-responsive wo-table-scroll">
+                            <table class="table table-bordered table-sm wo-subtable align-middle wo-sticky-table">
                                 <thead>
                                     <tr>
                                         <th>#</th>

@@ -144,6 +144,20 @@
                 box-shadow: 6px 0 10px rgba(15, 23, 42, .04);
             }
 
+            .supplier-col {
+                min-width: 180px;
+                width: 180px;
+                max-width: 180px;
+                white-space: normal !important;
+                overflow-wrap: anywhere;
+                word-break: break-word;
+                line-height: 1.25;
+            }
+
+            .supplier-col .badge {
+                white-space: nowrap;
+            }
+
             .num {
                 text-align: right;
                 font-variant-numeric: tabular-nums;
@@ -230,6 +244,102 @@
             .ts-dropdown {
                 z-index: 1055;
             }
+
+            table.excel th.sortable {
+                cursor: pointer;
+                user-select: none;
+            }
+
+            table.excel th.sortable:hover {
+                background: #eef4ff !important;
+            }
+
+            table.excel th .sort-ind {
+                color: #64748b;
+                font-size: 11px;
+                margin-left: 4px;
+            }
+
+            table.excel thead tr.excel-filter-row th {
+                top: 42px;
+                z-index: 31;
+                padding: 6px;
+                background: #fff;
+            }
+
+            table.excel thead tr.excel-filter-row th.sticky-col-1,
+            table.excel thead tr.excel-filter-row th.sticky-col-2 {
+                z-index: 41;
+            }
+
+            table.excel .col-filter {
+                width: 100%;
+                min-width: 70px;
+                font-size: 12px;
+                padding: 4px 6px;
+                font-weight: 400;
+            }
+
+            .btn-link.clean-link {
+                text-decoration: none;
+                font-weight: 700;
+            }
+
+            .btn-link.clean-link:hover {
+                text-decoration: underline;
+            }
+
+            .manual-order-chip {
+                min-width: 92px;
+                justify-content: flex-end;
+                font-variant-numeric: tabular-nums;
+            }
+
+            .forecast-ref {
+                display: block;
+                margin-top: 2px;
+                color: #94a3b8;
+                font-size: 11px;
+                font-weight: 400;
+                line-height: 1.15;
+            }
+
+            .detail-muted {
+                color: #94a3b8 !important;
+                font-size: 12px;
+            }
+
+            .fc-detail-modal .modal-dialog {
+                max-width: min(1500px, calc(100vw - 32px));
+            }
+
+            .fc-detail-modal .modal-body {
+                max-height: calc(100vh - 160px);
+                overflow: auto;
+            }
+
+            .fc-detail-modal .table-responsive {
+                max-height: calc(100vh - 230px);
+                overflow: auto;
+            }
+
+            .fc-detail-modal table {
+                min-width: 1100px;
+            }
+
+            .fc-detail-modal thead th {
+                position: sticky;
+                top: 0;
+                z-index: 2;
+                background: #f8fafc;
+            }
+
+            @media (max-width: 991.98px) {
+                .fc-detail-modal .modal-body,
+                .fc-detail-modal .table-responsive {
+                    max-height: none;
+                }
+            }
         </style>
 
         <div class="card fc-card mb-3">
@@ -243,8 +353,19 @@
                             'plan_month' => $planMonth,
                         ]),
                     ) }}"
-                        class="btn btn-sm btn-success">
+                        class="btn btn-sm btn-success" id="btnExportExcel">
                         <i class="fa-solid fa-file-excel me-1"></i> Export Excel
+                    </a>
+
+                    <a href="{{ route(
+                        'fc.supplierShortage',
+                        array_merge(request()->query(), [
+                            'sku' => $skuLike,
+                            'plan_month' => $planMonth,
+                        ]),
+                    ) }}"
+                        class="btn btn-sm btn-outline-dark">
+                        <i class="fa-solid fa-truck-ramp-box me-1"></i> Supplier Summary
                     </a>
 
                     <a href="{{ route('fc.division') }}" id="go_division_btn" class="btn btn-sm btn-primary">
@@ -255,6 +376,9 @@
 
             <div class="card-body">
                 <form class="row g-3 align-items-end filter-row" method="get" action="{{ route('fc.index') }}">
+                    @if ($shortageOnly ?? false)
+                        <input type="hidden" name="shortage_only" value="1">
+                    @endif
                     <div class="col-md-3">
                         <label class="form-label">SKU</label>
                         <div class="position-relative">
@@ -308,6 +432,18 @@
                         <button type="submit" class="btn btn-sm btn-primary">
                             <i class="fa-solid fa-filter me-1"></i> กรองข้อมูล
                         </button>
+                        <button type="submit" name="shortage_only" value="1"
+                            class="btn btn-sm {{ ($shortageOnly ?? false) ? 'btn-danger' : 'btn-outline-danger' }}"
+                            title="แสดงเฉพาะ RM Part ที่ต้องสั่งเพิ่มเป็นสีแดง" data-bs-toggle="tooltip"
+                            aria-pressed="{{ ($shortageOnly ?? false) ? 'true' : 'false' }}">
+                            <i class="fa-solid fa-triangle-exclamation me-1"></i> เฉพาะขาด
+                        </button>
+                        @if ($shortageOnly ?? false)
+                            <a class="btn btn-sm btn-outline-secondary"
+                                href="{{ route('fc.index', request()->except('shortage_only')) }}">
+                                <i class="fa-solid fa-eye me-1"></i> ดูทั้งหมด
+                            </a>
+                        @endif
                         <a class="btn btn-sm btn-outline-secondary" href="{{ route('fc.index') }}">
                             <i class="fa-solid fa-rotate-left me-1"></i> ล้างตัวกรอง
                         </a>
@@ -412,15 +548,16 @@
             @else
                 @php
                     $displaySalesCodes = ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D9'];
+                    $canManualOrder = $canManualOrder ?? false;
                 @endphp
                 <div class="excel-wrap">
-                    <table class="excel">
+                    <table class="excel" id="forecastIndexTable">
                         <thead>
                             <tr>
                                 <th class="sticky-col-1">RM Part</th>
                                 <th class="sticky-col-2">Description</th>
                                 <th style="min-width:110px;">Grade</th>
-                                <th style="min-width:180px;">Supplier</th>
+                                <th class="supplier-col">Supplier</th>
 
                                 <th class="h-cpa13" style="min-width:90px;">Avg 3M</th>
                                 <th class="h-cpa13" style="min-width:90px;">Avg 6M</th>
@@ -437,6 +574,10 @@
                                     title="แดง = ต้องสั่งเพิ่ม | เขียว = ของพอ/มีเกิน | ดำ = พอดี"
                                     data-bs-toggle="tooltip">
                                     ต้องสั่งเพิ่ม
+                                </th>
+                                <th class="h-supply" style="min-width:150px;"
+                                    title="บันทึกตัวเลขสั่งเพิ่มเอง โดยไม่ทับค่าคำนวณเดิม" data-bs-toggle="tooltip">
+                                    Manual สั่งเพิ่ม
                                 </th>
 
                                 @foreach ($displaySalesCodes as $code)
@@ -474,6 +615,29 @@
                                     $supplierDivisionText = collect($r['supplier_by_division'] ?? [])
                                         ->map(fn($name, $div) => $div . ' : ' . $name)
                                         ->implode(' | ');
+
+                                    $supplierDisplay = trim(
+                                        (string) ($r['display_supplier_name'] ?? ($r['primary_supplier_name'] ?? '')),
+                                    );
+                                    $supplierDisplay = $supplierDisplay !== '' ? $supplierDisplay : '-';
+                                    $supplierSource = (string) ($r['display_supplier_source'] ?? 'MASTER');
+                                    $manualSupplierTitle = trim((string) ($r['display_supplier_title'] ?? ''));
+                                    $supplierTitleParts = [];
+
+                                    if ($manualSupplierTitle !== '') {
+                                        $supplierTitleParts[] =
+                                            ($supplierSource === 'MANUAL' ? 'Manual: ' : 'Master: ') .
+                                            $manualSupplierTitle;
+                                    }
+
+                                    if ($supplierDivisionText !== '') {
+                                        $supplierTitleParts[] = 'Division: ' . $supplierDivisionText;
+                                    }
+
+                                    $supplierTitle = implode(' | ', $supplierTitleParts);
+                                    if ($supplierTitle === '') {
+                                        $supplierTitle = $supplierDisplay;
+                                    }
                                 @endphp
 
                                 <tr class="{{ $isZeroRow ? 'row-zero' : '' }}">
@@ -489,9 +653,11 @@
                                     </td>
                                     <td>{{ $r['grade'] ?? '-' }}</td>
 
-                                    <td
-                                        @if ($supplierDivisionText !== '') title="{{ $supplierDivisionText }}" data-bs-toggle="tooltip" @endif>
-                                        {{ $r['primary_supplier_name'] ?: '-' }}
+                                    <td class="supplier-col" title="{{ $supplierTitle }}" data-bs-toggle="tooltip">
+                                        @if ($supplierSource === 'MANUAL')
+                                            <span class="badge bg-warning text-dark me-1">Manual</span>
+                                        @endif
+                                        {{ $supplierDisplay }}
                                     </td>
 
                                     <td class="num">{{ number_format((float) $r['avg3'], 2) }}</td>
@@ -520,7 +686,18 @@
                                         </a>
                                     </td>
 
-                                    <td class="num fw-semibold">{{ number_format((float) $r['total_forecast'], 2) }}</td>
+                                    <td class="num fw-semibold">
+                                        <a href="javascript:void(0)" class="btn-link clean-link btn-forecast-detail"
+                                            data-sku="{{ $r['sku'] }}" data-sales=""
+                                            data-company="{{ $companyMode }}" data-plan-month="{{ $planMonth }}">
+                                            {{ number_format((float) $r['total_forecast'], 2) }}
+                                        </a>
+                                        @if ((float) ($r['total_approval_forecast'] ?? 0) > 0 && abs((float) ($r['total_forecast'] ?? 0) - (float) ($r['total_division_forecast'] ?? 0)) > 0.01)
+                                            <span class="forecast-ref">
+                                                Div {{ number_format((float) ($r['total_division_forecast'] ?? 0), 2) }}
+                                            </span>
+                                        @endif
+                                    </td>
                                     <td class="num fw-semibold">
                                         {{ number_format((float) ($r['safety_forecast_planner'] ?? 0), 2) }}</td>
                                     <td class="num fw-semibold">{{ number_format((float) $r['total_forecast_so'], 2) }}
@@ -531,9 +708,57 @@
                                         {{ $needText }}
                                     </td>
 
+                                    <td class="num">
+                                        @if ($canManualOrder)
+                                            <button type="button"
+                                                class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 manual-order-chip btn-manual-order"
+                                                data-sku="{{ $r['sku'] }}"
+                                                data-description="{{ $r['description'] }}"
+                                                data-company="{{ $companyMode }}" data-plan-month="{{ $planMonth }}"
+                                                data-auto-need="{{ round(max((float) ($r['need_to_order'] ?? 0), 0), 2) }}"
+                                                data-manual-qty="{{ round((float) ($r['manual_order_qty'] ?? 0), 2) }}"
+                                                data-supplier-codes='@json($r['manual_order_supplier_codes'] ?? [])'
+                                                data-supplier-qty-map='@json($r['manual_order_supplier_qty_by_code'] ?? [])'
+                                                data-remark="{{ e($r['manual_order_remark'] ?? '') }}">
+                                                <span>{{ number_format((float) ($r['manual_order_qty'] ?? 0), 2) }}</span>
+                                                <i class="fa-solid fa-pen-to-square"></i>
+                                            </button>
+                                        @else
+                                            <span class="text-muted" title="ต้องมีสิทธิ์เพื่อแก้ไข Manual"
+                                                data-bs-toggle="tooltip">
+                                                {{ number_format((float) ($r['manual_order_qty'] ?? 0), 2) }}
+                                            </span>
+                                        @endif
+                                    </td>
+
                                     @foreach ($displaySalesCodes as $code)
                                         @php $key = strtolower($code); @endphp
-                                        <td class="num division-col">{{ number_format((float) ($r[$key] ?? 0), 2) }}</td>
+                                        <td class="num division-col">
+                                            @if ((float) ($r[$key] ?? 0) > 0)
+                                                <a href="javascript:void(0)"
+                                                    class="btn-link clean-link btn-forecast-detail"
+                                                    data-sku="{{ $r['sku'] }}" data-sales="{{ $code }}"
+                                                    data-company="{{ $companyMode }}"
+                                                    data-plan-month="{{ $planMonth }}"
+                                                    title="{{ (float) ($r[$key . '_approval'] ?? 0) > 0 ? 'Manager Forecast' : 'Division Forecast' }}"
+                                                    data-bs-toggle="tooltip">
+                                                    {{ number_format((float) ($r[$key] ?? 0), 2) }}
+                                                </a>
+                                                @if ((float) ($r[$key . '_approval'] ?? 0) > 0 && abs((float) ($r[$key . '_approval'] ?? 0) - (float) ($r[$key . '_division'] ?? 0)) > 0.01)
+                                                    <span class="forecast-ref">
+                                                        Div {{ number_format((float) ($r[$key . '_division'] ?? 0), 2) }}
+                                                    </span>
+                                                @endif
+                                            @elseif ((float) ($r[$key . '_submitted'] ?? 0) > 0)
+                                                <span class="badge bg-warning text-dark"
+                                                    title="Division submitted, waiting for manager approval"
+                                                    data-bs-toggle="tooltip">
+                                                    {{ ($r[$key . '_status'] ?? '') === 'REJECTED' ? 'Rejected' : 'Pending' }}
+                                                </span>
+                                            @else
+                                                <span class="text-muted">0.00</span>
+                                            @endif
+                                        </td>
                                     @endforeach
                                 </tr>
                             @endforeach
@@ -553,15 +778,20 @@
                                 <th class="num">{{ number_format((float) ($kpi['wip_sum'] ?? 0), 2) }}</th>
                                 <th class="num">{{ number_format((float) ($kpi['so_sum'] ?? 0), 2) }}</th>
                                 <th class="num">{{ number_format((float) ($kpi['total_forecast_sum'] ?? 0), 2) }}</th>
-                                <th class="num">{{ number_format((float) ($kpi['planner_forecast_sum'] ?? 0), 2) }}</th>
-                                <th class="num">{{ number_format((float) ($kpi['total_forecast_so_sum'] ?? 0), 2) }}</th>
+                                <th class="num">{{ number_format((float) ($kpi['planner_forecast_sum'] ?? 0), 2) }}
+                                </th>
+                                <th class="num">{{ number_format((float) ($kpi['total_forecast_so_sum'] ?? 0), 2) }}
+                                </th>
                                 <th class="num">
                                     {{ number_format((float) $rows->sum(fn($r) => max((float) ($r['need_to_order'] ?? 0), 0)), 2) }}
                                 </th>
+                                <th class="num">{{ number_format((float) ($kpi['manual_order_sum'] ?? 0), 2) }}</th>
 
                                 @foreach ($displaySalesCodes as $code)
                                     @php $key = strtolower($code); @endphp
-                                    <th class="num division-col">{{ number_format((float) $rows->sum($key), 2) }}</th>
+                                    <th class="num division-col">
+                                        {{ number_format((float) $rows->sum($key), 2) }}
+                                    </th>
                                 @endforeach
                             </tr>
                         </tfoot>
@@ -571,8 +801,8 @@
         </div>
     </div>
 
-    <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal fade fc-detail-modal" id="historyModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable modal-fullscreen-lg-down">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">ย้อนหลังรายเดือน</h5>
@@ -627,8 +857,8 @@
         </div>
     </div>
 
-    <div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal fade fc-detail-modal" id="detailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable modal-fullscreen-lg-down">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="detailModalTitle">รายละเอียด</h5>
@@ -648,6 +878,86 @@
             </div>
         </div>
     </div>
+
+    @if ($canManualOrder)
+        <div class="modal fade fc-detail-modal" id="manualOrderModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable modal-fullscreen-lg-down">
+                <form class="modal-content" method="post" action="{{ route('fc.manualOrder.save') }}">
+                    @csrf
+                    <input type="hidden" name="plan_month" id="manualOrderPlanMonth">
+                    <input type="hidden" name="company" id="manualOrderCompany">
+                    <input type="hidden" name="sku" id="manualOrderSku">
+                    <input type="hidden" name="description" id="manualOrderDescription">
+                    <input type="hidden" name="auto_need_to_order" id="manualOrderAutoNeed">
+
+                    <div class="modal-header">
+                        <div>
+                            <h5 class="modal-title">Manual ต้องสั่งเพิ่ม</h5>
+                            <div class="small text-muted" id="manualOrderSub">-</div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">ต้องสั่งเพิ่มจากสูตรเดิม</label>
+                                <input type="text" class="form-control form-control-sm text-end"
+                                    id="manualOrderAutoNeedText" readonly>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label">Manual สั่งเพิ่มรวม</label>
+                                <input type="hidden" name="manual_order_qty" id="manualOrderQty" value="0.00">
+                                <input type="text" class="form-control form-control-sm text-end"
+                                    id="manualOrderQtyText" value="0.00" readonly>
+                                <div class="form-text">รวมจากยอดที่แยกตาม Supplier ด้านล่าง</div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Supplier ที่ต้องการสอบราคา/สั่งซื้อ</label>
+                                <select class="form-select form-select-sm" name="supplier_codes[]"
+                                    id="manualOrderSupplierSelect" multiple required>
+                                    @foreach ($supplierOptions as $sp)
+                                        <option value="{{ $sp['supplier_code'] }}">
+                                            {{ $sp['supplier_code'] }} - {{ $sp['supplier_name'] }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                                <div class="form-text">เลือกหลาย Supplier แล้วระบบจะแยกช่องกรอกจำนวนให้แต่ละราย</div>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="border rounded-3 p-2 bg-light">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <div class="fw-semibold small">แยกยอด Manual ตาม Supplier</div>
+                                        <div class="small text-muted">Total: <span
+                                                id="manualSupplierSplitTotal">0.00</span></div>
+                                    </div>
+                                    <div id="manualSupplierSplitEmpty" class="text-muted small py-2">เลือก Supplier
+                                        อย่างน้อย 1 ราย</div>
+                                    <div id="manualSupplierSplitRows" class="d-grid gap-2"></div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Remark</label>
+                                <textarea class="form-control form-control-sm" name="remark" id="manualOrderRemark" rows="3"
+                                    placeholder="เหตุผล/หมายเหตุเพิ่มเติม"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                            data-bs-dismiss="modal">ยกเลิก</button>
+                        <button type="submit" class="btn btn-sm btn-primary">บันทึก Manual</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    @endif
 
     @push('scripts')
         <script>
@@ -1030,6 +1340,10 @@
                                     td.textContent = value;
                                 }
 
+                                if (col.className) {
+                                    td.className = `${td.className} ${col.className}`.trim();
+                                }
+
                                 tr.appendChild(td);
                             });
 
@@ -1159,6 +1473,265 @@
                         ]);
                     });
                 });
+
+                document.querySelectorAll('.btn-forecast-detail').forEach(el => {
+                    el.addEventListener('click', function() {
+                        const sku = this.dataset.sku;
+                        const sales = this.dataset.sales || '';
+                        const company = this.dataset.company || 'ALL';
+                        const planMonth = this.dataset.planMonth || '';
+                        const params = new URLSearchParams({
+                            sku,
+                            company,
+                            plan_month: planMonth
+                        });
+                        if (sales) params.set('sales_code', sales);
+
+                        const url = `{{ route('fc.forecastDetail') }}?${params.toString()}`;
+                        const title = sales ? `Forecast Detail : ${sku} | ${sales}` :
+                            `Total Forecast Detail : ${sku}`;
+
+                        openDetailModal(title, url, [{
+                                key: 'sales_code',
+                                label: 'Division'
+                            },
+                            {
+                                key: 'customer_name',
+                                label: 'Customer'
+                            },
+                            {
+                                key: 'fg_partnumber',
+                                label: 'FG Part'
+                            },
+                            {
+                                key: 'fg_description',
+                                label: 'FG Description'
+                            },
+                            {
+                                key: 'history_avg6',
+                                label: 'Avg 6M',
+                                type: 'number'
+                            },
+                            {
+                                key: 'k_factor',
+                                label: 'K',
+                                type: 'number'
+                            },
+                            {
+                                key: 'forecast_1m',
+                                label: 'Manager 1M',
+                                type: 'number'
+                            },
+                            {
+                                key: 'forecast_6m',
+                                label: 'Manager 6M',
+                                type: 'number'
+                            },
+                            {
+                                key: 'division_forecast_1m',
+                                label: 'Division 1M',
+                                type: 'number',
+                                className: 'detail-muted'
+                            },
+                            {
+                                key: 'division_forecast_6m',
+                                label: 'Division 6M',
+                                type: 'number',
+                                className: 'detail-muted'
+                            },
+                            {
+                                key: 'row_remark',
+                                label: 'Remark'
+                            },
+                            {
+                                key: 'supplier_name',
+                                label: 'Supplier'
+                            },
+                            {
+                                key: 'source_type',
+                                label: 'Source'
+                            },
+                        ]);
+                    });
+                });
+            });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const table = document.getElementById('forecastIndexTable');
+                if (!table || !table.tHead || !table.tBodies.length) return;
+
+                window.forecastIndexTableState = window.forecastIndexTableState || {
+                    filters: [],
+                    sortCol: null,
+                    sortDir: 1
+                };
+
+                const headerRow = table.tHead.rows[0];
+                if (!headerRow || table.tHead.querySelector('.excel-filter-row')) return;
+
+                const numericColumns = new Set();
+                Array.from(headerRow.cells).forEach((th, idx) => {
+                    const label = th.innerText.trim().toLowerCase();
+                    const isText = ['rm part', 'description', 'grade', 'supplier'].some(x => label.includes(x));
+                    if (!isText) numericColumns.add(idx);
+
+                    th.classList.add('sortable');
+                    const ind = document.createElement('span');
+                    ind.className = 'sort-ind';
+                    th.appendChild(ind);
+                });
+
+                const filterRow = document.createElement('tr');
+                filterRow.className = 'excel-filter-row';
+
+                Array.from(headerRow.cells).forEach((th, idx) => {
+                    const fth = document.createElement('th');
+                    fth.className = th.className;
+
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'form-control form-control-sm col-filter';
+                    input.dataset.filterCol = String(idx);
+                    input.placeholder = numericColumns.has(idx) ? '>= หรือ ค้นหา' : 'กรอง';
+
+                    fth.appendChild(input);
+                    filterRow.appendChild(fth);
+                });
+
+                table.tHead.appendChild(filterRow);
+
+                const bodyRows = () => Array.from(table.tBodies[0].rows);
+
+                function normalizeText(v) {
+                    return String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                }
+
+                function getCellValue(tr, col) {
+                    const td = tr.cells[col];
+                    if (!td) return '';
+                    return td.innerText.trim();
+                }
+
+                function parseNum(v) {
+                    return parseFloat(String(v || '').replace(/,/g, '').replace(/[^\d.-]/g, '')) || 0;
+                }
+
+                function compareFilter(cellText, filterText, isNum) {
+                    const f = String(filterText || '').trim();
+                    if (!f) return true;
+
+                    if (isNum) {
+                        const n = parseNum(cellText);
+                        const m = f.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+                        if (m) {
+                            const op = m[1] || '>=';
+                            const x = parseFloat(m[2]);
+                            if (op === '>=') return n >= x;
+                            if (op === '<=') return n <= x;
+                            if (op === '>') return n > x;
+                            if (op === '<') return n < x;
+                            if (op === '=') return Math.abs(n - x) < 0.0001;
+                        }
+                    }
+
+                    return normalizeText(cellText).includes(normalizeText(f));
+                }
+
+                function applyFilters() {
+                    const filters = Array.from(table.querySelectorAll('.col-filter'))
+                        .map(input => ({
+                            col: parseInt(input.dataset.filterCol || '0', 10),
+                            value: input.value,
+                            isNum: numericColumns.has(parseInt(input.dataset.filterCol || '0', 10)),
+                        }))
+                        .filter(x => String(x.value || '').trim() !== '');
+
+                    window.forecastIndexTableState.filters = filters;
+
+                    bodyRows().forEach(tr => {
+                        const ok = filters.every(f => compareFilter(getCellValue(tr, f.col), f.value, f.isNum));
+                        tr.style.display = ok ? '' : 'none';
+                    });
+                }
+
+                table.querySelectorAll('.col-filter').forEach(input => {
+                    input.addEventListener('input', applyFilters);
+                    input.addEventListener('click', e => e.stopPropagation());
+                });
+
+                let currentSort = {
+                    col: -1,
+                    dir: 1
+                };
+
+                Array.from(headerRow.cells).forEach((th, col) => {
+                    th.addEventListener('click', function() {
+                        const dir = currentSort.col === col ? currentSort.dir * -1 : 1;
+                        currentSort = {
+                            col,
+                            dir
+                        };
+                        window.forecastIndexTableState.sortCol = col;
+                        window.forecastIndexTableState.sortDir = dir;
+
+                        Array.from(headerRow.cells).forEach(h => {
+                            const ind = h.querySelector('.sort-ind');
+                            if (ind) ind.textContent = '';
+                        });
+                        const ind = th.querySelector('.sort-ind');
+                        if (ind) ind.textContent = dir === 1 ? '▲' : '▼';
+
+                        const isNum = numericColumns.has(col);
+                        const sorted = bodyRows().sort((a, b) => {
+                            const av = getCellValue(a, col);
+                            const bv = getCellValue(b, col);
+
+                            if (isNum) {
+                                return (parseNum(av) - parseNum(bv)) * dir;
+                            }
+
+                            return normalizeText(av).localeCompare(normalizeText(bv)) * dir;
+                        });
+
+                        sorted.forEach(tr => table.tBodies[0].appendChild(tr));
+                        applyFilters();
+                    });
+                });
+            });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const exportBtn = document.getElementById('btnExportExcel');
+                const table = document.getElementById('forecastIndexTable');
+
+                if (!exportBtn || !table) return;
+
+                exportBtn.addEventListener('click', function() {
+                    const url = new URL(exportBtn.href, window.location.origin);
+                    const filters = Array.from(table.querySelectorAll('.excel-filter-row .col-filter'))
+                        .map(input => ({
+                            col: parseInt(input.dataset.filterCol || '0', 10),
+                            value: input.value || '',
+                            isNum: (input.placeholder || '').includes('>='),
+                        }))
+                        .filter(x => String(x.value || '').trim() !== '');
+
+                    if (filters.length) {
+                        url.searchParams.set('table_filters', JSON.stringify(filters));
+                    } else {
+                        url.searchParams.delete('table_filters');
+                    }
+
+                    const state = window.forecastIndexTableState || {};
+                    if (state.sortCol !== null && state.sortCol !== undefined) {
+                        url.searchParams.set('sort_col', String(state.sortCol));
+                        url.searchParams.set('sort_dir', String(state.sortDir || 1));
+                    } else {
+                        url.searchParams.delete('sort_col');
+                        url.searchParams.delete('sort_dir');
+                    }
+
+                    exportBtn.href = url.toString();
+                });
             });
 
             document.addEventListener('DOMContentLoaded', function() {
@@ -1192,6 +1765,201 @@
                     new bootstrap.Tooltip(el);
                 });
             });
+            @if ($canManualOrder)
+                document.addEventListener('DOMContentLoaded', function() {
+                    const modalEl = document.getElementById('manualOrderModal');
+                    const manualOrderForm = modalEl?.querySelector('form');
+                    const supplierSelect = document.getElementById('manualOrderSupplierSelect');
+                    const splitRowsEl = document.getElementById('manualSupplierSplitRows');
+                    const splitEmptyEl = document.getElementById('manualSupplierSplitEmpty');
+                    const splitTotalEl = document.getElementById('manualSupplierSplitTotal');
+                    const manualTotalHidden = document.getElementById('manualOrderQty');
+                    const manualTotalText = document.getElementById('manualOrderQtyText');
+                    let manualSupplierTom = null;
+                    let currentSupplierQtyMap = {};
+
+                    function formatQty(n) {
+                        return Number(n || 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        });
+                    }
+
+                    function normalCode(code) {
+                        return String(code || '').trim().toUpperCase();
+                    }
+
+                    function supplierLabel(code) {
+                        code = normalCode(code);
+                        if (!supplierSelect) return code;
+                        const opt = Array.from(supplierSelect.options).find(o => normalCode(o.value) === code);
+                        return opt ? opt.textContent.trim() : code;
+                    }
+
+                    function getSelectedSupplierCodes() {
+                        if (manualSupplierTom) {
+                            return manualSupplierTom.items.map(normalCode).filter(Boolean);
+                        }
+
+                        if (!supplierSelect) return [];
+                        return Array.from(supplierSelect.selectedOptions).map(opt => normalCode(opt.value)).filter(
+                            Boolean);
+                    }
+
+                    function recalcSupplierSplitTotal() {
+                        let total = 0;
+                        splitRowsEl?.querySelectorAll('.js-manual-supplier-qty').forEach(input => {
+                            total += parseFloat(input.value || '0') || 0;
+                        });
+
+                        const fixed = total.toFixed(2);
+                        if (manualTotalHidden) manualTotalHidden.value = fixed;
+                        if (manualTotalText) manualTotalText.value = formatQty(total);
+                        if (splitTotalEl) splitTotalEl.textContent = formatQty(total);
+                    }
+
+                    function renderSupplierSplitRows() {
+                        if (!splitRowsEl || !splitEmptyEl) return;
+
+                        const oldValues = {};
+                        splitRowsEl.querySelectorAll('.js-manual-supplier-qty').forEach(input => {
+                            oldValues[normalCode(input.dataset.code)] = input.value;
+                        });
+
+                        const selectedCodes = getSelectedSupplierCodes();
+                        splitRowsEl.innerHTML = '';
+
+                        if (!selectedCodes.length) {
+                            splitEmptyEl.style.display = '';
+                            recalcSupplierSplitTotal();
+                            return;
+                        }
+
+                        splitEmptyEl.style.display = 'none';
+
+                        selectedCodes.forEach(code => {
+                            const value = oldValues[code] ?? currentSupplierQtyMap[code] ?? '0.00';
+                            const row = document.createElement('div');
+                            row.className = 'row g-2 align-items-center bg-white border rounded-2 p-2';
+                            row.innerHTML = `
+                            <div class="col-md-7">
+                                <div class="small fw-semibold">${supplierLabel(code)}</div>
+                                <div class="text-muted small">${code}</div>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" step="0.01" min="0"
+                                    class="form-control form-control-sm text-end js-manual-supplier-qty"
+                                    name="supplier_order_qty[${code}]"
+                                    data-code="${code}"
+                                    value="${Number(value || 0).toFixed(2)}"
+                                    placeholder="0.00">
+                            </div>
+                        `;
+                            splitRowsEl.appendChild(row);
+                        });
+
+                        splitRowsEl.querySelectorAll('.js-manual-supplier-qty').forEach(input => {
+                            input.addEventListener('input', recalcSupplierSplitTotal);
+                            input.addEventListener('change', function() {
+                                this.value = (parseFloat(this.value || '0') || 0).toFixed(2);
+                                recalcSupplierSplitTotal();
+                            });
+                        });
+
+                        recalcSupplierSplitTotal();
+                    }
+
+                    if (supplierSelect && window.TomSelect) {
+                        manualSupplierTom = new TomSelect(supplierSelect, {
+                            plugins: ['remove_button'],
+                            create: false,
+                            persist: false,
+                            hideSelected: true,
+                            closeAfterSelect: false,
+                            placeholder: 'เลือก supplier ได้มากกว่า 1 ราย...',
+                            onChange: renderSupplierSplitRows,
+                        });
+                    } else if (supplierSelect) {
+                        supplierSelect.addEventListener('change', renderSupplierSplitRows);
+                    }
+
+                    function setSupplierValues(values) {
+                        const arr = Array.isArray(values) ? values.map(normalCode).filter(Boolean) : [];
+                        if (manualSupplierTom) {
+                            manualSupplierTom.clear(true);
+                            arr.forEach(v => manualSupplierTom.addItem(v, true));
+                            manualSupplierTom.refreshOptions(false);
+                        } else if (supplierSelect) {
+                            Array.from(supplierSelect.options).forEach(opt => {
+                                opt.selected = arr.includes(normalCode(opt.value));
+                            });
+                        }
+                        renderSupplierSplitRows();
+                    }
+
+                    document.querySelectorAll('.btn-manual-order').forEach(btn => {
+                        btn.addEventListener('click', function() {
+                            const sku = this.dataset.sku || '';
+                            const desc = this.dataset.description || '';
+                            const autoNeed = parseFloat(this.dataset.autoNeed || '0') || 0;
+                            const manualQty = parseFloat(this.dataset.manualQty || '0') || 0;
+                            let suppliers = [];
+
+                            try {
+                                suppliers = JSON.parse(this.dataset.supplierCodes || '[]');
+                            } catch (e) {
+                                suppliers = [];
+                            }
+
+                            try {
+                                currentSupplierQtyMap = JSON.parse(this.dataset.supplierQtyMap ||
+                                    '{}') || {};
+                            } catch (e) {
+                                currentSupplierQtyMap = {};
+                            }
+
+                            currentSupplierQtyMap = Object.fromEntries(
+                                Object.entries(currentSupplierQtyMap).map(([code, qty]) => [
+                                    normalCode(code), Number(qty || 0).toFixed(2)
+                                ])
+                            );
+
+                            // รองรับข้อมูลเก่า: ถ้าเคยมี total แต่ยังไม่มี qty แยก supplier ให้ใส่ยอดไว้ที่ supplier แรกก่อน
+                            if (suppliers.length && Object.keys(currentSupplierQtyMap).length === 0 &&
+                                manualQty > 0) {
+                                currentSupplierQtyMap[normalCode(suppliers[0])] = manualQty.toFixed(2);
+                            }
+
+                            document.getElementById('manualOrderPlanMonth').value = this.dataset
+                                .planMonth || '';
+                            document.getElementById('manualOrderCompany').value = this.dataset
+                                .company || 'ALL';
+                            document.getElementById('manualOrderSku').value = sku;
+                            document.getElementById('manualOrderDescription').value = desc;
+                            document.getElementById('manualOrderAutoNeed').value = autoNeed.toFixed(2);
+                            document.getElementById('manualOrderAutoNeedText').value = formatQty(
+                                autoNeed);
+                            document.getElementById('manualOrderRemark').value = this.dataset.remark ||
+                                '';
+                            document.getElementById('manualOrderSub').textContent = `${sku} | ${desc}`;
+
+                            setSupplierValues(suppliers);
+
+                            new bootstrap.Modal(modalEl).show();
+                        });
+                    });
+
+                    manualOrderForm?.addEventListener('submit', function(e) {
+                        const selectedCodes = getSelectedSupplierCodes();
+                        if (!selectedCodes.length) {
+                            e.preventDefault();
+                            alert('กรุณาเลือก Supplier อย่างน้อย 1 ราย');
+                            return;
+                        }
+                        recalcSupplierSplitTotal();
+                    });
+                });
+            @endif
             document.addEventListener('DOMContentLoaded', function() {
                 const supplierEl = document.getElementById('supplier_select');
                 const gradeEl = document.getElementById('grade_select');

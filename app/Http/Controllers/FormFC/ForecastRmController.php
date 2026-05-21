@@ -16,6 +16,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 class ForecastRmController extends Controller
 {
     private string $fcConn = 'sqlsrv_menam';
+    private string $divisionApprovalTable = 'fc_rm_division_forecast_approval';
 
     private function conn(string $name)
     {
@@ -68,6 +69,15 @@ class ForecastRmController extends Controller
     private function supplierTooltipSalesCodes(): array
     {
         return ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D9'];
+    }
+
+    private function canManualOrder(): bool
+    {
+        $u = auth()->user();
+
+        return $u
+            && method_exists($u, 'hasRoleCode')
+            && $u->hasRoleCode('FCM');
     }
 
     private function resolveUserSalesCode(): ?string
@@ -392,6 +402,7 @@ class ForecastRmController extends Controller
         array $selectedGrades = []
     ): string {
         return 'forecast_rm:index:' . md5(json_encode([
+            (int) Cache::get('forecast_rm:index:version', 1),
             $skuLike,
             $companyMode,
             $today,
@@ -580,6 +591,7 @@ class ForecastRmController extends Controller
             ->map(fn($g) => (float) $g->sum('qty'));
 
         $salesInput = $this->fetchSavedDivisionForecastIndex($planMonth, $skuTerms, $companyMode);
+        $manualOrderIndex = $this->fetchManualOrderIndex($planMonth, $skuTerms, $companyMode);
 
         $skuSet = collect()
             ->merge($stockIndex->keys())
@@ -596,7 +608,35 @@ class ForecastRmController extends Controller
         $supplierIndex = $this->fetchSupplierMapIndex($skuSet->all(), $selectedSuppliers);
 
         if (!empty($selectedSuppliers)) {
-            $skuSet = $skuSet->filter(fn($sku) => $supplierIndex->has($sku))->values();
+            $selectedSuppliersUpper = collect($selectedSuppliers)
+                ->map(fn($x) => strtoupper(trim((string) $x)))
+                ->filter()
+                ->values()
+                ->all();
+
+            $skuSet = $skuSet->filter(function ($sku) use ($supplierIndex, $manualOrderIndex, $selectedSuppliersUpper) {
+                $supplier = $supplierIndex->get($sku, []);
+                $manual = $manualOrderIndex->get($sku, []);
+
+                $candidates = collect([
+                    $supplier['primary_supplier_code'] ?? '',
+                    $supplier['primary_supplier_name'] ?? '',
+                ])
+                    ->merge($manual['supplier_codes'] ?? [])
+                    ->merge($manual['supplier_names'] ?? [])
+                    ->map(fn($v) => strtoupper(trim((string) $v)))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                foreach ($selectedSuppliersUpper as $selected) {
+                    if (in_array($selected, $candidates, true)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })->values();
         }
 
         $rows = $skuSet->map(function ($sku) use (
@@ -609,17 +649,20 @@ class ForecastRmController extends Controller
             $wipIndex,
             $soIndex,
             $supplierIndex,
-            $selectedGrades
+            $selectedGrades,
+            $manualOrderIndex
         ) {
             $stock = $stockIndex->get($sku, []);
             $avg   = $avgIndex->get($sku, ['avg3' => 0, 'avg6' => 0]);
 
             $salesWrap = $salesInput->get($sku, [
                 'forecast_by_sales' => [],
+                'approval_forecast_by_sales' => [],
                 'supplier_name_by_sales' => [],
             ]);
 
             $sales = $salesWrap['forecast_by_sales'] ?? [];
+            $approvalSales = $salesWrap['approval_forecast_by_sales'] ?? [];
             $forecastSupplierBySales = $salesWrap['supplier_name_by_sales'] ?? [];
 
             $description = trim((string) ($stock['description'] ?? ($poDescIndex[$sku] ?? '')));
@@ -665,22 +708,37 @@ class ForecastRmController extends Controller
             ];
 
             foreach ($this->allSalesCodes() as $d) {
-                $row[strtolower($d)] = (float) ($sales[$d] ?? 0);
+                $divisionForecast = (float) ($sales[$d] ?? 0);
+                $approvalForecast = (float) ($approvalSales[$d] ?? 0);
+                $key = strtolower($d);
+
+                $row[$key . '_division'] = $divisionForecast;
+                $row[$key . '_approval'] = $approvalForecast;
+                $row[$key] = $approvalForecast > 0 ? $approvalForecast : $divisionForecast;
             }
 
             $salesWrap = $salesInput->get($sku, [
                 'forecast_by_sales' => [],
+                'approval_forecast_by_sales' => [],
                 'planner_forecast' => 0,
                 'supplier_name_by_sales' => [],
             ]);
 
             $sales = $salesWrap['forecast_by_sales'] ?? [];
+            $approvalSales = $salesWrap['approval_forecast_by_sales'] ?? [];
             $plannerForecast = (float) ($salesWrap['planner_forecast'] ?? 0);
             $forecastSupplierBySales = $salesWrap['supplier_name_by_sales'] ?? [];
 
             // total forecast จากฝ่ายขาย D1-D9
-            $row['total_forecast'] = collect($this->allSalesCodes())
+            $row['total_division_forecast'] = collect($this->allSalesCodes())
                 ->sum(fn($d) => (float) ($sales[$d] ?? 0));
+            $row['total_approval_forecast'] = collect($this->allSalesCodes())
+                ->sum(fn($d) => (float) ($approvalSales[$d] ?? 0));
+            $row['total_forecast'] = collect($this->allSalesCodes())
+                ->sum(function ($d) use ($sales, $approvalSales) {
+                    $approval = (float) ($approvalSales[$d] ?? 0);
+                    return $approval > 0 ? $approval : (float) ($sales[$d] ?? 0);
+                });
 
             // safety forecast จาก planner (PLN)
             $row['safety_forecast_planner'] = $plannerForecast;
@@ -698,6 +756,46 @@ class ForecastRmController extends Controller
 
             // ต้องสั่งเพิ่ม = Demand - Supply
             $row['need_to_order'] = (float) $row['total_forecast_so'] - (float) $row['available_supply'];
+
+            $manualOrder = $manualOrderIndex->get($sku, []);
+            $manualSupplierRows = collect($manualOrder['supplier_rows'] ?? [])
+                ->map(function ($sp) {
+                    return [
+                        'code' => strtoupper(trim((string) ($sp['code'] ?? ''))),
+                        'name' => trim((string) ($sp['name'] ?? '')),
+                        'qty' => round((float) ($sp['qty'] ?? 0), 2),
+                    ];
+                })
+                ->filter(fn($sp) => $sp['code'] !== '' || $sp['name'] !== '')
+                ->values();
+
+            $row['manual_order_qty'] = (float) ($manualOrder['manual_order_qty'] ?? 0);
+            $row['manual_order_remark'] = (string) ($manualOrder['remark'] ?? '');
+            $row['manual_order_supplier_codes'] = $manualOrder['supplier_codes'] ?? [];
+            $row['manual_order_supplier_names'] = $manualOrder['supplier_names'] ?? [];
+            $row['manual_order_supplier_rows'] = $manualSupplierRows->all();
+            $row['manual_order_supplier_qty_by_code'] = $manualOrder['supplier_order_qty_by_code'] ?? [];
+            $row['manual_order_auto_need'] = isset($manualOrder['auto_need_to_order'])
+                ? (float) $manualOrder['auto_need_to_order']
+                : null;
+
+            if ($manualSupplierRows->isNotEmpty()) {
+                $row['display_supplier_source'] = 'MANUAL';
+                $row['display_supplier_name'] = $manualSupplierRows
+                    ->map(fn($sp) => $sp['name'] !== '' ? $sp['name'] : $sp['code'])
+                    ->unique()
+                    ->implode(' | ');
+                $row['display_supplier_title'] = $manualSupplierRows
+                    ->map(function ($sp) {
+                        $label = trim(($sp['code'] !== '' ? $sp['code'] . ' - ' : '') . ($sp['name'] ?: $sp['code']));
+                        return $label . ' : ' . number_format((float) ($sp['qty'] ?? 0), 2);
+                    })
+                    ->implode(' | ');
+            } else {
+                $row['display_supplier_source'] = 'MASTER';
+                $row['display_supplier_name'] = $row['primary_supplier_name'] ?: '-';
+                $row['display_supplier_title'] = $row['primary_supplier_name'] ?: '-';
+            }
 
             return $row;
         })->filter(function ($row) use ($selectedGrades) {
@@ -728,11 +826,20 @@ class ForecastRmController extends Controller
                 ->all();
 
             $rows = $rows->filter(function ($row) use ($selectedSuppliersUpper) {
-                $name = strtoupper(trim((string) ($row['primary_supplier_name'] ?? '')));
-                $code = strtoupper(trim((string) ($row['primary_supplier_code'] ?? '')));
+                $candidates = collect([
+                    $row['primary_supplier_code'] ?? '',
+                    $row['primary_supplier_name'] ?? '',
+                    $row['display_supplier_name'] ?? '',
+                ])
+                    ->merge($row['manual_order_supplier_codes'] ?? [])
+                    ->merge($row['manual_order_supplier_names'] ?? [])
+                    ->map(fn($v) => strtoupper(trim((string) $v)))
+                    ->filter()
+                    ->values()
+                    ->all();
 
                 foreach ($selectedSuppliersUpper as $selected) {
-                    if ($selected === $code || $selected === $name) {
+                    if (in_array($selected, $candidates, true)) {
                         return true;
                     }
                 }
@@ -893,6 +1000,7 @@ class ForecastRmController extends Controller
 
         $selectedSuppliers = $this->normalizeSupplierCodes($request->query('suppliers', []));
         $selectedGrades = $this->normalizeGradeFilters($request->query('grades', []));
+        $shortageOnly = $request->boolean('shortage_only');
 
         $cacheKey = $this->forecastIndexCacheKey(
             $skuLike,
@@ -927,6 +1035,11 @@ class ForecastRmController extends Controller
         });
 
         $rows = collect($data['rows'])->values();
+        if ($shortageOnly) {
+            $rows = $rows
+                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->values();
+        }
 
         $kpi = [
             'items'                 => $rows->count(),
@@ -941,6 +1054,7 @@ class ForecastRmController extends Controller
             'planner_forecast_sum'  => (float) $rows->sum('safety_forecast_planner'),
             'total_forecast_so_sum' => (float) $rows->sum('total_forecast_so'),
             'need_to_order_sum'     => (float) $rows->sum('need_to_order'),
+            'manual_order_sum'      => (float) $rows->sum('manual_order_qty'),
         ];
 
         return view('formfc.index', [
@@ -957,6 +1071,366 @@ class ForecastRmController extends Controller
             'selectedSuppliers' => $selectedSuppliers,
             'gradeOptions'      => $this->getGradeOptions(),
             'selectedGrades'    => $selectedGrades,
+            'shortageOnly'      => $shortageOnly,
+            'canManualOrder'   => $this->canManualOrder(),
+        ]);
+    }
+
+    private function forecastRowsForRequest(Request $request, bool $defaultShortageOnly = false): array
+    {
+        $tz = 'Asia/Bangkok';
+        $skuLike = strtoupper(trim((string) $request->query('sku', '')));
+        $skuTerms = $this->normalizeSkuTerms($skuLike);
+
+        $companyMode = strtoupper(trim((string) $request->query('company', 'ALL')));
+        if (!in_array($companyMode, ['ALL', 'WIRE', 'PLUS'], true)) {
+            $companyMode = 'ALL';
+        }
+
+        $planMonth = $this->parsePlanMonth($request->query('plan_month'), $tz);
+        $today = now($tz)->startOfDay()->toDateString();
+        $sinceAvg = $request->query('since_avg', now($tz)->subMonths(12)->toDateString());
+        $sinceAvgDate = Carbon::parse($sinceAvg, $tz)->startOfDay()->toDateString();
+        $selectedSuppliers = $this->normalizeSupplierCodes($request->query('suppliers', []));
+        $selectedGrades = $this->normalizeGradeFilters($request->query('grades', []));
+        $shortageOnly = $request->has('shortage_only')
+            ? $request->boolean('shortage_only')
+            : $defaultShortageOnly;
+
+        $cacheKey = $this->forecastIndexCacheKey(
+            $skuLike,
+            $companyMode,
+            $today,
+            $sinceAvgDate,
+            $planMonth,
+            $selectedSuppliers,
+            $selectedGrades,
+        );
+
+        $data = Cache::remember($cacheKey, 300, function () use (
+            $skuLike,
+            $skuTerms,
+            $companyMode,
+            $planMonth,
+            $sinceAvgDate,
+            $selectedSuppliers,
+            $selectedGrades,
+            $tz
+        ) {
+            return $this->buildIndexDataset(
+                $skuLike,
+                $skuTerms,
+                $companyMode,
+                $planMonth,
+                $sinceAvgDate,
+                $selectedSuppliers,
+                $selectedGrades,
+                $tz
+            );
+        });
+
+        $rows = collect($data['rows'])->values();
+        if ($shortageOnly) {
+            $rows = $rows
+                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->values();
+        }
+
+        return [
+            'rows' => $rows,
+            'skuLike' => $skuLike,
+            'companyMode' => $companyMode,
+            'planMonth' => $planMonth,
+            'sinceAvg' => $data['sinceAvg'],
+            'selectedSuppliers' => $selectedSuppliers,
+            'selectedGrades' => $selectedGrades,
+            'shortageOnly' => $shortageOnly,
+        ];
+    }
+
+    private function supplierShortageMode(?string $mode): string
+    {
+        $mode = strtolower(trim((string) $mode));
+        return in_array($mode, ['final', 'auto', 'manual'], true) ? $mode : 'final';
+    }
+
+    private function supplierShortageRow(array $row, string $source, string $code, string $name, string $needStatus, float $autoNeed, float $manualQty, float $finalQty): array
+    {
+        $code = strtoupper(trim($code));
+        $name = trim($name);
+        $supplierKey = $code !== '' ? $code : strtoupper($name ?: '-');
+
+        return [
+            'supplier_key' => $supplierKey,
+            'supplier_code' => $code,
+            'supplier_name' => $name !== '' ? $name : ($code !== '' ? $code : '-'),
+            'source' => $source,
+            'need_status' => $needStatus,
+            'rm_partnumber' => (string) ($row['sku'] ?? ''),
+            'description' => (string) ($row['description'] ?? ''),
+            'grade' => (string) ($row['grade'] ?? ''),
+            'avg6' => (float) ($row['avg6'] ?? 0),
+            'onhand' => (float) ($row['onhand'] ?? 0),
+            'fg' => (float) ($row['fg'] ?? 0),
+            'po_total' => (float) ($row['po_total'] ?? 0),
+            'wip' => (float) ($row['wip'] ?? 0),
+            'so' => (float) ($row['so'] ?? 0),
+            'total_forecast' => (float) ($row['total_forecast'] ?? 0),
+            'planner_forecast' => (float) ($row['safety_forecast_planner'] ?? 0),
+            'total_forecast_so' => (float) ($row['total_forecast_so'] ?? 0),
+            'auto_need_to_order' => round($autoNeed, 2),
+            'manual_order_qty' => round($manualQty, 2),
+            'final_order_qty' => round($finalQty, 2),
+            'remark' => (string) ($row['manual_order_remark'] ?? ''),
+        ];
+    }
+
+    private function buildSupplierShortageReport($rows, string $mode = 'final'): array
+    {
+        $mode = $this->supplierShortageMode($mode);
+        $detailRows = collect();
+
+        foreach ($rows as $row) {
+            $row = (array) $row;
+            $needRaw = round((float) ($row['need_to_order'] ?? 0), 2);
+            $autoNeed = round($this->exportNeedDisplayValue($row), 2);
+            $needStatus = $needRaw > 0 ? 'SHORTAGE' : ($needRaw < 0 ? 'SURPLUS' : 'BALANCED');
+            $manualSupplierRows = collect($row['manual_order_supplier_rows'] ?? [])
+                ->map(fn($sp) => [
+                    'code' => strtoupper(trim((string) ($sp['code'] ?? ''))),
+                    'name' => trim((string) ($sp['name'] ?? '')),
+                    'qty' => round((float) ($sp['qty'] ?? 0), 2),
+                ])
+                ->filter(fn($sp) => $sp['qty'] > 0 && ($sp['code'] !== '' || $sp['name'] !== ''))
+                ->values();
+
+            $masterCode = strtoupper(trim((string) ($row['primary_supplier_code'] ?? '')));
+            $masterName = trim((string) ($row['primary_supplier_name'] ?? ($row['display_supplier_name'] ?? '')));
+
+            if ($mode === 'auto') {
+                if ($autoNeed > 0) {
+                    $detailRows->push($this->supplierShortageRow($row, 'AUTO', $masterCode, $masterName, $needStatus, $autoNeed, 0, $autoNeed));
+                }
+                continue;
+            }
+
+            if ($mode === 'manual') {
+                foreach ($manualSupplierRows as $sp) {
+                    $detailRows->push($this->supplierShortageRow($row, 'MANUAL', $sp['code'], $sp['name'], $needStatus, 0, $sp['qty'], $sp['qty']));
+                }
+                continue;
+            }
+
+            if ($manualSupplierRows->isNotEmpty()) {
+                $manualTotal = max((float) $manualSupplierRows->sum('qty'), 0.0001);
+                foreach ($manualSupplierRows as $sp) {
+                    $autoShare = $autoNeed > 0 ? round($autoNeed * ((float) $sp['qty'] / $manualTotal), 2) : 0.0;
+                    $detailRows->push($this->supplierShortageRow($row, 'MANUAL', $sp['code'], $sp['name'], $needStatus, $autoShare, $sp['qty'], $sp['qty']));
+                }
+            } elseif ($autoNeed > 0) {
+                $detailRows->push($this->supplierShortageRow($row, 'AUTO', $masterCode, $masterName, $needStatus, $autoNeed, 0, $autoNeed));
+            }
+        }
+
+        $detailRows = $detailRows
+            ->filter(fn($r) => (float) ($r['final_order_qty'] ?? 0) > 0 || (float) ($r['auto_need_to_order'] ?? 0) > 0)
+            ->values();
+
+        $summaryRows = $detailRows
+            ->groupBy('supplier_key')
+            ->map(function ($group) {
+                $first = $group->first();
+                return [
+                    'supplier_key' => $first['supplier_key'],
+                    'supplier_code' => $first['supplier_code'],
+                    'supplier_name' => $first['supplier_name'],
+                    'rm_count' => $group->pluck('rm_partnumber')->unique()->count(),
+                    'auto_need_to_order' => round((float) $group->sum('auto_need_to_order'), 2),
+                    'shortage_qty' => round((float) $group->where('need_status', 'SHORTAGE')->sum('auto_need_to_order'), 2),
+                    'surplus_qty' => round((float) $group->where('need_status', 'SURPLUS')->sum('auto_need_to_order'), 2),
+                    'manual_order_qty' => round((float) $group->sum('manual_order_qty'), 2),
+                    'final_order_qty' => round((float) $group->sum('final_order_qty'), 2),
+                    'manual_line_count' => $group->where('source', 'MANUAL')->count(),
+                    'auto_line_count' => $group->where('source', 'AUTO')->count(),
+                    'shortage_line_count' => $group->where('need_status', 'SHORTAGE')->count(),
+                    'surplus_line_count' => $group->where('need_status', 'SURPLUS')->count(),
+                ];
+            })
+            ->sortByDesc('final_order_qty')
+            ->values();
+
+        return [
+            'summaryRows' => $summaryRows,
+            'detailRows' => $detailRows->sortBy([
+                ['supplier_name', 'asc'],
+                ['rm_partnumber', 'asc'],
+            ])->values(),
+            'kpi' => [
+                'supplier_count' => $summaryRows->count(),
+                'rm_count' => $detailRows->pluck('rm_partnumber')->unique()->count(),
+                'auto_need_to_order' => round((float) $summaryRows->sum('auto_need_to_order'), 2),
+                'shortage_qty' => round((float) $summaryRows->sum('shortage_qty'), 2),
+                'surplus_qty' => round((float) $summaryRows->sum('surplus_qty'), 2),
+                'manual_order_qty' => round((float) $summaryRows->sum('manual_order_qty'), 2),
+                'final_order_qty' => round((float) $summaryRows->sum('final_order_qty'), 2),
+            ],
+        ];
+    }
+
+    public function supplierShortage(Request $request)
+    {
+        $this->userOr403();
+
+        $payload = $this->forecastRowsForRequest($request, false);
+        $mode = $this->supplierShortageMode($request->query('source_mode', 'final'));
+        $report = $this->buildSupplierShortageReport($payload['rows'], $mode);
+
+        return view('formfc.supplier_shortage', $payload + $report + [
+            'sourceMode' => $mode,
+            'supplierOptions' => $this->getSupplierOptions(),
+            'gradeOptions' => $this->getGradeOptions(),
+        ]);
+    }
+
+    private function supplierSummaryHeaders(): array
+    {
+        return [
+            'Supplier Code',
+            'Supplier Name',
+            'RM Count',
+            'Auto Need To Order',
+            'Manual Order',
+            'Final Order Qty',
+            'Manual Lines',
+            'Auto Lines',
+            'Shortage Lines',
+            'Surplus Lines',
+        ];
+    }
+
+    private function supplierDetailHeaders(): array
+    {
+        return [
+            'Supplier Code',
+            'Supplier Name',
+            'Source',
+            'Need Status',
+            'RM Part',
+            'Description',
+            'Grade',
+            'Avg 6M',
+            'Onhand',
+            'FG',
+            'Total PO',
+            'WIP',
+            'SO',
+            'Total Forecast',
+            'Safety Forecast (Planner)',
+            'Forecast + SO',
+            'Auto Need To Order',
+            'Manual Order',
+            'Final Order Qty',
+            'Remark',
+        ];
+    }
+
+    public function exportSupplierShortage(Request $request)
+    {
+        $this->userOr403();
+
+        $payload = $this->forecastRowsForRequest($request, false);
+        $mode = $this->supplierShortageMode($request->query('source_mode', 'final'));
+        $report = $this->buildSupplierShortageReport($payload['rows'], $mode);
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $summarySheet = $spreadsheet->getActiveSheet();
+        $summarySheet->setTitle('Supplier Summary');
+        $this->writeForecastExportSheet(
+            $summarySheet,
+            $this->supplierSummaryHeaders(),
+            $report['summaryRows'],
+            fn(array $r) => [
+                $r['supplier_code'],
+                $r['supplier_name'],
+                (int) $r['rm_count'],
+                (float) $r['auto_need_to_order'],
+                (float) $r['manual_order_qty'],
+                (float) $r['final_order_qty'],
+                (int) $r['manual_line_count'],
+                (int) $r['auto_line_count'],
+                (int) $r['shortage_line_count'],
+                (int) $r['surplus_line_count'],
+            ]
+        );
+
+        $detailSheet = $spreadsheet->createSheet();
+        $detailSheet->setTitle('Supplier Detail');
+        $this->writeForecastExportSheet(
+            $detailSheet,
+            $this->supplierDetailHeaders(),
+            $report['detailRows'],
+            fn(array $r) => [
+                $r['supplier_code'],
+                $r['supplier_name'],
+                $r['source'],
+                $r['need_status'],
+                $r['rm_partnumber'],
+                $r['description'],
+                $r['grade'],
+                (float) $r['avg6'],
+                (float) $r['onhand'],
+                (float) $r['fg'],
+                (float) $r['po_total'],
+                (float) $r['wip'],
+                (float) $r['so'],
+                (float) $r['total_forecast'],
+                (float) $r['planner_forecast'],
+                (float) $r['total_forecast_so'],
+                (float) $r['auto_need_to_order'],
+                (float) $r['manual_order_qty'],
+                (float) $r['final_order_qty'],
+                $r['remark'],
+            ]
+        );
+
+        $manualSheet = $spreadsheet->createSheet();
+        $manualSheet->setTitle('Manual Order');
+        $this->writeForecastExportSheet(
+            $manualSheet,
+            $this->supplierDetailHeaders(),
+            $report['detailRows']->where('source', 'MANUAL')->values(),
+            fn(array $r) => [
+                $r['supplier_code'],
+                $r['supplier_name'],
+                $r['source'],
+                $r['need_status'],
+                $r['rm_partnumber'],
+                $r['description'],
+                $r['grade'],
+                (float) $r['avg6'],
+                (float) $r['onhand'],
+                (float) $r['fg'],
+                (float) $r['po_total'],
+                (float) $r['wip'],
+                (float) $r['so'],
+                (float) $r['total_forecast'],
+                (float) $r['planner_forecast'],
+                (float) $r['total_forecast_so'],
+                (float) $r['auto_need_to_order'],
+                (float) $r['manual_order_qty'],
+                (float) $r['final_order_qty'],
+                $r['remark'],
+            ]
+        );
+
+        $spreadsheet->setActiveSheetIndex(0);
+        $fileName = 'supplier_need_to_order_' . Carbon::parse($payload['planMonth'])->format('Ym') . '_' . now('Asia/Bangkok')->format('Ymd_His') . '.xlsx';
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer->save('php://output');
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
 
@@ -1245,30 +1719,18 @@ class ForecastRmController extends Controller
         );
     }
 
-    public function exportExcel(Request $request)
+    private function exportDisplaySalesCodes(): array
     {
-        $tz = 'Asia/Bangkok';
+        return ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D9'];
+    }
 
-        $skuLike = $this->normalizeSkuFilter($request->query('sku', ''));
-
-
-        $companyMode = strtoupper(trim((string) $request->query('company', 'ALL')));
-        if (!in_array($companyMode, ['ALL', 'WIRE', 'PLUS'], true)) {
-            $companyMode = 'ALL';
-        }
-
-        $planMonth = $this->parsePlanMonth($request->query('plan_month'), $tz);
-
-        $data = $this->buildIndexDataset($skuLike, $companyMode, $planMonth, now($tz)->toDateString(), $tz);
-        $rows = collect($data['rows'])->values();
-
-        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-        $sheet = $spreadsheet->getActiveSheet();
-        $sheet->setTitle('Forecast RM');
-
-        $headers = [
+    private function exportMainHeaders(): array
+    {
+        return array_merge([
             'RM Part',
             'Description',
+            'Grade',
+            'Supplier',
             'Avg 3M',
             'Avg 6M',
             'Onhand',
@@ -1276,54 +1738,308 @@ class ForecastRmController extends Controller
             'Total PO',
             'WIP',
             'SO',
-            'D1',
-            'D2',
-            'D3',
-            'D4',
-            'D5',
-            'D6',
-            'D7',
-            'D8',
-            'D9',
             'Total Forecast',
+            'Safety Forecast (Planner)',
             'Forecast + SO',
             'Need To Order',
+            'Manual Need To Order',
+        ], $this->exportDisplaySalesCodes());
+    }
+
+    private function exportDivisionHeaders(): array
+    {
+        return [
+            'RM Part',
+            'Description',
+            'Grade',
+            'Supplier',
+            'Division',
+            'Division Forecast',
+            'Avg 3M',
+            'Avg 6M',
+            'Onhand',
+            'FG',
+            'Total PO',
+            'WIP',
+            'SO',
+            'Total Forecast',
+            'Safety Forecast (Planner)',
+            'Forecast + SO',
+            'Need To Order',
+            'Manual Need To Order',
+        ];
+    }
+
+    private function exportSupplierDisplay(array $r): string
+    {
+        $supplier = trim((string) ($r['display_supplier_name'] ?? ($r['primary_supplier_name'] ?? '')));
+        $source = strtoupper(trim((string) ($r['display_supplier_source'] ?? 'MASTER')));
+
+        if ($supplier === '') {
+            return '';
+        }
+
+        return $source === 'MANUAL' ? ('Manual: ' . $supplier) : $supplier;
+    }
+
+    private function exportNeedDisplayValue(array $r): float
+    {
+        $need = (float) ($r['need_to_order'] ?? 0);
+
+        // หน้า table แสดงค่าติดลบเป็นยอดเกินแบบ abs() สีเขียว จึงใช้ค่าเดียวกันตอน filter/export
+        return $need < 0 ? abs($need) : $need;
+    }
+
+    private function exportMainRow(array $r): array
+    {
+        $row = [
+            $r['sku'] ?? '',
+            $r['description'] ?? '',
+            $r['grade'] ?? '',
+            $this->exportSupplierDisplay($r),
+            (float) ($r['avg3'] ?? 0),
+            (float) ($r['avg6'] ?? 0),
+            (float) ($r['onhand'] ?? 0),
+            (float) ($r['fg'] ?? 0),
+            (float) ($r['po_total'] ?? 0),
+            (float) ($r['wip'] ?? 0),
+            (float) ($r['so'] ?? 0),
+            (float) ($r['total_forecast'] ?? 0),
+            (float) ($r['safety_forecast_planner'] ?? 0),
+            (float) ($r['total_forecast_so'] ?? 0),
+            $this->exportNeedDisplayValue($r),
+            (float) ($r['manual_order_qty'] ?? 0),
         ];
 
+        foreach ($this->exportDisplaySalesCodes() as $code) {
+            $row[] = (float) ($r[strtolower($code)] ?? 0);
+        }
+
+        return $row;
+    }
+
+    private function exportDivisionRow(array $r, string $divisionCode): array
+    {
+        return [
+            $r['sku'] ?? '',
+            $r['description'] ?? '',
+            $r['grade'] ?? '',
+            $this->exportSupplierDisplay($r),
+            $divisionCode,
+            (float) ($r[strtolower($divisionCode)] ?? 0),
+            (float) ($r['avg3'] ?? 0),
+            (float) ($r['avg6'] ?? 0),
+            (float) ($r['onhand'] ?? 0),
+            (float) ($r['fg'] ?? 0),
+            (float) ($r['po_total'] ?? 0),
+            (float) ($r['wip'] ?? 0),
+            (float) ($r['so'] ?? 0),
+            (float) ($r['total_forecast'] ?? 0),
+            (float) ($r['safety_forecast_planner'] ?? 0),
+            (float) ($r['total_forecast_so'] ?? 0),
+            $this->exportNeedDisplayValue($r),
+            (float) ($r['manual_order_qty'] ?? 0),
+        ];
+    }
+
+    private function exportCellValue(array $r, int $col)
+    {
+        $displayCodes = $this->exportDisplaySalesCodes();
+
+        return match ($col) {
+            0 => (string) ($r['sku'] ?? ''),
+            1 => (string) ($r['description'] ?? ''),
+            2 => (string) ($r['grade'] ?? ''),
+            3 => $this->exportSupplierDisplay($r),
+            4 => (float) ($r['avg3'] ?? 0),
+            5 => (float) ($r['avg6'] ?? 0),
+            6 => (float) ($r['onhand'] ?? 0),
+            7 => (float) ($r['fg'] ?? 0),
+            8 => (float) ($r['po_total'] ?? 0),
+            9 => (float) ($r['wip'] ?? 0),
+            10 => (float) ($r['so'] ?? 0),
+            11 => (float) ($r['total_forecast'] ?? 0),
+            12 => (float) ($r['safety_forecast_planner'] ?? 0),
+            13 => (float) ($r['total_forecast_so'] ?? 0),
+            14 => $this->exportNeedDisplayValue($r),
+            15 => (float) ($r['manual_order_qty'] ?? 0),
+            default => isset($displayCodes[$col - 16])
+                ? (float) ($r[strtolower($displayCodes[$col - 16])] ?? 0)
+                : '',
+        };
+    }
+
+    private function exportFilterMatches($cellValue, string $filterText, bool $isNumeric): bool
+    {
+        $filterText = trim($filterText);
+        if ($filterText === '') {
+            return true;
+        }
+
+        if ($isNumeric) {
+            $n = (float) str_replace(',', '', (string) $cellValue);
+            if (preg_match('/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/', $filterText, $m)) {
+                $op = $m[1] ?: '>=';
+                $x = (float) $m[2];
+
+                return match ($op) {
+                    '>=' => $n >= $x,
+                    '<=' => $n <= $x,
+                    '>' => $n > $x,
+                    '<' => $n < $x,
+                    '=' => abs($n - $x) < 0.0001,
+                    default => true,
+                };
+            }
+        }
+
+        $cell = mb_strtolower(trim(preg_replace('/\s+/', ' ', (string) $cellValue)));
+        $needle = mb_strtolower(trim(preg_replace('/\s+/', ' ', $filterText)));
+
+        return $needle === '' || str_contains($cell, $needle);
+    }
+
+    private function applyExportTableState($rows, Request $request)
+    {
+        $filtersJson = (string) $request->query('table_filters', '');
+        $filters = [];
+
+        if ($filtersJson !== '') {
+            $decoded = json_decode($filtersJson, true);
+            if (is_array($decoded)) {
+                $filters = collect($decoded)
+                    ->filter(fn($f) => is_array($f) && trim((string) ($f['value'] ?? '')) !== '')
+                    ->map(fn($f) => [
+                        'col' => (int) ($f['col'] ?? 0),
+                        'value' => (string) ($f['value'] ?? ''),
+                        'is_num' => (bool) ($f['isNum'] ?? false),
+                    ])
+                    ->values()
+                    ->all();
+            }
+        }
+
+        if (!empty($filters)) {
+            $rows = $rows->filter(function ($r) use ($filters) {
+                $r = (array) $r;
+                foreach ($filters as $f) {
+                    if (!$this->exportFilterMatches(
+                        $this->exportCellValue($r, (int) $f['col']),
+                        (string) $f['value'],
+                        (bool) $f['is_num']
+                    )) {
+                        return false;
+                    }
+                }
+
+                return true;
+            })->values();
+        }
+
+        $sortCol = $request->query('sort_col', null);
+        if ($sortCol !== null && is_numeric($sortCol)) {
+            $sortCol = (int) $sortCol;
+            $sortDir = ((int) $request->query('sort_dir', 1)) === -1 ? -1 : 1;
+
+            $rows = $rows->sort(function ($a, $b) use ($sortCol, $sortDir) {
+                $a = (array) $a;
+                $b = (array) $b;
+                $av = $this->exportCellValue($a, $sortCol);
+                $bv = $this->exportCellValue($b, $sortCol);
+
+                if (is_numeric($av) && is_numeric($bv)) {
+                    return ((float) $av <=> (float) $bv) * $sortDir;
+                }
+
+                return strnatcasecmp((string) $av, (string) $bv) * $sortDir;
+            })->values();
+        }
+
+        return $rows;
+    }
+
+    private function writeForecastExportSheet(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, array $headers, $rows, callable $rowMapper): void
+    {
         $sheet->fromArray([$headers], null, 'A1');
 
         $rowNo = 2;
         foreach ($rows as $r) {
-            $sheet->fromArray([[
-                $r['sku'] ?? '',
-                $r['description'] ?? '',
-                (float) ($r['avg3'] ?? 0),
-                (float) ($r['avg6'] ?? 0),
-                (float) ($r['onhand'] ?? 0),
-                (float) ($r['fg'] ?? 0),
-                (float) ($r['po_total'] ?? 0),
-                (float) ($r['wip'] ?? 0),
-                (float) ($r['so'] ?? 0),
-                (float) ($r['d1'] ?? 0),
-                (float) ($r['d2'] ?? 0),
-                (float) ($r['d3'] ?? 0),
-                (float) ($r['d4'] ?? 0),
-                (float) ($r['d5'] ?? 0),
-                (float) ($r['d6'] ?? 0),
-                (float) ($r['d7'] ?? 0),
-                (float) ($r['d8'] ?? 0),
-                (float) ($r['d9'] ?? 0),
-                (float) ($r['total_forecast'] ?? 0),
-                (float) ($r['total_forecast_so'] ?? 0),
-                (float) ($r['need_to_order'] ?? 0),
-            ]], null, 'A' . $rowNo);
-
+            $sheet->fromArray([$rowMapper((array) $r)], null, 'A' . $rowNo);
             $rowNo++;
         }
 
-        foreach (range('A', $sheet->getHighestColumn()) as $col) {
+        $sheet->freezePane('A2');
+        $lastCol = $sheet->getHighestColumn();
+        $lastRow = max(1, $sheet->getHighestRow());
+        $sheet->setAutoFilter('A1:' . $lastCol . $lastRow);
+
+        foreach (range('A', $lastCol) as $col) {
             $sheet->getColumnDimension($col)->setAutoSize(true);
         }
+
+        $sheet->getStyle('A1:' . $lastCol . '1')->getFont()->setBold(true);
+    }
+
+    public function exportExcel(Request $request)
+    {
+        $tz = 'Asia/Bangkok';
+
+        $skuLike = $this->normalizeSkuFilter($request->query('sku', ''));
+
+        $companyMode = strtoupper(trim((string) $request->query('company', 'ALL')));
+        if (!in_array($companyMode, ['ALL', 'WIRE', 'PLUS'], true)) {
+            $companyMode = 'ALL';
+        }
+
+        $planMonth = $this->parsePlanMonth($request->query('plan_month'), $tz);
+        $skuTerms = $this->normalizeSkuTerms($skuLike);
+        $sinceAvg = $request->query('since_avg', now($tz)->subMonths(12)->toDateString());
+        $sinceAvgDate = Carbon::parse($sinceAvg, $tz)->startOfDay()->toDateString();
+        $selectedSuppliers = $this->normalizeSupplierCodes($request->query('suppliers', []));
+        $selectedGrades = $this->normalizeGradeFilters($request->query('grades', []));
+        $shortageOnly = $request->boolean('shortage_only');
+
+        $data = $this->buildIndexDataset(
+            $skuLike,
+            $skuTerms,
+            $companyMode,
+            $planMonth,
+            $sinceAvgDate,
+            $selectedSuppliers,
+            $selectedGrades,
+            $tz
+        );
+
+        // ใช้ชุดข้อมูลเดียวกับหน้า table แล้ว apply filter/sort ที่ user กรองใน table เพิ่มเติม
+        $rows = collect($data['rows'])->values();
+        if ($shortageOnly) {
+            $rows = $rows
+                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->values();
+        }
+        $rows = $this->applyExportTableState($rows, $request);
+
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Forecast RM');
+        $this->writeForecastExportSheet($sheet, $this->exportMainHeaders(), $rows, fn(array $r) => $this->exportMainRow($r));
+
+        foreach ($this->exportDisplaySalesCodes() as $divisionCode) {
+            $divisionRows = $rows
+                ->filter(fn($r) => abs((float) (((array) $r)[strtolower($divisionCode)] ?? 0)) > 0.0001)
+                ->values();
+
+            $divisionSheet = $spreadsheet->createSheet();
+            $divisionSheet->setTitle($divisionCode);
+            $this->writeForecastExportSheet(
+                $divisionSheet,
+                $this->exportDivisionHeaders(),
+                $divisionRows,
+                fn(array $r) => $this->exportDivisionRow($r, $divisionCode)
+            );
+        }
+
+        $spreadsheet->setActiveSheetIndex(0);
 
         $fileName = 'forecast_rm_' . Carbon::parse($planMonth)->format('Ym') . '_' . now($tz)->format('Ymd_His') . '.xlsx';
 
@@ -1334,6 +2050,7 @@ class ForecastRmController extends Controller
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
+
 
     public function saveInput(Request $request)
     {
@@ -1422,6 +2139,340 @@ class ForecastRmController extends Controller
             ->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
     }
 
+
+    private function fetchManualOrderIndex(
+        string $planMonth,
+        array $skuTerms,
+        string $companyMode = 'ALL'
+    ) {
+        $q = DB::connection($this->fcConn)
+            ->table('fc_rm_manual_order as mo')
+            ->leftJoin('fc_rm_manual_order_supplier as mos', 'mos.manual_order_id', '=', 'mo.id')
+            ->selectRaw("
+                mo.id,
+                mo.plan_month,
+                mo.company_mode,
+                mo.rm_partnumber,
+                mo.rm_description,
+                mo.auto_need_to_order,
+                mo.manual_order_qty,
+                mo.remark,
+                mos.supplier_code,
+                mos.supplier_name,
+                mos.manual_order_qty AS supplier_order_qty
+            ")
+            ->whereDate('mo.plan_month', $planMonth);
+
+        if ($companyMode !== 'ALL') {
+            $q->where('mo.company_mode', $companyMode);
+        }
+
+        if (!empty($skuTerms)) {
+            $q->where(function ($sub) use ($skuTerms) {
+                foreach ($skuTerms as $term) {
+                    $sub->orWhere('mo.rm_partnumber', 'like', strtoupper($term) . '%');
+                }
+            });
+        }
+
+        return collect($q->orderBy('mo.rm_partnumber')->get())
+            ->map(fn($r) => (array) $r)
+            ->groupBy(fn($r) => strtoupper(trim((string) ($r['rm_partnumber'] ?? ''))))
+            ->map(function ($rows) {
+                $first = collect($rows)->first();
+
+                $supplierRows = collect($rows)
+                    ->filter(fn($r) => trim((string) ($r['supplier_code'] ?? '')) !== '')
+                    ->map(function ($r) {
+                        return [
+                            'code' => strtoupper(trim((string) ($r['supplier_code'] ?? ''))),
+                            'name' => trim((string) ($r['supplier_name'] ?? '')),
+                            'qty' => round((float) ($r['supplier_order_qty'] ?? 0), 2),
+                        ];
+                    })
+                    ->unique('code')
+                    ->values();
+
+                return [
+                    'id' => (int) ($first['id'] ?? 0),
+                    'auto_need_to_order' => round((float) ($first['auto_need_to_order'] ?? 0), 2),
+                    'manual_order_qty' => round((float) ($first['manual_order_qty'] ?? 0), 2),
+                    'remark' => (string) ($first['remark'] ?? ''),
+                    'supplier_rows' => $supplierRows->all(),
+                    'supplier_codes' => $supplierRows
+                        ->pluck('code')
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all(),
+                    'supplier_names' => $supplierRows
+                        ->pluck('name')
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all(),
+                    'supplier_order_qty_by_code' => $supplierRows
+                        ->mapWithKeys(fn($sp) => [$sp['code'] => round((float) ($sp['qty'] ?? 0), 2)])
+                        ->all(),
+                ];
+            });
+    }
+
+    public function forecastDetail(Request $request)
+    {
+        $sku = $this->normalizeSku($request->query('sku', ''));
+        $salesCode = $this->normalizeSalesCode($request->query('sales_code'));
+        $planMonth = $this->parsePlanMonth($request->query('plan_month'), 'Asia/Bangkok');
+        $companyMode = strtoupper(trim((string) $request->query('company', 'ALL')));
+
+        if ($sku === '') {
+            return response()->json([]);
+        }
+
+        $q = DB::connection($this->fcConn)
+            ->table('fc_rm_division_forecast')
+            ->where('is_selected', 1)
+            ->selectRaw("
+                sales_code,
+                customer_id,
+                customer_name,
+                fg_partnumber,
+                fg_description,
+                rm_partnumber,
+                history_avg6,
+                k_factor,
+                forecast_1m,
+                forecast_6m,
+                forecast_qty,
+                source_type,
+                supplier_name,
+                row_remark,
+                updated_at
+            ")
+            ->whereDate('forecast_base_month', $planMonth)
+            ->where('rm_partnumber', $sku)
+            ->where('is_selected', 1);
+
+        if ($salesCode) {
+            $q->where('sales_code', $salesCode);
+        }
+
+        if ($companyMode !== 'ALL') {
+            $q->where('company_mode', $companyMode);
+        }
+
+        $rows = collect($q->orderBy('sales_code')->orderBy('customer_name')->orderBy('fg_partnumber')->get())
+            ->map(function ($r) {
+                $a = (array) $r;
+                $a['history_avg6'] = round((float) ($a['history_avg6'] ?? 0), 2);
+                $a['k_factor'] = round((float) ($a['k_factor'] ?? 0), 1);
+                $a['division_forecast_1m'] = round((float) ($a['forecast_1m'] ?? ($a['forecast_qty'] ?? 0)), 2);
+                $a['division_forecast_6m'] = round((float) ($a['forecast_6m'] ?? 0), 2);
+                $a['forecast_1m'] = $a['division_forecast_1m'];
+                $a['forecast_6m'] = $a['division_forecast_6m'];
+                $a['has_approval'] = false;
+                $a['row_remark'] = trim((string) ($a['row_remark'] ?? ''));
+                return $a;
+            })
+            ->keyBy(fn($r) => ((int) ($r['customer_id'] ?? 0)) . '|' . strtoupper(trim((string) ($r['fg_partnumber'] ?? ''))));
+
+        try {
+            $approvalQ = DB::connection($this->fcConn)
+                ->table($this->divisionApprovalTable)
+                ->whereDate('forecast_base_month', $planMonth)
+                ->where('rm_partnumber', $sku);
+
+            if ($salesCode) {
+                $approvalQ->where('sales_code', $salesCode);
+            }
+
+            $approvalRows = collect($approvalQ->get([
+                'sales_code',
+                'customer_id',
+                'customer_name',
+                'fg_partnumber',
+                'fg_description',
+                'rm_partnumber',
+                'division_forecast_1m',
+                'division_forecast_6m',
+                'approval_forecast_1m',
+                'approval_forecast_6m',
+                'approval_remark',
+            ]));
+
+            foreach ($approvalRows as $approval) {
+                $key = ((int) ($approval->customer_id ?? 0)) . '|' . strtoupper(trim((string) ($approval->fg_partnumber ?? '')));
+                $current = $rows->get($key, [
+                    'sales_code' => (string) ($approval->sales_code ?? ''),
+                    'customer_id' => (int) ($approval->customer_id ?? 0),
+                    'customer_name' => (string) ($approval->customer_name ?? '-'),
+                    'fg_partnumber' => (string) ($approval->fg_partnumber ?? ''),
+                    'fg_description' => (string) ($approval->fg_description ?? ''),
+                    'rm_partnumber' => (string) ($approval->rm_partnumber ?? ''),
+                    'history_avg6' => 0,
+                    'k_factor' => 0,
+                    'source_type' => 'APPROVAL',
+                    'supplier_name' => '',
+                    'row_remark' => '',
+                    'division_forecast_1m' => 0,
+                    'division_forecast_6m' => 0,
+                ]);
+
+                $current['division_forecast_1m'] = round((float) ($approval->division_forecast_1m ?? ($current['division_forecast_1m'] ?? 0)), 2);
+                $current['division_forecast_6m'] = round((float) ($approval->division_forecast_6m ?? ($current['division_forecast_6m'] ?? 0)), 2);
+                $current['forecast_1m'] = round((float) ($approval->approval_forecast_1m ?? 0), 2);
+                $current['forecast_6m'] = round((float) ($approval->approval_forecast_6m ?? 0), 2);
+                $current['row_remark'] = trim((string) ($approval->approval_remark ?? ($current['row_remark'] ?? '')));
+                $current['source_type'] = 'MANAGER_APPROVAL';
+                $current['has_approval'] = true;
+
+                $rows[$key] = $current;
+            }
+        } catch (\Throwable $e) {
+            // Approval table is optional until SQL deployment is complete.
+        }
+
+        $rows = $rows
+            ->filter(function ($row) {
+                return (float) ($row['forecast_1m'] ?? 0) > 0
+                    || (float) ($row['forecast_6m'] ?? 0) > 0
+                    || (float) ($row['division_forecast_1m'] ?? 0) > 0
+                    || (float) ($row['division_forecast_6m'] ?? 0) > 0;
+            })
+            ->values();
+
+        return response()->json($rows);
+    }
+
+    public function saveManualOrder(Request $request)
+    {
+        $u = $this->userOr403();
+
+        if (!$this->canManualOrder()) {
+            abort(403, 'ไม่มีสิทธิ์ Manual สั่งเพิ่ม');
+        }
+
+        $validator = Validator::make($request->all(), [
+            'plan_month' => ['required', 'date'],
+            'company' => ['nullable', 'string'],
+            'sku' => ['required', 'string'],
+            'description' => ['nullable', 'string'],
+            'auto_need_to_order' => ['nullable', 'numeric'],
+            'manual_order_qty' => ['nullable', 'numeric', 'min:0'],
+            'supplier_codes' => ['required', 'array', 'min:1'],
+            'supplier_codes.*' => ['required', 'string'],
+            'supplier_order_qty' => ['nullable', 'array'],
+            'supplier_order_qty.*' => ['nullable', 'numeric', 'min:0'],
+            'remark' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'manual_order_qty.numeric' => 'Manual สั่งเพิ่มรวมต้องเป็นตัวเลข',
+            'manual_order_qty.min' => 'Manual สั่งเพิ่มรวมต้องไม่ติดลบ',
+            'supplier_codes.required' => 'กรุณาเลือก Supplier อย่างน้อย 1 ราย',
+            'supplier_codes.min' => 'กรุณาเลือก Supplier อย่างน้อย 1 ราย',
+            'supplier_order_qty.*.numeric' => 'ยอด Manual แยก Supplier ต้องเป็นตัวเลข',
+            'supplier_order_qty.*.min' => 'ยอด Manual แยก Supplier ต้องไม่ติดลบ',
+        ]);
+
+        if ($validator->fails()) {
+            return back()->withErrors($validator)->withInput();
+        }
+
+        $planMonth = $this->parsePlanMonth($request->input('plan_month'), 'Asia/Bangkok');
+        $sku = $this->normalizeSku($request->input('sku'));
+        $companyMode = strtoupper(trim((string) $request->input('company', 'ALL')));
+        if (!in_array($companyMode, ['ALL', 'WIRE', 'PLUS'], true)) {
+            $companyMode = 'ALL';
+        }
+
+        $supplierCodes = collect($request->input('supplier_codes', []))
+            ->map(fn($v) => strtoupper(trim((string) $v)))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $supplierQtyInput = collect($request->input('supplier_order_qty', []))
+            ->mapWithKeys(fn($qty, $code) => [strtoupper(trim((string) $code)) => round((float) ($qty ?? 0), 2)]);
+
+        $manualTotal = round((float) $supplierCodes->sum(fn($code) => (float) ($supplierQtyInput[$code] ?? 0)), 2);
+
+        $supplierNames = DB::connection($this->fcConn)
+            ->table('fc_supplier_master')
+            ->whereIn(DB::raw('UPPER(LTRIM(RTRIM(supplier_code)))'), $supplierCodes->all())
+            ->pluck('supplier_name', 'supplier_code')
+            ->mapWithKeys(fn($name, $code) => [strtoupper(trim((string) $code)) => (string) $name]);
+
+        $now = now();
+
+        DB::connection($this->fcConn)->transaction(function () use (
+            $planMonth,
+            $sku,
+            $companyMode,
+            $request,
+            $supplierCodes,
+            $supplierNames,
+            $supplierQtyInput,
+            $manualTotal,
+            $u,
+            $now
+        ) {
+            $match = [
+                'plan_month' => $planMonth,
+                'company_mode' => $companyMode,
+                'rm_partnumber' => $sku,
+            ];
+
+            DB::connection($this->fcConn)
+                ->table('fc_rm_manual_order')
+                ->updateOrInsert($match, [
+                    'rm_description' => trim((string) $request->input('description', '')) ?: null,
+                    'auto_need_to_order' => round((float) $request->input('auto_need_to_order', 0), 2),
+                    'manual_order_qty' => $manualTotal,
+                    'remark' => trim((string) $request->input('remark', '')) ?: null,
+                    'updated_at' => $now,
+                    'updated_by' => $u->id ?? null,
+                    'created_at' => $now,
+                    'created_by' => $u->id ?? null,
+                ]);
+
+            $manualOrder = DB::connection($this->fcConn)
+                ->table('fc_rm_manual_order')
+                ->where($match)
+                ->first();
+
+            if (!$manualOrder) {
+                return;
+            }
+
+            DB::connection($this->fcConn)
+                ->table('fc_rm_manual_order_supplier')
+                ->where('manual_order_id', $manualOrder->id)
+                ->delete();
+
+            $supplierRows = $supplierCodes->map(fn($code) => [
+                'manual_order_id' => (int) $manualOrder->id,
+                'supplier_code' => $code,
+                'supplier_name' => (string) ($supplierNames[$code] ?? $code),
+                'manual_order_qty' => round((float) ($supplierQtyInput[$code] ?? 0), 2),
+                'created_at' => $now,
+                'created_by' => $u->id ?? null,
+            ])->values()->all();
+
+            if (!empty($supplierRows)) {
+                DB::connection($this->fcConn)
+                    ->table('fc_rm_manual_order_supplier')
+                    ->insert($supplierRows);
+            }
+        });
+
+        $this->clearForecastIndexCache(
+            $sku,
+            $companyMode,
+            $planMonth
+        );
+
+        return back()->with('success', 'บันทึก Manual สั่งเพิ่มเรียบร้อยแล้ว');
+    }
+
     private function fetchSavedDivisionForecastIndex(
         string $forecastMonth,
         array $skuTerms,
@@ -1452,11 +2503,12 @@ class ForecastRmController extends Controller
         $rows = collect($q->groupBy('rm_partnumber', 'sales_code')->get())
             ->map(fn($r) => (array) $r);
 
-        return $rows
+        $out = $rows
             ->groupBy('rm_partnumber')
             ->map(function ($g) {
                 $out = [
                     'forecast_by_sales' => [],
+                    'approval_forecast_by_sales' => [],
                     'planner_forecast' => 0,
                     'supplier_name_by_sales' => [],
                 ];
@@ -1479,6 +2531,48 @@ class ForecastRmController extends Controller
 
                 return $out;
             });
+
+        try {
+            $approvalQ = DB::connection($this->fcConn)
+                ->table($this->divisionApprovalTable)
+                ->selectRaw("
+                    rm_partnumber,
+                    sales_code,
+                    SUM(approval_forecast_6m) AS approval_forecast_qty
+                ")
+                ->whereDate('forecast_base_month', $forecastMonth);
+
+            if (!empty($skuTerms)) {
+                $approvalQ->where(function ($sub) use ($skuTerms) {
+                    foreach ($skuTerms as $term) {
+                        $sub->orWhere('rm_partnumber', 'like', strtoupper($term) . '%');
+                    }
+                });
+            }
+
+            $approvalRows = collect($approvalQ->groupBy('rm_partnumber', 'sales_code')->get())
+                ->map(fn($r) => (array) $r);
+
+            foreach ($approvalRows->groupBy('rm_partnumber') as $rmPartnumber => $group) {
+                $current = $out->get($rmPartnumber, [
+                    'forecast_by_sales' => [],
+                    'approval_forecast_by_sales' => [],
+                    'planner_forecast' => 0,
+                    'supplier_name_by_sales' => [],
+                ]);
+
+                foreach ($group as $r) {
+                    $salesCode = strtoupper((string) ($r['sales_code'] ?? ''));
+                    $current['approval_forecast_by_sales'][$salesCode] = (float) ($r['approval_forecast_qty'] ?? 0);
+                }
+
+                $out[$rmPartnumber] = $current;
+            }
+        } catch (\Throwable $e) {
+            // Approval table is optional until the SQL deployment is run.
+        }
+
+        return $out;
     }
 
     private function fetchCpa13MonthRange(string $conn, array $skuTerms, Carbon $start, Carbon $end)

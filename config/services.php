@@ -31,4 +31,13 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'erp' => [
+        'base_url'        => env('ERP_BASE_URL', 'http://192.168.1.40/cpa/rp-forms.php'),
+        'login_url'       => env('ERP_LOGIN_URL', 'http://192.168.1.40/cpa/login.php'),
+        'phpsessid'       => env('ERP_PHPSESSID'),
+        'po_form_id_wire' => env('ERP_PO_FORM_ID_WIRE', 60169),
+        'po_form_id_plus' => env('ERP_PO_FORM_ID_PLUS', 60169),
+        'timeout'         => env('ERP_TIMEOUT', 30),
+    ],
+
 ];

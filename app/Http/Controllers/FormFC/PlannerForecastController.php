@@ -552,12 +552,12 @@ class PlannerForecastController extends Controller
                 continue;
             }
 
-            $fgPart = strtoupper(trim((string) ($meta['fg_partnumber'] ?? '')));
+            $fgPart = strtoupper(trim((string) ($meta['fg_partnumber'] ?? $rowKey)));
             if ($fgPart === '') {
                 continue;
             }
 
-            $fgDesc = trim((string) ($meta['fg_description'] ?? ''));
+            $fgDesc = trim((string) ($meta['fg_description'] ?? $meta['rm_description'] ?? ''));
             $rmPart = strtoupper(trim((string) ($meta['rm_partnumber'] ?? '')));
             $avg6 = round((float) ($meta['avg6'] ?? 0), 2);
 

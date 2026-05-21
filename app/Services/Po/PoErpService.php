@@ -49,13 +49,13 @@ class PoErpService
                                 ->orWhere('oe.f1', 'like', "%{$kw}%");
                         });
                     })
-                    ->groupBy('oe.ordnumber', 'ap.invnumber', 'oe.f1')
+                    ->groupBy('oe.ordnumber', 'oe.f1')
                     ->orderByDesc(DB::raw('MAX(oe.transdate)'))
                     ->get([
                         DB::raw('MAX(oe.transdate) as transdate'),
                         'oe.ordnumber',
-                        'ap.invnumber',
-                        DB::raw('SUM(oe.amount) as qty'),
+                        DB::raw("STRING_AGG(DISTINCT ap.invnumber, ', ') as invnumber"),
+                        DB::raw('MAX(oe.amount) as qty'),
                         'oe.f1',
                     ])
                     ->map(function ($row) use ($erpSource) {
@@ -192,6 +192,22 @@ class PoErpService
     public function firstHeaderRow(string $ordnumber, ?string $sourceSystem = null): ?object
     {
         return $this->getDetailRows($ordnumber, $sourceSystem)->first();
+    }
+
+    public function purchaseIdForPo(string $ordnumber, ?string $sourceSystem = null): ?int
+    {
+        $id = $this->baseDetailQuery($sourceSystem)
+            ->table('oe')
+            ->where('oe.closed', false)
+            ->where('oe.cancelled', false)
+            ->whereDate('oe.transdate', '>=', '2026-04-01')
+            ->whereRaw("oe.ordnumber ~ '^PO[0-9]'")
+            ->where('oe.shipped_or_received', true)
+            ->where('oe.ordnumber', $ordnumber)
+            ->orderByDesc('oe.id')
+            ->value('oe.id');
+
+        return $id ? (int) $id : null;
     }
 
     public function syncHeaderFromErp(string $ordnumber, ?int $userId = null, ?string $sourceSystem = null): PoHeader

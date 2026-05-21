@@ -12,6 +12,7 @@ class EncryptCookies extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        //
+        'lp_dl_token',
+        'vc_download_token',
     ];
 }

@@ -357,7 +357,7 @@
                                     <th style="width: 120px;">Type</th>
                                     <th class="col-main">สินค้า</th>
                                     <th style="width: 140px;">MFG</th>
-                                    <th style="width: 130px;">ระบุเส้น</th>
+                                    <th style="width: 130px;">ระบุเส้น/ชิ้น</th>
                                     <th style="width: 130px;">Qty / Assigned</th>
                                     <th style="width: 130px;">Stock FG</th>
                                     <th style="width: 160px;">ลูกค้า / Sales</th>
@@ -400,7 +400,7 @@
                                         <td>
                                             @if (!is_null($row->line_qty_display) && (float) $row->line_qty_display > 0)
                                                 <div class="mini-text fw-bold text-danger">
-                                                    ระบุเส้น : {{ number_format((float) $row->line_qty_display, 0) }} เส้น
+                                                    {{ ($row->line_qty_unit ?? 'เส้น') === 'ชิ้น' ? 'ชิ้น' : 'ระบุเส้น' }} : {{ number_format((float) $row->line_qty_display, 0) }} {{ $row->line_qty_unit ?? 'เส้น' }}
                                                 </div>
                                             @else
                                                 <span class="text-muted">-</span>

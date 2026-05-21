@@ -50,6 +50,9 @@ class InquiryByShipDateExport implements WithMultipleSheets
 
         $mode = strtoupper(trim((string) ($this->filters['mode'] ?? '')));
         $status = strtoupper(trim((string) ($this->filters['status'] ?? 'NEW')));
+        $revision = trim((string) ($this->filters['revision_number'] ?? ''));
+        $revisionMax = trim((string) ($this->filters['revision_max_number'] ?? ''));
+        $excludeVoidCancel = (string) ($this->filters['exclude_void_cancel'] ?? '') === '1';
         $so = trim((string) ($this->filters['so'] ?? ''));
         $customer = trim((string) ($this->filters['customer'] ?? ''));
         $shipto = trim((string) ($this->filters['shipto'] ?? ''));
@@ -82,6 +85,16 @@ class InquiryByShipDateExport implements WithMultipleSheets
 
         if ($status !== 'ALL' && $status !== '') {
             $q->where('d.status', $status);
+        }
+
+        if ($excludeVoidCancel) {
+            $q->whereRaw("ISNULL(d.status,'') NOT IN ('VOID','CANCEL')");
+        }
+
+        if ($revisionMax !== '' && is_numeric($revisionMax)) {
+            $q->where('d.revision_number', '<=', (int) $revisionMax);
+        } elseif ($revision !== '' && is_numeric($revision)) {
+            $q->where('d.revision_number', (int) $revision);
         }
 
         return $q;

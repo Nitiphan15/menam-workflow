@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use App\Models\Users\User;
 use App\Models\Users\Department;
-use App\Models\Users\DeptRole;
 use App\Services\OrgCore;
 use App\Support\SqlServerDb;
 
@@ -20,8 +19,10 @@ class UserAdminController extends Controller
         $q = trim((string)$r->query('q', ''));
         $departments = Department::where('is_active', 1)
             ->orderBy('code')->get(['id', 'code', 'name']);
-        $webRoles    = DeptRole::where('is_active', 1)
-            ->orderBy('code')->get(['id', 'code', 'name']);
+        $webRoles = SqlServerDb::table('dept_roles')
+            ->where('is_active', 1)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
 
         $users = User::query()
             ->when($q, fn($w) => $w->where(function ($x) use ($q) {

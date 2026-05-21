@@ -29,6 +29,10 @@ class ApproverResolver
                     return collect();
                 }
 
+                if (self::isPoPurchaseApprovalStep($wfForm, $context)) {
+                    return self::byDeptLevelOrAbove($deptId, 2, $excludeOriginator ? $originatorId : null, $appCode);
+                }
+
                 return self::byDeptLevel($deptId, 2, $excludeOriginator ? $originatorId : null, $appCode);
 
             case 'DEPARTMENT_MANAGER':
@@ -42,7 +46,8 @@ class ApproverResolver
                         $deptId,
                         (array) $json['role_in'],
                         $excludeOriginator ? $originatorId : null,
-                        $appCode
+                        $appCode,
+                        (bool) ($json['include_children'] ?? false)
                     );
 
                     if ($users->isEmpty() && self::isPoDepartmentApprovalStep($wfForm, $context)) {
@@ -128,10 +133,43 @@ class ApproverResolver
         return collect();
     }
 
+    private static function byDeptLevelOrAbove(int $deptId, int $minLevelNo, ?int $excludeUserId = null, ?string $appCode = null): Collection
+    {
+        foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
+            $rows = self::queryDeptRoleUsers($candidateDeptId, $excludeUserId, $appCode)
+                ->where('dr.level_no', '>=', $minLevelNo)
+                ->orderBy('dr.level_no')
+                ->orderByDesc('dru.is_primary')
+                ->orderByDesc('dru.start_date')
+                ->get(['u.id', 'dr.level_no']);
+
+            if ($rows->isEmpty()) {
+                continue;
+            }
+
+            $nearestLevel = (int) $rows->min('level_no');
+
+            return $rows
+                ->filter(fn ($row) => (int) $row->level_no === $nearestLevel)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+        }
+
+        return collect();
+    }
+
     private static function isPoDepartmentApprovalStep(object $wfForm, array $context): bool
     {
         return strtolower((string) ($wfForm->app_code ?? '')) === 'po'
             && (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0) === 3;
+    }
+
+    private static function isPoPurchaseApprovalStep(object $wfForm, array $context): bool
+    {
+        return strtolower((string) ($wfForm->app_code ?? '')) === 'po'
+            && (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0) === 2;
     }
 
     private static function resolveDepartmentContext(object $rule, object $wfForm, array $context, array $json): int
@@ -185,7 +223,13 @@ class ApproverResolver
         return collect();
     }
 
-    private static function byDeptRoleNames(int $deptId, array $roleNames, ?int $excludeUserId = null, ?string $appCode = null): Collection
+    private static function byDeptRoleNames(
+        int $deptId,
+        array $roleNames,
+        ?int $excludeUserId = null,
+        ?string $appCode = null,
+        bool $includeChildren = false
+    ): Collection
     {
         $roleNames = collect($roleNames)
             ->map(fn($name) => trim((string) $name))
@@ -197,7 +241,7 @@ class ApproverResolver
             return collect();
         }
 
-        foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
+        foreach (self::departmentSearchOrder($deptId, $appCode, $includeChildren) as $candidateDeptId) {
             $users = self::queryDeptRoleUsers($candidateDeptId, $excludeUserId, $appCode)
                 ->whereIn('dr.name', $roleNames)
                 ->orderByDesc('dru.is_primary')
@@ -210,6 +254,20 @@ class ApproverResolver
         }
 
         return collect();
+    }
+
+    private static function departmentSearchOrder(int $deptId, ?string $appCode = null, bool $includeChildren = false): array
+    {
+        if (!$includeChildren) {
+            return self::departmentLineage($deptId, $appCode);
+        }
+
+        return collect([$deptId])
+            ->merge(self::departmentDescendants($deptId, $appCode))
+            ->merge(self::departmentLineage($deptId, $appCode))
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private static function queryDeptRoleUsers(int $deptId, ?int $excludeUserId = null, ?string $appCode = null)
@@ -254,6 +312,37 @@ class ApproverResolver
         }
 
         return $lineage;
+    }
+
+    private static function departmentDescendants(int $deptId, ?string $appCode = null): array
+    {
+        if ($deptId <= 0) {
+            return [];
+        }
+
+        $descendants = [];
+        $queue = [$deptId];
+        $visited = [$deptId => true];
+
+        while (!empty($queue)) {
+            $currentId = array_shift($queue);
+            $childIds = WorkflowDb::table($appCode, 'departments')
+                ->where('parent_id', $currentId)
+                ->pluck('id');
+
+            foreach ($childIds as $childId) {
+                $childId = (int) $childId;
+                if ($childId <= 0 || isset($visited[$childId])) {
+                    continue;
+                }
+
+                $visited[$childId] = true;
+                $descendants[] = $childId;
+                $queue[] = $childId;
+            }
+        }
+
+        return $descendants;
     }
 
     private static function json($str): array

@@ -38,7 +38,7 @@
                     </div>
                     <div class="col-md-7">
                         <label class="form-label">ชื่อสิทธิ์</label>
-                        <input name="name" class="form-control" required value="{{ old('code', $row->name ?? '') }}">
+                        <input name="name" class="form-control" required value="{{ old('name', $row->name ?? '') }}">
                     </div>
                     @if ($isEdit)
                         <div class="col-md-1">
@@ -108,12 +108,43 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="3" class="text-center text-muted">ไม่พบข้อมูล</td>
+                                <td colspan="5" class="text-center text-muted">ไม่พบข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
+            <div class="card-footer">{{ $roles->links() }}</div>
         </div>
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        document.querySelectorAll('.btn-delete').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const form = this.closest('form');
+
+                if (!window.Swal) {
+                    form.submit();
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'ยืนยันการลบ?',
+                    text: 'ลบแล้วจะไม่สามารถกู้คืนได้',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: 'ลบ',
+                    cancelButtonText: 'ยกเลิก'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        form.submit();
+                    }
+                });
+            });
+        });
+    </script>
+@endpush

@@ -88,6 +88,9 @@
 
             <div class="col-12 col-sm-auto">
                 <button class="btn btn-dark px-4">ค้นหา</button>
+                <a href="{{ route('wocr.export', request()->query() + ['box' => $box]) }}" class="btn btn-success ms-1">
+                    Export Excel
+                </a>
                 @if (request()->hasAny(['q', 'site', 'status']))
                     <a href="{{ request()->fullUrlWithQuery(['q' => null, 'site' => null, 'status' => null, 'page' => 1]) }}"
                         class="btn btn-outline-secondary ms-1">ล้างตัวกรอง</a>

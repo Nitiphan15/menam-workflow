@@ -52,7 +52,7 @@
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">เริ่ม</label>
-                        <input type="date" name="start_date" class="form-control">
+                        <input type="date" name="start_date" class="form-control" required>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">สิ้นสุด</label>
@@ -96,10 +96,9 @@
                                 </td>
                                 <td class="text-end">
                                     <form class="d-inline" method="POST"
-                                        action="{{ route('adminweb.udr.destroy', $it->id) }}"
-                                        onsubmit="return confirm('ลบรายการนี้?')">
+                                        action="{{ route('adminweb.udr.destroy', $it->id) }}">
                                         @csrf @method('DELETE')
-                                        <button class="btn btn-sm btn-danger">ลบ</button>
+                                        <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>
                                     </form>
                                 </td>
                             </tr>
@@ -116,6 +115,7 @@
     </div>
 @endsection
 
+@push('scripts')
 <script>
     const txt = document.getElementById('user_text');
     const list = document.getElementById('userList');
@@ -142,7 +142,8 @@
                         'Accept': 'application/json'
                     }
                 });
-            fillUsers(await res.json());
+            const data = await res.json();
+            fillUsers(data.results || data);
         }, 250);
     });
     const sync = () => {
@@ -169,4 +170,31 @@
             roleSel.appendChild(o);
         });
     }
+
+    document.querySelectorAll('.btn-delete').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const form = this.closest('form');
+
+            if (!window.Swal) {
+                form.submit();
+                return;
+            }
+
+            Swal.fire({
+                title: 'ยืนยันการลบ?',
+                text: 'ลบแล้วจะไม่สามารถกู้คืนได้',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: 'ลบ',
+                cancelButtonText: 'ยกเลิก'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    form.submit();
+                }
+            });
+        });
+    });
 </script>
+@endpush

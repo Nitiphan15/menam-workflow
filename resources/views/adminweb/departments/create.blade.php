@@ -142,21 +142,28 @@
 
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center text-muted">ไม่พบข้อมูล</td>
+                                <td colspan="9" class="text-center text-muted">ไม่พบข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
+            <div class="card-footer">{{ $items->links() }}</div>
         </div>
     </div>
 @endsection
+@push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const deleteButtons = document.querySelectorAll('.btn-delete');
         deleteButtons.forEach(btn => {
             btn.addEventListener('click', function() {
                 const form = this.closest('form');
+
+                if (!window.Swal) {
+                    form.submit();
+                    return;
+                }
 
                 Swal.fire({
                     title: 'ยืนยันการลบ?',
@@ -176,3 +183,4 @@
         });
     });
 </script>
+@endpush

@@ -28,6 +28,7 @@
                 ],
             ),
         );
+        $departmentItem = $items->first();
     @endphp
 
 
@@ -82,11 +83,11 @@
                         <div class="col-md-6 mb-3">
                             <label for="department" class="form-label">แผนก <span class="text-danger">*</span></label>
                             <input type="hidden" id="department_id" name="department_id"
-                                value="{{ old('department_id', $items ? $items[0]->id : '') }}"></input>
+                                value="{{ old('department_id', $departmentItem->id ?? '') }}"></input>
                             <input type="text" class="form-control @error('department') is-invalid @enderror"
                                 id="department" name="department" rows="6"
-                                value="{{ old('department', $items ? $items[0]->name : '') }}" required
-                                placeholder="แผนก..."{{ $items ? 'readonly' : '' }}></input>
+                                value="{{ old('department', $departmentItem->name ?? '') }}" required
+                                placeholder="แผนก..."{{ $departmentItem ? 'readonly' : '' }}></input>
                             @error('department')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror

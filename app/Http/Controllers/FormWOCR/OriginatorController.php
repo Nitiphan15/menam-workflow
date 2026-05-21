@@ -17,6 +17,8 @@ class OriginatorController extends Controller
     public function index(Request $r)
     {
         $user = null;
+        $items = collect();
+
         if (auth()->check()) {
             $user = auth()->user();
         }
@@ -32,6 +34,8 @@ class OriginatorController extends Controller
     public function index2(Request $r)
     {
         $user = null;
+        $items = collect();
+
         if (auth()->check()) {
             $user = auth()->user();
         }

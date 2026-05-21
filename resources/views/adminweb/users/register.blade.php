@@ -70,7 +70,8 @@
 
                     <div class="col-md-12">
                         <label class="form-label">สิทธิ์การใช้งานเว็บ (เลือกได้หลายอัน)</label>
-                        <select name="web_roles[]" class="form-select" multiple size="5">
+                        <select id="web_roles" name="web_roles[]" class="form-select" multiple size="5"
+                            placeholder="Search and select web roles">
                             @foreach ($webRoles as $r)
                                 <option value="{{ $r->id }}"
                                     {{ collect(old('web_roles', []))->contains($r->id) ? 'selected' : '' }}>
@@ -131,10 +132,9 @@
                                         class="badge bg-{{ $u->is_active ? 'success' : 'secondary' }}">{{ $u->is_active ? 'Active' : 'Inactive' }}</span>
                                 </td>
                                 <td class="text-end">
-                                    <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}"
-                                        onsubmit="return confirm('ลบผู้ใช้นี้?')">
+                                    <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}">
                                         @csrf @method('DELETE')
-                                        <button class="btn btn-sm btn-danger">ลบ</button>
+                                        <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>
                                     </form>
                                 </td>
                             </tr>
@@ -151,11 +151,21 @@
     </div>
 @endsection
 
+@push('scripts')
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         const deptSel = document.getElementById('department_id'); // ✅ เปลี่ยน id
         const roleSel = document.getElementById('department_role_id');
         const oldRoleId = "{{ old('department_role_id') }}";
+
+        if (window.TomSelect && document.getElementById('web_roles')) {
+            new TomSelect('#web_roles', {
+                plugins: ['remove_button'],
+                maxOptions: 500,
+                searchField: ['text'],
+                placeholder: 'Search and select web roles'
+            });
+        }
 
         function setRoles(opts) {
             roleSel.innerHTML = '';
@@ -204,5 +214,32 @@
         } else {
             console.warn('ไม่พบ element #department_id หรือ #department_role_id');
         }
+
+        document.querySelectorAll('.btn-delete').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const form = this.closest('form');
+
+                if (!window.Swal) {
+                    form.submit();
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'ยืนยันการลบ?',
+                    text: 'ลบแล้วจะไม่สามารถกู้คืนได้',
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonColor: '#d33',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: 'ลบ',
+                    cancelButtonText: 'ยกเลิก'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        form.submit();
+                    }
+                });
+            });
+        });
     });
 </script>
+@endpush

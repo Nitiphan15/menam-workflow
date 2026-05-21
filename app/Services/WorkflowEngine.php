@@ -69,13 +69,20 @@ class WorkflowEngine
             $wf = WorkflowDb::table($appCode, 'wf_forms')->lockForUpdate()->find($wfId);
             abort_unless($wf && !in_array((string) $wf->form_status, [self::ST_VOID, self::ST_CLOSED], true), 404);
 
-            $updated = WorkflowDb::table($appCode, 'wf_form_authorizes')
+            $authorizeRow = WorkflowDb::table($appCode, 'wf_form_authorizes')
                 ->where('wf_form_id', $wfId)
                 ->where('step_no', $wf->current_step_no)
                 ->where('approver_user_id', $actorUserId)
                 ->where(function ($q) {
                     $q->whereNull('status')->orWhere('status', 'PENDING');
                 })
+                ->orderBy('id')
+                ->first();
+
+            abort_if(!$authorizeRow, 403, 'You are not allowed to approve this step');
+
+            $updated = WorkflowDb::table($appCode, 'wf_form_authorizes')
+                ->where('id', (int) $authorizeRow->id)
                 ->update([
                     'status' => 'APPROVED',
                     'decided_at' => now(),
@@ -300,39 +307,20 @@ class WorkflowEngine
         foreach ($rules as $rule) {
             $stepContext = array_merge($context, ['workflow_step_no' => $stepNo]);
             $list = ApproverResolver::resolve($rule, $wf, $stepContext, $skipFlags);
-            $approvers = $approvers->merge($list instanceof Collection ? $list : collect($list));
+            $ruleApprovers = $list instanceof Collection ? $list : collect($list);
+            $approvers = $approvers->merge($ruleApprovers->unique()->values());
         }
-        $approvers = $approvers->unique()->values();
-        $skippedAlreadyApproved = collect();
-
-        if (strtolower((string) ($wf->app_code ?? '')) === 'po' && $stepNo > 1 && $approvers->isNotEmpty()) {
-            $previousApprovedUserIds = WorkflowDb::table($appCode, 'wf_form_authorizes')
-                ->where('wf_form_id', $wfId)
-                ->where('step_no', '<', $stepNo)
-                ->where('status', 'APPROVED')
-                ->pluck('approver_user_id')
-                ->map(fn ($id) => (int) $id)
-                ->unique()
-                ->values();
-
-            if ($previousApprovedUserIds->isNotEmpty()) {
-                $skippedAlreadyApproved = $approvers
-                    ->map(fn ($id) => (int) $id)
-                    ->intersect($previousApprovedUserIds)
-                    ->values();
-
-                $approvers = $approvers
-                    ->reject(fn ($id) => $previousApprovedUserIds->contains((int) $id))
-                    ->values();
-            }
-        }
+        $allowDuplicateApprovers = strtolower((string) ($wf->app_code ?? '')) === 'po';
+        $approvers = $allowDuplicateApprovers
+            ? $approvers->filter()->values()
+            : $approvers->unique()->values();
 
         $isPoDepartmentFinalStep = strtolower((string) ($wf->app_code ?? '')) === 'po'
             && in_array((string) ($step->key ?? ''), ['dept_manager_approve', 'dept_manager_approval'], true);
         $skipIfNoApprover = (int) ($step->skip_if_no_approver ?? 0) === 1;
         $shouldSkip = (
             ($rules->isEmpty() || $approvers->isEmpty()) &&
-            ($skipIfNoApprover || ($isPoDepartmentFinalStep && $approvers->isEmpty()) || $skippedAlreadyApproved->isNotEmpty())
+            ($skipIfNoApprover || ($isPoDepartmentFinalStep && $approvers->isEmpty()))
         );
 
         if (!$shouldSkip && $rules->isEmpty()) {
@@ -349,9 +337,7 @@ class WorkflowEngine
                 'step_no' => $stepNo,
                 'actor_user_id' => $actorUserId,
                 'action_type' => $stepNo === 1 ? 'SUBMIT' : 'SKIP',
-                'comment' => $skippedAlreadyApproved->isNotEmpty()
-                    ? 'Skipped because approver already approved previous step'
-                    : 'No approver resolved',
+                'comment' => 'No approver resolved',
                 'created_at' => now(),
             ]);
 
@@ -532,6 +518,23 @@ class WorkflowEngine
             return [
                 'department_id' => $departmentId ? (int) $departmentId : 0,
                 'originator_id' => (int) ($wf->request_by_user_id ?? 0),
+            ];
+        }
+
+        if ($appCode === 'fc') {
+            $submission = WorkflowDb::table($appCode, 'fc_rm_division_forecast_submissions')
+                ->where('id', (int) ($wf->ref_id ?? 0))
+                ->first();
+
+            $departmentId = WorkflowDb::table($appCode, 'users')
+                ->where('id', (int) ($wf->request_by_user_id ?? 0))
+                ->value('department_id');
+
+            return [
+                'department_id' => (int) ($submission->department_id ?? ($departmentId ?: 0)),
+                'originator_id' => (int) ($wf->request_by_user_id ?? 0),
+                'sales_code' => (string) ($submission->sales_code ?? ''),
+                'forecast_base_month' => (string) ($submission->forecast_base_month ?? ''),
             ];
         }
 

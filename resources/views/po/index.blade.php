@@ -149,6 +149,51 @@
             <div class="alert alert-success border-0 shadow-sm">{{ session('ok') }}</div>
         @endif
 
+        @if ($errors->has('erp_phpsessid'))
+            <div class="alert alert-danger border-0 shadow-sm">{{ $errors->first('erp_phpsessid') }}</div>
+        @endif
+
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body d-flex flex-wrap align-items-end gap-2">
+                <form method="POST" action="{{ route('po.erp.connect') }}" class="d-flex flex-wrap align-items-end gap-2">
+                    @csrf
+                    <div>
+                        <label class="form-label small text-muted mb-1">ERP Username</label>
+                        <input type="text" name="erp_username" class="form-control form-control-sm" style="min-width: 150px;"
+                            autocomplete="username">
+                    </div>
+                    <div>
+                        <label class="form-label small text-muted mb-1">ERP Password</label>
+                        <input type="password" name="erp_password" class="form-control form-control-sm" style="min-width: 150px;"
+                            autocomplete="current-password">
+                    </div>
+                    <div>
+                        <label class="form-label small text-muted mb-1">Company</label>
+                        <select name="erp_dataset" class="form-select form-select-sm">
+                            <option value="msw">Menam Stainless Wire PCL</option>
+                            <option value="mswplus">Menam Plus</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">Connect ERP</button>
+                </form>
+                <form method="POST" action="{{ route('po.erpSession.save') }}" class="d-flex flex-wrap align-items-end gap-2">
+                    @csrf
+                    <div>
+                        <label class="form-label small text-muted mb-1">ERP PHPSESSID</label>
+                        <input type="text" name="erp_phpsessid" value="{{ session('po_erp_phpsessid') }}"
+                            class="form-control form-control-sm" style="min-width: 280px;"
+                            placeholder="Paste your ERP PHPSESSID">
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Save Session</button>
+                </form>
+                <form method="POST" action="{{ route('po.erpSession.clear') }}">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Clear</button>
+                </form>
+            </div>
+        </div>
+
         <div class="po-summary-card p-3 p-lg-4 mb-4">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
                 <div>
@@ -250,21 +295,36 @@
             </div>
         </div>
 
-        <form id="po-selected-mail-form" method="POST" action="{{ route('po.notifySelectedStepThree') }}" class="mb-3">
+        <form id="po-selected-pdf-form" method="POST" action="{{ route('po.print.selected') }}">
             @csrf
+        </form>
+        <form id="po-selected-mail-form" method="POST" action="{{ route('po.notifySelectedStepThree') }}">
+            @csrf
+        </form>
+
+        <div class="mb-3">
             <div class="d-flex flex-wrap justify-content-end gap-2">
+                <button type="button" class="btn btn-outline-secondary" id="po-select-all-pdf">
+                    เลือก PDF ทั้งหมด
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="po-clear-all-pdf">
+                    ล้าง PDF
+                </button>
                 <button type="button" class="btn btn-outline-secondary" id="po-select-all-mail">
-                    เลือกทั้งหมด
+                    เลือก Mail ได้ทั้งหมด
                 </button>
                 <button type="button" class="btn btn-outline-secondary" id="po-clear-all-mail">
-                    ล้างที่เลือก
+                    ล้าง Mail
                 </button>
-                <button type="submit" class="btn btn-outline-primary"
+                <button type="submit" class="btn btn-outline-dark" form="po-selected-pdf-form">
+                    Download PDF รายการที่เลือก
+                </button>
+                <button type="submit" class="btn btn-outline-primary" form="po-selected-mail-form"
                     onclick="return confirm('ส่งอีเมลแจ้งเตือนให้รายการที่เลือกใช่หรือไม่? เลือกได้เฉพาะ PO ที่อยู่ step 3 เท่านั้น');">
                     ส่ง mail รายการที่เลือก
                 </button>
             </div>
-        </form>
+        </div>
 
         @forelse ($grouped as $group)
             <div class="card po-group-card mb-4">
@@ -303,7 +363,8 @@
                     <table class="table po-table align-middle mb-0">
                         <thead>
                             <tr>
-                                <th style="width: 80px;">Mail</th>
+                                <th style="width: 70px;">PDF</th>
+                                <th style="width: 70px;">Mail</th>
                                 <th>Source</th>
                                 <th>PO No.</th>
                                 <th>Invoice</th>
@@ -331,8 +392,13 @@
                                         default => ['label' => str_replace('_', ' ', $status), 'class' => 'bg-light text-dark'],
                                     };
                                     $canTickMail = $row->po_header_id && $status === 'DEPT_MANAGER_APPROVAL';
+                                    $canSelectPo = (bool) $row->po_header_id;
                                 @endphp
                                 <tr>
+                                    <td class="text-center">
+                                        <input type="checkbox" class="js-po-pdf-check" name="po_ids[]" value="{{ $row->po_header_id }}"
+                                            form="po-selected-pdf-form" @checked(false) @disabled(!$canSelectPo)>
+                                    </td>
                                     <td class="text-center">
                                         <input type="checkbox" class="js-po-mail-check" name="po_ids[]" value="{{ $row->po_header_id }}"
                                             form="po-selected-mail-form" @checked(false) @disabled(!$canTickMail)>
@@ -385,15 +451,17 @@
 
     <script>
         (() => {
-            const checks = () => Array.from(document.querySelectorAll('.js-po-mail-check:not(:disabled)'));
-            const setChecked = (checked) => {
-                checks().forEach((check) => {
+            const checks = (selector) => Array.from(document.querySelectorAll(`${selector}:not(:disabled)`));
+            const setChecked = (selector, checked) => {
+                checks(selector).forEach((check) => {
                     check.checked = checked;
                 });
             };
 
-            document.getElementById('po-select-all-mail')?.addEventListener('click', () => setChecked(true));
-            document.getElementById('po-clear-all-mail')?.addEventListener('click', () => setChecked(false));
+            document.getElementById('po-select-all-pdf')?.addEventListener('click', () => setChecked('.js-po-pdf-check', true));
+            document.getElementById('po-clear-all-pdf')?.addEventListener('click', () => setChecked('.js-po-pdf-check', false));
+            document.getElementById('po-select-all-mail')?.addEventListener('click', () => setChecked('.js-po-mail-check', true));
+            document.getElementById('po-clear-all-mail')?.addEventListener('click', () => setChecked('.js-po-mail-check', false));
         })();
     </script>
 @endsection

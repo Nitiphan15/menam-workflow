@@ -16,7 +16,9 @@
                         <h4 class="mb-1">เอกสารที่ต้องดำเนินการ</h4>
                         <div class="text-muted small">แสดงเฉพาะ PO ที่ผู้ใช้ปัจจุบันมีสิทธิ์ action ใน step ปัจจุบัน</div>
                     </div>
-                    <a href="{{ route('po.index') }}" class="btn btn-outline-secondary">กลับหน้ารายการ PO</a>
+                    @can('POPUR')
+                        <a href="{{ route('po.index') }}" class="btn btn-outline-secondary">กลับหน้ารายการ PO</a>
+                    @endcan
                 </div>
 
                 <form method="GET" class="row g-3">

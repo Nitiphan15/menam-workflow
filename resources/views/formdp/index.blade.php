@@ -26,6 +26,10 @@
         $hasDocs = is_array($rawAttach) ? $rawAttach : [];
         $otherCode = 'OTHER';
         $sbl = (string) old('lines.0.sell_by_line', $ln0['sell_by_line'] ?? '0');
+        $isSales8User = auth()->check() && in_array((int) auth()->id(), [50, 51], true);
+        if ($isSales8User) {
+            $sbl = '1';
+        }
     @endphp
 
     <div class="container-fluid py-3 px-3">
@@ -175,7 +179,8 @@
 
                         <input type="hidden" id="partsId" name="lines[0][parts_id]"
                             value="{{ old('lines.0.parts_id', $ln0['parts_id'] ?? '') }}">
-                        <input type="hidden" id="kgPerLine" value="">
+                        <input type="hidden" id="kgPerLine"
+                            value="{{ old('lines.0.kg_per_line', $ln0['kg_per_line'] ?? '') }}">
 
                         <div class="dp-col-6">
                             <label class="form-label">Part No</label>
@@ -207,52 +212,62 @@
                             <div class="form-text">รองรับหลายค่า คั่นด้วย ,</div>
                         </div>
 
-                        <div class="dp-col-12">
-                            <label class="form-label">ขายแบบระบุเส้น</label>
-                            <div class="dp-radio-row">
-                                <label class="dp-radio">
-                                    <input type="radio" class="form-check-input me-1 js-sell-by-line"
-                                        name="lines[0][sell_by_line]" value="1" {{ $sbl === '1' ? 'checked' : '' }}>
-                                    ใช่
-                                </label>
-                                <label class="dp-radio">
-                                    <input type="radio" class="form-check-input me-1 js-sell-by-line"
-                                        name="lines[0][sell_by_line]" value="0" {{ $sbl !== '1' ? 'checked' : '' }}>
-                                    ไม่ใช่
-                                </label>
+                        @if ($isSales8User)
+                            <input type="hidden" name="lines[0][sell_by_line]" value="1">
+                        @else
+                            <div class="dp-col-12">
+                                <label class="form-label">ขายแบบระบุเส้น</label>
+                                <div class="dp-radio-row">
+                                    <label class="dp-radio">
+                                        <input type="radio" class="form-check-input me-1 js-sell-by-line"
+                                            name="lines[0][sell_by_line]" value="1" {{ $sbl === '1' ? 'checked' : '' }}>
+                                        ใช่
+                                    </label>
+                                    <label class="dp-radio">
+                                        <input type="radio" class="form-check-input me-1 js-sell-by-line"
+                                            name="lines[0][sell_by_line]" value="0" {{ $sbl !== '1' ? 'checked' : '' }}>
+                                        ไม่ใช่
+                                    </label>
+                                </div>
                             </div>
-                        </div>
+                        @endif
 
                         <div class="dp-col-6 {{ $sbl === '1' ? '' : 'd-none' }}" id="sellByLineQtyWrap">
-                            <label class="form-label">Qty ระบุเส้น <span class="text-danger">*</span></label>
+                            <label class="form-label">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }} <span class="text-danger">*</span></label>
                             <input type="number" min="1" step="1" id="sellByLineQty"
                                 name="lines[0][sell_by_line_qty]"
                                 value="{{ old('lines.0.sell_by_line_qty', $ln0['sell_by_line_qty'] ?? '') }}"
                                 class="form-control dp-input @error('lines.0.sell_by_line_qty') is-invalid @enderror"
-                                placeholder="กรอกจำนวนเส้น">
+                                placeholder="{{ $isSales8User ? 'กรอกจำนวนชิ้น' : 'กรอกจำนวนเส้น' }}">
                             @error('lines.0.sell_by_line_qty')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
 
-                        <div class="dp-col-4">
-                            <label class="form-label">จำนวน (KG) <span class="text-danger">*</span></label>
-                            <input type="number" inputmode="decimal" step="0.001" min="0"
-                                class="form-control dp-input @error('lines.0.qty_kg') is-invalid @enderror" id="qtyKg"
-                                name="lines[0][qty_kg]" value="{{ old('lines.0.qty_kg', $ln0['qty_kg'] ?? '') }}"
-                                placeholder="เช่น 1000">
-                            @error('lines.0.qty_kg')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
-
+                        @if ($isSales8User)
+                            <input type="hidden" id="qtyKg" name="lines[0][qty_kg]" value="0">
                             <div id="qtyCalcHint" class="form-text text-primary d-none"></div>
                             <div id="qtyCalcError" class="form-text text-danger d-none"></div>
+                        @else
+                            <div class="dp-col-4">
+                                <label class="form-label">จำนวน (KG) <span class="text-danger">*</span></label>
+                                <input type="number" inputmode="decimal" step="0.001" min="0"
+                                    class="form-control dp-input @error('lines.0.qty_kg') is-invalid @enderror" id="qtyKg"
+                                    name="lines[0][qty_kg]" value="{{ old('lines.0.qty_kg', $ln0['qty_kg'] ?? '') }}"
+                                    placeholder="เช่น 1000">
+                                @error('lines.0.qty_kg')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
 
-                            @if (!empty($ln0['auto_qty_kg'] ?? null))
-                                <div class="form-text">Auto Qty: {{ number_format((float) $ln0['auto_qty_kg'], 3) }}
-                                    KG</div>
-                            @endif
-                        </div>
+                                <div id="qtyCalcHint" class="form-text text-primary d-none"></div>
+                                <div id="qtyCalcError" class="form-text text-danger d-none"></div>
+
+                                @if (!empty($ln0['auto_qty_kg'] ?? null))
+                                    <div class="form-text">Auto Qty: {{ number_format((float) $ln0['auto_qty_kg'], 3) }}
+                                        KG</div>
+                                @endif
+                            </div>
+                        @endif
 
                         <input type="hidden" name="lines[0][auto_qty_kg]"
                             value="{{ old('lines.0.auto_qty_kg', $ln0['auto_qty_kg'] ?? '') }}">
@@ -324,6 +339,17 @@
                                 @endforeach
                             </div>
                         </div>
+                    </div>
+
+                    <div class="mb-3 mt-3">
+                        <label class="form-label">Revision</label>
+                        <input type="number" class="form-control @error('lines.0.revision_number') is-invalid @enderror"
+                            name="lines[0][revision_number]" min="0" step="1"
+                            value="{{ old('lines.0.revision_number', $ln0['revision_number'] ?? 0) }}">
+                        @error('lines.0.revision_number')
+                            <div class="invalid-feedback">{{ $message }}</div>
+                        @enderror
+                        <div class="form-text">เลือก Revision ที่ต้องการบันทึกเอง ระบบจะไม่คำนวณจากเวลาแล้ว</div>
                     </div>
 
                     <div id="editRemarkWrap" class="mt-3 d-none">
@@ -531,6 +557,9 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const isSales8User = @json($isSales8User);
+            const continueSameSo = @json(session('dp_continue_same_so'));
+
             (function editModeToggle() {
                 const isEdit = @json($isEdit);
                 const wrap = document.getElementById('editRemarkWrap');
@@ -538,6 +567,53 @@
                 if (!wrap) return;
                 const hasId = ord && (ord.value || '').trim() !== '';
                 if (isEdit || hasId) wrap.classList.remove('d-none');
+            })();
+
+            (function confirmRevisionOnEdit() {
+                const isEdit = @json($isEdit);
+                const form = document.getElementById('dpForm');
+                const ord = document.getElementById('ordId');
+                if (!form) return;
+
+                let confirmed = false;
+
+                form.addEventListener('submit', (ev) => {
+                    const hasId = ord && (ord.value || '').trim() !== '';
+                    if (!isEdit && !hasId) return;
+                    if (confirmed) return;
+
+                    const revInput = form.querySelector('input[name="lines[0][revision_number]"]');
+                    const revVal = revInput ? (revInput.value || '').trim() : '';
+                    if (revVal === '') return;
+
+                    ev.preventDefault();
+                    ev.stopImmediatePropagation();
+
+                    if (typeof Swal === 'undefined') {
+                        if (window.confirm(`ใช่ บันทึกด้วย revision ${revVal}`)) {
+                            confirmed = true;
+                            form.submit();
+                        }
+                        return;
+                    }
+
+                    Swal.fire({
+                        title: 'ยืนยันการบันทึก',
+                        text: `ต้องการบันทึกด้วย revision ${revVal} ใช่ไหม?`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: `ใช่ บันทึกด้วย revision ${revVal}`,
+                        cancelButtonText: 'ไม่',
+                        confirmButtonColor: '#2563eb',
+                        cancelButtonColor: '#6b7280',
+                        reverseButtons: true,
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            confirmed = true;
+                            form.submit();
+                        }
+                    });
+                });
             })();
 
             async function fetchJson(url, options = {}) {
@@ -639,11 +715,13 @@
             }
 
             function isSellByLineYes() {
+                if (isSales8User) return true;
                 const checked = document.querySelector('input[name="lines[0][sell_by_line]"]:checked');
                 return checked && checked.value === '1';
             }
 
             function canSellByLine() {
+                if (isSales8User) return true;
                 return !!(kgPerLineInput && kgPerLineInput.value && parseFloat(kgPerLineInput.value) > 0);
             }
 
@@ -654,6 +732,12 @@
             }
 
             function syncSellByLineAvailability() {
+                if (isSales8User) {
+                    if (yesRadio) yesRadio.checked = true;
+                    setCalcError('');
+                    return;
+                }
+
                 const hasPart = hasSelectedPart();
                 const canCalc = canSellByLine();
 
@@ -682,6 +766,13 @@
 
             function recalcSellByLineQtyToKg() {
                 if (!qtyKg || !sellByLineQtyInput || !kgPerLineInput) return;
+
+                if (isSales8User) {
+                    qtyKg.value = '0';
+                    setCalcHint('');
+                    setCalcError('');
+                    return;
+                }
 
                 const yes = isSellByLineYes();
                 const lineQty = parseFloat(sellByLineQtyInput.value || '0');
@@ -745,7 +836,11 @@
                 try {
                     const data = await fetchJson(partLookupUrl + '?q=' + encodeURIComponent(partNo));
                     const items = data.items || [];
-                    const found = items.find(x => (x.part_no || '').trim() === partNo);
+
+                    const found = items.find(x =>
+                        String(x.part_no || '').trim().toUpperCase() === partNo.toUpperCase()
+                    );
+
                     kgPerLine.value = found?.kg_per_line ?? '';
                     syncSellByLineAvailability();
                     recalcSellByLineQtyToKg();
@@ -963,7 +1058,12 @@
                     await hydratePartCalcByPartNo(it.part_number || '');
 
                     const soQty = toNum(it.ordered_qty ?? it.qty ?? it.so_qty ?? 0);
-                    if (qtyKg && !isSellByLineYes()) qtyKg.value = String(soQty);
+                    if (isSales8User) {
+                        if (sellByLineQtyInput && soQty > 0) sellByLineQtyInput.value = String(Math.round(soQty));
+                        if (qtyKg) qtyKg.value = '0';
+                    } else if (qtyKg && !isSellByLineYes()) {
+                        qtyKg.value = String(soQty);
+                    }
 
                     setQtyLimit(soQty, 'SO');
 
@@ -1248,7 +1348,12 @@
                     }
 
                     const mfgQty = toNum(it.qty ?? 0);
-                    if (qtyKg && !isSellByLineYes()) qtyKg.value = String(mfgQty);
+                    if (isSales8User) {
+                        if (sellByLineQtyInput && mfgQty > 0) sellByLineQtyInput.value = String(Math.round(mfgQty));
+                        if (qtyKg) qtyKg.value = '0';
+                    } else if (qtyKg && !isSellByLineYes()) {
+                        qtyKg.value = String(mfgQty);
+                    }
 
                     setQtyLimit(mfgQty, 'MFG');
                     closeDd();
@@ -1483,6 +1588,13 @@
                 const wrap = document.getElementById('sellByLineQtyWrap');
                 const qtyInput = document.getElementById('sellByLineQty');
 
+                if (isSales8User) {
+                    if (wrap) wrap.classList.remove('d-none');
+                    if (qtyInput) qtyInput.disabled = false;
+                    if (qtyKg) qtyKg.value = '0';
+                    return;
+                }
+
                 if (!radios.length || !wrap || !qtyInput) return;
 
                 function sync() {
@@ -1518,8 +1630,86 @@
                 sync();
             })();
 
-            syncSellByLineAvailability();
-            recalcSellByLineQtyToKg();
+            (async function initSellByLineOnLoad() {
+                const partNoValue = document.getElementById('partNo')?.value || '';
+
+                if (partNoValue) {
+                    await hydratePartCalcByPartNo(partNoValue);
+                }
+
+                syncSellByLineAvailability();
+                recalcSellByLineQtyToKg();
+            })();
+
+            (function askContinueSameSoAfterSave() {
+                if (!continueSameSo || !continueSameSo.form) return;
+
+                function setNamed(name, value) {
+                    const fields = Array.from(document.querySelectorAll('[name]'))
+                        .filter((field) => field.getAttribute('name') === name);
+                    if (!fields.length) return;
+
+                    fields.forEach((field) => {
+                        if (field.type === 'checkbox') {
+                            const values = Array.isArray(value) ? value.map(String) : [String(value ?? '')];
+                            field.checked = values.includes(field.value);
+                        } else if (field.type === 'radio') {
+                            field.checked = String(field.value) === String(value ?? '');
+                        } else {
+                            field.value = value ?? '';
+                        }
+                    });
+                }
+
+                function fillForm(data) {
+                    Object.entries(data || {}).forEach(([key, value]) => {
+                        if (key === 'lines' && Array.isArray(value)) {
+                            Object.entries(value[0] || {}).forEach(([lineKey, lineValue]) => {
+                                setNamed(`lines[0][${lineKey}]`, lineValue);
+                            });
+                            return;
+                        }
+
+                        setNamed(key, value);
+                    });
+
+                    setNamed('lines[0][id]', '');
+                    setNamed('lines[0][mfg_no]', '');
+                    setNamed('is_manual_mfg', '1');
+                    if (isSales8User) {
+                        setNamed('lines[0][sell_by_line]', '1');
+                        setNamed('lines[0][qty_kg]', '0');
+                    }
+
+                    document.getElementById('mfgNo')?.focus();
+                    syncSellByLineAvailability();
+                    recalcSellByLineQtyToKg();
+                }
+
+                const soNo = continueSameSo.so_number || '';
+                const msg = `Sales Order ${soNo} มี MFG มากกว่า 1 รายการ ต้องการบันทึกด้วย SO เดิมไหม?`;
+
+                if (typeof Swal === 'undefined') {
+                    if (window.confirm(msg)) fillForm(continueSameSo.form);
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'บันทึกด้วย SO เดิมไหม?',
+                    text: msg,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'ใช่',
+                    cancelButtonText: 'ไม่',
+                    confirmButtonColor: '#2563eb',
+                    cancelButtonColor: '#6b7280',
+                    reverseButtons: true,
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        fillForm(continueSameSo.form);
+                    }
+                });
+            })();
         });
     </script>
 @endsection

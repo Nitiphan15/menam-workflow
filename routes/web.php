@@ -46,6 +46,12 @@ use App\Http\Controllers\FormISR\InspectionDecisionController;
 use App\Http\Controllers\FormSSC\ShotblastSpareController;
 //FormMP
 use App\Http\Controllers\FormMP\FormMPController;
+//FormVC
+use App\Http\Controllers\FormVC\VariableCostController;
+//FormCCR
+use App\Http\Controllers\FormCCR\CostCenterReportController;
+use App\Http\Controllers\FormAccounting\LossProvisionController;
+use App\Http\Controllers\FormAccounting\CustomerPaymentTermController;
 //FormPKG
 use App\Http\Controllers\FormPKG\PackagingUsageController;
 use App\Http\Controllers\FormPKG\PackagingMasterController;
@@ -64,6 +70,7 @@ use App\Http\Controllers\FormFC\ForecastRmDivisionController;
 use App\Http\Controllers\FormFC\PlannerPartMasterController;
 use App\Http\Controllers\FormFC\PlannerForecastController;
 use App\Http\Controllers\FormFC\DivisionPartMasterController;
+use App\Http\Controllers\FormMLA\MachineLoadController;
 
 //Rick
 use App\Http\Controllers\FormRisk\ProductionRiskController;
@@ -75,6 +82,8 @@ use App\Http\Controllers\AutoComplete\MfgLookupController;
 //Weekly Order
 use App\Http\Controllers\FormWOS\SalesInquiryController;
 use App\Http\Controllers\FormWOS\SalesUnitSummaryController;
+use App\Http\Controllers\FormWOS\DeadstockReportController;
+use App\Http\Controllers\FormWOS\OrderDueDateController;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
@@ -131,9 +140,51 @@ Route::prefix('/wos')
   ->name('wos.')
   ->group(function () {
     Route::get('/sales-weekly', [SalesInquiryController::class, 'index'])->name('sales_weekly');
+    Route::get('/sales-weekly/dashboard', [SalesInquiryController::class, 'dashboard'])->name('sales_weekly.dashboard');
+    Route::get('/sales-weekly/dashboard/pdf', [SalesInquiryController::class, 'dashboardPdf'])->name('sales_weekly.dashboard.pdf');
+    Route::get('/sales-weekly/status', [SalesInquiryController::class, 'status'])->name('sales_weekly.status');
+    Route::get('/sales-weekly/hash', [SalesInquiryController::class, 'hash'])->name('sales_weekly.hash');
+    Route::get('/sales-weekly/data', [SalesInquiryController::class, 'data'])->name('sales_weekly.data');
     Route::get('/sales-weekly/{salesId}', [SalesInquiryController::class, 'detail'])->name('sales_weekly.detail');
     Route::get('/sales-weekly-export', [SalesInquiryController::class, 'export'])
       ->name('sales_weekly.export');
+
+    Route::get('/order-due-date', [OrderDueDateController::class, 'index'])
+      ->name('order_due_date');
+    Route::get('/order-due-date/dashboard', [OrderDueDateController::class, 'dashboard'])
+      ->name('order_due_date.dashboard');
+    Route::get('/order-due-date/dashboard/pdf', [OrderDueDateController::class, 'dashboardPdf'])
+      ->name('order_due_date.dashboard.pdf');
+    Route::get('/order-due-date/dashboard/excel', [OrderDueDateController::class, 'exportExcel'])
+      ->name('order_due_date.dashboard.excel');
+    Route::get('/order-due-date/detail', [OrderDueDateController::class, 'detail'])
+      ->name('order_due_date.detail');
+    Route::get('/order-due-date/detail/pdf', [OrderDueDateController::class, 'detailPdf'])
+      ->name('order_due_date.detail.pdf');
+
+    Route::get('/sales-unit-summary', [SalesUnitSummaryController::class, 'index'])
+      ->name('sales_unit_summary');
+    Route::get('/sales-unit-summary/dashboard', [SalesUnitSummaryController::class, 'dashboard'])
+      ->name('sales_unit_summary.dashboard');
+    Route::get('/sales-unit-summary/dashboard/pdf', [SalesUnitSummaryController::class, 'dashboardPdf'])
+      ->name('sales_unit_summary.dashboard.pdf');
+    Route::get('/sales-unit-summary/detail', [SalesUnitSummaryController::class, 'detail'])
+      ->name('sales_unit_summary.detail');
+    Route::get('/sales-unit-summary/detail/group', [SalesUnitSummaryController::class, 'detailByGroup'])
+      ->name('sales_unit_summary.detail_group');
+  });
+
+Route::prefix('/deadstock')
+  ->name('deadstock.')
+  ->group(function () {
+    Route::get('/dashboard', [DeadstockReportController::class, 'dashboard'])->name('dashboard');
+    Route::get('/review', [DeadstockReportController::class, 'review'])->name('review');
+    Route::get('/review/export', [DeadstockReportController::class, 'exportReview'])->name('review.export');
+    Route::post('/review/import-latest', [DeadstockReportController::class, 'importLatestSnapshot'])->name('review.import_latest');
+    Route::post('/review/{item}/save', [DeadstockReportController::class, 'saveReview'])->name('review.save');
+    Route::post('/review/{month}/compare', [DeadstockReportController::class, 'compareMonth'])->name('review.compare');
+    Route::get('/manual', [DeadstockReportController::class, 'manual'])->name('manual');
+    Route::post('/manual/send', [DeadstockReportController::class, 'send'])->name('send');
   });
 
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -145,6 +196,12 @@ Route::prefix('fc')
   ->name('fc.')
   ->group(function () {
     Route::get('/', [ForecastRmController::class, 'index'])->name('index');
+    Route::get('/forecast-detail', [ForecastRmController::class, 'forecastDetail'])
+      ->name('forecastDetail');
+    Route::get('/supplier-shortage', [ForecastRmController::class, 'supplierShortage'])->name('supplierShortage');
+    Route::get('/supplier-shortage/export', [ForecastRmController::class, 'exportSupplierShortage'])->name('supplierShortage.export');
+    Route::post('/manual-order/save', [ForecastRmController::class, 'saveManualOrder'])
+      ->name('manualOrder.save');
 
     Route::get('/{sku}', [ForecastRmController::class, 'show'])
       ->where('sku', '[Rr][^/]+')
@@ -155,12 +212,19 @@ Route::prefix('fc')
     Route::post('/input/import', [ForecastRmController::class, 'importInput'])->name('input.import');
 
     Route::get('/division', [ForecastRmDivisionController::class, 'index'])->name('division');
+    Route::get('/division/documents', [ForecastRmDivisionController::class, 'documents'])->name('division.documents');
+    Route::get('/division/documents/export', [ForecastRmDivisionController::class, 'exportDocuments'])->name('division.documents.export');
+    Route::get('/division/approvals', [ForecastRmDivisionController::class, 'approvalList'])->name('division.approvals');
+    Route::get('/division/approval', [ForecastRmDivisionController::class, 'approval'])->name('division.approval');
     //Route::post('/division/generate', [ForecastRmDivisionController::class, 'generate'])->name('division.generate');
     Route::post('/division/manual-save', [ForecastRmDivisionController::class, 'saveManual'])->name('division.manual-save');
+    Route::post('/division/approval-save', [ForecastRmDivisionController::class, 'saveApproval'])->name('division.approval-save');
+    Route::post('/division/approval-reject', [ForecastRmDivisionController::class, 'rejectApproval'])->name('division.approval-reject');
     Route::post('/division/generate-fg', [ForecastRmDivisionController::class, 'generateFgForecast'])->name('division.generate');
     Route::get('/division/so-detail', [ForecastRmDivisionController::class, 'soDetail'])->name('division.soDetail');
     Route::get('/division-part-master', [DivisionPartMasterController::class, 'index'])->name('divisionPartMaster.index');
     Route::post('/division-part-master/save', [DivisionPartMasterController::class, 'save'])->name('divisionPartMaster.save');
+
 
     Route::get('/po-detail', [ForecastRmController::class, 'poDetail'])->name('poDetail');
     Route::get('/wip-detail', [ForecastRmController::class, 'wipDetail'])->name('wipDetail');
@@ -196,6 +260,20 @@ Route::prefix('mp')
       ->name('packaging.usage.export');
   });
 
+Route::prefix('machine-load')
+  ->name('machine-load.')
+  ->group(function () {
+    Route::get('/dashboard', [MachineLoadController::class, 'dashboard'])->name('dashboard');
+    Route::get('/inquiry', [MachineLoadController::class, 'inquiry'])->name('inquiry');
+    Route::get('/export', [MachineLoadController::class, 'export'])->name('export');
+    Route::get('/settings', [MachineLoadController::class, 'settings'])->name('settings');
+    Route::post('/settings/work-centers', [MachineLoadController::class, 'storeWorkCenter'])->name('settings.work-centers.store');
+    Route::put('/settings/work-centers/{id}', [MachineLoadController::class, 'updateWorkCenter'])->whereNumber('id')->name('settings.work-centers.update');
+    Route::delete('/settings/work-centers/{id}', [MachineLoadController::class, 'destroyWorkCenter'])->whereNumber('id')->name('settings.work-centers.destroy');
+    Route::post('/settings/holidays', [MachineLoadController::class, 'storeHoliday'])->name('settings.holidays.store');
+    Route::delete('/settings/holidays/{id}', [MachineLoadController::class, 'destroyHoliday'])->whereNumber('id')->name('settings.holidays.destroy');
+  });
+
 
 Route::prefix('pkg/packaging')
   ->name('pkg.packaging.')
@@ -204,6 +282,12 @@ Route::prefix('pkg/packaging')
 
     Route::get('/usage/export', [PackagingUsageController::class, 'export'])->name('usage.export');
   });
+
+Route::get('/packaging/analysis', [PackagingUsageController::class, 'analysis'])
+  ->name('pkg.packaging.analysis');
+
+Route::get('/packaging/analysis/export', [PackagingUsageController::class, 'analysisExport'])
+  ->name('pkg.packaging.analysis.export');
 
 
 Route::middleware(['auth'])
@@ -244,7 +328,7 @@ Route::middleware(['auth'])
         ->name('truck.staff.defaults');
     });
 
-    Route::middleware(['can:DPEMAIL'])->group(function () {
+    Route::middleware(['permission.any:DPEMAIL,DPMAIL'])->group(function () {
       Route::post('/inquiry/send-plan-mail', [DeliveryPlanInquiryController::class, 'sendPlanMail'])
         ->name('inquiry.send-plan-mail');
     });
@@ -401,6 +485,48 @@ Route::prefix('mp')
       ->name('export');
   });
 
+Route::prefix('variable-cost')
+  ->name('variable-cost.')
+  ->group(function () {
+    Route::get('/', [VariableCostController::class, 'index'])->name('index');
+    Route::get('/summary', [VariableCostController::class, 'summary'])->name('summary');
+    Route::get('/monthly', [VariableCostController::class, 'monthly'])->name('monthly');
+    Route::get('/matrix', [VariableCostController::class, 'matrix'])->name('matrix');
+    Route::get('/accounts', [VariableCostController::class, 'accounts'])->name('accounts');
+    Route::get('/yearly', [VariableCostController::class, 'yearly'])->name('yearly');
+    Route::get('/details', [VariableCostController::class, 'details'])->name('details');
+    Route::get('/export', [VariableCostController::class, 'export'])->name('export');
+  });
+
+Route::prefix('cost-center')
+  ->name('cost-center.')
+  ->group(function () {
+    Route::get('/', [CostCenterReportController::class, 'index'])->name('index');
+    Route::get('/summary', [CostCenterReportController::class, 'summary'])->name('summary');
+    Route::get('/detail', [CostCenterReportController::class, 'detail'])->name('detail');
+  });
+
+Route::prefix('accounting')
+  ->name('accounting.')
+  ->group(function () {
+    Route::get('/loss-provision', [LossProvisionController::class, 'index'])->name('loss-provision.index');
+    Route::get('/loss-provision/yearly', [LossProvisionController::class, 'yearly'])->name('loss-provision.yearly');
+    Route::get('/loss-provision/yearly/export', [LossProvisionController::class, 'exportYearly'])->name('loss-provision.yearly.export');
+    Route::get('/loss-provision/export', [LossProvisionController::class, 'export'])->name('loss-provision.export');
+    Route::get('/customer-payment-terms/erp-customer-lookup', [CustomerPaymentTermController::class, 'customerLookup'])->name('cpt.customerLookup');
+    Route::get('/customer-payment-terms/masters', [CustomerPaymentTermController::class, 'masters'])->name('cpt.masters');
+    Route::post('/customer-payment-terms/billing-plans', [CustomerPaymentTermController::class, 'storeBillingPlan'])->name('cpt.billing-plans.store');
+    Route::put('/customer-payment-terms/billing-plans/{billingPlan}', [CustomerPaymentTermController::class, 'updateBillingPlan'])->name('cpt.billing-plans.update');
+    Route::delete('/customer-payment-terms/billing-plans/{billingPlan}', [CustomerPaymentTermController::class, 'destroyBillingPlan'])->name('cpt.billing-plans.destroy');
+    Route::post('/customer-payment-terms/payment-schedules', [CustomerPaymentTermController::class, 'storePaymentSchedule'])->name('cpt.payment-schedules.store');
+    Route::put('/customer-payment-terms/payment-schedules/{paymentSchedule}', [CustomerPaymentTermController::class, 'updatePaymentSchedule'])->name('cpt.payment-schedules.update');
+    Route::delete('/customer-payment-terms/payment-schedules/{paymentSchedule}', [CustomerPaymentTermController::class, 'destroyPaymentSchedule'])->name('cpt.payment-schedules.destroy');
+    Route::get('/customer-payment-terms', [CustomerPaymentTermController::class, 'index'])->name('cpt.index');
+    Route::post('/customer-payment-terms', [CustomerPaymentTermController::class, 'store'])->name('cpt.store');
+    Route::put('/customer-payment-terms/{customerPaymentTerm}', [CustomerPaymentTermController::class, 'update'])->name('cpt.update');
+    Route::delete('/customer-payment-terms/{customerPaymentTerm}', [CustomerPaymentTermController::class, 'destroy'])->name('cpt.destroy');
+  });
+
 //ฟอร์มวางแผน
 Route::middleware(['auth', 'can:PP'])
   ->prefix('pp')
@@ -420,6 +546,7 @@ Route::middleware(['auth', 'can:PP'])
     Route::get('/pending', [PpDocboxController::class, 'pending'])->name('pending');
     Route::get('/mine',    [PpDocboxController::class, 'mine'])->name('mine');
     Route::get('/all',     [PpDocboxController::class, 'all'])->name('all');
+    Route::get('/export',  [PpDocboxController::class, 'export'])->name('export');
   });
 
 Route::middleware(['auth', 'can:PAADMIN'])
@@ -505,12 +632,22 @@ Route::middleware(['auth', 'can:PAHR'])
   });
 
 //ฟอร์มแก้ไข
+Route::prefix('wocr')
+  ->name('wocr.')
+  ->group(function () {
+    Route::get('/view/{id}/', [WocrViewController::class, 'view'])->name('view');
+    Route::get('/all',     [WocrDocboxController::class, 'all'])->name('all');
+  });
+
 Route::middleware(['auth', 'can:WOCR'])
   ->prefix('wocr')
   ->name('wocr.')
   ->group(function () {
     Route::get('/index',   [OriginatorController::class, 'index'])->name('index');
     Route::post('/store',  [OriginatorController::class, 'store'])->name('store');
+    Route::get('/pending', [WocrDocboxController::class, 'pending'])->name('pending');
+    Route::get('/mine',    [WocrDocboxController::class, 'mine'])->name('mine');
+    Route::get('/export',  [WocrDocboxController::class, 'export'])->name('export');
 
     //Route::get('/index',   [OriginatorController::class, 'index'])->name('index');
     Route::get('/planner/{id}/', [PlannerWOCRController::class, 'showPlanner'])->name('planner');
@@ -521,12 +658,6 @@ Route::middleware(['auth', 'can:WOCR'])
 
     Route::get('/revise/{id}/', [WocrReviseController::class, 'showRevise'])->name('revise');
     Route::post('/revise/{id}/', [WocrReviseController::class, 'originator_action'])->name('revise_action');
-
-    Route::get('/view/{id}/', [WocrViewController::class, 'view'])->name('view');
-
-    Route::get('/pending', [WocrDocboxController::class, 'pending'])->name('pending');
-    Route::get('/mine',    [WocrDocboxController::class, 'mine'])->name('mine');
-    Route::get('/all',     [WocrDocboxController::class, 'all'])->name('all');
 
     Route::get('/wocr/files/{id}/download', function ($id) {
       $f = WocrDataFile::findOrFail($id);;

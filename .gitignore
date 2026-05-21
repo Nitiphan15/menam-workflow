@@ -14,11 +14,22 @@
 !.env.example
 
 # Local Claude / MCP settings
+.claude/
 .claude/settings.local.json
 .mcp.json
 
 # Debug / local only
 public/phpinfo.php
+CLAUDE.md.backup
+New Text Document.txt
+__pycache__/
+*.pyc
+
+# Local comparison / backup workspaces
+/backups/
+/dumpfromprod/
+/fromprod/
+/prepare deploy/
 
 # Backup archives
 *.zip
@@ -35,4 +46,3 @@ Thumbs.db
 
 /.idea
 /.vscode
-

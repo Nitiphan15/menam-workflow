@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 return [
     'project_name' => [
@@ -11,11 +11,66 @@ return [
             ['icon' => 'fa-solid fa-house',            'text' => 'หน้าหลัก', 'route' => 'home'],
             ['icon' => 'fa-solid fa-right-to-bracket', 'text' => 'เข้าสู่ระบบ', 'route' => 'login'],
             ['icon' => 'fa-box', 'text' => 'Packaging',  'route' => 'pkg.packaging.usage'],
+            ['icon' => 'fa-box', 'text' => 'Packaging Dashboard', 'route' => 'pkg.packaging.analysis'],
+
+            [
+                'icon' => 'fa-chart-line',
+                'text' => 'Sales Report',
+                'children' => [
+                    ['icon' => 'fa-table', 'text' => 'Delivery Volume', 'route' => 'wos.sales_unit_summary'],
+                    ['icon' => 'fa-calendar-check', 'text' => 'Order Due Date', 'route' => 'wos.order_due_date'],
+                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Dashboard', 'route' => 'deadstock.dashboard'],
+                    ['icon' => 'fa-clipboard-check', 'text' => 'Deadstock Monthly Review', 'route' => 'deadstock.review'],
+                ],
+            ],
+
+
+
+            [
+                'icon' => 'fa-chart-line',
+                'text' => 'Accounting Report',
+                'children' => [
+                    ['icon' => 'fa fa-chart-pie', 'text' => 'Variable Cost', 'route' => 'variable-cost.summary'],
+                    ['icon' => 'fa fa-sitemap', 'text' => 'Cost Center Report', 'route' => 'cost-center.summary'],
+                    ['icon' => 'fa-file-invoice-dollar', 'text' => 'รายการเผื่อผลขาดทุน', 'route' => 'accounting.loss-provision.index'],
+                ],
+            ],
+
+            [
+                'icon' => 'fa-chart-line',
+                'text' => 'Accounting Admin',
+                'children' => [
+                    ['icon' => 'fa-solid fa-hand-holding-dollar', 'text' => 'Customer Payment Terms', 'route' => 'accounting.cpt.index'],
+                    ['icon' => 'fa-solid fa-sliders', 'text' => 'Payment Term Masters', 'route' => 'accounting.cpt.masters'],
+                ],
+            ],
+
             ['icon' => 'fa-solid fa-magnifying-glass', 'text' => 'Delivery Plan Inquiry',  'route'  => 'dp.inquiry'],
             ['icon' => 'fa-solid fa-clipboard-check',  'text' => 'Inspection', 'route' => 'isr.index'],
             ['icon' => 'fa-solid fa-pen-to-square',    'text' => 'ทำแบบทดสอบ (User Test)', 'route'  => 'exam.select'],
 
 
+
+            [
+                'icon' => 'fa-pen-to-square',
+                'text' => 'WO Change Request Form',
+                'children' => [
+                    ['icon' => 'fa fa-calendar', 'text' => 'เปิดใบขอแก้ไขใหม่', 'route' => 'wocr.index'],
+                    ['icon' => 'fa fa-user', 'text' => 'เอกสารของฉัน', 'route' => 'wocr.mine'],
+                    ['icon' => 'fa fa-folder-open', 'text' => 'เอกสารทั้งหมด', 'route' => 'wocr.all'],
+                ],
+            ],
+
+            [
+                'icon' => 'fa fa-industry',
+                'text' => 'Workload Machine',
+
+                'children' => [
+                    ['icon' => 'fa fa-chart-column', 'text' => 'Dashboard', 'route' => 'machine-load.dashboard'],
+                    ['icon' => 'fa fa-magnifying-glass-chart', 'text' => 'Inquiry', 'route' => 'machine-load.inquiry'],
+                    ['icon' => 'fa fa-gears', 'text' => 'Settings', 'route' => 'machine-load.settings'],
+                ],
+            ],
         ],
 
 
@@ -62,10 +117,10 @@ return [
             [
                 'icon' => 'fa-shopping-cart',
                 'text' => 'PO Online',
-                'permission' => 'PO',
+                'permission' => ['PO', 'POPUR'],
                 'children' => [
                     ['icon' => 'fa-tasks', 'text' => 'เอกสารที่ต้องทำ', 'route' => 'po.myActions', 'permission' => 'PO'],
-                    ['icon' => 'fa-list', 'text' => 'รายการ PO', 'route' => 'po.index', 'permission' => 'PO'],
+                    ['icon' => 'fa-list', 'text' => 'รายการ PO', 'route' => 'po.index', 'permission' => 'POPUR'],
                 ],
             ],
         ],
@@ -76,6 +131,7 @@ return [
                 'text' => 'PA Online (Accounting)',
                 'permission' => 'PA',
                 'children' => [
+
                     ['icon' => 'fa fa-tachometer-alt', 'text' => 'แดชบอร์ด', 'route' => 'pa.dashboard', 'permission' => 'PA'],
                     ['icon' => 'fa fa-user-check', 'text' => 'ประเมินพนักงาน', 'route' => 'pa.index', 'permission' => 'PA'],
                     ['icon' => 'fa fa-users-cog', 'text' => 'ประเมินพนักงาน [HR]', 'route' => 'pa.hr.index', 'permission' => 'PAHR'],
@@ -95,6 +151,21 @@ return [
             ],
         ],
 
+        'accounting' => [
+            [
+                'icon' => 'fa-calculator',
+                'text' => 'Accounting Reports',
+                'children' => [
+                    ['icon' => 'fa-file-invoice-dollar', 'text' => 'รายการเผื่อผลขาดทุน', 'route' => 'accounting.loss-provision.index'],
+                    ['icon' => 'fa-calendar-alt', 'text' => 'รายการเผื่อผลขาดทุน — สรุปทั้งปี', 'route' => 'accounting.loss-provision.yearly'],
+                    ['icon' => 'fa-hand-holding-dollar', 'text' => 'Customer Payment Terms', 'route' => 'accounting.cpt.index'],
+                    ['icon' => 'fa-sliders', 'text' => 'Payment Term Masters', 'route' => 'accounting.cpt.masters'],
+                    ['icon' => 'fa-chart-pie', 'text' => 'Variable Cost', 'route' => 'variable-cost.summary'],
+                    ['icon' => 'fa-sitemap', 'text' => 'Cost Center Report', 'route' => 'cost-center.summary'],
+                ],
+            ],
+        ],
+
         'dp' => [
             [
                 'icon' => 'fa-edit',
@@ -102,7 +173,7 @@ return [
                 'permission' => 'DP',
                 'children' => [
                     ['icon' => 'fa-solid fa-plus', 'text' => 'เปิดแผนการจัดส่งใหม่', 'route' => 'dp.index', 'permission' => 'DP'],
-                    ['icon' => 'fa-solid fa-magnifying-glass', 'text' => 'Inquiry', 'route' => 'dp.inquiry', 'permission' => ['DP', 'DPA', 'DPMAIL']],
+                    ['icon' => 'fa-solid fa-magnifying-glass', 'text' => 'Inquiry', 'route' => 'dp.inquiry', 'permission' => ['DP', 'DPA', 'DPEMAIL', 'DPMAIL']],
                     ['icon' => 'fa-solid fa-truck', 'text' => 'ตารางงานรถขนส่ง', 'route' => 'dp.dashboard.truck-board', 'permission' => ['DPA']],
                 ],
             ],
@@ -116,6 +187,8 @@ return [
                 'children' => [
                     ['icon' => 'fa-table', 'text' => 'Forecast', 'route' => 'fc.index', 'permission' => 'FC'],
                     ['icon' => 'fa-users', 'text' => 'Sales Forecast', 'route' => 'fc.division', 'permission' => ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
+                    ['icon' => 'fa-folder-open', 'text' => 'Sales Forecast Docs', 'route' => 'fc.division.documents', 'permission' => ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
+                    ['icon' => 'fa-user-check', 'text' => 'Sales Forecast Approval', 'route' => 'fc.division.approvals', 'permission' => 'FCAPPROVE'],
                     ['icon' => 'fa-list-check', 'text' => 'Planner Part Master', 'route' => 'fc.planner.master', 'permission' => 'FC_PLN'],
                     ['icon' => 'fa-sitemap', 'text' => 'Division Part Master', 'route' => 'fc.divisionPartMaster.index', 'permission' => ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
                     ['icon' => 'fa-calendar-check', 'text' => 'Planner Forecast', 'route' => 'fc.planner.index', 'permission' => 'FC_PLN'],
@@ -136,6 +209,19 @@ return [
                 ],
             ],
         ],
+
+        /*'wlm' => [
+            [
+                'icon' => 'fa fa-industry',
+                'text' => 'Workload Machine',
+                'permission' => 'WLM',
+                'children' => [
+                    ['icon' => 'fa fa-chart-column', 'text' => 'Dashboard', 'route' => 'machine-load.dashboard', 'permission' => 'WLM'],
+                    ['icon' => 'fa fa-magnifying-glass-chart', 'text' => 'Inquiry', 'route' => 'machine-load.inquiry', 'permission' => 'WLM'],
+                    ['icon' => 'fa fa-gears', 'text' => 'Settings', 'route' => 'machine-load.settings', 'permission' => 'WLM'],
+                ],
+            ],
+        ],*/
 
         'wr' => [
             [
@@ -158,6 +244,23 @@ return [
                     ['icon' => 'fa fa-tasks', 'text' => 'เอกสารที่รอดำเนินการ', 'route' => 'wocr.pending', 'permission' => 'WOCR'],
                     ['icon' => 'fa fa-user', 'text' => 'เอกสารของฉัน', 'route' => 'wocr.mine', 'permission' => 'WOCR'],
                     ['icon' => 'fa fa-folder-open', 'text' => 'เอกสารทั้งหมด', 'route' => 'wocr.all', 'permission' => 'WOCR'],
+                ],
+            ],
+        ],
+
+        'wos' => [
+            [
+                'icon' => 'fa-chart-line',
+                'text' => 'Sales Report',
+                'permission' => ['WOS', 'WDV'],
+                'children' => [
+                    ['icon' => 'fa-chart-column', 'text' => 'Weekly Summary', 'route' => 'wos.sales_weekly', 'permission' => 'WOS'],
+                    ['icon' => 'fa-calendar-check', 'text' => 'Order Due Date', 'route' => 'wos.order_due_date', 'permission' => 'WOS'],
+                    ['icon' => 'fa-chart-line', 'text' => 'Order Due Dashboard', 'route' => 'wos.order_due_date.dashboard', 'permission' => 'WOS'],
+                    ['icon' => 'fa-table', 'text' => 'Delivery Volume', 'route' => 'wos.sales_unit_summary', 'permission' => 'WDV'],
+                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Dashboard', 'route' => 'deadstock.dashboard', 'permission' => ['WOS', 'WDV']],
+                    ['icon' => 'fa-clipboard-check', 'text' => 'Deadstock Monthly Review', 'route' => 'deadstock.review', 'permission' => ['WOS', 'WDV']],
+                    ['icon' => 'fa-paper-plane', 'text' => 'Deadstock Manual Mail', 'route' => 'deadstock.manual', 'permission' => ['WOS', 'WDV']],
                 ],
             ],
         ],

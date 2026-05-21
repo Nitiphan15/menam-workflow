@@ -11,7 +11,15 @@
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PAADMIN') ? config('menu.menu.paadmin', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PAHR') ? config('menu.menu.pahr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PR') ? config('menu.menu.pr', []) : []);
-        $menus = array_merge($menus, auth()->user()->hasRoleCode('PO') ? config('menu.menu.po', []) : []);
+        $menus = array_merge(
+            $menus,
+            auth()
+                ->user()
+                ->hasRoleCode(['PO', 'POPUR'])
+                ? config('menu.menu.po', [])
+                : [],
+        );
+        $menus = array_merge($menus, auth()->user()->hasRoleCode('WLM') ? config('menu.menu.wlm', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('WOCR') ? config('menu.menu.wocr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PRADMIN') ? config('menu.menu.adminpr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ADMINWEB') ? config('menu.menu.adminweb', []) : []);
@@ -19,10 +27,14 @@
         $menus = array_merge($menus, auth()->user()->hasRoleCode('EXAM') ? config('menu.menu.exam', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ISR') ? config('menu.menu.isr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('DP') ? config('menu.menu.dp', []) : []);
+        $menus = array_merge($menus, auth()->user()->hasRoleCode('RISK') ? config('menu.menu.risk', []) : []);
+
         $menus = array_merge(
             $menus,
             auth()->user()->hasRoleCode('FC') ||
             auth()->user()->hasRoleCode('FC_PLN') ||
+            auth()->user()->hasRoleCode('FCM') ||
+            auth()->user()->hasRoleCode('FCAPPROVE') ||
             auth()->user()->hasRoleCode('D1') ||
             auth()->user()->hasRoleCode('D2') ||
             auth()->user()->hasRoleCode('D3') ||
@@ -43,6 +55,68 @@
     $menus = array_filter($menus, function ($item) {
         return empty($item['permission']) || (auth()->check() && auth()->user()->hasRoleCode($item['permission']));
     });
+
+    $menuGroupFor = function ($item) {
+        $text = $item['text'] ?? '';
+        $route = $item['route'] ?? '';
+
+        if ($route === 'home') {
+            return 'Main';
+        }
+
+        if ($route === 'login') {
+            return 'Main';
+        }
+
+        if (
+            Str::contains($text, [
+                'Production',
+                'Forecast',
+                'WO Change',
+                'Wirerod',
+                'Risk',
+                'Workload Machine',
+                'Packaging',
+            ])
+        ) {
+            return 'Planning';
+        }
+        if (Str::contains($text, ['PA Online', 'PA Admin', 'Cost', 'ขาดทุน', 'Payment'])) {
+            return 'Accounting';
+        }
+
+        if (Str::contains($text, ['Sales', 'Delivery Plan', 'Delivery Volume', 'Order Due Date'])) {
+            return 'Sales';
+        }
+
+        if (Str::contains($text, ['PR Online', 'PO Online'])) {
+            return 'Purchasing';
+        }
+
+        if (Str::contains($text, ['Inspection'])) {
+            return 'Operations';
+        }
+
+        if (Str::contains($text, ['Admin', 'Exam'])) {
+            return 'Management';
+        }
+
+        return 'Workflows';
+    };
+
+    $groupOrder = array_flip([
+        'Main',
+        'Sales',
+        'Accounting',
+        'Planning',
+        'Purchasing',
+        'QA',
+        'Operations',
+        'Management',
+        'Workflows',
+    ]);
+
+    $menus = collect($menus)->sortBy(fn($item) => $groupOrder[$menuGroupFor($item)] ?? 99)->values()->all();
 
     // prefix id ให้ไม่ชนกันระหว่าง desktop/mobile
     $desktopPrefix = 'desk';
@@ -76,12 +150,20 @@
 
             {{-- โลโก้แยกลงมา (ซ่อนตอนย่อ) --}}
             <div class="sidebar-brand">
-                <img src="{{ asset('assets/logo.png') }}" alt="Logo" class="img-fluid">
+                <img src="{{ asset('assets/logo_sidebar.png') }}" alt="Logo" class="img-fluid">
             </div>
         </div>
 
         <nav class="nav flex-column">
+            @php $currentGroup = null; @endphp
             @foreach ($menus as $item)
+                @php $nextGroup = $menuGroupFor($item); @endphp
+                @if ($nextGroup !== $currentGroup)
+                    <div class="sidebar-section">{{ $nextGroup }}</div>
+                    @php $currentGroup = $nextGroup; @endphp
+                @endif
+
+
                 @if (!empty($item['children']))
                     @php
                         $slug = $desktopPrefix . '-submenu-' . Str::slug($item['text']);
@@ -91,7 +173,7 @@
                     @endphp
 
                     {{-- parent (มี children): tooltip ใช้ class + title (ห้ามใส่ data-bs-toggle="tooltip") --}}
-                    <a class="nav-link d-flex justify-content-between align-items-center has-tooltip"
+                    <a class="nav-link d-flex justify-content-between align-items-center has-tooltip {{ $open ? 'active' : '' }}"
                         data-bs-toggle="collapse" href="#{{ $slug }}"
                         aria-expanded="{{ $open ? 'true' : 'false' }}" title="{{ $item['text'] }}">
 
@@ -152,11 +234,19 @@
 
     <div class="offcanvas-body sidebar p-3 overflow-auto">
         <div class="text-center mb-3 brand">
-            <img src="{{ asset('assets/logo.png') }}" alt="Logo" class="img-fluid mb-2">
+            <img src="{{ asset('assets/logo_sidebar.png') }}" alt="Logo" class="img-fluid mb-2">
         </div>
 
         <nav class="nav flex-column">
+            @php $currentGroup = null; @endphp
             @foreach ($menus as $item)
+                @php $nextGroup = $menuGroupFor($item); @endphp
+                @if ($nextGroup !== $currentGroup)
+                    <div class="sidebar-section">{{ $nextGroup }}</div>
+                    @php $currentGroup = $nextGroup; @endphp
+                @endif
+
+
                 @if (!empty($item['children']))
                     @php
                         $slug = $mobilePrefix . '-submenu-' . Str::slug($item['text']);
@@ -165,7 +255,7 @@
                             ->contains(fn($r) => request()->routeIs($r, $r . '.*'));
                     @endphp
 
-                    <a class="nav-link d-flex justify-content-between align-items-center has-tooltip"
+                    <a class="nav-link d-flex justify-content-between align-items-center has-tooltip {{ $open ? 'active' : '' }}"
                         data-bs-toggle="collapse" href="#{{ $slug }}"
                         aria-expanded="{{ $open ? 'true' : 'false' }}" title="{{ $item['text'] }}">
 
@@ -259,6 +349,21 @@
         position: relative;
         z-index: 1;
         padding-top: 6px;
+    }
+
+    .sidebar-section {
+        color: rgba(255, 255, 255, .46);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        line-height: 1;
+        margin: 18px 8px 7px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .sidebar-section:first-child {
+        margin-top: 6px;
     }
 
     /* ================================
@@ -358,9 +463,9 @@
    ================================ */
     .sidebar .nav-link {
         color: rgba(255, 255, 255, .82);
-        padding: .75rem 1rem;
-        margin: .25rem 0;
-        border-radius: .6rem;
+        padding: .66rem .85rem;
+        margin: .14rem 0;
+        border-radius: 8px;
 
         display: flex;
         align-items: center;
@@ -375,7 +480,7 @@
     .sidebar .nav-link:hover,
     .sidebar .nav-link.active {
         color: #fff;
-        background: rgba(255, 255, 255, .18);
+        background: rgba(255, 255, 255, .14);
     }
 
     /* icons uniform */
@@ -402,13 +507,26 @@
 
     .sidebar .nav-chevron {
         opacity: .9;
+        transition: transform .15s ease;
+    }
+
+    .sidebar .nav-link[aria-expanded="true"] .nav-chevron {
+        transform: rotate(180deg);
     }
 
     /* submenu */
+    .sidebar .submenu {
+        margin: 2px 0 8px;
+        padding: 3px 0 3px 11px;
+        border-left: 1px solid rgba(255, 255, 255, .14);
+    }
+
     .sidebar .submenu .nav-link {
-        padding: .6rem .85rem;
-        border-radius: .55rem;
-        margin: .15rem 0;
+        padding: .52rem .72rem;
+        border-radius: 7px;
+        margin: .08rem 0;
+        font-size: 14px;
+        color: rgba(255, 255, 255, .72);
     }
 
     /* ================================
@@ -504,6 +622,10 @@
             padding-top: .75rem !important;
             padding-bottom: .75rem !important;
         }
+
+        body.sidebar-collapsed .sidebar-section {
+            display: none;
+        }
     }
 
     /* ================================
@@ -515,6 +637,10 @@
             margin: .35rem 0;
             border-radius: .65rem;
             font-size: 1.05rem;
+        }
+
+        .sidebar-section {
+            margin: 20px 10px 8px;
         }
 
         .offcanvas .sidebar {

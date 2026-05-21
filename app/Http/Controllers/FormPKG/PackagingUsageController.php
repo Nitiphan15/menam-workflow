@@ -3,12 +3,67 @@
 namespace App\Http\Controllers\FormPkg;
 
 use App\Http\Controllers\Controller;
+use App\Services\FormPkg\PackagingUsageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class PackagingUsageController extends Controller
 {
+    public function analysis(Request $request, PackagingUsageService $service)
+    {
+        $filters = $this->validatedAnalysisFilters($request);
+
+        if ($filters['date_from'] !== '' && $filters['date_to'] !== '' && $filters['date_from'] > $filters['date_to']) {
+            return back()
+                ->withErrors(['date_to' => 'Date To must be greater than or equal to Date From.'])
+                ->withInput();
+        }
+
+        return view('formpkg.packaging_analysis', $service->getAnalysisData($filters));
+    }
+
+    public function analysisExport(Request $request, PackagingUsageService $service)
+    {
+        $filters = $this->validatedAnalysisFilters($request);
+
+        if ($filters['date_from'] !== '' && $filters['date_to'] !== '' && $filters['date_from'] > $filters['date_to']) {
+            return back()
+                ->withErrors(['date_to' => 'Date To must be greater than or equal to Date From.'])
+                ->withInput();
+        }
+
+        return $service->buildAnalysisExportResponse($filters);
+    }
+
+    private function validatedAnalysisFilters(Request $request): array
+    {
+        $validated = $request->validate([
+            'date_type' => ['nullable', 'in:reqdate,opendate'],
+            'year' => ['nullable', 'integer', 'min:2000', 'max:2100'],
+            'month' => ['nullable', 'integer', 'min:1', 'max:12'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date'],
+            'product' => ['nullable', 'string', 'max:100'],
+            'fpack' => ['nullable', 'string', 'max:100'],
+            'standard_pack' => ['nullable', 'string', 'max:100'],
+            'code_packaging' => ['nullable', 'string', 'max:100'],
+            'site' => ['nullable', 'in:WIRE,PLUS'],
+        ]);
+
+        return [
+            'date_type' => $validated['date_type'] ?? 'reqdate',
+            'year' => $validated['year'] ?? now()->year,
+            'month' => $validated['month'] ?? now()->month,
+            'date_from' => $validated['date_from'] ?? '',
+            'date_to' => $validated['date_to'] ?? '',
+            'product' => trim((string) ($validated['product'] ?? '')),
+            'fpack' => trim((string) ($validated['fpack'] ?? ($validated['standard_pack'] ?? ''))),
+            'code_packaging' => trim((string) ($validated['code_packaging'] ?? '')),
+            'site' => trim((string) ($validated['site'] ?? '')),
+        ];
+    }
+
     public function index(Request $request)
     {
         $request->validate([
@@ -73,6 +128,7 @@ class PackagingUsageController extends Controller
                     'standard_packaging',
                     'code_packaging',
                     'package_per_kg',
+                    'remark',
                 ])
                 ->where('active', 1)
                 ->whereIn('standard_packaging', $fpacks)
@@ -481,7 +537,45 @@ class PackagingUsageController extends Controller
             $mList = collect($masters->get($key, []));
 
             // ===== special override =====
-            $specialCode = $this->resolveSpecialPackagingCode($fpackVal, $flenVal);
+            $isSpecialFpack = $this->isSpecialFpack($fpackVal, $productVal);
+            $specialCode    = $this->resolveSpecialPackagingCode($fpackVal, $flenVal, $productVal, $mList);
+
+            if ($isSpecialFpack && $specialCode === null) {
+                $enriched->push((object) [
+                    'source_site'     => $rowSite,
+                    'source_conn'     => $r->source_conn ?? null,
+
+                    'parts_id'        => $partsId,
+
+                    'open_qty'        => $openQty,
+                    'produced_qty'    => $producedQty,
+                    'balance_qty'     => $balanceQty,
+
+                    'product'         => $productVal,
+                    'fpack'           => $fpackVal,
+                    'flen'            => $flenVal,
+                    'code_packaging'  => null,
+                    'pack_name'       => null,
+                    'length_mm'       => null,
+
+                    'workordernumber' => (string) ($r->workordernumber ?? ''),
+                    'dateopen'        => $r->dateopen ?? null,
+                    'reqdate'         => $r->reqdate ?? null,
+                    'qty'             => $qty,
+
+                    'kg_per_pack'     => null,
+                    'packs_used'      => null,
+                    'demand_pcs'      => 0,
+                    'stock_on_hand'   => null,
+                    'balance_pcs'     => null,
+                    'shortage_pcs'    => null,
+                    'coverage_pct'    => null,
+                    'status'          => 'unknown',
+                    'risk_rank'       => 5,
+                    'mapped'          => false,
+                ]);
+                continue;
+            }
 
             if ($specialCode !== null) {
                 $masterForSpecial = $mList->first(function ($m) use ($specialCode) {
@@ -859,6 +953,7 @@ class PackagingUsageController extends Controller
                     'standard_packaging',
                     'code_packaging',
                     'package_per_kg',
+                    'remark',
                 ])
                 ->where('active', 1)
                 ->whereIn('standard_packaging', $fpacks)
@@ -1260,10 +1355,27 @@ class PackagingUsageController extends Controller
         ]);
     }
 
-    private function resolveSpecialPackagingCode(string $fpack, $flen): ?string
+    private function isSpecialFpack(string $fpack, string $product = ''): bool
     {
-        $fpack = trim($fpack);
-        $flen  = (int) round((float) $flen);
+        $fpack   = trim($fpack);
+        $product = strtoupper(trim($product));
+
+        if ($fpack === 'PS-005/BL-016') {
+            return true;
+        }
+
+        if ($fpack === 'PS-005/BL-042' && in_array($product, ['CUT WIRE', 'BAR'], true)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function resolveSpecialPackagingCode(string $fpack, $flen, string $product = '', ?Collection $mList = null): ?string
+    {
+        $fpack   = trim($fpack);
+        $product = strtoupper(trim($product));
+        $flen    = (int) round((float) $flen);
 
         if ($fpack === 'PS-005/BL-016') {
             return match ($flen) {
@@ -1272,6 +1384,42 @@ class PackagingUsageController extends Controller
                 250 => 'PB-005',
                 default => null,
             };
+        }
+
+        if ($fpack === 'PS-005/BL-042' && in_array($product, ['CUT WIRE', 'BAR'], true)) {
+            return $this->matchCodeFromRemarkLength($mList, $flen);
+        }
+
+        return null;
+    }
+
+    private function matchCodeFromRemarkLength(?Collection $mList, int $flen): ?string
+    {
+        if ($mList === null || $mList->isEmpty() || $flen <= 0) {
+            return null;
+        }
+
+        foreach ($mList as $m) {
+            $remark = '';
+            foreach (['remark', 'Remark', 'REMARK'] as $key) {
+                if (isset($m->{$key}) && $m->{$key} !== null && $m->{$key} !== '') {
+                    $remark = (string) $m->{$key};
+                    break;
+                }
+            }
+            if ($remark === '') {
+                continue;
+            }
+
+            $parts = explode('|', $remark);
+            foreach ($parts as $segment) {
+                if (preg_match('/Length\s*\(mm\)[^:]*:\s*(\d+)/i', $segment, $matches)) {
+                    if ((int) $matches[1] === $flen) {
+                        $code = trim((string) ($m->code_packaging ?? ''));
+                        return $code !== '' ? $code : null;
+                    }
+                }
+            }
         }
 
         return null;

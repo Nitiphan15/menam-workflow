@@ -10,6 +10,7 @@ use App\Services\Po\PoErpService;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 
 class PoController extends Controller
@@ -20,16 +21,38 @@ class PoController extends Controller
 
     public function index(Request $request)
     {
+        if (Gate::denies('POPUR')) {
+            return redirect()->route('po.myActions');
+        }
+
+        $filters = [
+            'department' => $request->string('department')->toString() ?: null,
+            'search' => $request->string('search')->toString() ?: null,
+            'date_from' => $request->string('date_from')->toString() ?: null,
+            'date_to' => $request->string('date_to')->toString() ?: null,
+            'status' => $request->string('status')->toString() ?: null,
+            'source' => $request->string('source')->toString() ?: null,
+        ];
+
         $rows = $this->erpService->listOpenPos(
-            department: $request->string('department')->toString() ?: null,
-            search: $request->string('search')->toString() ?: null,
-            dateFrom: $request->string('date_from')->toString() ?: null,
-            dateTo: $request->string('date_to')->toString() ?: null,
-            status: $request->string('status')->toString() ?: null,
-            source: $request->string('source')->toString() ?: null,
+            department: $filters['department'],
+            search: $filters['search'],
+            dateFrom: $filters['date_from'],
+            dateTo: $filters['date_to'],
+            status: $filters['status'],
+            source: $filters['source'],
         );
 
-        $departments = $rows->pluck('department_group')->filter()->unique()->sort()->values();
+        $departmentRows = $this->erpService->listOpenPos(
+            department: null,
+            search: $filters['search'],
+            dateFrom: $filters['date_from'],
+            dateTo: $filters['date_to'],
+            status: $filters['status'],
+            source: $filters['source'],
+        );
+
+        $departments = $departmentRows->pluck('department_group')->filter()->unique()->sort()->values();
         $grouped = $rows->groupBy('department_group')->map(function ($items, $departmentGroup) {
             $eligibleStatuses = ['NEW', 'DRAFT'];
             $pendingItems = $items->filter(function ($row) use ($eligibleStatuses) {
@@ -130,10 +153,13 @@ class PoController extends Controller
         $signatures = $this->erpService->printWorkflowSignatures($po->workflow_id);
         $currentStepNo = (int) ($po->workflow?->current_step_no ?? 0);
 
+        $canPurchaseOperate = Gate::allows('POPUR');
         $canSubmit = blank($po->workflow_id)
             && $po->status_code === 'DRAFT'
-            && $po->attachments->isNotEmpty();
-        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true);
+            && $po->attachments->isNotEmpty()
+            && $canPurchaseOperate;
+        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
+            && $canPurchaseOperate;
         $canApprove = $po->workflow_id
             ? SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')

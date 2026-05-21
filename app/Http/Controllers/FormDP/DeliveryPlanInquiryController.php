@@ -280,6 +280,7 @@ class DeliveryPlanInquiryController extends Controller
 
                     $sellByLine = (int) ($r->sell_by_line ?? 0) === 1;
                     $lineQty = is_numeric($r->line_qty ?? null) ? (float) $r->line_qty : null;
+                    $isPieceQty = $sellByLine && $lineQty !== null && $lineQty > 0 && (float) ($r->qty ?? 0) == 0.0;
 
                     return [
                         'ord_id'         => (int) ($r->ord_id ?? 0),
@@ -291,7 +292,7 @@ class DeliveryPlanInquiryController extends Controller
                         'sell_by_line'   => $sellByLine ? 1 : 0,
                         'line_qty'       => $lineQty,
                         'line_text'      => $sellByLine
-                            ? ($lineQty !== null ? number_format($lineQty, 0) . ' เส้น' : 'ระบุเส้น')
+                            ? ($lineQty !== null ? number_format($lineQty, 0) . ' ' . ($isPieceQty ? 'ชิ้น' : 'เส้น') : ($isPieceQty ? 'ระบุชิ้น' : 'ระบุเส้น'))
                             : '-',
 
                         'shipto'         => trim((string) ($r->address ?? '')) ?: '-',
@@ -1143,7 +1144,7 @@ class DeliveryPlanInquiryController extends Controller
             'ธนัชชา'    => 'D3',
 
             'ธัธลิญา'   => 'D5',
-            'กัณญิกา'   => 'D5',
+            'เฌอร์ลิญา'   => 'D5',
 
             'สุรศักดิ์' => 'D6',
             'คณัญญ์นิชา' => 'D6',
@@ -1174,7 +1175,7 @@ class DeliveryPlanInquiryController extends Controller
             'D1'  => 'D1 - ดิลก + ขวัญเรือน',
             'D2'  => 'D2 - ปรียาพรรณ + นิตยา',
             'D3'  => 'D3 - ภควดี + ธนัชชา',
-            'D5'  => 'D5 - ธัธลิญา + กัณญิกา',
+            'D5'  => 'D5 - ธัธลิญา + เฌอร์ลิญา',
             'D6'  => 'D6 - สุรศักดิ์ + คณัญญ์นิชา',
             'D7'  => 'D7 - ศิรินภา + มนพัทธ์',
             'D8'  => 'D8 - สาธิต + สุธาสินี',
@@ -1190,14 +1191,62 @@ class DeliveryPlanInquiryController extends Controller
 
     private function revisionColorMap(): array
     {
-        return [
-            0 => '#111827',
-            1 => '#991b1b',
-            2 => '#166534',
-            3 => '#be185d',
-            4 => '#1d4ed8',
-            5 => '#0369a1',
-        ];
+        $rows = $this->conn()->table('revision_master')
+            ->select('revision_number', 'color_code')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $r) {
+            $rev   = (int) ($r->revision_number ?? 0);
+            $color = trim((string) ($r->color_code ?? ''));
+            if ($color === '') continue;
+            if (strtolower($color) === 'sky') $color = 'deepskyblue';
+            $map[$rev] = $color;
+        }
+
+        return $map;
+    }
+
+    private function deliveryPlanMailSlot(int $revision): array
+    {
+        return match (true) {
+            $revision === 0 => [
+                'code' => 'INITIAL',
+                'text' => 'แจ้งแผนส่งมอบ',
+                'badge' => 'ปกติ',
+                'time' => '16:00 PM',
+            ],
+            $revision === 1 => [
+                'code' => 'AUTO_10',
+                'text' => 'แจ้งแก้ไขแผนส่งมอบ เพิ่มเติม 1',
+                'badge' => 'เพิ่มเติม 1',
+                'time' => '10:00 AM',
+            ],
+            $revision === 2 => [
+                'code' => 'AUTO_13',
+                'text' => 'แจ้งแก้ไขแผนส่งมอบ เพิ่มเติม 2',
+                'badge' => 'เพิ่มเติม 2',
+                'time' => '13:00 PM',
+            ],
+            $revision === 3 => [
+                'code' => 'AUTO_16',
+                'text' => 'แจ้งแก้ไขแผนส่งมอบ เพิ่มเติม 3',
+                'badge' => 'เพิ่มเติม 3',
+                'time' => '16:00 PM',
+            ],
+            $revision >= 4 && $revision <= 6 => [
+                'code' => 'SALE_CO',
+                'text' => "แจ้งแก้ไขแผนส่งมอบ เพิ่มเติม {$revision} (Sale Co. ส่งเอง)",
+                'badge' => "เพิ่มเติม {$revision}",
+                'time' => 'Sale Co. ส่งเอง',
+            ],
+            default => [
+                'code' => 'MANUAL',
+                'text' => "แจ้งปรับปรุงแผนส่งมอบ Revision {$revision}",
+                'badge' => "เพิ่มเติม {$revision}",
+                'time' => now()->format('H:i A'),
+            ],
+        };
     }
 
     protected function divisionSearchMap(): array
@@ -1206,7 +1255,7 @@ class DeliveryPlanInquiryController extends Controller
             'D1'  => ['D1', 'ดิลก', 'ขวัญเรือน'],
             'D2'  => ['D2', 'ปรียาพรรณ', 'นิตยา'],
             'D3'  => ['D3', 'ภควดี', 'ธนัชชา'],
-            'D5'  => ['D5', 'ธัธลิญา', 'กัณญิกา'],
+            'D5'  => ['D5', 'ธัธลิญา', 'เฌอร์ลิญา'],
             'D6'  => ['D6', 'สุรศักดิ์', 'คณัญญ์นิชา'],
             'D7'  => ['D7', 'ศิรินภา', 'มนพัทธ์'],
             'D8'  => ['D8', 'สาธิต', 'สุธาสินี'],
@@ -1427,7 +1476,12 @@ class DeliveryPlanInquiryController extends Controller
 
     public function sendPlanMail(Request $request)
     {
-        if (!auth()->check() || !auth()->user()->can('DPEMAIL')) {
+        $user = auth()->user();
+        $canSendMail = auth()->check()
+            && (($user->is_superadmin ?? 0) == 1
+                || (method_exists($user, 'hasRoleCode') && $user->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
+
+        if (!$canSendMail) {
             abort(403);
         }
         $validated = $request->validate([
@@ -1443,6 +1497,7 @@ class DeliveryPlanInquiryController extends Controller
         $shipDate  = Carbon::parse($validated['ship_posted_at'])->toDateString();
         $revision  = (int) $validated['revision_number'];
         $forceSend = (string) ($validated['force_send'] ?? '0') === '1';
+        $isManualRevision = $revision >= 4 && $revision <= 6;
 
         $to = collect(config('mail.delivery_plan.to', []))
             ->map(fn($v) => trim((string) $v))
@@ -1487,6 +1542,7 @@ class DeliveryPlanInquiryController extends Controller
                 d.remark,
                 d.address,
                 d.delivery_type,
+                d.due_date_remark,
                 d.sell_by_line,
                 d.line_qty,
                 d.ship_posted_at,
@@ -1504,7 +1560,11 @@ class DeliveryPlanInquiryController extends Controller
                 d.attach_docs_other
             ")
             ->whereRaw("CAST(d.ship_posted_at AS date) = ?", [$shipDate])
-            ->where('d.revision_number', $revision)
+            ->when(
+                $isManualRevision,
+                fn($q) => $q->where('d.revision_number', '<=', $revision),
+                fn($q) => $q->where('d.revision_number', $revision)
+            )
             ->whereRaw("ISNULL(d.status,'') NOT IN ('VOID','CANCEL')")
             ->orderBy('d.so_number')
             ->orderBy('d.part_desc')
@@ -1617,7 +1677,6 @@ class DeliveryPlanInquiryController extends Controller
         $divGroups = $this->buildDivisionGroups($groups);
 
         $pdfRows = [];
-        $itemNo = 0;
 
         $resolveAttachDocs = function ($attachDocs, $attachDocsOther) use ($docMaster) {
             $codes = collect(preg_split('/\s*,\s*/', (string) $attachDocs))
@@ -1642,36 +1701,45 @@ class DeliveryPlanInquiryController extends Controller
 
         foreach ($divGroups as $divCode => $items) {
             $groupTitle = $divLabel[$divCode] ?? $divCode;
+            $itemNo = 0;
 
             $pdfRows[] = [
                 'row_type'   => 'group',
+                'group_code' => $divCode,
                 'group_name' => $groupTitle,
             ];
 
             foreach ($items as $r) {
                 $itemNo++;
+                $isPieceQty = ((int) ($r->sell_by_line ?? 0) === 1)
+                    && is_numeric($r->line_qty ?? null)
+                    && (float) $r->line_qty > 0
+                    && (float) ($r->qty ?? 0) == 0.0;
 
                 $pdfRows[] = [
                     'row_type'        => 'item',
                     'item_no'         => $itemNo,
-                    'revision_number' => (int) ($r->revision_number ?? 0),
+                    'revision_number' => $isManualRevision ? $revision : (int) ($r->revision_number ?? 0),
                     'customer'        => $r->customer_name ?? '-',
                     'package'         => $resolvePackage($r->mfg_no),
                     'type'            => filled($r->part_type ?? null) ? $r->part_type : '-',
                     'size_length'     => $r->part_desc ?? '-',
                     'mfg_no'          => $normalizeMfgDisplay($r->mfg_no),
                     'pieces'          => ((int) ($r->sell_by_line ?? 0) === 1 && is_numeric($r->line_qty ?? null) && (float) $r->line_qty > 0)
-                        ? 'ระบุเส้น : ' . number_format((float) $r->line_qty, 0)
+                        ? ($isPieceQty ? 'ชิ้น : ' : 'ระบุเส้น : ') . number_format((float) $r->line_qty, 0)
                         : '-',
                     'sales_qty'       => (float) ($r->qty ?? 0),
                     'stock_qty'       => (float) ($r->stock_qty ?? 0),
                     'production_qty'  => (float) ($r->qty ?? 0),
                     'logistics_qty'   => 0,
+                    'logistics_note'  => $r->due_date_remark ?? '',
+                    'priority'        => '',
                     'delivery_place'  => $r->address ?? '-',
                     'oe_no'           => $r->so_number ?? '-',
                     'problem_note'    => $revision > 0
                         ? ($r->edit_remark ?? '-')
                         : ($r->remark ?? '-'),
+                    'action_plan'     => '',
                     'attach_docs'     => $resolveAttachDocs(
                         $r->attach_docs ?? null,
                         $r->attach_docs_other ?? null
@@ -1683,20 +1751,11 @@ class DeliveryPlanInquiryController extends Controller
         $shipDateText = Carbon::parse($shipDate)->format('d/m/Y');
         $shipDateTitleText = Carbon::parse($shipDate)->locale('th')->translatedFormat('j F Y');
 
-        $mailTypeText = match (true) {
-            $revision === 0 => 'แจ้งแผนส่งมอบ',
-            $revision === 1 => 'แจ้งแก้ไขแผนส่งมอบ Revision 1',
-            default         => "แจ้งปรับปรุงแผนส่งมอบ Revision {$revision}",
-        };
-
-        $mailTypeCode = match (true) {
-            $revision === 0 => 'INITIAL',
-            $revision === 1 => 'REVISION',
-            default         => 'MANUAL',
-        };
-
-        $revisionBadgeText = $revision === 0 ? 'แจกแล้ว' : 'เพิ่มเติม ' . $revision;
-        $revisionBadgeTime = now()->format('H:i A');
+        $mailSlot = $this->deliveryPlanMailSlot($revision);
+        $mailTypeText = $mailSlot['text'];
+        $mailTypeCode = $mailSlot['code'];
+        $revisionBadgeText = $mailSlot['badge'];
+        $revisionBadgeTime = $mailSlot['time'];
 
         $subject = "[Delivery Plan] {$mailTypeText} วันที่ {$shipDateTitleText}";
 
@@ -1731,6 +1790,7 @@ class DeliveryPlanInquiryController extends Controller
 
         $pdfData = [
             'shipDateText'       => $shipDateText,
+            'shipDateThaiText'   => Carbon::parse($shipDate)->locale('th')->translatedFormat('j F Y'),
             'shipDateFile'       => now()->format('Ymd_His'),
             'monthText'          => Carbon::parse($shipDate)->locale('th')->translatedFormat('F Y'),
             'targetText'         => '900 ตัน/เดือน',
@@ -1748,7 +1808,21 @@ class DeliveryPlanInquiryController extends Controller
             'revisionBadgeTime'  => $revisionBadgeTime,
         ];
 
-        $mail = new DeliveryPlanMail($mailData, $pdfData);
+        $excelContent = Excel::raw(new InquiryByShipDateExport([
+            'ship_from' => $shipDate,
+            'ship_to' => $shipDate,
+            'status' => 'ALL',
+            $isManualRevision ? 'revision_max_number' : 'revision_number' => $revision,
+            'display_revision_number' => $revision,
+            'exclude_void_cancel' => 1,
+        ]), \Maatwebsite\Excel\Excel::XLSX);
+
+        $excelData = [
+            'content' => $excelContent,
+            'filename' => 'DeliveryPlan-' . ($pdfData['shipDateFile'] ?? now()->format('Ymd_His')) . '.xlsx',
+        ];
+
+        $mail = new DeliveryPlanMail($mailData, $pdfData, $excelData);
 
         try {
             $mailer = Mail::to($to);
@@ -1758,6 +1832,18 @@ class DeliveryPlanInquiryController extends Controller
             }
 
             $mailer->send($mail);
+
+            /*if ($isManualRevision) {
+                $this->conn()
+                    ->table('delivery_plan_data')
+                    ->whereRaw("CAST(ship_posted_at AS date) = ?", [$shipDate])
+                    ->whereRaw("ISNULL(status,'') NOT IN ('VOID','CANCEL')")
+                    ->where('revision_number', '<', $revision)
+                    ->update([
+                        'revision_number' => $revision,
+                        'revise_by'        => $u->id ?? null,
+                    ]);
+            }*/
 
             $this->conn()->table('delivery_plan_mail_logs')->insert([
                 'ship_posted_at'  => $shipDate,
@@ -2333,6 +2419,9 @@ class DeliveryPlanInquiryController extends Controller
             $r->line_qty_display = ((int) ($r->sell_by_line ?? 0) === 1)
                 ? (float) ($r->line_qty ?? 0)
                 : null;
+            $r->line_qty_unit = ((int) ($r->sell_by_line ?? 0) === 1 && (float) ($r->qty ?? 0) == 0.0)
+                ? 'ชิ้น'
+                : 'เส้น';
 
             $r->truck_plate_display = $plateNo !== '' ? $plateNo : 'ยังไม่ขึ้นรถ';
             $r->truck_group_key = $plateNo !== '' ? $plateNo : '__UNASSIGNED__';

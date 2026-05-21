@@ -14,7 +14,7 @@
         // ตัวเลือกฟิลเตอร์
         $siteOptions = $siteOptions ?? collect($list)->pluck('data_site')->filter()->unique()->values();
         $statusOptions = $statusOptions ?? collect(['Planner Submit', 'Sale Submit', 'Closed', 'Voided']);
-        dump($status, $statusOptions);
+        //($status, $statusOptions);
         // ตัวนับ
         $counts = $counts ?? ['pending' => null, 'mine' => null, 'all' => null];
 
@@ -72,7 +72,7 @@
                     <option value="">ทั้งหมด</option>
                     @foreach ($statusOptions as $st)
                         @php
-                            dump($st);
+                            //dump($st);
                         @endphp
                         <option value="{{ $st }}" @selected($status == $st)>{{ ucfirst($st) }}</option>
                     @endforeach
@@ -81,6 +81,9 @@
 
             <div class="col-12 col-sm-auto">
                 <button class="btn btn-dark px-4">ค้นหา</button>
+                <button type="submit" formaction="{{ route('pp.export') }}" class="btn btn-success ms-1">
+                    Export Excel
+                </button>
                 @if (request()->hasAny(['q', 'site', 'status']))
                     <a href="{{ request()->fullUrlWithQuery(['q' => null, 'site' => null, 'status' => null, 'page' => 1]) }}"
                         class="btn btn-outline-secondary ms-1">ล้างตัวกรอง</a>

@@ -8,6 +8,52 @@
         @if (session('ok'))
             <div class="alert alert-success">{{ session('ok') }}</div>
         @endif
+        @if ($errors->has('erp_phpsessid'))
+            <div class="alert alert-danger">{{ $errors->first('erp_phpsessid') }}</div>
+        @endif
+
+        @can('POPUR')
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-body d-flex flex-wrap align-items-end gap-2">
+                    <form method="POST" action="{{ route('po.erp.connect') }}" class="d-flex flex-wrap align-items-end gap-2">
+                        @csrf
+                        <div>
+                            <label class="form-label small text-muted mb-1">ERP Username</label>
+                            <input type="text" name="erp_username" class="form-control form-control-sm" style="min-width: 150px;"
+                                autocomplete="username">
+                        </div>
+                        <div>
+                            <label class="form-label small text-muted mb-1">ERP Password</label>
+                            <input type="password" name="erp_password" class="form-control form-control-sm" style="min-width: 150px;"
+                                autocomplete="current-password">
+                        </div>
+                        <div>
+                            <label class="form-label small text-muted mb-1">Company</label>
+                            <select name="erp_dataset" class="form-select form-select-sm">
+                                <option value="msw">Menam Stainless Wire PCL</option>
+                                <option value="mswplus">Menam Plus</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-primary">Connect ERP</button>
+                    </form>
+                    <form method="POST" action="{{ route('po.erpSession.save') }}" class="d-flex flex-wrap align-items-end gap-2">
+                        @csrf
+                        <div>
+                            <label class="form-label small text-muted mb-1">ERP PHPSESSID</label>
+                            <input type="text" name="erp_phpsessid" value="{{ session('po_erp_phpsessid') }}"
+                                class="form-control form-control-sm" style="min-width: 280px;"
+                                placeholder="Paste PHPSESSID or full Cookie header">
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Save Session</button>
+                    </form>
+                    <form method="POST" action="{{ route('po.erpSession.clear') }}">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Clear</button>
+                    </form>
+                </div>
+            </div>
+        @endcan
 
         <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
             <div>

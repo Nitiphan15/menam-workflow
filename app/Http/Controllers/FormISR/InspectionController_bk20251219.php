@@ -340,7 +340,7 @@ class InspectionController extends Controller
         $specCache = $this->buildSpecCache($remark, $stepDetail);
 
         $qaRows = [];
-        dump($columnConfig);
+        //dump($columnConfig);
 
         $normalizeDefectValue = function ($val, array $cfg) {
             if (!($cfg['defect_master'] ?? false)) {

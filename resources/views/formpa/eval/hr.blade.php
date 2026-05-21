@@ -7,7 +7,7 @@
     @php
         // น้ำหนักรวมของแต่ละภาค (ปรับได้)
         $partWeights = $partWeights ?? ['A' => 80, 'B' => 20];
-        dump($form->employee->id, $form);
+        //dump($form->employee->id, $form);
     @endphp
 
     <form method="post" action="{{ route('pa.hr.store', $form) }}" id="eval-form" class="container-fluid px-3">

@@ -2,11 +2,217 @@
 
 namespace App\Services\FormPkg;
 
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class PackagingUsageService
 {
+    public function getAnalysisData(array $filters): array
+    {
+        $filters = $this->normalizeAnalysisFilters($filters);
+        $baseFilters = $this->baseFiltersForRange($filters, $filters['date_from'], $filters['date_to']);
+        $dataset = $this->buildDataset($baseFilters, true);
+        $rows = $this->applyAnalysisRowFilters($dataset['enriched'], $filters);
+
+        $currentPeriodStart = Carbon::parse($filters['date_from'])->startOfDay();
+        $currentPeriodEnd = Carbon::parse($filters['date_to'])->endOfDay();
+        $previousPeriodMonthStart = $currentPeriodStart->copy()->subMonthNoOverflow();
+        $previousPeriodMonthEnd = $currentPeriodEnd->copy()->subMonthNoOverflow();
+        $previousPeriodYearStart = $currentPeriodStart->copy()->subYear();
+        $previousPeriodYearEnd = $currentPeriodEnd->copy()->subYear();
+
+        $monthStart = Carbon::create((int) $filters['year'], (int) $filters['month'], 1)->startOfMonth();
+        $monthEnd = $monthStart->copy()->endOfMonth();
+        $previousMonthStart = $monthStart->copy()->subMonthNoOverflow()->startOfMonth();
+        $previousMonthEnd = $previousMonthStart->copy()->endOfMonth();
+        $yearStart = Carbon::create((int) $filters['year'], 1, 1)->startOfDay();
+        $yearEnd = Carbon::create((int) $filters['year'], 12, 31)->endOfDay();
+        $previousYearStart = $yearStart->copy()->subYear()->startOfYear();
+        $previousYearEnd = $previousYearStart->copy()->endOfYear();
+
+        $comparisonFrom = $previousYearStart->copy();
+        if ($previousPeriodYearStart->lt($comparisonFrom)) {
+            $comparisonFrom = $previousPeriodYearStart->copy();
+        }
+        if ($previousPeriodMonthStart->lt($comparisonFrom)) {
+            $comparisonFrom = $previousPeriodMonthStart->copy();
+        }
+
+        $comparisonTo = $yearEnd->copy();
+        if ($currentPeriodEnd->gt($comparisonTo)) {
+            $comparisonTo = $currentPeriodEnd->copy();
+        }
+
+        $comparisonRows = $this->comparisonRowsForAnalysis($filters, $comparisonFrom, $comparisonTo);
+
+        $selectedMonthRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $monthStart, $monthEnd);
+        $previousMonthRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $previousMonthStart, $previousMonthEnd);
+        $selectedYearRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $yearStart, $yearEnd);
+        $previousYearRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $previousYearStart, $previousYearEnd);
+        $currentPeriodRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $currentPeriodStart, $currentPeriodEnd);
+        $previousPeriodMonthRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $previousPeriodMonthStart, $previousPeriodMonthEnd);
+        $previousPeriodYearRows = $this->rowsBetween($comparisonRows, $filters['date_type'], $previousPeriodYearStart, $previousPeriodYearEnd);
+
+        $productSummary = $this->summaryByProduct($rows);
+        $codeSummary = $this->summaryByCodePackaging($rows);
+        $productComparison = $this->periodComparisonByProduct($currentPeriodRows, $previousPeriodMonthRows, $previousPeriodYearRows, $filters);
+        $codeComparison = $this->periodComparisonByCodePackaging($currentPeriodRows, $previousPeriodMonthRows, $previousPeriodYearRows, $filters);
+
+        $topProduct = $productSummary->sortByDesc('demand_pcs')->first();
+        $topCode = $codeSummary->sortByDesc('demand_pcs')->first();
+
+        $monthlyTrend = collect(range(1, 12))->map(function ($month) use ($selectedYearRows, $filters) {
+            $monthRows = $selectedYearRows->filter(function ($row) use ($month, $filters) {
+                $date = $this->rowDate($row, $filters['date_type']);
+                return $date && (int) $date->format('n') === $month;
+            });
+
+            return [
+                'label' => Carbon::create((int) $filters['year'], $month, 1)->format('M'),
+                'value' => (int) $monthRows->sum('demand_pcs'),
+            ];
+        })->values();
+
+        return [
+            'filters' => $filters,
+            'productOptions' => $dataset['productOptions'],
+            'fpackOptions' => $dataset['fpackOptions'],
+            'codeOptions' => $this->codeOptions($rows, $filters['code_packaging']),
+            'siteOptions' => $this->siteOptions(),
+            'quickLinks' => $this->analysisQuickLinks($filters),
+            'periods' => [
+                'current' => $currentPeriodStart->toDateString() . ' - ' . $currentPeriodEnd->toDateString(),
+                'previous_month' => $previousPeriodMonthStart->toDateString() . ' - ' . $previousPeriodMonthEnd->toDateString(),
+                'previous_year' => $previousPeriodYearStart->toDateString() . ' - ' . $previousPeriodYearEnd->toDateString(),
+            ],
+            'kpis' => [
+                'selected_month_demand' => (int) $selectedMonthRows->sum('demand_pcs'),
+                'previous_month_demand' => (int) $previousMonthRows->sum('demand_pcs'),
+                'mom_change_pct' => $this->changePercent((float) $selectedMonthRows->sum('demand_pcs'), (float) $previousMonthRows->sum('demand_pcs')),
+                'selected_year_demand' => (int) $selectedYearRows->sum('demand_pcs'),
+                'previous_year_demand' => (int) $previousYearRows->sum('demand_pcs'),
+                'yoy_change_pct' => $this->changePercent((float) $selectedYearRows->sum('demand_pcs'), (float) $previousYearRows->sum('demand_pcs')),
+                'top_product' => $topProduct,
+                'top_code' => $topCode,
+            ],
+            'charts' => [
+                'monthlyTrend' => $monthlyTrend,
+                'productUsage' => $productSummary->take(10)->map(fn($row) => [
+                    'label' => $row->product ?: '-',
+                    'value' => (int) $row->demand_pcs,
+                ])->values(),
+                'codeUsage' => $codeSummary->take(10)->map(fn($row) => [
+                    'label' => $row->code_packaging ?: '-',
+                    'value' => (int) $row->demand_pcs,
+                ])->values(),
+                'siteUsage' => $this->summaryBySite($rows)->map(fn($row) => [
+                    'label' => $row->source_site ?: '-',
+                    'value' => (int) $row->demand_pcs,
+                ])->values(),
+            ],
+            'comparison' => [
+                'products' => $productComparison,
+                'codes' => $codeComparison,
+            ],
+            'riskInsights' => $this->analysisRiskInsights($productSummary, $codeSummary, $productComparison, $codeComparison, $filters),
+            'monthlySummary' => $this->summaryByMonth($rows, $filters['date_type']),
+            'productSummary' => $productSummary,
+            'codeSummary' => $codeSummary,
+            'matrix' => $this->productCodeMatrix($rows),
+        ];
+    }
+
+    public function buildAnalysisExportResponse(array $filters)
+    {
+        $data = $this->getAnalysisData($filters);
+        $filters = $data['filters'];
+        $fileBase = 'packaging_analysis_' . str_replace('-', '', $filters['date_from']) . '_' . str_replace('-', '', $filters['date_to']);
+
+        if (class_exists(\PhpOffice\PhpSpreadsheet\Spreadsheet::class)) {
+            $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+            $this->fillAnalysisSheet(
+                $spreadsheet->getActiveSheet(),
+                'Monthly Summary',
+                ['Year-Month', 'Demand PCS', 'Stock PCS', 'Shortage PCS', 'Coverage %', 'WO Count'],
+                $data['monthlySummary']->map(fn($row) => [
+                    $row->year_month,
+                    $row->demand_pcs,
+                    $row->stock_pcs,
+                    $row->shortage_pcs,
+                    $this->coverageText($row->coverage_pct),
+                    $row->wo_count,
+                ])
+            );
+
+            $this->fillAnalysisSheet(
+                $spreadsheet->createSheet(),
+                'Product Summary',
+                ['Product', 'Demand PCS', 'Stock PCS', 'Shortage PCS', 'Coverage %', 'Code Packaging Count', 'WO Count'],
+                $data['productSummary']->map(fn($row) => [
+                    $row->product,
+                    $row->demand_pcs,
+                    $row->stock_pcs,
+                    $row->shortage_pcs,
+                    $this->coverageText($row->coverage_pct),
+                    $row->code_packaging_count,
+                    $row->wo_count,
+                ])
+            );
+
+            $this->fillAnalysisSheet(
+                $spreadsheet->createSheet(),
+                'Code Packaging Summary',
+                ['Code Packaging', 'Packaging Name', 'Product', 'Site', 'Demand PCS', 'Stock PCS', 'Shortage PCS', 'Coverage %', 'WO Count'],
+                $data['codeSummary']->map(fn($row) => [
+                    $row->code_packaging,
+                    $row->pack_name,
+                    $row->product,
+                    $row->source_site,
+                    $row->demand_pcs,
+                    $row->stock_pcs,
+                    $row->shortage_pcs,
+                    $this->coverageText($row->coverage_pct),
+                    $row->wo_count,
+                ])
+            );
+
+            $spreadsheet->setActiveSheetIndex(0);
+            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $tmp = tempnam(sys_get_temp_dir(), 'xlsx_');
+            $writer->save($tmp);
+
+            return response()->download($tmp, "{$fileBase}.xlsx")->deleteFileAfterSend(true);
+        }
+
+        $callback = function () use ($data) {
+            $out = fopen('php://output', 'w');
+            fprintf($out, chr(0xEF) . chr(0xBB) . chr(0xBF));
+            fputcsv($out, ['Monthly Summary']);
+            fputcsv($out, ['Year-Month', 'Demand PCS', 'Stock PCS', 'Shortage PCS', 'Coverage %', 'WO Count']);
+            foreach ($data['monthlySummary'] as $row) {
+                fputcsv($out, [$row->year_month, $row->demand_pcs, $row->stock_pcs, $row->shortage_pcs, $this->coverageText($row->coverage_pct), $row->wo_count]);
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['Product Summary']);
+            fputcsv($out, ['Product', 'Demand PCS', 'Stock PCS', 'Shortage PCS', 'Coverage %', 'Code Packaging Count', 'WO Count']);
+            foreach ($data['productSummary'] as $row) {
+                fputcsv($out, [$row->product, $row->demand_pcs, $row->stock_pcs, $row->shortage_pcs, $this->coverageText($row->coverage_pct), $row->code_packaging_count, $row->wo_count]);
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['Code Packaging Summary']);
+            fputcsv($out, ['Code Packaging', 'Packaging Name', 'Product', 'Site', 'Demand PCS', 'Stock PCS', 'Shortage PCS', 'Coverage %', 'WO Count']);
+            foreach ($data['codeSummary'] as $row) {
+                fputcsv($out, [$row->code_packaging, $row->pack_name, $row->product, $row->source_site, $row->demand_pcs, $row->stock_pcs, $row->shortage_pcs, $this->coverageText($row->coverage_pct), $row->wo_count]);
+            }
+            fclose($out);
+        };
+
+        return response()->streamDownload($callback, "{$fileBase}.csv", [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     public function getIndexData(array $filters): array
     {
         $dataset = $this->buildDataset($filters, true);
@@ -365,6 +571,503 @@ class PackagingUsageService
         ]);
     }
 
+    private function normalizeAnalysisFilters(array $filters): array
+    {
+        $year = (int) ($filters['year'] ?? now()->year);
+        $month = (int) ($filters['month'] ?? now()->month);
+        $year = $year > 0 ? $year : now()->year;
+        $month = $month >= 1 && $month <= 12 ? $month : now()->month;
+
+        $dateFrom = trim((string) ($filters['date_from'] ?? ''));
+        $dateTo = trim((string) ($filters['date_to'] ?? ''));
+
+        if ($dateFrom === '' || $dateTo === '') {
+            $dateFrom = Carbon::create($year, $month, 1)->startOfMonth()->toDateString();
+            $dateTo = Carbon::create($year, $month, 1)->endOfMonth()->toDateString();
+        }
+
+        return [
+            'date_type' => in_array(($filters['date_type'] ?? 'reqdate'), ['reqdate', 'opendate'], true)
+                ? $filters['date_type']
+                : 'reqdate',
+            'year' => $year,
+            'month' => $month,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'product' => trim((string) ($filters['product'] ?? '')),
+            'fpack' => trim((string) ($filters['fpack'] ?? ($filters['standard_pack'] ?? ''))),
+            'code_packaging' => trim((string) ($filters['code_packaging'] ?? '')),
+            'site' => strtoupper(trim((string) ($filters['site'] ?? ''))),
+            'status' => '',
+        ];
+    }
+
+    private function baseFiltersForRange(array $filters, string $dateFrom, string $dateTo): array
+    {
+        return [
+            'date_type' => $filters['date_type'],
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'product' => $filters['product'],
+            'fpack' => $filters['fpack'],
+            'status' => '',
+            'site' => '',
+        ];
+    }
+
+    private function comparisonRowsForAnalysis(array $filters, Carbon $from, Carbon $to): Collection
+    {
+        $dataset = $this->buildDataset($this->baseFiltersForRange($filters, $from->toDateString(), $to->toDateString()), false);
+
+        return $this->applyAnalysisRowFilters($dataset['enriched'], $filters);
+    }
+
+    private function applyAnalysisRowFilters(Collection $rows, array $filters): Collection
+    {
+        if (($filters['site'] ?? '') !== '') {
+            $rows = $rows->filter(
+                fn($row) => strtoupper((string) ($row->source_site ?? '')) === strtoupper($filters['site'])
+            );
+        }
+
+        if (($filters['code_packaging'] ?? '') !== '') {
+            $rows = $rows->filter(
+                fn($row) => (string) ($row->code_packaging ?? '') === (string) $filters['code_packaging']
+            );
+        }
+
+        return $rows->values();
+    }
+
+    private function rowsBetween(Collection $rows, string $dateType, Carbon $from, Carbon $to): Collection
+    {
+        return $rows->filter(function ($row) use ($dateType, $from, $to) {
+            $date = $this->rowDate($row, $dateType);
+
+            return $date && $date->betweenIncluded($from, $to);
+        })->values();
+    }
+
+    private function rowDate($row, string $dateType): ?Carbon
+    {
+        $value = $dateType === 'opendate' ? ($row->dateopen ?? null) : ($row->reqdate ?? null);
+
+        if (!$value) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->startOfDay();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function summaryByMonth(Collection $rows, string $dateType): Collection
+    {
+        return $rows
+            ->groupBy(function ($row) use ($dateType) {
+                $date = $this->rowDate($row, $dateType);
+                return $date ? $date->format('Y-m') : '-';
+            })
+            ->map(fn($items, $month) => $this->aggregateAnalysisItems($items, ['year_month' => $month]))
+            ->sortBy('year_month')
+            ->values();
+    }
+
+    private function summaryByProduct(Collection $rows): Collection
+    {
+        return $rows
+            ->groupBy(fn($row) => (string) ($row->product ?? ''))
+            ->map(function ($items, $product) {
+                $summary = $this->aggregateAnalysisItems($items, [
+                    'product' => $product !== '' ? $product : '-',
+                    'code_packaging_count' => $items->pluck('code_packaging')->filter()->unique()->count(),
+                ]);
+
+                return $summary;
+            })
+            ->sortByDesc('demand_pcs')
+            ->values();
+    }
+
+    private function summaryByCodePackaging(Collection $rows): Collection
+    {
+        return $rows
+            ->groupBy(fn($row) => (string) ($row->code_packaging ?? '') . '||' . (string) ($row->product ?? '') . '||' . (string) ($row->source_site ?? ''))
+            ->map(function ($items, $key) {
+                [$code, $product, $site] = array_pad(explode('||', $key, 3), 3, '');
+
+                return $this->aggregateAnalysisItems($items, [
+                    'code_packaging' => $code !== '' ? $code : '-',
+                    'pack_name' => optional($items->first())->pack_name ?? '-',
+                    'product' => $product !== '' ? $product : '-',
+                    'source_site' => $site !== '' ? $site : '-',
+                ]);
+            })
+            ->sortByDesc('demand_pcs')
+            ->values();
+    }
+
+    private function summaryBySite(Collection $rows): Collection
+    {
+        return $rows
+            ->groupBy(fn($row) => (string) ($row->source_site ?? ''))
+            ->map(fn($items, $site) => $this->aggregateAnalysisItems($items, [
+                'source_site' => $site !== '' ? $site : '-',
+            ]))
+            ->sortBy('source_site')
+            ->values();
+    }
+
+    private function periodComparisonByProduct(Collection $currentRows, Collection $previousMonthRows, Collection $previousYearRows, array $filters): Collection
+    {
+        return $this->periodComparison(
+            $currentRows,
+            $previousMonthRows,
+            $previousYearRows,
+            fn($row) => (string) ($row->product ?? ''),
+            function ($items, $key) use ($filters) {
+                $product = $key !== '' ? $key : '-';
+
+                return [
+                    'label' => $product,
+                    'product' => $product,
+                    'code_packaging' => '',
+                    'source_site' => '',
+                    'link_filters' => array_merge($filters, ['product' => $product === '-' ? '' : $product]),
+                ];
+            }
+        );
+    }
+
+    private function periodComparisonByCodePackaging(Collection $currentRows, Collection $previousMonthRows, Collection $previousYearRows, array $filters): Collection
+    {
+        return $this->periodComparison(
+            $currentRows,
+            $previousMonthRows,
+            $previousYearRows,
+            fn($row) => (string) ($row->code_packaging ?? '') . '||' . (string) ($row->product ?? '') . '||' . (string) ($row->source_site ?? ''),
+            function ($items, $key) use ($filters) {
+                [$code, $product, $site] = array_pad(explode('||', $key, 3), 3, '');
+                $code = $code !== '' ? $code : '-';
+                $product = $product !== '' ? $product : '-';
+                $site = $site !== '' ? $site : '-';
+
+                return [
+                    'label' => $code,
+                    'product' => $product,
+                    'code_packaging' => $code,
+                    'source_site' => $site,
+                    'link_filters' => array_merge($filters, [
+                        'product' => $product === '-' ? '' : $product,
+                        'code_packaging' => $code === '-' ? '' : $code,
+                        'site' => $site === '-' ? '' : $site,
+                    ]),
+                ];
+            }
+        );
+    }
+
+    private function periodComparison(Collection $currentRows, Collection $previousMonthRows, Collection $previousYearRows, callable $keyForRow, callable $metadataForKey): Collection
+    {
+        $currentGroups = $currentRows->groupBy($keyForRow);
+        $previousMonthGroups = $previousMonthRows->groupBy($keyForRow);
+        $previousYearGroups = $previousYearRows->groupBy($keyForRow);
+
+        return $currentGroups
+            ->keys()
+            ->merge($previousMonthGroups->keys())
+            ->merge($previousYearGroups->keys())
+            ->unique()
+            ->map(function ($key) use ($currentGroups, $previousMonthGroups, $previousYearGroups, $metadataForKey) {
+                $current = $this->aggregateAnalysisItems($currentGroups->get($key, collect()), []);
+                $previousMonth = $this->aggregateAnalysisItems($previousMonthGroups->get($key, collect()), []);
+                $previousYear = $this->aggregateAnalysisItems($previousYearGroups->get($key, collect()), []);
+                $meta = $metadataForKey($currentGroups->get($key, collect()), $key);
+
+                return (object) array_merge($meta, [
+                    'current_demand_pcs' => (int) $current->demand_pcs,
+                    'previous_month_demand_pcs' => (int) $previousMonth->demand_pcs,
+                    'previous_year_demand_pcs' => (int) $previousYear->demand_pcs,
+                    'mom_change_pcs' => (int) $current->demand_pcs - (int) $previousMonth->demand_pcs,
+                    'yoy_change_pcs' => (int) $current->demand_pcs - (int) $previousYear->demand_pcs,
+                    'mom_change_pct' => $this->changePercent((float) $current->demand_pcs, (float) $previousMonth->demand_pcs),
+                    'yoy_change_pct' => $this->changePercent((float) $current->demand_pcs, (float) $previousYear->demand_pcs),
+                    'shortage_pcs' => (float) $current->shortage_pcs,
+                    'coverage_pct' => $current->coverage_pct,
+                    'wo_count' => (int) $current->wo_count,
+                ]);
+            })
+            ->sortByDesc(fn($row) => max(abs((int) $row->mom_change_pcs), abs((int) $row->yoy_change_pcs), (int) $row->current_demand_pcs))
+            ->values();
+    }
+
+    private function analysisRiskInsights(Collection $productSummary, Collection $codeSummary, Collection $productComparison, Collection $codeComparison, array $filters): array
+    {
+        $activeCodes = $codeSummary->filter(fn($row) => (float) ($row->demand_pcs ?? 0) > 0);
+        $shortageCodes = $activeCodes->filter(fn($row) => (float) ($row->shortage_pcs ?? 0) > 0);
+        $lowCoverageCodes = $activeCodes->filter(function ($row) {
+            return is_numeric($row->coverage_pct ?? null) && (float) $row->coverage_pct < 120;
+        });
+
+        $totalDemand = (float) $activeCodes->sum('demand_pcs');
+        $totalStock = (float) $activeCodes->sum('stock_pcs');
+        $totalShortage = (float) $activeCodes->sum('shortage_pcs');
+        $coveragePct = $totalDemand > 0 ? ($totalStock / $totalDemand) * 100 : null;
+
+        $topShortageCodes = $shortageCodes
+            ->sortByDesc(fn($row) => (float) ($row->shortage_pcs ?? 0))
+            ->take(8)
+            ->map(function ($row) use ($filters, $totalShortage) {
+                return (object) [
+                    'code_packaging' => $row->code_packaging,
+                    'pack_name' => $row->pack_name,
+                    'product' => $row->product,
+                    'source_site' => $row->source_site,
+                    'demand_pcs' => (float) $row->demand_pcs,
+                    'stock_pcs' => (float) $row->stock_pcs,
+                    'shortage_pcs' => (float) $row->shortage_pcs,
+                    'coverage_pct' => $row->coverage_pct,
+                    'impact_pct' => $totalShortage > 0 ? ((float) $row->shortage_pcs / $totalShortage) * 100 : 0,
+                    'link_filters' => $this->analysisCodeLinkFilters($filters, $row),
+                ];
+            })
+            ->values();
+
+        $lowCoverageRows = $lowCoverageCodes
+            ->sort(function ($a, $b) {
+                $cmp = ((float) ($a->coverage_pct ?? 999999)) <=> ((float) ($b->coverage_pct ?? 999999));
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+
+                return ((float) ($b->shortage_pcs ?? 0)) <=> ((float) ($a->shortage_pcs ?? 0));
+            })
+            ->take(8)
+            ->map(function ($row) use ($filters) {
+                return (object) [
+                    'code_packaging' => $row->code_packaging,
+                    'product' => $row->product,
+                    'source_site' => $row->source_site,
+                    'demand_pcs' => (float) $row->demand_pcs,
+                    'stock_pcs' => (float) $row->stock_pcs,
+                    'shortage_pcs' => (float) $row->shortage_pcs,
+                    'coverage_pct' => $row->coverage_pct,
+                    'link_filters' => $this->analysisCodeLinkFilters($filters, $row),
+                ];
+            })
+            ->values();
+
+        $growthCodes = $codeComparison
+            ->filter(fn($row) => (int) ($row->mom_change_pcs ?? 0) > 0 || (int) ($row->yoy_change_pcs ?? 0) > 0)
+            ->sortByDesc(fn($row) => max((int) ($row->mom_change_pcs ?? 0), (int) ($row->yoy_change_pcs ?? 0)))
+            ->take(6)
+            ->values();
+
+        $shortageProducts = $productSummary
+            ->filter(fn($row) => (float) ($row->shortage_pcs ?? 0) > 0)
+            ->sortByDesc(fn($row) => (float) ($row->shortage_pcs ?? 0))
+            ->take(6)
+            ->map(function ($row) use ($filters, $totalShortage) {
+                return (object) [
+                    'product' => $row->product,
+                    'demand_pcs' => (float) $row->demand_pcs,
+                    'shortage_pcs' => (float) $row->shortage_pcs,
+                    'coverage_pct' => $row->coverage_pct,
+                    'impact_pct' => $totalShortage > 0 ? ((float) $row->shortage_pcs / $totalShortage) * 100 : 0,
+                    'link_filters' => array_merge($filters, [
+                        'product' => $row->product === '-' ? '' : $row->product,
+                    ]),
+                ];
+            })
+            ->values();
+
+        return [
+            'total_demand_pcs' => $totalDemand,
+            'total_stock_pcs' => $totalStock,
+            'total_shortage_pcs' => $totalShortage,
+            'coverage_pct' => $coveragePct,
+            'shortage_code_count' => $shortageCodes->count(),
+            'low_coverage_code_count' => $lowCoverageCodes->count(),
+            'active_code_count' => $activeCodes->count(),
+            'top_shortage_codes' => $topShortageCodes,
+            'low_coverage_rows' => $lowCoverageRows,
+            'growth_codes' => $growthCodes,
+            'shortage_products' => $shortageProducts,
+        ];
+    }
+
+    private function analysisCodeLinkFilters(array $filters, object $row): array
+    {
+        return array_merge($filters, [
+            'product' => ($row->product ?? '-') === '-' ? '' : (string) $row->product,
+            'code_packaging' => ($row->code_packaging ?? '-') === '-' ? '' : (string) $row->code_packaging,
+            'site' => ($row->source_site ?? '-') === '-' ? '' : (string) $row->source_site,
+        ]);
+    }
+
+    private function aggregateAnalysisItems(Collection $items, array $extra): object
+    {
+        $codeSiteGroups = $items->groupBy(fn($row) => (string) ($row->code_packaging ?? '') . '||' . (string) ($row->source_site ?? ''));
+        $demand = (int) $items->sum('demand_pcs');
+        $stock = 0.0;
+        $shortage = 0.0;
+        $woCount = $items->pluck('workordernumber')->filter()->unique()->count();
+
+        foreach ($codeSiteGroups as $groupRows) {
+            $groupDemand = (int) $groupRows->sum('demand_pcs');
+            $groupStock = optional($groupRows->first())->stock_on_hand;
+            $groupStock = $groupStock !== null ? (float) $groupStock : 0.0;
+            $stock += $groupStock;
+            $shortage += max(0, $groupDemand - $groupStock);
+        }
+
+        $coverage = $demand > 0 ? ($stock / $demand) * 100 : ($stock > 0 ? 999999 : 0);
+
+        return (object) array_merge($extra, [
+            'demand_pcs' => $demand,
+            'stock_pcs' => $stock,
+            'shortage_pcs' => $shortage,
+            'coverage_pct' => $coverage,
+            'wo_count' => $woCount,
+        ]);
+    }
+
+    private function productCodeMatrix(Collection $rows): array
+    {
+        $products = $rows->pluck('product')->filter()->unique()->sort()->values();
+        $codes = $rows->pluck('code_packaging')->filter()->unique()->sort()->values();
+        $body = $products->map(function ($product) use ($rows, $codes) {
+            $cells = [];
+            $total = 0;
+            foreach ($codes as $code) {
+                $value = (int) $rows
+                    ->filter(fn($row) => (string) ($row->product ?? '') === (string) $product && (string) ($row->code_packaging ?? '') === (string) $code)
+                    ->sum('demand_pcs');
+                $cells[$code] = $value;
+                $total += $value;
+            }
+
+            return [
+                'product' => $product,
+                'cells' => $cells,
+                'total' => $total,
+            ];
+        })->values();
+
+        $columnTotals = [];
+        foreach ($codes as $code) {
+            $columnTotals[$code] = (int) $rows
+                ->filter(fn($row) => (string) ($row->code_packaging ?? '') === (string) $code)
+                ->sum('demand_pcs');
+        }
+
+        return [
+            'codes' => $codes,
+            'rows' => $body,
+            'columnTotals' => $columnTotals,
+            'grandTotal' => array_sum($columnTotals),
+        ];
+    }
+
+    private function analysisQuickLinks(array $filters): array
+    {
+        $today = now();
+        $thisMonth = $today->copy()->startOfMonth();
+        $lastMonth = $today->copy()->subMonthNoOverflow()->startOfMonth();
+        $thisYear = $today->copy()->startOfYear();
+        $base = collect($filters)->except(['date_from', 'date_to', 'year', 'month'])->all();
+
+        return [
+            'this_month' => array_merge($base, [
+                'year' => (int) $thisMonth->format('Y'),
+                'month' => (int) $thisMonth->format('n'),
+                'date_from' => $thisMonth->toDateString(),
+                'date_to' => $thisMonth->copy()->endOfMonth()->toDateString(),
+            ]),
+            'last_month' => array_merge($base, [
+                'year' => (int) $lastMonth->format('Y'),
+                'month' => (int) $lastMonth->format('n'),
+                'date_from' => $lastMonth->toDateString(),
+                'date_to' => $lastMonth->copy()->endOfMonth()->toDateString(),
+            ]),
+            'this_year' => array_merge($base, [
+                'year' => (int) $thisYear->format('Y'),
+                'month' => (int) $today->format('n'),
+                'date_from' => $thisYear->toDateString(),
+                'date_to' => $thisYear->copy()->endOfYear()->toDateString(),
+            ]),
+            'yoy' => array_merge($base, [
+                'year' => (int) $today->format('Y'),
+                'month' => (int) $today->format('n'),
+                'date_from' => $today->copy()->startOfYear()->subYear()->toDateString(),
+                'date_to' => $today->copy()->endOfYear()->toDateString(),
+            ]),
+            'mom' => array_merge($base, [
+                'year' => (int) $today->format('Y'),
+                'month' => (int) $today->format('n'),
+                'date_from' => $today->copy()->subMonthNoOverflow()->startOfMonth()->toDateString(),
+                'date_to' => $today->copy()->endOfMonth()->toDateString(),
+            ]),
+        ];
+    }
+
+    private function codeOptions(Collection $rows, string $selectedCode): Collection
+    {
+        $codes = $rows->pluck('code_packaging')->filter()->map(fn($code) => trim((string) $code));
+
+        if ($selectedCode !== '') {
+            $codes->push($selectedCode);
+        }
+
+        return $codes->unique()->sort()->values();
+    }
+
+    private function changePercent(float $current, float $previous): ?float
+    {
+        if ($previous == 0.0) {
+            return $current == 0.0 ? 0.0 : null;
+        }
+
+        return (($current - $previous) / $previous) * 100;
+    }
+
+    private function coverageText($coverage): string
+    {
+        if (!is_numeric($coverage)) {
+            return '-';
+        }
+
+        return (float) $coverage >= 999999 ? 'INF' : number_format((float) $coverage, 2) . '%';
+    }
+
+    private function fillAnalysisSheet($sheet, string $title, array $headers, Collection $rows): void
+    {
+        $sheet->setTitle($title);
+        foreach ($headers as $index => $header) {
+            $sheet->setCellValueByColumnAndRow($index + 1, 1, $header);
+        }
+
+        $lastColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers));
+        $sheet->getStyle("A1:{$lastColumn}1")->getFont()->setBold(true);
+        $rowNumber = 2;
+        foreach ($rows as $row) {
+            $sheet->fromArray($row, null, 'A' . $rowNumber);
+            $rowNumber++;
+        }
+
+        $lastRow = max($rowNumber - 1, 1);
+        $sheet->getStyle("A1:{$lastColumn}{$lastRow}")
+            ->getBorders()->getAllBorders()
+            ->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
+        $sheet->freezePane('A2');
+
+        for ($col = 1; $col <= count($headers); $col++) {
+            $sheet->getColumnDimensionByColumn($col)->setAutoSize(true);
+        }
+    }
+
     private function buildDataset(array $filters, bool $includeOptions): array
     {
         $rows = $this->getMergedBaseRows(
@@ -400,7 +1103,7 @@ class PackagingUsageService
         $codes = $masters
             ->flatten(1)
             ->pluck('code_packaging')
-            ->filter(fn($x) => $x !== null && trim((string) $x) !== '')
+            ->filter(fn($x) => $x !== null && trim((string) $x) !== '' && trim((string) $x) !== '-')
             ->map(fn($x) => trim((string) $x))
             ->unique()
             ->values()
@@ -942,6 +1645,10 @@ class PackagingUsageService
 
             foreach ($mList as $m) {
                 $code = $m->code_packaging ? trim((string) $m->code_packaging) : null;
+                if ($code === '-') {
+                    continue;
+                }
+
                 $kgPerPack = $m->package_per_kg !== null ? (float) $m->package_per_kg : null;
                 $stockOnHand = $code ? (float) ($stockMap[$code] ?? 0) : null;
                 $partInfo = $code ? $partMap->get($code) : null;
