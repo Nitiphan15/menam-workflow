@@ -1,66 +1,154 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Menam Workflow
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Internal Laravel workflow and reporting system for Menam operational processes.
 
-## About Laravel
+This repository is the source of truth for the `menam-workflow` application. Production deployment should pull from GitHub instead of copying files manually.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- PHP 8.0.2+
+- Laravel 9
+- Composer
+- Node.js / npm / Vite
+- SQL Server and MySQL connections, depending on module
+- Laravel Excel / PhpSpreadsheet
+- DomPDF / FPDI-FPDF
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Main Modules
 
-## Learning Laravel
+- Admin, users, roles, departments, and permissions
+- FormDP delivery planning and inquiry
+- FormFC forecast workflows, planner forecast, supplier shortage, and division approval
+- FormPP and FormWOCR workflow/docbox screens
+- FormWOS dashboards, sales weekly, sales unit summary, order due date, and deadstock review
+- FormPKG packaging usage and packaging analysis
+- FormAccounting customer payment terms and loss provision reports
+- FormVC variable cost reports
+- FormCCR cost center reports
+- FormMLA machine load and availability planning
+- PO approval, printing, export, and profile signatures
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Local Setup
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+```powershell
+git clone https://github.com/Nitiphan15/menam-workflow.git
+cd menam-workflow
+git checkout ai/menam-workflow
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains over 2000 video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+composer install
+npm install
+copy .env.example .env
+php artisan key:generate
+```
 
-## Laravel Sponsors
+Update `.env` for the local database, mail, ERP, and file settings.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell).
+Then run:
 
-### Premium Partners
+```powershell
+php artisan migrate
+npm run build
+php artisan optimize:clear
+php artisan serve
+```
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[Many](https://www.many.co.uk)**
-- **[Webdock, Fast VPS Hosting](https://www.webdock.io/en)**
-- **[DevSquad](https://devsquad.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[OP.GG](https://op.gg)**
-- **[WebReinvent](https://webreinvent.com/?utm_source=laravel&utm_medium=github&utm_campaign=patreon-sponsors)**
-- **[Lendio](https://lendio.com)**
+## Production Deployment
 
-## Contributing
+Recommended production branch for now:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```text
+ai/menam-workflow
+```
 
-## Code of Conduct
+First-time production checkout should be done into a new folder, then tested before switching traffic:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```powershell
+cd M:\htdocs
+git clone https://github.com/Nitiphan15/menam-workflow.git menam-workflow-git
+cd menam-workflow-git
+git checkout ai/menam-workflow
+```
 
-## Security Vulnerabilities
+Copy or recreate the production `.env` from the current production application. Do not commit `.env`.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Install and warm the app:
 
-## License
+```powershell
+composer install --no-dev --optimize-autoloader
+npm install
+npm run build
+php artisan migrate --force
+php artisan optimize:clear
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+For normal production updates:
+
+```powershell
+cd M:\htdocs\menam-workflow
+git status -sb
+git fetch origin
+git pull --ff-only origin ai/menam-workflow
+composer install --no-dev --optimize-autoloader
+npm install
+npm run build
+php artisan migrate --force
+php artisan optimize:clear
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+Stop if `git status -sb` shows unexpected production edits. Commit or move those changes before pulling.
+
+## Production Notes
+
+- Keep production `.env` only on the server.
+- Keep `storage/` and `bootstrap/cache/` writable by the web server.
+- `storage/fonts/.gitignore` preserves the DomPDF font cache directory while ignoring generated font files.
+- Runtime logs, sessions, caches, local backups, Claude worktrees, and production comparison folders are intentionally ignored.
+- Run required SQL scripts from `database/sql/` only after confirming the target environment.
+- FC Division production SQL helper:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_fc_division_forecast_sql.ps1
+```
+
+## Git Hygiene
+
+Before pushing:
+
+```powershell
+git status -sb
+git diff --cached --check
+```
+
+Useful validation:
+
+```powershell
+php -l path\to\file.php
+php artisan route:list
+php artisan config:clear
+php artisan view:clear
+```
+
+Never commit:
+
+- `.env`
+- `vendor/`
+- `node_modules/`
+- `storage/logs/`
+- `storage/framework/` generated cache/session/view files
+- `storage/fonts/` generated font cache files
+- `.claude/`
+- `dumpfromprod/`
+- `fromprod/`
+- `backups/`
+- `prepare deploy/`
+
+## Repository
+
+- GitHub: https://github.com/Nitiphan15/menam-workflow
+- Current main working branch: `ai/menam-workflow`
