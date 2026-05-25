@@ -170,6 +170,24 @@ class DeadstockReportController extends Controller
         ]);
     }
 
+    public function config(): View
+    {
+        $rawSnapshots = $this->loadSnapshots();
+
+        return view('formwos.deadstock.config', [
+            'sourcePath' => $this->snapshotPath(),
+            'mailDailyPath' => $this->mailDailyPath(),
+            'itemSnapshotCount' => $this->itemSnapshotFiles()->count(),
+            'latestItemSnapshotDate' => $this->itemSnapshotDate($this->latestItemSnapshotFile()),
+            'excelBackfillCount' => $this->excelBackfillFiles()->count(),
+            'rawSnapshotCount' => $rawSnapshots->count(),
+            'latestRawSnapshotDate' => $rawSnapshots->first()['recv_date']
+                ?? $rawSnapshots->first()['as_of']
+                ?? $rawSnapshots->first()['_date']
+                ?? null,
+        ]);
+    }
+
     public function review(Request $request, DeadstockReviewService $reviewService): View
     {
         $rawSnapshots = $this->loadSnapshots();
@@ -181,6 +199,7 @@ class DeadstockReportController extends Controller
             ->filter(fn(DeadstockSnapshotMonth $month) => in_array((int) $month->id, $selectedMonthIds, true))
             ->values();
         $selectedMonth = $selectedMonths->first() ?? $months->first();
+        [$monthFrom, $monthTo] = $this->selectedMonthRange($request, $selectedMonths);
         $status = trim((string) $request->query('status', 'review'));
         $actionStatus = trim((string) $request->query('action_status', 'all'));
         $companyFilter = trim((string) $request->query('company', 'all'));
@@ -284,6 +303,8 @@ class DeadstockReportController extends Controller
             'selectedMonthIds' => $selectedMonthIds,
             'selectedMonths' => $selectedMonths,
             'selectedMonth' => $selectedMonth,
+            'monthFrom' => $monthFrom,
+            'monthTo' => $monthTo,
             'items' => $items,
             'summary' => $summary,
             'status' => $status,
@@ -327,6 +348,34 @@ class DeadstockReportController extends Controller
 
     private function selectedMonthIds(Request $request, Collection $months): array
     {
+        if ($request->filled('month_from') || $request->filled('month_to')) {
+            $from = $this->monthBoundary($request->query('month_from'));
+            $to = $this->monthBoundary($request->query('month_to'));
+
+            if ($from || $to) {
+                return $months
+                    ->filter(function (DeadstockSnapshotMonth $month) use ($from, $to) {
+                        $snapshotMonth = $month->snapshot_month?->copy()->startOfMonth();
+                        if (!$snapshotMonth) {
+                            return false;
+                        }
+
+                        if ($from && $snapshotMonth->lt($from)) {
+                            return false;
+                        }
+
+                        if ($to && $snapshotMonth->gt($to)) {
+                            return false;
+                        }
+
+                        return true;
+                    })
+                    ->pluck('id')
+                    ->map(fn($id) => (int) $id)
+                    ->all();
+            }
+        }
+
         $rawMonthIds = $request->query('month_ids', []);
 
         if (!is_array($rawMonthIds)) {
@@ -356,6 +405,35 @@ class DeadstockReportController extends Controller
         $validMonthIds = $months->pluck('id')->map(fn($id) => (int) $id)->all();
 
         return array_values(array_intersect($validMonthIds, $monthIds));
+    }
+
+    private function selectedMonthRange(Request $request, Collection $selectedMonths): array
+    {
+        $from = trim((string) $request->query('month_from', ''));
+        $to = trim((string) $request->query('month_to', ''));
+
+        if ($from !== '' || $to !== '') {
+            return [$from, $to];
+        }
+
+        if ($selectedMonths->isEmpty()) {
+            return ['', ''];
+        }
+
+        $oldest = $selectedMonths->last()?->snapshot_month?->format('Y-m') ?? '';
+        $latest = $selectedMonths->first()?->snapshot_month?->format('Y-m') ?? '';
+
+        return [$oldest, $latest];
+    }
+
+    private function monthBoundary(mixed $value): ?Carbon
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        return Carbon::parse($value . '-01')->startOfMonth();
     }
 
     private function applyDeadstockFilters($query, array $filters, bool $joinedReview): void
@@ -491,9 +569,7 @@ class DeadstockReportController extends Controller
 
     public function importLatestSnapshot(DeadstockSnapshotImportService $importService): RedirectResponse
     {
-        $files = glob($this->snapshotPath() . DIRECTORY_SEPARATOR . 'deadstock_items_*.json') ?: [];
-        rsort($files);
-        $file = $files[0] ?? null;
+        $file = $this->latestItemSnapshotFile();
 
         if (!$file) {
             return back()->with('error', 'ยังไม่พบไฟล์ deadstock_items_*.json สำหรับ import');
@@ -502,8 +578,55 @@ class DeadstockReportController extends Controller
         $result = $importService->importFile($file);
 
         return redirect()
-            ->route('deadstock.review', ['month_id' => $result['month_id']])
+            ->route($this->deadstockConfigRedirectRoute(), ['month_id' => $result['month_id']])
             ->with('success', "Import snapshot สำเร็จ: {$result['recv_date']} จำนวน {$result['items']} รายการ");
+    }
+
+    public function createBaselineSnapshot(
+        Request $request,
+        DeadstockSnapshotImportService $importService
+    ): RedirectResponse {
+        $validated = $request->validate([
+            'date' => ['nullable', 'date'],
+        ]);
+
+        $command = [
+            $this->phpBinary(),
+            'artisan',
+            'report:deadstock',
+            '--snapshot-only',
+        ];
+
+        if (!empty($validated['date'])) {
+            $command[] = '--date=' . Carbon::parse($validated['date'])->toDateString();
+        }
+
+        $process = new Process($command, $this->mailDailyPath());
+        $process->setTimeout(1200);
+        $process->run();
+
+        $output = trim($process->getOutput() . PHP_EOL . $process->getErrorOutput());
+
+        if (!$process->isSuccessful()) {
+            return back()
+                ->withInput()
+                ->with('error', 'สร้าง baseline snapshot ไม่สำเร็จ')
+                ->with('deadstock_output', $output);
+        }
+
+        $file = $this->latestItemSnapshotFile();
+        if (!$file) {
+            return back()
+                ->with('error', 'สร้างรายงานแล้ว แต่ยังไม่พบไฟล์ deadstock_items_*.json สำหรับ import')
+                ->with('deadstock_output', $output);
+        }
+
+        $result = $importService->importFile($file);
+
+        return redirect()
+            ->route($this->deadstockConfigRedirectRoute(), ['month_id' => $result['month_id']])
+            ->with('success', "สร้าง baseline snapshot สำเร็จ: {$result['recv_date']} จำนวน {$result['items']} รายการ")
+            ->with('deadstock_output', $output);
     }
 
     public function send(Request $request): RedirectResponse
@@ -561,6 +684,45 @@ class DeadstockReportController extends Controller
         return $this->mailDailyPath() . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'private' . DIRECTORY_SEPARATOR . 'reports' . DIRECTORY_SEPARATOR . 'snapshots';
     }
 
+    private function publicReportPath(): string
+    {
+        return $this->mailDailyPath() . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'app' . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'reports';
+    }
+
+    private function itemSnapshotFiles(): Collection
+    {
+        $files = glob($this->snapshotPath() . DIRECTORY_SEPARATOR . 'deadstock_items_*.json') ?: [];
+
+        return collect($files)
+            ->filter(fn(string $path) => is_file($path))
+            ->sortByDesc(fn(string $path) => filemtime($path) ?: 0)
+            ->values();
+    }
+
+    private function latestItemSnapshotFile(): ?string
+    {
+        return $this->itemSnapshotFiles()->first();
+    }
+
+    private function itemSnapshotDate(?string $path): ?string
+    {
+        if (!$path || !preg_match('/deadstock_items_(\d{4}-\d{2}-\d{2})\.json$/', basename($path), $matches)) {
+            return null;
+        }
+
+        return $matches[1];
+    }
+
+    private function excelBackfillFiles(): Collection
+    {
+        $files = glob($this->publicReportPath() . DIRECTORY_SEPARATOR . 'deadstock_*.xlsx') ?: [];
+
+        return collect($files)
+            ->filter(fn(string $path) => is_file($path))
+            ->sortByDesc(fn(string $path) => filemtime($path) ?: 0)
+            ->values();
+    }
+
     private function phpBinary(): string
     {
         $configured = trim((string) env('DEADSTOCK_PHP_BINARY', ''));
@@ -571,6 +733,13 @@ class DeadstockReportController extends Controller
         $binary = PHP_BINDIR . DIRECTORY_SEPARATOR . (DIRECTORY_SEPARATOR === '\\' ? 'php.exe' : 'php');
 
         return is_file($binary) ? $binary : 'php';
+    }
+
+    private function deadstockConfigRedirectRoute(): string
+    {
+        return auth()->check() && auth()->user()->hasRoleCode('ADMINWEB')
+            ? 'adminweb.deadstock.config'
+            : 'deadstock.review';
     }
 
     private function loadSnapshots(): Collection

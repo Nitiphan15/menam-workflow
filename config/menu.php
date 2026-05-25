@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 return [
     'project_name' => [
@@ -12,7 +12,14 @@ return [
             ['icon' => 'fa-solid fa-right-to-bracket', 'text' => 'เข้าสู่ระบบ', 'route' => 'login'],
             ['icon' => 'fa-box', 'text' => 'Packaging',  'route' => 'pkg.packaging.usage'],
             ['icon' => 'fa-box', 'text' => 'Packaging Dashboard', 'route' => 'pkg.packaging.analysis'],
-
+            [
+                'icon' => 'fa-triangle-exclamation',
+                'text' => 'Production Risk',
+                'children' => [
+                    ['icon' => 'fa-table', 'text' => 'Risk List', 'route' => 'risk.index'],
+                    ['icon' => 'fa-chart-column', 'text' => 'Risk Dashboard', 'route' => 'risk.dashboard'],
+                ],
+            ],
             [
                 'icon' => 'fa-chart-line',
                 'text' => 'Sales Report',
@@ -31,6 +38,7 @@ return [
                 'text' => 'Accounting Report',
                 'children' => [
                     ['icon' => 'fa fa-chart-pie', 'text' => 'Variable Cost', 'route' => 'variable-cost.summary'],
+                    ['icon' => 'fa-list-check', 'text' => 'VC Account Master', 'route' => 'variable-cost.account-master'],
                     ['icon' => 'fa fa-sitemap', 'text' => 'Cost Center Report', 'route' => 'cost-center.summary'],
                     ['icon' => 'fa-file-invoice-dollar', 'text' => 'รายการเผื่อผลขาดทุน', 'route' => 'accounting.loss-provision.index'],
                 ],
@@ -42,6 +50,8 @@ return [
                 'children' => [
                     ['icon' => 'fa-solid fa-hand-holding-dollar', 'text' => 'Customer Payment Terms', 'route' => 'accounting.cpt.index'],
                     ['icon' => 'fa-solid fa-sliders', 'text' => 'Payment Term Masters', 'route' => 'accounting.cpt.masters'],
+                    ['icon' => 'fa-solid fa-layer-group', 'text' => 'Division Group Master', 'route' => 'accounting.divisionGroup.master'],
+                    ['icon' => 'fa-solid fa-list-check', 'text' => 'VC Account Master', 'route' => 'variable-cost.account-master'],
                 ],
             ],
 
@@ -160,6 +170,8 @@ return [
                     ['icon' => 'fa-calendar-alt', 'text' => 'รายการเผื่อผลขาดทุน — สรุปทั้งปี', 'route' => 'accounting.loss-provision.yearly'],
                     ['icon' => 'fa-hand-holding-dollar', 'text' => 'Customer Payment Terms', 'route' => 'accounting.cpt.index'],
                     ['icon' => 'fa-sliders', 'text' => 'Payment Term Masters', 'route' => 'accounting.cpt.masters'],
+                    ['icon' => 'fa-layer-group', 'text' => 'Division Group Master', 'route' => 'accounting.divisionGroup.master'],
+                    ['icon' => 'fa-list-check', 'text' => 'VC Account Master', 'route' => 'variable-cost.account-master'],
                     ['icon' => 'fa-chart-pie', 'text' => 'Variable Cost', 'route' => 'variable-cost.summary'],
                     ['icon' => 'fa-sitemap', 'text' => 'Cost Center Report', 'route' => 'cost-center.summary'],
                 ],
@@ -191,6 +203,7 @@ return [
                     ['icon' => 'fa-user-check', 'text' => 'Sales Forecast Approval', 'route' => 'fc.division.approvals', 'permission' => 'FCAPPROVE'],
                     ['icon' => 'fa-list-check', 'text' => 'Planner Part Master', 'route' => 'fc.planner.master', 'permission' => 'FC_PLN'],
                     ['icon' => 'fa-sitemap', 'text' => 'Division Part Master', 'route' => 'fc.divisionPartMaster.index', 'permission' => ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
+                    ['icon' => 'fa-layer-group', 'text' => 'Division Group', 'route' => 'fc.divisionGroup.index'],
                     ['icon' => 'fa-calendar-check', 'text' => 'Planner Forecast', 'route' => 'fc.planner.index', 'permission' => 'FC_PLN'],
                 ],
             ],
@@ -288,6 +301,7 @@ return [
                 'text' => 'Admin',
                 'permission' => 'ADMINWEB',
                 'children' => [
+                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Config', 'route' => 'adminweb.deadstock.config', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-user-plus', 'text' => 'ลงทะเบียนพนักงาน', 'route' => 'adminweb.users.register', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-building', 'text' => 'เพิ่มแผนก', 'route' => 'adminweb.dept.create', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-user-tie', 'text' => 'จัดการหัวหน้าแผนก', 'route' => 'adminweb.deptmgr.index', 'permission' => 'ADMINWEB'],

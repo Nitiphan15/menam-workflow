@@ -856,7 +856,26 @@ SQL;
             return null;
         }
 
-        return $paymentTerms->get($source . '|' . $code);
+        $term = $paymentTerms->get($source . '|' . $code);
+        if (!$term || empty($row->transdate)) {
+            return $term;
+        }
+
+        try {
+            $transdate = Carbon::parse($row->transdate)->startOfDay();
+        } catch (\Throwable $e) {
+            return $term;
+        }
+
+        if (!empty($term->effective_from) && $transdate->lt(Carbon::parse($term->effective_from)->startOfDay())) {
+            return null;
+        }
+
+        if (!empty($term->effective_to) && $transdate->gt(Carbon::parse($term->effective_to)->startOfDay())) {
+            return null;
+        }
+
+        return $term;
     }
 
     private function calculatePaymentDueDate($row, $customerTerm, int $fallbackTerms): array
@@ -887,6 +906,11 @@ SQL;
                     $candidate->day(min($day, $candidate->daysInMonth));
                 }
                 $due = $candidate;
+            }
+
+            $graceDays = max(0, (int) ($customerTerm->grace_days ?? 0));
+            if ($graceDays > 0) {
+                $due->addDays($graceDays);
             }
 
             return [

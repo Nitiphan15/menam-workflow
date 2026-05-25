@@ -26,9 +26,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ $form->title ?? 'MFG Change Form' }}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="{{ asset('vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
     <style>
+        @font-face {
+            font-family: 'TH Sarabun New';
+            src: url('{{ asset('fonts/THSarabunNew.ttf') }}') format('truetype');
+            font-weight: 400;
+        }
+
+        @font-face {
+            font-family: 'TH Sarabun New';
+            src: url('{{ asset('fonts/THSarabunNew-Bold.ttf') }}') format('truetype');
+            font-weight: 700;
+        }
+
         :root {
             --ink: #111827;
             --line: #111827;
@@ -37,7 +48,7 @@
 
         html,
         body {
-            font-family: 'Sarabun', Tahoma, 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'TH Sarabun New', Tahoma, 'Segoe UI', system-ui, -apple-system, sans-serif;
             color: var(--ink);
         }
 

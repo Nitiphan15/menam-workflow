@@ -36,11 +36,27 @@
             flex-wrap: wrap;
             gap: 8px;
             justify-content: flex-end;
-            max-width: 460px;
+            max-width: 620px;
         }
 
         .ds-actions .btn {
             min-width: 132px;
+        }
+
+        .ds-filter-title {
+            align-items: center;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            font-weight: 700;
+            justify-content: space-between;
+            margin-top: 4px;
+            padding-top: 12px;
+        }
+
+        .ds-month-range {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .ds-summary-grid {
@@ -355,15 +371,21 @@
             'due_soon' => 'กำหนดส่งใกล้สุด',
         ];
         $plusCompanyFilter = collect($companyOptions ?? [])->first(fn($companyName) => stripos((string) $companyName, 'PLUS') !== false);
-        $monthBaseQuery = request()->except(['month_ids', 'month_id']);
-        $latestMonthQuery = $monthBaseQuery + ['month_ids' => $months->take(1)->pluck('id')->map(fn($id) => (int) $id)->all()];
-        $recentThreeMonthQuery = $monthBaseQuery + ['month_ids' => $months->take(3)->pluck('id')->map(fn($id) => (int) $id)->all()];
-        $allMonthQuery = $monthBaseQuery + ['month_ids' => ['all']];
+        $monthBaseQuery = request()->except(['month_ids', 'month_id', 'month_from', 'month_to']);
+        $latestMonth = $months->first()?->snapshot_month;
+        $thirdMonth = $months->skip(2)->first()?->snapshot_month ?? $latestMonth;
+        $oldestMonth = $months->last()?->snapshot_month;
+        $latestMonthQuery = $monthBaseQuery + ['month_from' => $latestMonth?->format('Y-m'), 'month_to' => $latestMonth?->format('Y-m')];
+        $recentThreeMonthQuery = $monthBaseQuery + ['month_from' => $thirdMonth?->format('Y-m'), 'month_to' => $latestMonth?->format('Y-m')];
+        $allMonthQuery = $monthBaseQuery + ['month_from' => $oldestMonth?->format('Y-m'), 'month_to' => $latestMonth?->format('Y-m')];
     @endphp
 
     <div class="container-fluid py-3 ds-shell">
         @if (session('success'))
             <div class="alert alert-success mb-0">{{ session('success') }}</div>
+        @endif
+        @if (session('error'))
+            <div class="alert alert-danger mb-0">{{ session('error') }}</div>
         @endif
         @if ($errors->any())
             <div class="alert alert-danger mb-0">
@@ -372,7 +394,6 @@
                 @endforeach
             </div>
         @endif
-
         <section class="ds-toolbar">
             <div class="ds-toolbar-head">
                 <div>
@@ -392,12 +413,6 @@
                     <a class="btn btn-outline-secondary" href="{{ route('deadstock.dashboard') }}">
                         <i class="fa fa-chart-column me-1"></i> ภาพรวม
                     </a>
-                    <form method="post" action="{{ route('deadstock.review.import_latest') }}">
-                        @csrf
-                        <button class="btn btn-outline-primary" type="submit">
-                            <i class="fa fa-file-import me-1"></i> นำเข้าล่าสุด
-                        </button>
-                    </form>
                     @if ($selectedMonth)
                         <form method="post" action="{{ route('deadstock.review.compare', $selectedMonth) }}">
                             @csrf
@@ -412,8 +427,13 @@
                 </div>
             </div>
 
-            <form class="row g-3 align-items-end mt-1" method="get" action="{{ route('deadstock.review') }}">
-                <div class="col-12 col-md-4 col-xl-2">
+            <div class="ds-filter-title">
+                <span>ตัวกรองข้อมูลที่ import แล้ว</span>
+                <span class="text-muted small">เลือกเดือน / สถานะ / บริษัท / Sales เพื่อดูข้อมูลเก่า</span>
+            </div>
+
+            <form class="row g-3 align-items-start mt-2" method="get" action="{{ route('deadstock.review') }}">
+                <div class="col-12 col-md-6 col-xl-3">
                     <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
                         <label class="form-label mb-0">เลือกเดือน</label>
                         <div class="btn-group btn-group-sm" role="group" aria-label="เลือกช่วงเดือน">
@@ -422,21 +442,15 @@
                             <a class="btn btn-outline-secondary" href="{{ route('deadstock.review', $allMonthQuery) }}">ทั้งหมด</a>
                         </div>
                     </div>
-                    <div class="ds-month-picker">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="month-all" name="month_ids[]" value="all" @checked($allMonthsSelected)>
-                            <label class="form-check-label" for="month-all">ทุกเดือน</label>
+                    <div class="ds-month-range">
+                        <div>
+                            <div class="text-muted small mb-1">จาก</div>
+                            <input class="form-control" type="month" name="month_from" value="{{ $monthFrom }}" aria-label="จากเดือน">
                         </div>
-                        @forelse ($months as $month)
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="month-{{ $month->id }}" name="month_ids[]" value="{{ $month->id }}" @checked(in_array((int) $month->id, $selectedMonthIds, true) && !$allMonthsSelected)>
-                                <label class="form-check-label" for="month-{{ $month->id }}">
-                                    {{ $month->snapshot_month?->format('M Y') ?? '-' }}
-                                </label>
-                            </div>
-                        @empty
-                            <div class="text-muted small">ยังไม่มี snapshot รายเดือน</div>
-                        @endforelse
+                        <div>
+                            <div class="text-muted small mb-1">ถึง</div>
+                            <input class="form-control" type="month" name="month_to" value="{{ $monthTo }}" aria-label="ถึงเดือน">
+                        </div>
                     </div>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
@@ -533,8 +547,7 @@
 
         @if (($rawSnapshotCount ?? 0) > 0 && $months->isEmpty())
             <div class="alert alert-warning mb-0">
-                พบ snapshot file สำหรับ Dashboard แล้ว แต่ยังไม่มีการ import snapshot รายเดือนเข้า `ds_snapshot_months`
-                และ `ds_snapshot_items` จึงยังไม่มีรายการให้ Review ในหน้านี้
+                พบข้อมูล Dashboard แล้ว แต่ยังไม่มีรายการสำหรับ Monthly Review
             </div>
         @endif
 

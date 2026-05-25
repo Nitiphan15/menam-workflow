@@ -18,8 +18,6 @@
     .vc-matrix-table td.dept-col { background:#fff; box-shadow:1px 0 0 #e3e7ec; }
     .vc-matrix-table tbody tr:hover td.dept-col { background:#f4e4dd; }
     .vc-matrix-table tfoot td.dept-col { background:#d8eefb; }
-    .vc-drill-link { color:#0f5132; font-weight:700; text-decoration:none; }
-    .vc-drill-link:hover { color:#b8421f; text-decoration:underline; }
     .vc-yoy-cell { min-width:96px; }
     .vc-yoy-sub { margin-top:2px; color:#667085; font-size:.7rem; line-height:1.15; white-space:nowrap; }
     .vc-yoy-sub.up { color:#146c43; }

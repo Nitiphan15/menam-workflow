@@ -1,4 +1,4 @@
-﻿@extends('layouts.layout')
+@extends('layouts.layout')
 
 @section('title', 'Dashboard ภาระงานเครื่องจักร')
 @section('page-title', 'Dashboard ภาระงานและวันว่างของเครื่องจักร')

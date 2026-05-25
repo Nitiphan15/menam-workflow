@@ -156,7 +156,10 @@ class CustomerPaymentTermController extends Controller
             ],
             'customer_name' => ['required', 'string', 'max:255'],
             'erp_terms' => ['nullable', 'string', 'max:100'],
+            'effective_from' => ['nullable', 'date'],
+            'effective_to' => ['nullable', 'date', 'after_or_equal:effective_from'],
             'credit_days' => ['required', 'integer', 'min:0', 'max:999'],
+            'grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
             'credit_term_code' => ['nullable', 'string', 'max:20'],
             'credit_term_detail' => ['nullable', 'string', 'max:500'],
             'billing_plan_id' => ['nullable', 'integer', Rule::exists('mst_billing_plans', 'id')],
@@ -168,6 +171,7 @@ class CustomerPaymentTermController extends Controller
 
         $data['erp_source'] = $source;
         $data['customer_code'] = $customerCode;
+        $data['grace_days'] = (int) ($data['grace_days'] ?? 0);
         $data['is_active'] = $request->boolean('is_active', true);
 
         return $data;

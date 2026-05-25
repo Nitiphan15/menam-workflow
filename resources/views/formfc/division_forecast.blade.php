@@ -591,6 +591,7 @@
             <input type="hidden" name="customer_name" value="{{ $customerNameText ?? '' }}">
             <input type="hidden" name="k_factor" id="kFactorHidden"
                 value="{{ number_format((float) $selectedK, 1, '.', '') }}">
+            <input type="hidden" name="submit_action" id="submitActionHidden" value="submit_approval">
             <input type="hidden" name="payload" id="payloadHidden" value="{{ old('payload', '') }}">
             @if (!empty($isApprovalMode))
                 <input type="hidden" name="comment" id="approvalCommentHidden" value="">
@@ -612,8 +613,13 @@
                         <input type="text" id="globalSearch" class="form-control form-control-sm"
                             placeholder="ค้นหาในตาราง...">
                         @if (empty($isApprovalMode))
-                            <button type="submit" class="btn btn-sm btn-primary" @disabled(!empty($isSubmitted))>
-                                Submit Forecast
+                            <button type="submit" name="submit_action" value="save_draft"
+                                class="btn btn-sm btn-primary" @disabled(!empty($isSubmitted))>
+                                บันทึก Draft
+                            </button>
+                            <button type="submit" name="submit_action" value="submit_approval"
+                                class="btn btn-sm btn-warning" @disabled(!empty($isSubmitted))>
+                                ส่งให้หัวหน้ายืนยัน
                             </button>
                         @endif
                         <button type="button" class="btn btn-sm btn-outline-success" id="btnExportExcel">Export
@@ -2383,6 +2389,10 @@
                 return;
             }
 
+            const submitAction = e.submitter?.value === 'save_draft' ? 'save_draft' : 'submit_approval';
+            const submitActionHidden = document.getElementById('submitActionHidden');
+            if (submitActionHidden) submitActionHidden.value = submitAction;
+
             const payload = {
                 sales_code: '{{ $salesCode }}',
                 division: '{{ $salesCode }}',
@@ -2390,6 +2400,7 @@
                 customer_name: this.querySelector('input[name="customer_name"]')?.value || '',
                 k_factor: formatKValue(kHidden?.value ||
                     '{{ number_format((float) $selectedK, 1, '.', '') }}'),
+                submit_action: submitAction,
                 forecast_flag: {},
                 row_k_factor: {},
                 row_meta: {},

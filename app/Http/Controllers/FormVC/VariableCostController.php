@@ -64,6 +64,7 @@ class VariableCostController extends Controller
         return view('formvc.details', [
             'filters' => $filters,
             'kpis' => [],
+            'divisionGroupOptions' => $service->divisionGroupOptionsPublic(),
             'departmentOptions' => $service->departmentOptionsPublic($filters['site']),
             'accountOptions' => collect(),
             'activePage' => 'details',
@@ -85,6 +86,8 @@ class VariableCostController extends Controller
             'date_from' => $request->input('date_from'),
             'date_to' => $request->input('date_to'),
             'site' => $request->input('site'),
+            'division_group' => $this->arrayInput($request, 'division_group'),
+            'division_department_mode' => $request->input('division_department_mode'),
             'department' => $this->arrayInput($request, 'department'),
             'account' => $this->arrayInput($request, 'account'),
             'invoice' => $request->input('invoice'),

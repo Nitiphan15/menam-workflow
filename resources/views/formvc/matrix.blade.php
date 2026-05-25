@@ -10,8 +10,6 @@
         $matrixRows = collect($matrix['rows'] ?? []);
         $columnTotals = $matrix['columnTotals'] ?? [];
         $fmt = fn($value, $decimals = 2) => ((float) $value) == 0.0 ? '-' : number_format((float) $value, $decimals);
-        $matrixFilters = collect($filters ?? [])->only(['date_from', 'date_to', 'site', 'invoice', 'notes'])->filter(fn($v) => is_array($v) ? !empty($v) : (string) $v !== '')->all();
-        $returnParams = ['return_url' => request()->fullUrl(), 'return_label' => 'กลับหน้าแผนก x ค่าใช้จ่าย'];
     @endphp
 
     @include('formvc.partials.styles')
@@ -62,13 +60,7 @@
                                         $columnTotal = (float) ($columnTotals[$account->key] ?? 0);
                                     @endphp
                                     <td class="num" data-vc-zero="{{ $columnTotal == 0.0 ? '1' : '0' }}">
-                                        @if ($amount != 0.0)
-                                            <a class="vc-drill-link" href="{{ route('variable-cost.details', $matrixFilters + ['department' => $row->department, 'account' => trim($account->code . ' ' . $account->name)] + $returnParams) }}">
-                                                {{ $fmt($amount) }}
-                                            </a>
-                                        @else
-                                            {{ $fmt($amount) }}
-                                        @endif
+                                        {{ $fmt($amount) }}
                                     </td>
                                 @endforeach
                                 <td class="num fw-bold">{{ $fmt($row->total_amount) }}</td>

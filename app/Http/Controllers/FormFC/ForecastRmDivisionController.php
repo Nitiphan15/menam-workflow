@@ -2877,7 +2877,7 @@ class ForecastRmDivisionController extends Controller
         if ($payloadJson !== '') {
             $decoded = json_decode($payloadJson, true);
             if (is_array($decoded)) {
-                foreach (['sales_code', 'division', 'customer_id', 'customer_name', 'k_factor'] as $scalarKey) {
+                foreach (['sales_code', 'division', 'customer_id', 'customer_name', 'k_factor', 'submit_action'] as $scalarKey) {
                     if (array_key_exists($scalarKey, $decoded)) {
                         $request->merge([$scalarKey => $decoded[$scalarKey]]);
                     }
@@ -2903,6 +2903,7 @@ class ForecastRmDivisionController extends Controller
             'supplier_code' => ['nullable', 'array'],
             'supplier_name_manual' => ['nullable', 'array'],
             'payload' => ['nullable', 'string'],
+            'submit_action' => ['nullable', 'in:save_draft,submit_approval'],
         ], [
             'k_factor.regex' => 'K Factor Default ต้องเป็นตัวเลข เช่น 1, 1.5, 2.05',
         ]);
@@ -2923,6 +2924,8 @@ class ForecastRmDivisionController extends Controller
         $customerId = trim((string) ($validated['customer_id'] ?? ''));
         $customerName = trim((string) ($validated['customer_name'] ?? ''));
         $baseMonth = now('Asia/Bangkok')->startOfMonth()->toDateString();
+        $submitAction = (string) ($validated['submit_action'] ?? 'submit_approval');
+        $shouldSubmitApproval = $submitAction === 'submit_approval';
 
         if ($this->divisionForecastSubmitted($salesCode, $baseMonth)) {
             return back()->with('error', 'Division นี้ submit Forecast ของเดือนนี้แล้ว ห้ามบันทึกทับอีก กรุณาให้หัวหน้าแก้ผ่านหน้า Approval')->withInput();
@@ -3184,15 +3187,20 @@ class ForecastRmDivisionController extends Controller
                 );
         });
 
-        $wfId = $this->createSubmissionWorkflow($salesCode, $baseMonth, $u);
         $this->bumpForecastIndexCacheVersion();
-        if ($wfId) {
-            $submission = $this->currentSubmission($salesCode, $baseMonth);
-            $workflow = WorkflowDb::findForm('fc', $wfId);
-            $this->notifyFcPendingApprovers($submission, $workflow);
+
+        if ($shouldSubmitApproval) {
+            $wfId = $this->createSubmissionWorkflow($salesCode, $baseMonth, $u);
+            if ($wfId) {
+                $submission = $this->currentSubmission($salesCode, $baseMonth);
+                $workflow = WorkflowDb::findForm('fc', $wfId);
+                $this->notifyFcPendingApprovers($submission, $workflow);
+            }
+
+            return back()->with('success', 'บันทึก Forecast และส่งให้หัวหน้ายืนยันเรียบร้อยแล้ว');
         }
 
-        return back()->with('success', 'บันทึก Forecast เรียบร้อยแล้ว');
+        return back()->with('success', 'บันทึก Forecast Draft เรียบร้อยแล้ว ยังไม่ส่งเข้า workflow');
     }
 
     public function saveManual(Request $request)

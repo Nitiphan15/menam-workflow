@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
 
 class DeadstockSnapshotImportService
 {
+    private const UPSERT_CHUNK_SIZE = 70;
+
     public function importFile(string $path): array
     {
         if (!is_file($path)) {
@@ -77,7 +79,7 @@ class DeadstockSnapshotImportService
                     })
                     ->all();
 
-                foreach (array_chunk($upsertRows, 500) as $chunk) {
+                foreach (array_chunk($upsertRows, self::UPSERT_CHUNK_SIZE) as $chunk) {
                     DeadstockSnapshotItem::query()->upsert(
                         $chunk,
                         ['snapshot_month_id', 'item_key'],
@@ -191,36 +193,38 @@ class DeadstockSnapshotImportService
                 })
                 ->all();
 
-            DeadstockSnapshotItem::query()->upsert(
-                $upsertRows,
-                ['snapshot_month_id', 'item_key'],
-                [
-                    'company',
-                    'part_id',
-                    'partnumber',
-                    'part_description',
-                    'transaction_number',
-                    'serialnumber',
-                    'purchase_date',
-                    'status_time',
-                    'snapshot_qty',
-                    'unit',
-                    'unitcost',
-                    'snapshot_value',
-                    'part_type_description',
-                    'customer_id',
-                    'customer_name',
-                    'due_date',
-                    'salesperson_id',
-                    'salesperson_name',
-                    'deadstock_code',
-                    'deadstock_desc',
-                    'days_diff',
-                    'days_overdue',
-                    'dead_stock_flag',
-                    'updated_at',
-                ]
-            );
+            foreach (array_chunk($upsertRows, self::UPSERT_CHUNK_SIZE) as $chunk) {
+                DeadstockSnapshotItem::query()->upsert(
+                    $chunk,
+                    ['snapshot_month_id', 'item_key'],
+                    [
+                        'company',
+                        'part_id',
+                        'partnumber',
+                        'part_description',
+                        'transaction_number',
+                        'serialnumber',
+                        'purchase_date',
+                        'status_time',
+                        'snapshot_qty',
+                        'unit',
+                        'unitcost',
+                        'snapshot_value',
+                        'part_type_description',
+                        'customer_id',
+                        'customer_name',
+                        'due_date',
+                        'salesperson_id',
+                        'salesperson_name',
+                        'deadstock_code',
+                        'deadstock_desc',
+                        'days_diff',
+                        'days_overdue',
+                        'dead_stock_flag',
+                        'updated_at',
+                    ]
+                );
+            }
 
             foreach ($normalizedRows as $row) {
                 $items++;

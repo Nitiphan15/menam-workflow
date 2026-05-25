@@ -126,7 +126,7 @@
 
 
 {{-- ปุ่มเปิดเมนู (แสดงเฉพาะมือถือ) --}}
-<div class="d-md-none mb-2">
+<div class="mobile-menu-trigger d-md-none mb-2">
     <button class="btn btn-outline-secondary w-100" type="button" data-bs-toggle="offcanvas"
         data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
         <i class="fas fa-bars me-2"></i> เมนู

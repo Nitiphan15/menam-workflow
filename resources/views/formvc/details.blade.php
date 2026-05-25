@@ -49,6 +49,8 @@
                     <ul class="mb-0">
                         <li>วันที่: {{ $filters['date_from'] ?? '-' }} ถึง {{ $filters['date_to'] ?? '-' }}</li>
                         <li>Site: {{ $filters['site'] ?? 'ALL' }}</li>
+                        <li>Division Group: {{ is_array($filters['division_group'] ?? null) ? (count($filters['division_group']) ? implode(', ', $filters['division_group']) : 'ALL') : ($filters['division_group'] ?: 'ALL') }}</li>
+                        <li>Mode: {{ $filters['division_department_mode'] ?? 'AND' }}</li>
                         <li>Department: {{ is_array($filters['department'] ?? null) ? (count($filters['department']) ? implode(', ', $filters['department']) : '— ทั้งหมด —') : ($filters['department'] ?: '— ทั้งหมด —') }}</li>
                         <li>Account: {{ is_array($filters['account'] ?? null) ? (count($filters['account']) ? implode(', ', $filters['account']) : '— ทั้งหมด —') : ($filters['account'] ?: '— ทั้งหมด —') }}</li>
                         <li>Invoice: {{ $filters['invoice'] ?: '-' }}</li>

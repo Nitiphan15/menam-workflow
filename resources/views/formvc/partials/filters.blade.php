@@ -1,6 +1,11 @@
 @php
     $activePage = $activePage ?? 'summary';
     $targetRoute = 'variable-cost.' . $activePage;
+    $divisionGroupVals = collect((array) ($filters['division_group'] ?? []))
+        ->map(fn($v) => (string) $v)
+        ->filter(fn($v) => $v !== '')
+        ->values();
+    $divisionDepartmentMode = strtoupper((string) ($filters['division_department_mode'] ?? 'AND')) === 'OR' ? 'OR' : 'AND';
     $deptVals = collect((array) ($filters['department'] ?? []))
         ->map(fn($v) => (string) $v)
         ->filter(fn($v) => $v !== '')
@@ -9,6 +14,7 @@
         ->map(fn($v) => (string) $v)
         ->filter(fn($v) => $v !== '')
         ->values();
+    $divisionGroupOptionList = collect($divisionGroupOptions ?? [])->map(fn($v) => (string) $v);
     $departmentOptionList = collect($departmentOptions ?? [])->map(fn($v) => (string) $v);
     $accountOptionList = collect($accountOptions ?? [])->map(fn($v) => (string) $v);
 @endphp
@@ -40,6 +46,21 @@
                     </select>
                 </div>
                 <div class="col-lg-2 col-md-4">
+                    <label class="form-label">Division Group</label>
+                    <select name="division_group[]" class="form-select vc-tomselect-multi" multiple data-placeholder="-- ทั้งหมด --" data-create="0">
+                        @foreach ($divisionGroupOptionList as $option)
+                            <option value="{{ $option }}" {{ $divisionGroupVals->contains($option) ? 'selected' : '' }}>{{ $option }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-lg-1 col-md-4">
+                    <label class="form-label">Mode</label>
+                    <select name="division_department_mode" class="form-select">
+                        <option value="AND" {{ $divisionDepartmentMode === 'AND' ? 'selected' : '' }}>AND</option>
+                        <option value="OR" {{ $divisionDepartmentMode === 'OR' ? 'selected' : '' }}>OR</option>
+                    </select>
+                </div>
+                <div class="col-lg-2 col-md-4">
                     <label class="form-label">Department</label>
                     <select name="department[]" class="form-select vc-tomselect-multi" multiple data-placeholder="-- ทั้งหมด --">
                         @foreach ($deptVals as $v)
@@ -54,7 +75,7 @@
                 </div>
                 <div class="col-lg-2 col-md-4">
                     <label class="form-label">Account</label>
-                    <select name="account[]" class="form-select vc-tomselect-multi" multiple data-placeholder="-- ทั้งหมด --">
+                    <select name="account[]" class="form-select vc-tomselect-multi" multiple data-placeholder="-- ทั้งหมด --" data-create="0">
                         @foreach ($accVals as $v)
                             @if (!$accountOptionList->contains($v))
                                 <option value="{{ $v }}" selected>{{ $v }}</option>
@@ -99,7 +120,7 @@
                 if (el.tomselect) return;
                 new TomSelect(el, {
                     plugins: ['remove_button'],
-                    create: true,
+                    create: el.dataset.create !== '0',
                     persist: false,
                     placeholder: el.dataset.placeholder || '',
                     maxOptions: 1000,

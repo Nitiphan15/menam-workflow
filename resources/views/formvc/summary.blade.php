@@ -8,8 +8,6 @@
         $departmentSummary = collect($departmentSummary ?? []);
         $fmt = fn($value, $decimals = 0) => number_format((float) $value, $decimals);
         $grandTotal = max((float) $departmentSummary->sum('total_amount'), 1);
-        $summaryFilters = collect($filters ?? [])->only(['date_from', 'date_to', 'site', 'account', 'invoice', 'notes'])->filter(fn($v) => is_array($v) ? !empty($v) : (string) $v !== '')->all();
-        $returnParams = ['return_url' => request()->fullUrl(), 'return_label' => 'กลับสรุปแผนก'];
     @endphp
 
     @include('formvc.partials.styles')
@@ -39,17 +37,12 @@
                     <thead><tr><th>รหัส</th><th>แผนก</th><th class="num">บิล</th><th class="num">รายการ</th><th class="num">ยอดรวม</th><th class="num">เฉลี่ย</th><th class="num">% รวม</th></tr></thead>
                     <tbody>
                         @forelse ($departmentSummary as $row)
-                            @php
-                                $detailUrl = route('variable-cost.details', $summaryFilters + [
-                                    'department' => $row->department,
-                                ] + $returnParams);
-                            @endphp
                             <tr>
                                 <td>{{ $row->department_code ?: '-' }}</td>
-                                <td><a class="vc-drill-link" href="{{ $detailUrl }}">{{ $row->department }}</a></td>
+                                <td>{{ $row->department }}</td>
                                 <td class="num">{{ $fmt($row->bill_count) }}</td>
                                 <td class="num">{{ $fmt($row->line_count) }}</td>
-                                <td class="num fw-bold"><a class="vc-drill-link" href="{{ $detailUrl }}">{{ $fmt($row->total_amount, 2) }}</a></td>
+                                <td class="num fw-bold">{{ $fmt($row->total_amount, 2) }}</td>
                                 <td class="num">{{ $fmt($row->avg_amount, 2) }}</td>
                                 <td class="num">{{ $fmt(($row->total_amount / $grandTotal) * 100, 1) }}%</td>
                             </tr>

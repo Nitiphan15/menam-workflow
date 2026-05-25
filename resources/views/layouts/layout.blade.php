@@ -14,105 +14,14 @@
     <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
     <link rel="shortcut icon" href="{{ asset('favicon.ico') }}">
 
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <!-- Flatpickr CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" rel="stylesheet">
-    <!-- Tom Select -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.bootstrap5.min.css">
-    <!-- Gantt Chart -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.css">
-    <!-- dhtmlxGantt -->
-    <link rel="stylesheet" href="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.css">
-    <style>
-        html,
-        body {
-            height: 100%;
-            margin: 0;
-        }
-
-        .sidebar {
-            background-color: #34495E;
-            min-height: 100vh;
-            max-height: 100vh;
-            overflow-y: auto;
-        }
-
-        .sidebar .nav-link {
-            color: rgba(255, 255, 255, 0.8);
-            padding: .75rem 1rem;
-            margin: .25rem 0;
-            border-radius: .375rem;
-            display: flex;
-            /* ✅ เพิ่ม */
-            align-items: center;
-            /* ✅ เพิ่ม */
-            gap: .5rem;
-            /* ✅ เพิ่ม */
-        }
-
-        .sidebar .nav-link:hover,
-        .sidebar .nav-link.active {
-            color: white;
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .main-content {
-            background: #f8f9fa;
-            min-height: 100vh;
-        }
-
-        .nav-link {
-            position: relative;
-        }
-
-        /* ==============================
-       ✅ เพิ่มสำหรับ Responsive มือถือ
-       ============================== */
-        @media (max-width: 767.98px) {
-
-            /* กดง่ายขึ้น */
-            .sidebar .nav-link {
-                padding: .95rem 1.05rem;
-                margin: .35rem 0;
-                border-radius: .65rem;
-                font-size: 1.05rem;
-            }
-
-            /* ไอคอนขยับนิดให้สวย */
-            .sidebar .nav-link i {
-                width: 20px;
-                text-align: center;
-                opacity: .95;
-            }
-
-            /* offcanvas body ใช้ sidebar เดิมได้ แต่ต้องไม่ fix สูงแบบ 100vh */
-            .offcanvas .sidebar {
-                min-height: auto;
-                max-height: none;
-                overflow-y: visible;
-            }
-
-            /* ลดช่องว่างโลโก้ */
-            .sidebar .brand img {
-                max-width: 210px;
-            }
-
-            .sidebar .brand h4 {
-                font-size: 1.2rem;
-            }
-        }
-
-        /* ==============================
-       ✅ ถ้าใช้ Offcanvas: ทำให้สี header เข้ากับ sidebar
-       ============================== */
-        .offcanvas-header.sidebar {
-            background-color: #34495E;
-            border-bottom: 1px solid rgba(255, 255, 255, .12);
-        }
-    </style>
+    <!-- Local vendor CSS for intranet/offline clients -->
+    <link href="{{ asset('vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ asset('vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+    <link href="{{ asset('vendor/flatpickr/flatpickr.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ asset('vendor/tom-select/css/tom-select.bootstrap5.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/frappe-gantt/frappe-gantt.css') }}">
+    <link rel="stylesheet" href="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/layout-base.css') }}">
 
     @yield('styles')
     @stack('styles')
@@ -148,9 +57,11 @@
                                 </button>
                                 <ul class="dropdown-menu">
                                     <li><a class="dropdown-item" href="{{ route('profile.edit') }}"><i
-                                                class="fas fa-user-cog me-2"></i>แก้ไขข้อมูลส่วนตัว</a></li>
+                                                class="fas fa-user-cog me-2"></i>แก้ไขข้อมูลส่วนตัว</a>
+                                    </li>
                                     <li><a class="dropdown-item" href="{{ route('profile.change-password') }}"><i
-                                                class="fas fa-key me-2"></i>เปลี่ยนรหัสผ่าน</a></li>
+                                                class="fas fa-key me-2"></i>เปลี่ยนรหัสผ่าน</a>
+                                    </li>
                                     <li>
                                         <hr class="dropdown-divider">
                                     </li>
@@ -207,24 +118,16 @@
         @csrf
     </form>
 
-    <!-- Bootstrap JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- jQuery (ถ้าจำเป็น) -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <!-- Flatpickr JS -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <!-- Sweet alert -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <!-- Tom Select -->
-    <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
-    <!-- Gantt Chart -->
-    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.js"></script>
-    <!-- dhtmlxGantt -->
-    <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <!-- Local vendor JS for intranet/offline clients -->
+    <script src="{{ asset('vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ asset('vendor/jquery/jquery-3.6.0.min.js') }}"></script>
+    <script src="{{ asset('vendor/flatpickr/flatpickr.min.js') }}"></script>
+    <script src="{{ asset('vendor/sweetalert2/sweetalert2.min.js') }}"></script>
+    <script src="{{ asset('vendor/tom-select/js/tom-select.complete.min.js') }}"></script>
+    <script src="{{ asset('vendor/frappe-gantt/frappe-gantt.min.js') }}"></script>
+    <script src="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.js') }}"></script>
+    <script src="{{ asset('vendor/chartjs/chart.umd.min.js') }}"></script>
+    <script src="{{ asset('vendor/chartjs-plugin-datalabels/chartjs-plugin-datalabels.min.js') }}"></script>
     @stack('scripts')
 </body>
 

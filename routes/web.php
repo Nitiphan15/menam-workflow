@@ -47,6 +47,7 @@ use App\Http\Controllers\FormSSC\ShotblastSpareController;
 //FormMP
 use App\Http\Controllers\FormMP\FormMPController;
 //FormVC
+use App\Http\Controllers\FormVC\VariableCostAccountMasterController;
 use App\Http\Controllers\FormVC\VariableCostController;
 //FormCCR
 use App\Http\Controllers\FormCCR\CostCenterReportController;
@@ -61,6 +62,8 @@ use App\Http\Controllers\FormExam\FormExamMasterController;
 use App\Http\Controllers\FormExam\ExamImportController;
 //LIS
 use App\Http\Controllers\FormLIS\InquiryController;
+//Rick
+use App\Http\Controllers\FormRisk\ProductionRiskController;
 //DP
 use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
@@ -70,10 +73,11 @@ use App\Http\Controllers\FormFC\ForecastRmDivisionController;
 use App\Http\Controllers\FormFC\PlannerPartMasterController;
 use App\Http\Controllers\FormFC\PlannerForecastController;
 use App\Http\Controllers\FormFC\DivisionPartMasterController;
+use App\Http\Controllers\FormFC\DivisionGroupController;
+use App\Http\Controllers\FormFC\DivisionGroupMasterController;
 use App\Http\Controllers\FormMLA\MachineLoadController;
 
-//Rick
-use App\Http\Controllers\FormRisk\ProductionRiskController;
+
 //Autocomplete
 use App\Http\Controllers\AutoComplete\DepartmentRoleLookupController;
 use App\Http\Controllers\AutoComplete\UserLookupController;
@@ -134,7 +138,13 @@ Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
 
 Route::view('/home', 'home')->name('home');
 
-
+Route::prefix('/risk')
+  ->name('risk.')
+  ->group(function () {
+    Route::get('/index', [ProductionRiskController::class, 'index'])->name('index');
+    Route::get('/dashboard', [ProductionRiskController::class, 'dashboard'])->name('dashboard');
+    Route::get('/export-excel', [ProductionRiskController::class, 'exportExcel'])->name('exportExcel');
+  });
 
 Route::prefix('/wos')
   ->name('wos.')
@@ -180,7 +190,6 @@ Route::prefix('/deadstock')
     Route::get('/dashboard', [DeadstockReportController::class, 'dashboard'])->name('dashboard');
     Route::get('/review', [DeadstockReportController::class, 'review'])->name('review');
     Route::get('/review/export', [DeadstockReportController::class, 'exportReview'])->name('review.export');
-    Route::post('/review/import-latest', [DeadstockReportController::class, 'importLatestSnapshot'])->name('review.import_latest');
     Route::post('/review/{item}/save', [DeadstockReportController::class, 'saveReview'])->name('review.save');
     Route::post('/review/{month}/compare', [DeadstockReportController::class, 'compareMonth'])->name('review.compare');
     Route::get('/manual', [DeadstockReportController::class, 'manual'])->name('manual');
@@ -224,6 +233,8 @@ Route::prefix('fc')
     Route::get('/division/so-detail', [ForecastRmDivisionController::class, 'soDetail'])->name('division.soDetail');
     Route::get('/division-part-master', [DivisionPartMasterController::class, 'index'])->name('divisionPartMaster.index');
     Route::post('/division-part-master/save', [DivisionPartMasterController::class, 'save'])->name('divisionPartMaster.save');
+    Route::get('/division-group', [DivisionGroupController::class, 'index'])->name('divisionGroup.index');
+    Route::post('/division-group/save', [DivisionGroupController::class, 'save'])->name('divisionGroup.save');
 
 
     Route::get('/po-detail', [ForecastRmController::class, 'poDetail'])->name('poDetail');
@@ -493,6 +504,8 @@ Route::prefix('variable-cost')
     Route::get('/monthly', [VariableCostController::class, 'monthly'])->name('monthly');
     Route::get('/matrix', [VariableCostController::class, 'matrix'])->name('matrix');
     Route::get('/accounts', [VariableCostController::class, 'accounts'])->name('accounts');
+    Route::get('/account-master', [VariableCostAccountMasterController::class, 'index'])->name('account-master');
+    Route::post('/account-master', [VariableCostAccountMasterController::class, 'update'])->name('account-master.update');
     Route::get('/yearly', [VariableCostController::class, 'yearly'])->name('yearly');
     Route::get('/details', [VariableCostController::class, 'details'])->name('details');
     Route::get('/export', [VariableCostController::class, 'export'])->name('export');
@@ -515,6 +528,10 @@ Route::prefix('accounting')
     Route::get('/loss-provision/export', [LossProvisionController::class, 'export'])->name('loss-provision.export');
     Route::get('/customer-payment-terms/erp-customer-lookup', [CustomerPaymentTermController::class, 'customerLookup'])->name('cpt.customerLookup');
     Route::get('/customer-payment-terms/masters', [CustomerPaymentTermController::class, 'masters'])->name('cpt.masters');
+    Route::get('/division-group-master', [DivisionGroupMasterController::class, 'index'])->name('divisionGroup.master');
+    Route::post('/division-group-master', [DivisionGroupMasterController::class, 'store'])->name('divisionGroup.master.store');
+    Route::put('/division-group-master/{id}', [DivisionGroupMasterController::class, 'update'])->name('divisionGroup.master.update');
+    Route::delete('/division-group-master/{id}', [DivisionGroupMasterController::class, 'destroy'])->name('divisionGroup.master.destroy');
     Route::post('/customer-payment-terms/billing-plans', [CustomerPaymentTermController::class, 'storeBillingPlan'])->name('cpt.billing-plans.store');
     Route::put('/customer-payment-terms/billing-plans/{billingPlan}', [CustomerPaymentTermController::class, 'updateBillingPlan'])->name('cpt.billing-plans.update');
     Route::delete('/customer-payment-terms/billing-plans/{billingPlan}', [CustomerPaymentTermController::class, 'destroyBillingPlan'])->name('cpt.billing-plans.destroy');
@@ -679,6 +696,10 @@ Route::middleware(['auth', 'can:ADMINWEB'])
   ->group(function () {
 
     // เพิ่มสมาชิก
+    Route::get('/deadstock/config', [DeadstockReportController::class, 'config'])->name('deadstock.config');
+    Route::post('/deadstock/config/create-baseline', [DeadstockReportController::class, 'createBaselineSnapshot'])->name('deadstock.create_baseline');
+    Route::post('/deadstock/config/import-latest', [DeadstockReportController::class, 'importLatestSnapshot'])->name('deadstock.import_latest');
+
     Route::get('/users/register',  [UserAdminController::class, 'index'])->name('users.register');
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');
     Route::delete('/users/{user}',  [UserAdminController::class, 'destroy'])->name('users.destroy');
