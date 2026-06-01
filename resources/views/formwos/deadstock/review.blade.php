@@ -301,6 +301,37 @@
             padding-top: 12px;
         }
 
+        .ds-toolbar form.row>[class*="col-"] {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        .ds-toolbar form.row .btn,
+        .ds-toolbar form.row .form-control,
+        .ds-toolbar form.row .form-select {
+            min-height: 38px;
+        }
+
+        .ds-compare-note {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            color: #1e3a8a;
+            padding: 12px 14px;
+        }
+
+        .ds-compare-note.warning {
+            background: #fffbeb;
+            border-color: #fde68a;
+            color: #78350f;
+        }
+
+        .ds-compare-note .metric {
+            color: #0f172a;
+            font-weight: 800;
+        }
+
         .ds-month-picker {
             background: #fff;
             border: 1px solid #dbe4ef;
@@ -432,7 +463,7 @@
                 <span class="text-muted small">เลือกเดือน / สถานะ / บริษัท / Sales เพื่อดูข้อมูลเก่า</span>
             </div>
 
-            <form class="row g-3 align-items-start mt-2" method="get" action="{{ route('deadstock.review') }}">
+            <form class="row g-3 align-items-end mt-2" method="get" action="{{ route('deadstock.review') }}">
                 <div class="col-12 col-md-6 col-xl-3">
                     <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
                         <label class="form-label mb-0">เลือกเดือน</label>
@@ -549,6 +580,29 @@
             <div class="alert alert-warning mb-0">
                 พบข้อมูล Dashboard แล้ว แต่ยังไม่มีรายการสำหรับ Monthly Review
             </div>
+        @endif
+
+        @if (!empty($compareHealth['all_active']))
+            <section class="ds-compare-note {{ !empty($compareHealth['snapshot_is_recent']) ? '' : 'warning' }}">
+                <div class="fw-semibold mb-1">
+                    ผลเทียบข้อมูล: รายการที่เลือกยังค้างทั้งหมด {{ number_format((int) ($compareHealth['total'] ?? 0)) }} รายการ
+                </div>
+                <div class="small">
+                    ระบบเทียบกับข้อมูลปัจจุบันแล้วพบ serial ยัง on hand ครบ จึงขึ้น “ยังค้าง” ทั้งหมด
+                    @if (!empty($compareHealth['snapshot_is_recent']))
+                        ซึ่งเป็นไปได้เมื่อ snapshot เพิ่ง import ภายใน {{ number_format((int) ($compareHealth['snapshot_age_days'] ?? 0)) }} วัน
+                    @else
+                        ถ้า snapshot เก่าหลายวันแล้วยังเป็นแบบนี้ ควรตรวจสอบ live serial/onhand หรือกดเทียบข้อมูลปัจจุบันอีกครั้ง
+                    @endif
+                </div>
+                <div class="small mt-1">
+                    ตรวจแล้ว <span class="metric">{{ number_format((int) ($compareHealth['checked'] ?? 0)) }}</span> /
+                    มีงานติดตามที่บันทึกแล้ว <span class="metric">{{ number_format((int) ($compareHealth['reviewed'] ?? 0)) }}</span>
+                    @if (!empty($compareHealth['last_checked_at']))
+                        / เทียบล่าสุด {{ \Carbon\Carbon::parse($compareHealth['last_checked_at'])->format('d/m/Y H:i') }}
+                    @endif
+                </div>
+            </section>
         @endif
 
         <section class="ds-summary">

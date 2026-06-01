@@ -253,9 +253,14 @@ class DeadstockReportController extends Controller
             ->selectRaw("SUM(CASE WHEN compare_status IN ('pending', 'active', 'changed') AND (r.id IS NULL OR (r.corrective_action IS NULL AND r.preventive_action IS NULL AND r.sales_remark IS NULL AND r.next_follow_up_date IS NULL)) THEN 1 ELSE 0 END) AS no_action_items")
             ->selectRaw("SUM(CASE WHEN r.next_follow_up_date IS NOT NULL AND r.next_follow_up_date <= ? AND COALESCE(r.review_status, 'open') <> 'closed' THEN 1 ELSE 0 END) AS due_follow_up_items", [$today])
             ->selectRaw("SUM(CASE WHEN r.review_status = 'closed' THEN 1 ELSE 0 END) AS closed_action_items")
+            ->selectRaw("SUM(CASE WHEN ds_snapshot_items.last_checked_at IS NOT NULL THEN 1 ELSE 0 END) AS checked_items")
+            ->selectRaw("SUM(CASE WHEN r.id IS NOT NULL THEN 1 ELSE 0 END) AS reviewed_items")
+            ->selectRaw('MAX(ds_snapshot_items.last_checked_at) AS last_checked_at')
             ->selectRaw('SUM(ds_snapshot_items.snapshot_qty) AS total_qty')
             ->selectRaw("SUM(CASE WHEN compare_status = 'cleared' THEN 0 ELSE COALESCE(ds_snapshot_items.current_qty, ds_snapshot_items.snapshot_qty) END) AS current_total_qty")
             ->first();
+
+        $compareHealth = $this->deadstockCompareHealth($summary, $selectedMonth);
 
         $salesOptions = $selectedMonthIds !== []
             ? DeadstockSnapshotItem::query()
@@ -307,6 +312,7 @@ class DeadstockReportController extends Controller
             'monthTo' => $monthTo,
             'items' => $items,
             'summary' => $summary,
+            'compareHealth' => $compareHealth,
             'status' => $status,
             'actionStatus' => $actionStatus,
             'companyFilter' => $companyFilter,
@@ -508,6 +514,28 @@ class DeadstockReportController extends Controller
                 $query->whereHas('review', fn($reviewQuery) => $reviewQuery->where('review_status', $actionStatus));
             }
         }
+    }
+
+    private function deadstockCompareHealth($summary, ?DeadstockSnapshotMonth $selectedMonth): array
+    {
+        $total = (int) ($summary->total_items ?? 0);
+        $active = (int) ($summary->active_items ?? 0);
+        $changed = (int) ($summary->changed_items ?? 0);
+        $cleared = (int) ($summary->cleared_items ?? 0);
+        $checked = (int) ($summary->checked_items ?? 0);
+        $reviewed = (int) ($summary->reviewed_items ?? 0);
+        $snapshotDate = $selectedMonth?->recv_date ?? $selectedMonth?->as_of_date ?? $selectedMonth?->snapshot_month;
+        $snapshotAgeDays = $snapshotDate ? $snapshotDate->diffInDays(now('Asia/Bangkok')->startOfDay(), false) : null;
+
+        return [
+            'total' => $total,
+            'checked' => $checked,
+            'reviewed' => $reviewed,
+            'last_checked_at' => $summary->last_checked_at ?? null,
+            'all_active' => $total > 0 && $active === $total && $changed === 0 && $cleared === 0,
+            'snapshot_age_days' => $snapshotAgeDays,
+            'snapshot_is_recent' => is_numeric($snapshotAgeDays) && $snapshotAgeDays >= 0 && $snapshotAgeDays <= 2,
+        ];
     }
 
     public function saveReview(Request $request, DeadstockSnapshotItem $item): RedirectResponse

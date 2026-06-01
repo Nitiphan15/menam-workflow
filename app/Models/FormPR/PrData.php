@@ -2,9 +2,9 @@
 
 namespace App\Models\FormPR;
 
+use App\Models\Concerns\UsesWorkflowConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 use App\Support\SqlServerDb;
 use App\Models\Users\Department;
 use App\Models\Users\User;
@@ -13,6 +13,8 @@ use Carbon\Carbon;
 
 class PrData extends Model
 {
+    use UsesWorkflowConnection;
+
     protected $table = 'pr_data';
     public $timestamps = false; // ตารางนี้ไม่มี created_at/updated_at
 
@@ -110,7 +112,7 @@ class PrData extends Model
         $prefix   = $deptCode . $yy . $mm; // เช่น IT2508
 
         // ดึง docu_no ล่าสุดของเดือน/แผนกเดียวกัน (ล็อกเพื่อกัน race)
-        $last = DB::table('pr_data')
+        $last = SqlServerDb::table('pr_data')
             ->select('docu_no')
             ->where('department_id', $departmentId)
             ->where('docu_no', 'like', $prefix . '%')

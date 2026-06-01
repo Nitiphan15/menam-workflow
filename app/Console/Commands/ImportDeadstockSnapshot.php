@@ -33,6 +33,7 @@ class ImportDeadstockSnapshot extends Command
         $this->line('Items: ' . $result['items']);
         $this->line('Created: ' . $result['created']);
         $this->line('Updated: ' . $result['updated']);
+        $this->line('Deleted: ' . ($result['deleted'] ?? 0));
 
         return self::SUCCESS;
     }

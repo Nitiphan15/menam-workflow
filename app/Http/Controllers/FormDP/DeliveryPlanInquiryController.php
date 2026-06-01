@@ -443,6 +443,7 @@ class DeliveryPlanInquiryController extends Controller
             ->all();
 
         $docMap = $this->docMap();
+        $this->attachInquiryDisplayText($rows, $docMap);
         $defaultShipDate = collect($rows->items())
             ->map(fn($r) => $this->dateOnly($r->ship_posted_at))
             ->filter()
@@ -1783,13 +1784,41 @@ class DeliveryPlanInquiryController extends Controller
 
     private function docMap(): array
     {
-        return $this->conn()
+        $map = $this->conn()
             ->table('attach_docs_master')
             ->pluck('name', 'code')
             ->mapWithKeys(fn($name, $code) => [
                 strtoupper(trim((string) $code)) => trim((string) $name),
             ])
             ->all();
+
+        return array_merge([
+            'DO' => 'Delivery sheet (ลูกค้า)',
+        ], $map);
+    }
+
+    private function attachInquiryDisplayText($rows, array $docMap): void
+    {
+        foreach ($rows->items() as $row) {
+            $other = trim((string) ($row->attach_docs_other ?? ''));
+            $docNames = collect($this->normalizeDocCodes((string) ($row->attach_docs ?? '')))
+                ->map(function ($code) use ($docMap, $other) {
+                    $name = $docMap[$code] ?? $code;
+                    return $code === 'OTHER' && $other !== '' ? $name . ': ' . $other : $name;
+                })
+                ->filter(fn($name) => trim((string) $name) !== '')
+                ->values();
+
+            $row->attach_docs_text = $docNames->implode(', ');
+            $row->more_text = collect([
+                $row->remark ?? null,
+                $row->edit_remark ?? null,
+            ])
+                ->map(fn($value) => trim((string) $value))
+                ->filter()
+                ->unique()
+                ->implode(' | ');
+        }
     }
 
     private function normalizeDocCodes(?string $value): array

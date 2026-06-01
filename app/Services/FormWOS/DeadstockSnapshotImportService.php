@@ -5,6 +5,7 @@ namespace App\Services\FormWOS;
 use App\Models\FormWOS\DeadstockSnapshotItem;
 use App\Models\FormWOS\DeadstockSnapshotMonth;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class DeadstockSnapshotImportService
@@ -50,16 +51,11 @@ class DeadstockSnapshotImportService
                     ->map(fn(array $item) => $this->normalizeItem((array) $item))
                     ->values();
 
-                $existingKeys = collect();
-                foreach ($normalizedRows->pluck('item_key')->chunk(800) as $keys) {
-                    $existingKeys = $existingKeys->merge(
-                        DeadstockSnapshotItem::query()
-                            ->where('snapshot_month_id', $month->id)
-                            ->whereIn('item_key', $keys->all())
-                            ->pluck('item_key')
-                    );
-                }
-                $existingKeys = $existingKeys->flip();
+                $existingRows = DeadstockSnapshotItem::query()
+                    ->where('snapshot_month_id', $month->id)
+                    ->get(['id', 'item_key']);
+                $existingKeys = $existingRows->pluck('item_key')->flip();
+                $deleted = $this->deleteMissingSnapshotItems($month->id, $existingRows, $normalizedRows->pluck('item_key')->flip());
 
                 $created = $normalizedRows
                     ->reject(fn(array $row) => $existingKeys->has($row['item_key']))
@@ -119,6 +115,7 @@ class DeadstockSnapshotImportService
                     'items' => $items->count(),
                     'created' => $created,
                     'updated' => $updated,
+                    'deleted' => $deleted,
                 ];
             });
     }
@@ -295,6 +292,37 @@ class DeadstockSnapshotImportService
                 'dead_stock_flag' => (bool) ($item['dead_stock_flag'] ?? true),
             ],
         ];
+    }
+
+    private function deleteMissingSnapshotItems(int $monthId, Collection $existingRows, Collection $currentKeys): int
+    {
+        $staleIds = $existingRows
+            ->reject(fn($row) => $currentKeys->has($row->item_key))
+            ->pluck('id')
+            ->values();
+
+        if ($staleIds->isEmpty()) {
+            return 0;
+        }
+
+        foreach ($staleIds->chunk(800) as $ids) {
+            DB::connection(config('database.workflow_connection', 'sqlsrv_menam'))
+                ->table('ds_item_compare_logs')
+                ->whereIn('snapshot_item_id', $ids->all())
+                ->delete();
+
+            DB::connection(config('database.workflow_connection', 'sqlsrv_menam'))
+                ->table('ds_item_reviews')
+                ->whereIn('snapshot_item_id', $ids->all())
+                ->delete();
+
+            DeadstockSnapshotItem::query()
+                ->where('snapshot_month_id', $monthId)
+                ->whereIn('id', $ids->all())
+                ->delete();
+        }
+
+        return $staleIds->count();
     }
 
     private function stringValue(mixed $value): ?string

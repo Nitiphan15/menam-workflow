@@ -237,29 +237,7 @@
                                         ? (float) $r->remaining_assign_qty
                                         : max(0, $qty - $assignedQty);
 
-                                    $docs = collect(explode(',', (string) ($r->attach_docs ?? '')))
-                                        ->map(fn($x) => trim((string) $x))
-                                        ->filter()
-                                        ->values();
-
-                                    $other = trim((string) ($r->attach_docs_other ?? ''));
-
-                                    $docTexts = [];
-                                    foreach ($docs as $code) {
-                                        $codeU = strtoupper($code);
-                                        $isOther = $codeU === 'OTHER';
-                                        if ($isOther && $other === '') {
-                                            continue;
-                                        }
-
-                                        $name = $docMap[$codeU] ?? $codeU;
-                                        if ($isOther && $other !== '') {
-                                            $name .= ': ' . $other;
-                                        }
-
-                                        $docTexts[] = $name;
-                                    }
-                                    $docText = implode(', ', $docTexts);
+                                    $docText = trim((string) ($r->attach_docs_text ?? ''));
 
                                     $mode = strtoupper(trim((string) ($r->delivery_type ?? '')));
 
@@ -280,13 +258,7 @@
                                     $mfgText = (string) ($r->mfg_no ?? '');
                                     $telText = (string) ($r->tel ?? '');
 
-                                    $moreText = collect([
-                                        $r->remark ?? null,
-                                        $r->edit_remark ?? null,
-                                        $r->due_date_remark ?? null,
-                                    ])
-                                        ->filter(fn($x) => trim((string) $x) !== '')
-                                        ->implode(' | ');
+                                    $moreText = trim((string) ($r->more_text ?? ''));
 
                                     $qty = is_numeric($r->qty ?? null) ? (float) $r->qty : 0.0;
                                     $stock = is_numeric($r->stock_qty_rt ?? null) ? (float) $r->stock_qty_rt : 0.0;
