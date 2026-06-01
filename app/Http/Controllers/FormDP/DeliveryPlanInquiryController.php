@@ -5,6 +5,8 @@ namespace App\Http\Controllers\FormDP;
 use App\Http\Controllers\Controller;
 use App\Exports\FormOTD\InquiryByShipDateExport;
 use App\Mail\DeliveryPlanMail;
+use App\Models\FormDP\DeliveryConfirmation;
+use App\Services\FormDP\DeliveryConfirmationService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,10 +14,19 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;;
 
 use Illuminate\Validation\ValidationException;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Maatwebsite\Excel\Facades\Excel;
 
 class DeliveryPlanInquiryController extends Controller
 {
+    private const SPECIAL_DISPATCH_TYPES = [
+        'CONTAINER_LOAD' => 'โหลดตู้คอนเทนเนอร์',
+        'CUSTOMER_PICKUP' => 'ลูกค้ามารับเอง',
+        'SALES_CAR' => 'รถเซลล์',
+        'WEIGHT_REQUEST' => 'งานขอน้ำหนัก',
+        'POSTPONED' => 'งานเลื่อน',
+    ];
+
     private function conn()
     {
         return DB::connection('sqlsrv_menam');
@@ -23,8 +34,15 @@ class DeliveryPlanInquiryController extends Controller
 
     public function export(Request $request)
     {
+        $filters = $request->all();
+        unset(
+            $filters['revision_number'],
+            $filters['revision_max_number'],
+            $filters['display_revision_number']
+        );
+
         return Excel::download(
-            new InquiryByShipDateExport($request->all()),
+            new InquiryByShipDateExport($filters),
             'Inquiry_By_ShipDate.xlsx'
         );
     }
@@ -62,18 +80,18 @@ class DeliveryPlanInquiryController extends Controller
         }
 
         $assignSumSub = $this->conn()
-            ->table('delivery_plan_truck_assign')
+            ->table('delivery_plan_truck_assign_dev')
             ->selectRaw('ord_id, SUM(ISNULL(assigned_weight, 0)) as assigned_weight_sum')
             ->groupBy('ord_id');
 
         $latestAssignSub = $this->conn()
-            ->table('delivery_plan_truck_assign')
+            ->table('delivery_plan_truck_assign_dev')
             ->selectRaw('MAX(id) as latest_assign_id, ord_id')
             ->groupBy('ord_id');
 
         $truckListSub = $this->conn()
-            ->table('delivery_plan_truck_assign as tx')
-            ->leftJoin('delivery_plan_truck_master as tmx', 'tmx.id', '=', 'tx.truck_id')
+            ->table('delivery_plan_truck_assign_dev as tx')
+            ->leftJoin('delivery_plan_truck_master_dev as tmx', 'tmx.id', '=', 'tx.truck_id')
             ->selectRaw("
                     tx.ord_id,
                     STRING_AGG(
@@ -85,13 +103,18 @@ class DeliveryPlanInquiryController extends Controller
                         )),
                         ', '
                     ) AS truck_plate_list
-                ")
+            ")
             ->groupBy('tx.ord_id');
 
+        $latestSpecialSub = $this->conn()
+            ->table('delivery_plan_special_dispatch_dev')
+            ->selectRaw('MAX(id) as latest_special_id, ord_id')
+            ->whereIn('status', ['OPEN', 'CLOSED'])
+            ->groupBy('ord_id');
 
 
         $q = $this->conn()
-            ->table('delivery_plan_data as d')
+            ->table('delivery_plan_data_dev as d')
             ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
@@ -114,8 +137,12 @@ class DeliveryPlanInquiryController extends Controller
             ->leftJoinSub($truckListSub, 'tpl', function ($join) {
                 $join->on('tpl.ord_id', '=', 'd.ord_id');
             })
-            ->leftJoin('delivery_plan_truck_assign as ta', 'ta.id', '=', 'tal.latest_assign_id')
-            ->leftJoin('delivery_plan_truck_master as tm', 'tm.id', '=', 'ta.truck_id')
+            ->leftJoinSub($latestSpecialSub, 'lsd', function ($join) {
+                $join->on('lsd.ord_id', '=', 'd.ord_id');
+            })
+            ->leftJoin('delivery_plan_truck_assign_dev as ta', 'ta.id', '=', 'tal.latest_assign_id')
+            ->leftJoin('delivery_plan_truck_master_dev as tm', 'tm.id', '=', 'ta.truck_id')
+            ->leftJoin('delivery_plan_special_dispatch_dev as sd', 'sd.id', '=', 'lsd.latest_special_id')
             ->select([
                 'd.ord_id',
                 'd.sales_id',
@@ -185,6 +212,8 @@ class DeliveryPlanInquiryController extends Controller
                 'ta.manual_remark',
                 'ta.assigned_weight',
                 'ta.ship_posted_at as truck_ship_posted_at',
+                'ta.trip_no as truck_trip_no',
+                'ta.closed_at as truck_closed_at',
                 'ta.assigned_at',
                 'ta.assigned_by',
                 'ta.remark as truck_assign_remark',
@@ -195,6 +224,12 @@ class DeliveryPlanInquiryController extends Controller
                 'tm.max_load as truck_max_load',
                 'tm.car_length as truck_car_length',
                 'tm.remark as truck_master_remark',
+                'sd.id as special_dispatch_id',
+                'sd.dispatch_type as special_dispatch_type',
+                'sd.status as special_dispatch_status',
+                'sd.remark as special_dispatch_remark',
+                'sd.action_at as special_dispatch_action_at',
+                'sd.closed_at as special_dispatch_closed_at',
             ]);
 
         try {
@@ -240,6 +275,11 @@ class DeliveryPlanInquiryController extends Controller
 
         if ($status !== 'ALL' && $status !== '') {
             $q->where('d.status', $status);
+        } else {
+            $q->where(function ($w) {
+                $w->whereNull('d.status')
+                    ->orWhere('d.status', '!=', 'VOID');
+            });
         }
 
         $dir = in_array($orderDir, ['asc', 'desc'], true) ? $orderDir : 'desc';
@@ -343,6 +383,8 @@ class DeliveryPlanInquiryController extends Controller
 
             $r->assigned_weight_sum = $assignedSum;
             $r->remaining_assign_qty = $remainingQty;
+            $specialType = strtoupper(trim((string) ($r->special_dispatch_type ?? '')));
+            $r->special_dispatch_label = self::SPECIAL_DISPATCH_TYPES[$specialType] ?? '';
 
             $truckPlate = '';
             if (($r->truck_source ?? '') === 'MANUAL') {
@@ -362,6 +404,40 @@ class DeliveryPlanInquiryController extends Controller
             $r->truck_remaining_capacity = null;
         }
 
+        try {
+            $confirmService = app(DeliveryConfirmationService::class);
+            $confirmMfgNos = collect($rows->items())
+                ->pluck('mfg_no')
+                ->map(fn($x) => trim((string) $x))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+            $confirmMap = $confirmService->latestMap($confirmMfgNos);
+        } catch (\Throwable $e) {
+            $confirmMap = collect();
+        }
+
+        foreach ($rows as $r) {
+            $mfg = strtoupper(ltrim(trim((string) ($r->mfg_no ?? '')), '+'));
+            $entry = null;
+            if ($mfg !== '' && $confirmMap->isNotEmpty()) {
+                foreach ($confirmMap as $key => $value) {
+                    if (str_ends_with((string) $key, '|' . $mfg)) {
+                        if ($entry === null || ($value->confirmed_at ?? '') > ($entry->confirmed_at ?? '')) {
+                            $entry = $value;
+                        }
+                    }
+                }
+            }
+            $r->planner_confirmation_status = $entry->confirmation_status ?? null;
+            $r->planner_confirmation_label = DeliveryConfirmation::statusLabel($entry->confirmation_status ?? null);
+            $r->planner_confirmation_badge = DeliveryConfirmation::statusBadgeClass($entry->confirmation_status ?? null);
+            $r->planner_confirmation_new_date = $entry->new_delivery_date ?? null;
+            $r->planner_confirmation_confirmed_at = $entry->confirmed_at ?? null;
+            $r->planner_confirmation_by = $entry->confirmed_by_name ?? ($entry->confirmed_by_login ?? null);
+        }
+
         $groups = collect($rows->items())
             ->groupBy(fn($r) => trim((string) ($r->sales_name ?? 'UNKNOWN')))
             ->all();
@@ -377,6 +453,7 @@ class DeliveryPlanInquiryController extends Controller
         $divLabel = $this->divisionLabels();
         $divGroups = $this->buildDivisionGroups($groups);
         $revColorMap = $this->revisionColorMap();
+        $specialDispatchTypes = self::SPECIAL_DISPATCH_TYPES;
 
         return view('formdp.inquiry', compact(
             'rows',
@@ -386,7 +463,8 @@ class DeliveryPlanInquiryController extends Controller
             'trucks',
             'divLabel',
             'divGroups',
-            'revColorMap'
+            'revColorMap',
+            'specialDispatchTypes'
         ));
     }
 
@@ -398,6 +476,7 @@ class DeliveryPlanInquiryController extends Controller
             'ship_posted_at'  => ['nullable', 'date'],
 
             'truck_id'        => ['nullable', 'integer'],
+            'trip_no'         => ['nullable', 'integer', 'min:1', 'max:99'],
 
             'manual_plate_no'     => ['nullable', 'string', 'max:50'],
             'manual_driver_name'  => ['nullable', 'string', 'max:100'],
@@ -413,6 +492,8 @@ class DeliveryPlanInquiryController extends Controller
 
             'ord_ids'   => ['required', 'array', 'min:1'],
             'ord_ids.*' => ['integer', 'distinct'],
+            'assign_weight_tons' => ['nullable', 'array'],
+            'assign_weight_tons.*' => ['nullable', 'numeric', 'min:0'],
         ], [
             'truck_pick_mode.required' => 'กรุณาเลือกประเภทรถ',
             'truck_pick_mode.in'       => 'ประเภทรถไม่ถูกต้อง',
@@ -421,6 +502,7 @@ class DeliveryPlanInquiryController extends Controller
         ]);
 
         $replaceMode = (string) $request->input('replace_mode', '') === '1';
+        $tripNo = max(1, (int) $request->input('trip_no', 1));
 
         $truckPickMode = strtoupper(trim((string) $request->input('truck_pick_mode')));
         $truckSource = in_array($truckPickMode, ['MANUAL', 'MANUAL_TEMP'], true)
@@ -457,6 +539,7 @@ class DeliveryPlanInquiryController extends Controller
             $ordId,
             $truckSource,
             $replaceMode,
+            $tripNo,
             &$savedRows,
             &$savedWeight,
             &$requestedWeight
@@ -479,7 +562,7 @@ class DeliveryPlanInquiryController extends Controller
                 ]);
             }
 
-            $dpRows = $conn->table('delivery_plan_data')
+            $dpRows = $conn->table('delivery_plan_data_dev')
                 ->whereIn('ord_id', $ordIds->all())
                 ->select([
                     'ord_id',
@@ -520,6 +603,13 @@ class DeliveryPlanInquiryController extends Controller
                 ]);
             }
 
+            $hasSpecial = $dpRows->contains(fn($r) => in_array(strtoupper((string) ($r->status ?? '')), ['SPECIAL', 'POSTPONED'], true));
+            if ($hasSpecial) {
+                throw ValidationException::withMessages([
+                    'ord_ids' => ['รายการช่องทางพิเศษหรือเลื่อนงาน ไม่สามารถจัดรถได้'],
+                ]);
+            }
+
             $shipDateFromDb = (string) $shipSet->first();
             if ($shipDateFromDb === '') {
                 throw ValidationException::withMessages([
@@ -528,12 +618,12 @@ class DeliveryPlanInquiryController extends Controller
             }
 
             if ($replaceMode) {
-                $conn->table('delivery_plan_truck_assign')
+                $conn->table('delivery_plan_truck_assign_dev')
                     ->whereIn('ord_id', $ordIds->all())
                     ->delete();
             }
 
-            $assignedSumRows = $conn->table('delivery_plan_truck_assign')
+            $assignedSumRows = $conn->table('delivery_plan_truck_assign_dev')
                 ->whereIn('ord_id', $ordIds->all())
                 ->selectRaw('ord_id, SUM(ISNULL(assigned_weight, 0)) as assigned_sum')
                 ->groupBy('ord_id')
@@ -541,6 +631,12 @@ class DeliveryPlanInquiryController extends Controller
                 ->keyBy('ord_id');
 
             $dpRowsByOrdId = $dpRows->keyBy('ord_id');
+            $manualWeightKgByOrd = collect((array) $request->input('assign_weight_tons', []))
+                ->mapWithKeys(function ($value, $key) {
+                    $ordKey = (int) $key;
+                    $tons = is_numeric($value) ? (float) $value : 0.0;
+                    return $ordKey > 0 && $tons > 0 ? [$ordKey => $tons * 1000] : [];
+                });
 
             $remainingByOrd = [];
             foreach ($ordIds as $oneOrdId) {
@@ -548,9 +644,10 @@ class DeliveryPlanInquiryController extends Controller
                 $qty = (float) ($dp->qty ?? 0);
                 $assigned = (float) (($assignedSumRows->get($oneOrdId)->assigned_sum ?? 0));
 
-                $remaining = $replaceMode
-                    ? $qty
-                    : max(0, $qty - $assigned);
+                $manualWeightKg = (float) ($manualWeightKgByOrd->get($oneOrdId, 0));
+                $remaining = $manualWeightKg > 0
+                    ? $manualWeightKg
+                    : ($replaceMode ? $qty : max(0, $qty - $assigned));
 
                 $remainingByOrd[$oneOrdId] = $remaining;
                 $requestedWeight += $remaining;
@@ -571,11 +668,11 @@ class DeliveryPlanInquiryController extends Controller
                 $truckId = (int) $request->input('truck_id');
 
                 $conn->selectOne(
-                    "SELECT id FROM delivery_plan_truck_master WITH (UPDLOCK, HOLDLOCK) WHERE id = ?",
+                    "SELECT id FROM delivery_plan_truck_master_dev WITH (UPDLOCK, HOLDLOCK) WHERE id = ?",
                     [$truckId]
                 );
 
-                $truck = $conn->table('delivery_plan_truck_master')
+                $truck = $conn->table('delivery_plan_truck_master_dev')
                     ->where('id', $truckId)
                     ->where('status', 'ACTIVE')
                     ->first();
@@ -589,28 +686,47 @@ class DeliveryPlanInquiryController extends Controller
                 $currentLoadRow = $conn->selectOne(
                     "
                 SELECT ISNULL(SUM(ISNULL(assigned_weight, 0)), 0) AS current_load
-                FROM delivery_plan_truck_assign WITH (UPDLOCK, HOLDLOCK)
+                FROM delivery_plan_truck_assign_dev WITH (UPDLOCK, HOLDLOCK)
                 WHERE truck_source = 'MASTER'
                   AND truck_id = ?
                   AND CAST(ship_posted_at AS date) = ?
+                  AND ISNULL(trip_no, 1) = ?
                 ",
-                    [$truckId, $shipDateFromDb]
+                    [$truckId, $shipDateFromDb, $tripNo]
                 );
 
-                $truckMaxLoad = (float) ($truck->max_load ?? 0);
-                $currentLoad = (float) ($currentLoadRow->current_load ?? 0);
-                $truckRemainingCapacity = max(0, $truckMaxLoad - $currentLoad);
+                $closedTrip = $conn->table('delivery_plan_truck_assign_dev')
+                    ->where('truck_source', 'MASTER')
+                    ->where('truck_id', $truckId)
+                    ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDateFromDb])
+                    ->whereRaw('ISNULL(trip_no, 1) = ?', [$tripNo])
+                    ->whereNotNull('closed_at')
+                    ->exists();
 
-                if ($truckRemainingCapacity <= 0) {
+                if ($closedTrip) {
+                    throw ValidationException::withMessages([
+                        'trip_no' => ['เที่ยวรถนี้ปิดแล้ว กรุณาเลือกเที่ยวถัดไป'],
+                    ]);
+                }
+
+                $truckMaxLoad = (float) ($truck->max_load ?? 0);
+                $capacityUnlimited = $truckMaxLoad <= 0;
+                $currentLoad = (float) ($currentLoadRow->current_load ?? 0);
+                $truckRemainingCapacity = $capacityUnlimited
+                    ? $requestedWeight
+                    : max(0, $truckMaxLoad - $currentLoad);
+
+                if (!$capacityUnlimited && $truckRemainingCapacity <= 0) {
                     throw ValidationException::withMessages([
                         'truck_id' => ['รถคันนี้น้ำหนักเต็มแล้ว'],
                     ]);
                 }
             } else {
-                $existingManualTruck = $conn->table('delivery_plan_truck_assign')
+                $existingManualTruck = $conn->table('delivery_plan_truck_assign_dev')
                     ->where('truck_source', 'MANUAL')
                     ->where('manual_plate_no', $manualPlateNo)
                     ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDateFromDb])
+                    ->whereRaw('ISNULL(trip_no, 1) = ?', [$tripNo])
                     ->orderByDesc('id')
                     ->first();
 
@@ -638,18 +754,36 @@ class DeliveryPlanInquiryController extends Controller
                 $currentManualLoadRow = $conn->selectOne(
                     "
                 SELECT ISNULL(SUM(ISNULL(assigned_weight, 0)), 0) AS current_load
-                FROM delivery_plan_truck_assign WITH (UPDLOCK, HOLDLOCK)
+                FROM delivery_plan_truck_assign_dev WITH (UPDLOCK, HOLDLOCK)
                 WHERE truck_source = 'MANUAL'
                   AND manual_plate_no = ?
                   AND CAST(ship_posted_at AS date) = ?
+                  AND ISNULL(trip_no, 1) = ?
                 ",
-                    [$manualPlateNo, $shipDateFromDb]
+                    [$manualPlateNo, $shipDateFromDb, $tripNo]
                 );
 
-                $currentManualLoad = (float) ($currentManualLoadRow->current_load ?? 0);
-                $truckRemainingCapacity = max(0, $manualMaxLoadEffective - $currentManualLoad);
+                $closedManualTrip = $conn->table('delivery_plan_truck_assign_dev')
+                    ->where('truck_source', 'MANUAL')
+                    ->where('manual_plate_no', $manualPlateNo)
+                    ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDateFromDb])
+                    ->whereRaw('ISNULL(trip_no, 1) = ?', [$tripNo])
+                    ->whereNotNull('closed_at')
+                    ->exists();
 
-                if ($truckRemainingCapacity <= 0) {
+                if ($closedManualTrip) {
+                    throw ValidationException::withMessages([
+                        'trip_no' => ['เที่ยวรถนี้ปิดแล้ว กรุณาเลือกเที่ยวถัดไป'],
+                    ]);
+                }
+
+                $capacityUnlimited = $manualMaxLoadEffective <= 0;
+                $currentManualLoad = (float) ($currentManualLoadRow->current_load ?? 0);
+                $truckRemainingCapacity = $capacityUnlimited
+                    ? $requestedWeight
+                    : max(0, $manualMaxLoadEffective - $currentManualLoad);
+
+                if (!$capacityUnlimited && $truckRemainingCapacity <= 0) {
                     throw ValidationException::withMessages([
                         'manual_plate_no' => ['รถนอกคันนี้น้ำหนักเต็มแล้ว'],
                     ]);
@@ -701,13 +835,14 @@ class DeliveryPlanInquiryController extends Controller
 
                     'assigned_weight'     => $allocateWeight,
                     'ship_posted_at'      => $shipDateFromDb,
+                    'trip_no'             => $tripNo,
                     'assigned_at'         => now(),
                     'assigned_by'         => auth()->id(),
                 ], $staffSnapshot);
 
-                $conn->table('delivery_plan_truck_assign')->insert($payload);
+                $conn->table('delivery_plan_truck_assign_dev')->insert($payload);
 
-                $conn->table('delivery_plan_data')
+                $conn->table('delivery_plan_data_dev')
                     ->where('ord_id', $oneOrdId)
                     ->whereNotIn('status', ['VOID', 'CLOSED'])
                     ->update([
@@ -742,7 +877,8 @@ class DeliveryPlanInquiryController extends Controller
     public function truckCapacity(Request $request)
     {
         $shipDate = trim((string) $request->query('ship_posted_at', ''));
-        $rows = $this->getAssignableTrucksByShipDate($shipDate);
+        $tripNo = max(1, (int) $request->query('trip_no', 1));
+        $rows = $this->getAssignableTrucksByShipDate($shipDate, $tripNo);
 
         return response()->json(
             $rows->map(function ($r) {
@@ -759,6 +895,8 @@ class DeliveryPlanInquiryController extends Controller
                     'remark' => $r->remark,
                     'current_load' => (float) $r->current_load,
                     'remaining_capacity' => (float) $r->remaining_capacity,
+                    'capacity_unlimited' => !empty($r->capacity_unlimited),
+                    'trip_no' => (int) ($r->trip_no ?? 1),
                     'source_label' => $r->source_label,
                     'job_summary' => $r->job_summary ?? [],
                     'so_summary_text' => $r->so_summary_text ?? '',
@@ -829,7 +967,7 @@ class DeliveryPlanInquiryController extends Controller
 
             $docMap = $this->docMap();
 
-            $all = $conn->table(DB::raw('dbo.delivery_plan_data FOR SYSTEM_TIME ALL AS x'))
+            $all = $conn->table(DB::raw('dbo.delivery_plan_data_dev AS x'))
                 ->leftJoin('dbo.customer as c', 'c.id', '=', 'x.customer_id')
                 ->leftJoin('dbo.employees as e', 'e.id', '=', 'x.sales_id')
                 ->leftJoin('dbo.users as u_rev', 'u_rev.id', '=', 'x.revise_by')
@@ -841,8 +979,8 @@ class DeliveryPlanInquiryController extends Controller
                     'x.ord_id',
                     'x.revision_number',
                     'x.revise_by',
-                    'x.SysStartTime as sys_start',
-                    'x.SysEndTime   as sys_end',
+                    DB::raw("x.created_at as sys_start"),
+                    DB::raw("CAST('9999-12-31 23:59:59' AS datetime) as sys_end"),
 
                     'c.name as customer_name',
                     'c.customernumber',
@@ -1029,7 +1167,7 @@ class DeliveryPlanInquiryController extends Controller
         $conn = $this->conn();
 
         $conn->transaction(function () use ($conn, $request, $ordId) {
-            $row = $conn->table('delivery_plan_data')
+            $row = $conn->table('delivery_plan_data_dev')
                 ->where('ord_id', $ordId)
                 ->select(['ord_id', 'status', 'ship_posted_at'])
                 ->first();
@@ -1078,7 +1216,7 @@ class DeliveryPlanInquiryController extends Controller
 
             $userId = auth()->check() ? (int) auth()->id() : null;
 
-            $conn->table('delivery_plan_data')
+            $conn->table('delivery_plan_data_dev')
                 ->where('ord_id', $ordId)
                 ->update([
                     'status'          => 'VOID',
@@ -1088,12 +1226,227 @@ class DeliveryPlanInquiryController extends Controller
                     'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
                 ]);
 
-            $conn->table('delivery_plan_truck_assign')
+            $conn->table('delivery_plan_truck_assign_dev')
                 ->where('ord_id', $ordId)
                 ->delete();
         });
 
         return back()->with('success', "ยกเลิกรายการ ord_id={$ordId} เรียบร้อย");
+    }
+
+    public function postponePlan(Request $request, int $ordId)
+    {
+        $data = $request->validate([
+            'new_ship_posted_date' => ['required', 'date'],
+            'new_window_time' => ['required', 'date_format:H:i'],
+            'postpone_reason' => ['required', 'string', 'max:500'],
+            'return_url' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'new_ship_posted_date.required' => 'กรุณาเลือกวันที่ส่งใหม่',
+            'new_window_time.required' => 'กรุณาเลือกเวลาใหม่',
+            'postpone_reason.required' => 'กรุณากรอกเหตุผลเลื่อนแผน',
+        ]);
+
+        $conn = $this->conn();
+        $userId = auth()->check() ? (int) auth()->id() : null;
+        $createdBy = auth()->check()
+            ? (auth()->user()->login ?? auth()->user()->id ?? auth()->user()->name ?? 'system')
+            : 'system';
+
+        $newShipDate = Carbon::parse($data['new_ship_posted_date'])->startOfDay();
+        $reason = trim((string) $data['postpone_reason']);
+        $newOrdId = null;
+
+        $conn->transaction(function () use (
+            $conn,
+            $ordId,
+            $userId,
+            $createdBy,
+            $newShipDate,
+            $data,
+            $reason,
+            &$newOrdId
+        ) {
+            $row = $conn->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->first();
+
+            if (!$row) {
+                throw ValidationException::withMessages([
+                    'ord_id' => ["ไม่พบรายการ ord_id={$ordId}"],
+                ]);
+            }
+
+            $statusUpper = strtoupper((string) ($row->status ?? ''));
+            if (in_array($statusUpper, ['VOID', 'CLOSED', 'POSTPONED'], true)) {
+                throw ValidationException::withMessages([
+                    'ord_id' => ["รายการ ord_id={$ordId} ไม่สามารถเลื่อนแผนได้ (สถานะ {$statusUpper})"],
+                ]);
+            }
+
+            $copyColumns = [
+                'due_date',
+                'window_at',
+                'window_text',
+                'ship_posted_at',
+                'due_date_remark',
+                'tel',
+                'remark',
+                'attach_docs',
+                'attach_docs_other',
+                'has_doc',
+                'delivery_type',
+                'so_number',
+                'customer_id',
+                'sales_id',
+                'part_number',
+                'part_desc',
+                'mfg_no',
+                'qty',
+                'stock_qty',
+                'address',
+                'sell_by_line',
+                'line_qty',
+            ];
+
+            $payload = [];
+            foreach ($copyColumns as $column) {
+                $payload[$column] = $row->{$column} ?? null;
+            }
+
+            $originalShipDateText = !empty($row->ship_posted_at)
+                ? Carbon::parse($row->ship_posted_at)->format('d/m/Y')
+                : '-';
+            $originalDueDate = !empty($row->due_date)
+                ? Carbon::parse($row->due_date)->startOfDay()
+                : $newShipDate->copy();
+            $newWindowAt = Carbon::parse($originalDueDate->toDateString() . ' ' . $data['new_window_time'] . ':00');
+
+            $payload['due_date'] = $originalDueDate;
+            $payload['ship_posted_at'] = $newShipDate;
+            $payload['window_at'] = $newWindowAt;
+            $payload['status'] = 'NEW';
+            $payload['revision_number'] = 0;
+            $payload['created_at'] = DB::raw('GETDATE()');
+            $payload['created_by'] = $createdBy;
+            $payload['revise_by'] = null;
+            $payload['edit_remark'] = 'เลื่อนมาจาก วันที่ ' . $originalShipDateText . ' เหตุผล : ' . $reason;
+            $payload['remark_void'] = null;
+
+            $newOrdId = $conn->table('delivery_plan_data_dev')->insertGetId($payload, 'ord_id');
+
+            $conn->table('delivery_plan_special_dispatch_dev')
+                ->where('ord_id', $ordId)
+                ->where('status', 'OPEN')
+                ->update([
+                    'status' => 'SUPERSEDED',
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'close_remark' => 'Postponed and copied to ord_id=' . $newOrdId,
+                ]);
+
+            $conn->table('delivery_plan_truck_assign_dev')
+                ->where('ord_id', $ordId)
+                ->delete();
+
+            $conn->table('delivery_plan_special_dispatch_dev')
+                ->insert([
+                    'ord_id' => $ordId,
+                    'dispatch_type' => 'POSTPONED',
+                    'status' => 'CLOSED',
+                    'remark' => $reason . ' | New ord_id=' . $newOrdId . ' | New ship date=' . $newShipDate->toDateString(),
+                    'action_by' => $userId,
+                    'action_at' => now(),
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'close_remark' => 'Postponed copy created as ord_id=' . $newOrdId,
+                ]);
+
+            $conn->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->whereNotIn('status', ['VOID', 'CLOSED'])
+                ->update([
+                    'status' => 'POSTPONED',
+                    'revise_by' => $userId,
+                    'edit_remark' => 'เลื่อนไป ord_id=' . $newOrdId . ' เหตุผล : ' . $reason,
+                ]);
+        });
+
+        return redirect($data['return_url'] ?? url()->previous())
+            ->with('success', "เลื่อนแผนจาก ord_id={$ordId} เป็น ord_id={$newOrdId} เรียบร้อย");
+    }
+
+    public function unassignTruck(Request $request, $ordId)
+    {
+        $request->validate([
+            'remark_unassign' => ['required', 'string', 'max:500'],
+        ], [
+            'remark_unassign.required' => 'กรุณากรอกเหตุผลยกเลิกรถ',
+        ]);
+
+        $conn = $this->conn();
+        $ordId = (int) $ordId;
+
+        $conn->transaction(function () use ($conn, $request, $ordId) {
+            $row = $conn->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->select(['ord_id', 'status'])
+                ->first();
+
+            if (!$row) {
+                throw ValidationException::withMessages([
+                    'ord_id' => ["ไม่พบรายการ ord_id={$ordId}"],
+                ]);
+            }
+
+            $statusUpper = strtoupper((string) ($row->status ?? ''));
+
+            if (in_array($statusUpper, ['VOID', 'CLOSED'], true)) {
+                throw ValidationException::withMessages([
+                    'ord_id' => ["รายการ ord_id={$ordId} ไม่สามารถยกเลิกรถได้ (สถานะ {$statusUpper})"],
+                ]);
+            }
+
+            $hasAssign = $conn->table('delivery_plan_truck_assign_dev')
+                ->where('ord_id', $ordId)
+                ->exists();
+
+            if (!$hasAssign) {
+                throw ValidationException::withMessages([
+                    'ord_id' => ["รายการ ord_id={$ordId} ยังไม่ได้เลือกรถ"],
+                ]);
+            }
+
+            $hasClosedTrip = $conn->table('delivery_plan_truck_assign_dev')
+                ->where('ord_id', $ordId)
+                ->whereNotNull('closed_at')
+                ->exists();
+
+            if ($hasClosedTrip) {
+                throw ValidationException::withMessages([
+                    'ord_id' => ["รายการ ord_id={$ordId} ปิดเที่ยวรถแล้ว ไม่สามารถยกเลิกรถได้"],
+                ]);
+            }
+
+            $reason = trim((string) $request->input('remark_unassign'));
+            $userId = auth()->check() ? (int) auth()->id() : null;
+
+            $conn->table('delivery_plan_truck_assign_dev')
+                ->where('ord_id', $ordId)
+                ->delete();
+
+            $conn->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->whereNotIn('status', ['VOID', 'CLOSED'])
+                ->update([
+                    'status'          => 'NEW',
+                    'revise_by'       => $userId,
+                    'edit_remark'     => 'UNASSIGN: ' . $reason,
+                    'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
+                ]);
+        });
+
+        return back()->with('success', "ยกเลิกรถของ ord_id={$ordId} เรียบร้อย");
     }
 
     public function historyDb(int $ord_id)
@@ -1107,9 +1460,10 @@ class DeliveryPlanInquiryController extends Controller
                     due_date, window_at, window_text, ship_posted_at, due_date_remark,
                     attach_docs, attach_docs_other, tel, remark, edit_remark,
                     status, revision_number, revise_by, remark_void,
-                    SysStartTime, SysEndTime
-                FROM dbo.delivery_plan_data
-                FOR SYSTEM_TIME ALL
+                    created_at,
+                    created_at AS SysStartTime,
+                    CAST('9999-12-31 23:59:59' AS datetime) AS SysEndTime
+                FROM dbo.delivery_plan_data_dev
                 WHERE ord_id = ?
             )
             SELECT
@@ -1126,7 +1480,7 @@ class DeliveryPlanInquiryController extends Controller
             LEFT JOIN dbo.sales_master    s  ON s.sales_id = x.sales_id
             LEFT JOIN dbo.revision_master rv ON rv.revision_number = x.revision_number
             LEFT JOIN dbo.users           u  ON u.id = x.revise_by
-            ORDER BY x.SysStartTime DESC;
+            ORDER BY x.created_at DESC;
         ";
 
         $rows = $this->conn()->select($sql, [$ord_id]);
@@ -1520,7 +1874,7 @@ class DeliveryPlanInquiryController extends Controller
         }
 
         $rows = $this->conn()
-            ->table('delivery_plan_data as d')
+            ->table('delivery_plan_data_dev as d')
             ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
@@ -1760,7 +2114,7 @@ class DeliveryPlanInquiryController extends Controller
         $subject = "[Delivery Plan] {$mailTypeText} วันที่ {$shipDateTitleText}";
 
         $existingLog = $this->conn()
-            ->table('delivery_plan_mail_logs')
+            ->table('delivery_plan_mail_logs_dev')
             ->whereRaw("CAST(ship_posted_at AS date) = ?", [$shipDate])
             ->where('revision_number', $revision)
             ->exists();
@@ -1835,7 +2189,7 @@ class DeliveryPlanInquiryController extends Controller
 
             /*if ($isManualRevision) {
                 $this->conn()
-                    ->table('delivery_plan_data')
+                    ->table('delivery_plan_data_dev')
                     ->whereRaw("CAST(ship_posted_at AS date) = ?", [$shipDate])
                     ->whereRaw("ISNULL(status,'') NOT IN ('VOID','CANCEL')")
                     ->where('revision_number', '<', $revision)
@@ -1845,7 +2199,7 @@ class DeliveryPlanInquiryController extends Controller
                     ]);
             }*/
 
-            $this->conn()->table('delivery_plan_mail_logs')->insert([
+            $this->conn()->table('delivery_plan_mail_logs_dev')->insert([
                 'ship_posted_at'  => $shipDate,
                 'revision_number' => $revision,
                 'mail_type'       => $mailTypeCode,
@@ -1877,16 +2231,16 @@ class DeliveryPlanInquiryController extends Controller
     {
         $today = now()->toDateString();
 
-        $latestAssignSub = $this->conn()->table('delivery_plan_truck_assign as a1')
+        $latestAssignSub = $this->conn()->table('delivery_plan_truck_assign_dev as a1')
             ->selectRaw('MAX(a1.id) as id, a1.ord_id')
             ->groupBy('a1.ord_id');
 
-        $rows = $this->conn()->table('delivery_plan_data as dp')
+        $rows = $this->conn()->table('delivery_plan_data_dev as dp')
             ->leftJoinSub($latestAssignSub, 'la', function ($join) {
                 $join->on('la.ord_id', '=', 'dp.ord_id');
             })
-            ->leftJoin('delivery_plan_truck_assign as ta', 'ta.id', '=', 'la.id')
-            ->leftJoin('delivery_plan_truck_master as mt', 'mt.id', '=', 'ta.truck_id')
+            ->leftJoin('delivery_plan_truck_assign_dev as ta', 'ta.id', '=', 'la.id')
+            ->leftJoin('delivery_plan_truck_master_dev as mt', 'mt.id', '=', 'ta.truck_id')
             ->leftJoin('parts as p', function ($join) {
                 $join->on(
                     DB::raw('p.partnumber COLLATE DATABASE_DEFAULT'),
@@ -1982,19 +2336,20 @@ class DeliveryPlanInquiryController extends Controller
         ]);
     }
 
-    private function getAssignableTrucksByShipDate(?string $shipDate): \Illuminate\Support\Collection
+    private function getAssignableTrucksByShipDate(?string $shipDate, int $tripNo = 1): \Illuminate\Support\Collection
     {
         $shipDate = trim((string) $shipDate);
         if ($shipDate === '') {
             return collect();
         }
+        $tripNo = max(1, $tripNo);
 
         $masterRows = $this->conn()
-            ->table('delivery_plan_truck_master as tm')
+            ->table('delivery_plan_truck_master_dev as tm')
             ->where('tm.status', 'ACTIVE')
             ->orderBy('tm.plate_no')
             ->get()
-            ->map(function ($t) {
+            ->map(function ($t) use ($tripNo) {
                 return (object) [
                     'row_key' => 'MASTER:' . $t->id,
                     'truck_pick_type' => 'MASTER',
@@ -2008,6 +2363,8 @@ class DeliveryPlanInquiryController extends Controller
                     'remark' => trim((string) ($t->remark ?? '')),
                     'current_load' => 0,
                     'remaining_capacity' => (float) ($t->max_load ?? 0),
+                    'capacity_unlimited' => (float) ($t->max_load ?? 0) <= 0,
+                    'trip_no' => $tripNo,
                     'source_label' => 'ในระบบ',
                     'job_summary' => [],
                     'so_summary_text' => '',
@@ -2020,13 +2377,15 @@ class DeliveryPlanInquiryController extends Controller
             SELECT
                 truck_id,
                 ISNULL(SUM(ISNULL(assigned_weight, 0)), 0) AS current_load
-            FROM delivery_plan_truck_assign
+            FROM delivery_plan_truck_assign_dev
             WHERE truck_source = 'MASTER'
             AND truck_id IS NOT NULL
             AND CAST(ship_posted_at AS date) = ?
+            AND ISNULL(trip_no, 1) = ?
+            AND closed_at IS NULL
             GROUP BY truck_id
             ",
-            [$shipDate]
+            [$shipDate, $tripNo]
         ))->keyBy('truck_id');
 
         $manualRows = collect($this->conn()->select(
@@ -2039,15 +2398,17 @@ class DeliveryPlanInquiryController extends Controller
                 MAX(manual_car_length) AS car_length,
                 MAX(manual_remark) AS remark,
                 ISNULL(SUM(ISNULL(assigned_weight, 0)), 0) AS current_load
-            FROM delivery_plan_truck_assign
+            FROM delivery_plan_truck_assign_dev
             WHERE truck_source = 'MANUAL'
             AND manual_plate_no IS NOT NULL
             AND LTRIM(RTRIM(manual_plate_no)) <> ''
             AND CAST(ship_posted_at AS date) = ?
+            AND ISNULL(trip_no, 1) = ?
+            AND closed_at IS NULL
             GROUP BY manual_plate_no
             ",
-            [$shipDate]
-        ))->map(function ($r) {
+            [$shipDate, $tripNo]
+        ))->map(function ($r) use ($tripNo) {
             $maxLoad = (float) ($r->max_load ?? 0);
             $currentLoad = (float) ($r->current_load ?? 0);
 
@@ -2063,13 +2424,15 @@ class DeliveryPlanInquiryController extends Controller
                 'car_length' => $r->car_length,
                 'remark' => trim((string) ($r->remark ?? '')),
                 'current_load' => $currentLoad,
-                'remaining_capacity' => max(0, $maxLoad - $currentLoad),
+                'remaining_capacity' => $maxLoad <= 0 ? 0 : max(0, $maxLoad - $currentLoad),
+                'capacity_unlimited' => $maxLoad <= 0,
+                'trip_no' => $tripNo,
                 'source_label' => 'รถนอกวันนี้',
                 'job_summary' => [],
                 'so_summary_text' => '',
                 'mfg_summary_text' => '',
             ];
-        })->filter(fn($r) => (float) $r->remaining_capacity > 0)->values();
+        })->filter(fn($r) => !empty($r->capacity_unlimited) || (float) $r->remaining_capacity > 0)->values();
 
         $usageRows = collect($this->conn()->select(
             "
@@ -2087,8 +2450,8 @@ class DeliveryPlanInquiryController extends Controller
                 ISNULL(c.name, '-') AS customer_name,
                 ISNULL(wo.brand, '-') AS job_type,
                 SUM(ISNULL(ta.assigned_weight, 0)) AS assigned_weight
-            FROM delivery_plan_truck_assign ta
-            INNER JOIN delivery_plan_data dp
+            FROM delivery_plan_truck_assign_dev ta
+            INNER JOIN delivery_plan_data_dev dp
                 ON dp.ord_id = ta.ord_id
             LEFT JOIN customer c
                 ON c.id = dp.customer_id
@@ -2096,6 +2459,8 @@ class DeliveryPlanInquiryController extends Controller
                 ON LTRIM(RTRIM(wo.workordernumber)) COLLATE DATABASE_DEFAULT
                 = LTRIM(RTRIM(dp.mfg_no)) COLLATE DATABASE_DEFAULT
             WHERE CAST(ta.ship_posted_at AS date) = ?
+            AND ISNULL(ta.trip_no, 1) = ?
+            AND ta.closed_at IS NULL
             GROUP BY
                 CASE
                     WHEN ta.truck_source = 'MASTER' AND ta.truck_id IS NOT NULL
@@ -2110,7 +2475,7 @@ class DeliveryPlanInquiryController extends Controller
                 c.name,
                 wo.brand
             ",
-            [$shipDate]
+            [$shipDate, $tripNo]
         ))->filter(fn($r) => trim((string) ($r->row_key ?? '')) !== '');
 
         $summaryMap = $usageRows->groupBy('row_key')->map(function ($rows) {
@@ -2147,7 +2512,10 @@ class DeliveryPlanInquiryController extends Controller
             $summary = $summaryMap->get($r->row_key, []);
 
             $r->current_load = $load;
-            $r->remaining_capacity = max(0, (float) $r->max_load - $load);
+            $r->capacity_unlimited = (float) $r->max_load <= 0;
+            $r->remaining_capacity = $r->capacity_unlimited
+                ? 0
+                : max(0, (float) $r->max_load - $load);
             $r->job_summary = $summary['job_summary'] ?? [];
             $r->so_summary_text = $summary['so_summary_text'] ?? '';
             $r->mfg_summary_text = $summary['mfg_summary_text'] ?? '';
@@ -2185,27 +2553,28 @@ class DeliveryPlanInquiryController extends Controller
         }
 
         $latestAssignSub = $this->conn()
-            ->table('delivery_plan_truck_assign')
-            ->selectRaw('MAX(id) as latest_assign_id, ord_id')
+            ->table('delivery_plan_truck_assign_dev')
+            ->selectRaw('MAX(id) as latest_assign_id, ord_id, ISNULL(trip_no, 1) as trip_no')
             ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDate])
-            ->groupBy('ord_id');
+            ->groupBy('ord_id', DB::raw('ISNULL(trip_no, 1)'));
 
         $assignSumSub = $this->conn()
-            ->table('delivery_plan_truck_assign')
-            ->selectRaw('ord_id, SUM(ISNULL(assigned_weight,0)) as assigned_weight_sum')
+            ->table('delivery_plan_truck_assign_dev')
+            ->selectRaw('ord_id, ISNULL(trip_no, 1) as trip_no, SUM(ISNULL(assigned_weight,0)) as assigned_weight_sum')
             ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDate])
-            ->groupBy('ord_id');
+            ->groupBy('ord_id', DB::raw('ISNULL(trip_no, 1)'));
 
         $rows = $this->conn()
-            ->table('delivery_plan_data as dp')
+            ->table('delivery_plan_data_dev as dp')
             ->leftJoinSub($latestAssignSub, 'la', function ($join) {
                 $join->on('la.ord_id', '=', 'dp.ord_id');
             })
             ->leftJoinSub($assignSumSub, 'tas', function ($join) {
-                $join->on('tas.ord_id', '=', 'dp.ord_id');
+                $join->on('tas.ord_id', '=', 'dp.ord_id')
+                    ->on('tas.trip_no', '=', 'la.trip_no');
             })
-            ->leftJoin('delivery_plan_truck_assign as ta', 'ta.id', '=', 'la.latest_assign_id')
-            ->leftJoin('delivery_plan_truck_master as tm', 'tm.id', '=', 'ta.truck_id')
+            ->leftJoin('delivery_plan_truck_assign_dev as ta', 'ta.id', '=', 'la.latest_assign_id')
+            ->leftJoin('delivery_plan_truck_master_dev as tm', 'tm.id', '=', 'ta.truck_id')
             ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
@@ -2263,6 +2632,10 @@ class DeliveryPlanInquiryController extends Controller
             ta.manual_remark,
             ta.assigned_weight,
             ta.assigned_at,
+            ISNULL(ta.trip_no, 1) as trip_no,
+            ta.closed_at,
+            ta.closed_by,
+            ta.closed_remark,
 
             ta.driver_staff_id,
             ta.driver_name,
@@ -2280,9 +2653,15 @@ class DeliveryPlanInquiryController extends Controller
             tm.max_load as master_max_load,
             tm.car_length as master_car_length,
             tm.remark as master_remark
-        ")
+            ")
             ->whereRaw("CAST(dp.ship_posted_at AS date) = ?", [$shipDate])
-            ->whereIn(DB::raw("UPPER(ISNULL(dp.status, 'NEW'))"), ['NEW', 'ASSIGN'])
+            ->whereIn(DB::raw("UPPER(ISNULL(dp.status, 'NEW'))"), ['NEW', 'ASSIGN', 'CLOSED'])
+            ->whereNotExists(function ($q) {
+                $q->select(DB::raw(1))
+                    ->from('delivery_plan_special_dispatch_dev as sx')
+                    ->whereColumn('sx.ord_id', 'dp.ord_id')
+                    ->whereIn('sx.status', ['OPEN', 'CLOSED']);
+            })
             ->orderByRaw("
             CASE 
                 WHEN ta.id IS NULL THEN 1
@@ -2295,6 +2674,7 @@ class DeliveryPlanInquiryController extends Controller
                 ELSE ISNULL(tm.plate_no, '')
             END
         ")
+            ->orderByRaw('ISNULL(ta.trip_no, 1)')
             ->orderBy('dp.window_at')
             ->orderBy('dp.so_number')
             ->get();
@@ -2424,7 +2804,10 @@ class DeliveryPlanInquiryController extends Controller
                 : 'เส้น';
 
             $r->truck_plate_display = $plateNo !== '' ? $plateNo : 'ยังไม่ขึ้นรถ';
-            $r->truck_group_key = $plateNo !== '' ? $plateNo : '__UNASSIGNED__';
+            $tripNo = max(1, (int) ($r->trip_no ?? 1));
+            $r->trip_no = $tripNo;
+            $r->is_trip_closed = !empty($r->closed_at);
+            $r->truck_group_key = $plateNo !== '' ? ($plateNo . '|trip:' . $tripNo) : '__UNASSIGNED__';
             $r->truck_driver_name = $driverName;
             $r->truck_driver_phone = $driverPhone;
             $r->helper1_name_display = trim((string) ($r->helper1_name ?? ''));
@@ -2455,10 +2838,20 @@ class DeliveryPlanInquiryController extends Controller
                 $items->pluck('helper2_name_display')->filter()->first(),
                 $items->pluck('helper3_name_display')->filter()->first(),
             ])->filter()->implode(', ');
+            $truckLabel = $first->truck_plate_display ?? 'ยังไม่ขึ้นรถ';
+            if ($key !== '__UNASSIGNED__') {
+                $truckLabel .= ' / เที่ยว ' . max(1, (int) ($first->trip_no ?? 1));
+            }
 
             return (object) [
                 'truck_key'       => $key,
-                'truck_label'     => $first->truck_plate_display ?? 'ยังไม่ขึ้นรถ',
+                'truck_label'     => $truckLabel,
+                'truck_source'    => strtoupper((string) ($first->truck_source ?? '')),
+                'truck_id'        => $first->truck_id ?? null,
+                'manual_plate_no' => $first->manual_plate_no ?? null,
+                'trip_no'         => max(1, (int) ($first->trip_no ?? 1)),
+                'closed_at'       => $items->pluck('closed_at')->filter()->first(),
+                'is_closed'       => $items->every(fn($r) => !empty($r->closed_at)),
                 'driver_name'     => $first->truck_driver_name ?? '',
                 'driver_phone'    => $first->truck_driver_phone ?? '',
                 'helper_names'    => $helperNames,
@@ -2492,11 +2885,589 @@ class DeliveryPlanInquiryController extends Controller
             'total_weight'     => $rows->sum(fn($r) => (float) ($r->display_weight ?? 0)),
         ];
 
+        $specialGroups = $this->getSpecialDispatchGroups($shipDate);
+
         return view('formdp.truck-board', compact(
             'shipDate',
             'summary',
-            'truckGroups'
+            'truckGroups',
+            'specialGroups'
         ));
+    }
+
+    private function getSpecialDispatchGroups(string $shipDate)
+    {
+        $rows = $this->conn()
+            ->table('delivery_plan_special_dispatch_dev as sd')
+            ->join('delivery_plan_data_dev as dp', 'dp.ord_id', '=', 'sd.ord_id')
+            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
+            ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
+            ->whereRaw('CAST(dp.ship_posted_at AS date) = ?', [$shipDate])
+            ->whereIn('sd.status', ['OPEN', 'CLOSED'])
+            ->whereRaw("sd.id = (
+                SELECT MAX(sd2.id)
+                FROM delivery_plan_special_dispatch_dev sd2
+                WHERE sd2.ord_id = sd.ord_id
+                  AND sd2.status IN ('OPEN', 'CLOSED')
+            )")
+            ->selectRaw("
+                sd.id,
+                sd.ord_id,
+                sd.dispatch_type,
+                sd.status as special_status,
+                sd.remark as special_remark,
+                sd.action_at,
+                sd.closed_at,
+                dp.status as dp_status,
+                dp.ship_posted_at,
+                dp.window_at,
+                dp.so_number,
+                dp.mfg_no,
+                dp.part_number,
+                dp.part_desc,
+                dp.qty,
+                dp.address,
+                c.name as customer_name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.login COLLATE DATABASE_DEFAULT)), ''),
+                    CONCAT('Sales#', CAST(dp.sales_id AS nvarchar(20)))
+                ) AS sales_name
+            ")
+            ->orderBy('sd.dispatch_type')
+            ->orderBy('dp.window_at')
+            ->orderBy('dp.so_number')
+            ->get()
+            ->map(function ($r) {
+                $type = strtoupper(trim((string) ($r->dispatch_type ?? '')));
+                $r->dispatch_label = self::SPECIAL_DISPATCH_TYPES[$type] ?? $type;
+                $r->is_open = strtoupper((string) ($r->special_status ?? '')) === 'OPEN';
+                return $r;
+            });
+
+        return $rows->groupBy('dispatch_type');
+    }
+
+    public function printTruckTrip(Request $request)
+    {
+        $data = $request->validate([
+            'ship_date' => ['required', 'date'],
+            'truck_source' => ['required', 'in:MASTER,MANUAL'],
+            'truck_id' => ['nullable', 'integer'],
+            'manual_plate_no' => ['nullable', 'string', 'max:50'],
+            'trip_no' => ['required', 'integer', 'min:1', 'max:99'],
+        ]);
+
+        $shipDate = Carbon::parse($data['ship_date'])->toDateString();
+        $truckSource = strtoupper((string) $data['truck_source']);
+        $truckId = (int) ($data['truck_id'] ?? 0);
+        $manualPlateNo = trim((string) ($data['manual_plate_no'] ?? ''));
+        $tripNo = max(1, (int) $data['trip_no']);
+
+        $rows = $this->conn()
+            ->table('delivery_plan_truck_assign_dev as ta')
+            ->join('delivery_plan_data_dev as dp', 'dp.ord_id', '=', 'ta.ord_id')
+            ->leftJoin('delivery_plan_truck_master_dev as tm', 'tm.id', '=', 'ta.truck_id')
+            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
+            ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
+            ->leftJoin('parts as p', function ($join) {
+                $join->on(
+                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
+                    '=',
+                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
+                );
+            })
+            ->where('ta.truck_source', $truckSource)
+            ->whereRaw('CAST(ta.ship_posted_at AS date) = ?', [$shipDate])
+            ->whereRaw('ISNULL(ta.trip_no, 1) = ?', [$tripNo])
+            ->when($truckSource === 'MASTER', fn($q) => $q->where('ta.truck_id', $truckId))
+            ->when($truckSource === 'MANUAL', fn($q) => $q->where('ta.manual_plate_no', $manualPlateNo))
+            ->selectRaw("
+                dp.ord_id,
+                dp.ship_posted_at,
+                dp.window_at,
+                dp.so_number,
+                dp.delivery_type,
+                dp.part_number,
+                dp.part_desc,
+                p.f1 as part_f1,
+                p.f2 as part_f2,
+                p.f3 as part_f3,
+                dp.mfg_no,
+                dp.qty,
+                dp.line_qty,
+                dp.sell_by_line,
+                dp.address,
+                dp.remark,
+                dp.edit_remark,
+                dp.attach_docs,
+                dp.attach_docs_other,
+                c.name as customer_name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.login COLLATE DATABASE_DEFAULT)), ''),
+                    CONCAT('Sales#', CAST(dp.sales_id AS nvarchar(20)))
+                ) AS sales_name,
+                ta.assigned_weight,
+                ta.trip_no,
+                ta.closed_at,
+                ta.driver_name,
+                ta.driver_phone,
+                ta.helper1_name,
+                ta.helper2_name,
+                ta.helper3_name,
+                ta.manual_plate_no,
+                ta.manual_driver_name,
+                ta.manual_driver_phone,
+                ta.manual_max_load,
+                ta.manual_car_length,
+                ta.manual_remark,
+                tm.plate_no as master_plate_no,
+                tm.driver_name as master_driver_name,
+                tm.driver_phone as master_driver_phone,
+                tm.max_load as master_max_load,
+                tm.car_length as master_car_length,
+                tm.remark as master_remark
+            ")
+            ->orderBy('dp.window_at')
+            ->orderBy('dp.so_number')
+            ->orderBy('dp.ord_id')
+            ->get();
+
+        abort_if($rows->isEmpty(), 404, 'Truck trip not found');
+
+        $mfgTokens = $rows->flatMap(function ($r) {
+            return collect(explode(',', (string) ($r->mfg_no ?? '')))
+                ->map(fn($x) => trim((string) $x))
+                ->filter();
+        })->unique()->values()->all();
+
+        $typeMap = [];
+        if (!empty($mfgTokens)) {
+            DB::connection('pgsqlmfgw')
+                ->table('workorder')
+                ->select(['workordernumber', 'brand'])
+                ->whereIn('workordernumber', $mfgTokens)
+                ->get()
+                ->each(function ($wo) use (&$typeMap) {
+                    $typeMap[trim((string) $wo->workordernumber)] = trim((string) ($wo->brand ?? ''));
+                });
+        }
+
+        $attachDocMap = $this->conn()
+            ->table('attach_docs_master')
+            ->where('active', 1)
+            ->pluck('name', 'code')
+            ->mapWithKeys(fn($name, $code) => [strtoupper(trim((string) $code)) => trim((string) $name)])
+            ->toArray();
+
+        $rows = $rows->map(function ($r) use ($typeMap, $attachDocMap) {
+            $isManual = trim((string) ($r->manual_plate_no ?? '')) !== '';
+            $mfgList = collect(explode(',', (string) ($r->mfg_no ?? '')))
+                ->map(fn($x) => trim((string) $x))
+                ->filter();
+
+            $r->type_display = $mfgList
+                ->map(fn($mfg) => $typeMap[$mfg] ?? null)
+                ->filter()
+                ->unique()
+                ->implode(', ') ?: '-';
+
+            $codes = collect(explode(',', (string) ($r->attach_docs ?? '')))
+                ->map(fn($x) => strtoupper(trim((string) $x)))
+                ->filter()
+                ->unique();
+
+            $otherDoc = trim((string) ($r->attach_docs_other ?? ''));
+            $r->attach_docs_text = $codes
+                ->map(fn($code) => $attachDocMap[$code] ?? $code)
+                ->when($otherDoc !== '', fn($items) => $items->push($otherDoc))
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            $r->package_text = collect([$r->part_f1 ?? null, $r->part_f2 ?? null, $r->part_f3 ?? null])
+                ->map(fn($x) => trim((string) $x))
+                ->filter()
+                ->implode(' / ');
+
+            $r->line_qty_display = ((int) ($r->sell_by_line ?? 0) === 1)
+                ? (float) ($r->line_qty ?? 0)
+                : null;
+            $r->line_qty_unit = ((int) ($r->sell_by_line ?? 0) === 1 && (float) ($r->qty ?? 0) == 0.0)
+                ? 'ชิ้น'
+                : 'เส้น';
+
+            $r->truck_plate_display = $isManual
+                ? trim((string) ($r->manual_plate_no ?? ''))
+                : trim((string) ($r->master_plate_no ?? ''));
+            $r->truck_driver_name = trim((string) ($r->driver_name ?? '')) ?: trim((string) ($isManual ? $r->manual_driver_name : $r->master_driver_name));
+            $r->truck_driver_phone = trim((string) ($r->driver_phone ?? '')) ?: trim((string) ($isManual ? $r->manual_driver_phone : $r->master_driver_phone));
+            $r->truck_max_load = (float) ($isManual ? ($r->manual_max_load ?? 0) : ($r->master_max_load ?? 0));
+            $r->truck_car_length = $isManual ? $r->manual_car_length : $r->master_car_length;
+            $r->truck_remark = trim((string) ($isManual ? $r->manual_remark : $r->master_remark));
+
+            return $r;
+        });
+
+        $first = $rows->first();
+        $summary = (object) [
+            'ship_date' => $shipDate,
+            'trip_no' => $tripNo,
+            'truck_label' => ($first->truck_plate_display ?: '-') . ' / เที่ยว ' . $tripNo,
+            'driver_name' => $first->truck_driver_name ?: '-',
+            'driver_phone' => $first->truck_driver_phone ?: '-',
+            'max_load' => (float) ($first->truck_max_load ?? 0),
+            'car_length' => $first->truck_car_length,
+            'remark' => $first->truck_remark,
+            'item_count' => $rows->count(),
+            'total_qty' => $rows->sum(fn($r) => (float) ($r->qty ?? 0)),
+            'total_assigned' => $rows->sum(fn($r) => (float) ($r->assigned_weight ?? 0)),
+            'closed_at' => $rows->pluck('closed_at')->filter()->first(),
+        ];
+
+        return view('formdp.truck-trip-print', compact('rows', 'summary'));
+    }
+
+    public function downloadTruckTripPdf(Request $request)
+    {
+        $data = $this->buildTruckTripDocumentData($request);
+        $pdf = Pdf::loadView('formdp.truck-trip-print', $data + ['exportMode' => 'pdf'])
+            ->setPaper('a4', 'landscape');
+
+        return $pdf->download($this->truckTripFilename($data['summary'], 'pdf'));
+    }
+
+    public function downloadTruckTripExcel(Request $request)
+    {
+        $data = $this->buildTruckTripDocumentData($request);
+
+        return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\FromView {
+            public function __construct(private array $data)
+            {
+            }
+
+            public function view(): \Illuminate\Contracts\View\View
+            {
+                return view('formdp.truck-trip-print', $this->data + ['exportMode' => 'excel']);
+            }
+        }, $this->truckTripFilename($data['summary'], 'xlsx'));
+    }
+
+    public function printAssignedTruckBoard(Request $request)
+    {
+        return view('formdp.truck-board-assigned-export', $this->buildAssignedTruckBoardDocumentData($request));
+    }
+
+    public function downloadAssignedTruckBoardPdf(Request $request)
+    {
+        $data = $this->buildAssignedTruckBoardDocumentData($request);
+        $pdf = Pdf::loadView('formdp.truck-board-assigned-export', $data + ['exportMode' => 'pdf'])
+            ->setPaper('a4', 'landscape');
+
+        return $pdf->download('DeliveryPlan-Assigned-' . Carbon::parse($data['shipDate'])->format('Ymd') . '.pdf');
+    }
+
+    public function downloadAssignedTruckBoardExcel(Request $request)
+    {
+        $data = $this->buildAssignedTruckBoardDocumentData($request);
+
+        return Excel::download(new class($data) implements \Maatwebsite\Excel\Concerns\FromView {
+            public function __construct(private array $data)
+            {
+            }
+
+            public function view(): \Illuminate\Contracts\View\View
+            {
+                return view('formdp.truck-board-assigned-export', $this->data + ['exportMode' => 'excel']);
+            }
+        }, 'DeliveryPlan-Assigned-' . Carbon::parse($data['shipDate'])->format('Ymd') . '.xlsx');
+    }
+
+    private function buildAssignedTruckBoardDocumentData(Request $request): array
+    {
+        $data = $request->validate([
+            'ship_date' => ['required', 'date'],
+        ]);
+
+        $shipDate = Carbon::parse($data['ship_date'])->toDateString();
+
+        $rows = $this->conn()
+            ->table('delivery_plan_truck_assign_dev as ta')
+            ->join('delivery_plan_data_dev as dp', 'dp.ord_id', '=', 'ta.ord_id')
+            ->leftJoin('delivery_plan_truck_master_dev as tm', 'tm.id', '=', 'ta.truck_id')
+            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
+            ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
+            ->leftJoin('parts as p', function ($join) {
+                $join->on(
+                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
+                    '=',
+                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
+                );
+            })
+            ->whereRaw('CAST(ta.ship_posted_at AS date) = ?', [$shipDate])
+            ->whereIn(DB::raw("UPPER(ISNULL(dp.status, 'NEW'))"), ['ASSIGN', 'CLOSED'])
+            ->selectRaw("
+                dp.ord_id, dp.ship_posted_at, dp.window_at, dp.so_number, dp.delivery_type,
+                dp.part_number, dp.part_desc, p.f1 as part_f1, p.f2 as part_f2, p.f3 as part_f3,
+                dp.mfg_no, dp.qty, dp.line_qty, dp.sell_by_line, dp.address, dp.remark,
+                dp.edit_remark, dp.attach_docs, dp.attach_docs_other, c.name as customer_name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.login COLLATE DATABASE_DEFAULT)), ''),
+                    CONCAT('Sales#', CAST(dp.sales_id AS nvarchar(20)))
+                ) AS sales_name,
+                ta.assigned_weight, ta.truck_source, ta.truck_id, ta.trip_no, ta.closed_at,
+                ta.driver_name, ta.driver_phone, ta.manual_plate_no, ta.manual_driver_name,
+                ta.manual_driver_phone, ta.manual_max_load, ta.manual_car_length, ta.manual_remark,
+                ta.helper1_name, ta.helper2_name, ta.helper3_name,
+                tm.plate_no as master_plate_no, tm.driver_name as master_driver_name,
+                tm.driver_phone as master_driver_phone, tm.max_load as master_max_load,
+                tm.car_length as master_car_length, tm.remark as master_remark
+            ")
+            ->orderByRaw("CASE WHEN ta.truck_source = 'MANUAL' THEN ISNULL(ta.manual_plate_no, '') ELSE ISNULL(tm.plate_no, '') END")
+            ->orderByRaw('ISNULL(ta.trip_no, 1)')
+            ->orderBy('dp.window_at')
+            ->orderBy('dp.so_number')
+            ->get();
+
+        $attachDocMap = $this->conn()
+            ->table('attach_docs_master')
+            ->where('active', 1)
+            ->pluck('name', 'code')
+            ->mapWithKeys(fn($name, $code) => [strtoupper(trim((string) $code)) => trim((string) $name)])
+            ->toArray();
+
+        $rows = $rows->map(function ($r) use ($attachDocMap) {
+            $isManual = strtoupper(trim((string) ($r->truck_source ?? ''))) === 'MANUAL';
+            $plate = $isManual ? trim((string) ($r->manual_plate_no ?? '')) : trim((string) ($r->master_plate_no ?? ''));
+            $tripNo = max(1, (int) ($r->trip_no ?? 1));
+
+            $otherDoc = trim((string) ($r->attach_docs_other ?? ''));
+            $r->attach_docs_text = collect(explode(',', (string) ($r->attach_docs ?? '')))
+                ->map(fn($x) => strtoupper(trim((string) $x)))
+                ->filter()
+                ->unique()
+                ->map(fn($code) => $attachDocMap[$code] ?? $code)
+                ->when($otherDoc !== '', fn($items) => $items->push($otherDoc))
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            $r->package_text = collect([$r->part_f1 ?? null, $r->part_f2 ?? null, $r->part_f3 ?? null])
+                ->map(fn($x) => trim((string) $x))
+                ->filter()
+                ->implode(' / ');
+            $r->truck_group_key = ($plate !== '' ? $plate : '-') . '|trip:' . $tripNo;
+            $r->truck_label = ($plate !== '' ? $plate : '-') . ' / เที่ยว ' . $tripNo;
+            $r->truck_driver_name = trim((string) ($r->driver_name ?? '')) ?: trim((string) ($isManual ? $r->manual_driver_name : $r->master_driver_name));
+            $r->truck_driver_phone = trim((string) ($r->driver_phone ?? '')) ?: trim((string) ($isManual ? $r->manual_driver_phone : $r->master_driver_phone));
+            $r->truck_max_load = (float) ($isManual ? ($r->manual_max_load ?? 0) : ($r->master_max_load ?? 0));
+            $r->truck_remark = trim((string) ($isManual ? $r->manual_remark : $r->master_remark));
+
+            return $r;
+        });
+
+        $truckGroups = $rows->groupBy('truck_group_key')->map(function ($items) {
+            $first = $items->first();
+
+            $helperNames = collect([
+                $items->pluck('helper1_name')->map(fn($x) => trim((string) $x))->filter()->first(),
+                $items->pluck('helper2_name')->map(fn($x) => trim((string) $x))->filter()->first(),
+                $items->pluck('helper3_name')->map(fn($x) => trim((string) $x))->filter()->first(),
+            ])->filter()->implode(', ');
+
+            return (object) [
+                'truck_label' => $first->truck_label,
+                'driver_name' => $first->truck_driver_name ?: '-',
+                'driver_phone' => $first->truck_driver_phone ?: '-',
+                'helper_names' => $helperNames,
+                'max_load' => (float) ($first->truck_max_load ?? 0),
+                'remark' => $first->truck_remark ?: '-',
+                'item_count' => $items->count(),
+                'total_qty' => $items->sum(fn($r) => (float) ($r->qty ?? 0)),
+                'total_assigned' => $items->sum(fn($r) => (float) ($r->assigned_weight ?? 0)),
+                'rows' => $items->values(),
+            ];
+        })->values();
+
+        return [
+            'shipDate' => $shipDate,
+            'truckGroups' => $truckGroups,
+            'summary' => (object) [
+                'item_count' => $rows->count(),
+                'truck_count' => $truckGroups->count(),
+                'total_qty' => $rows->sum(fn($r) => (float) ($r->qty ?? 0)),
+                'total_assigned' => $rows->sum(fn($r) => (float) ($r->assigned_weight ?? 0)),
+            ],
+        ];
+    }
+
+    private function truckTripFilename(object $summary, string $ext): string
+    {
+        $plate = preg_replace('/[^A-Za-z0-9ก-๙_-]+/u', '_', (string) ($summary->truck_label ?? 'truck'));
+        return 'DeliveryPlan-' . Carbon::parse($summary->ship_date)->format('Ymd') . '-' . $plate . '.' . $ext;
+    }
+
+    private function buildTruckTripDocumentData(Request $request): array
+    {
+        $data = $request->validate([
+            'ship_date' => ['required', 'date'],
+            'truck_source' => ['required', 'in:MASTER,MANUAL'],
+            'truck_id' => ['nullable', 'integer'],
+            'manual_plate_no' => ['nullable', 'string', 'max:50'],
+            'trip_no' => ['required', 'integer', 'min:1', 'max:99'],
+        ]);
+
+        $shipDate = Carbon::parse($data['ship_date'])->toDateString();
+        $truckSource = strtoupper((string) $data['truck_source']);
+        $truckId = (int) ($data['truck_id'] ?? 0);
+        $manualPlateNo = trim((string) ($data['manual_plate_no'] ?? ''));
+        $tripNo = max(1, (int) $data['trip_no']);
+
+        $rows = $this->conn()
+            ->table('delivery_plan_truck_assign_dev as ta')
+            ->join('delivery_plan_data_dev as dp', 'dp.ord_id', '=', 'ta.ord_id')
+            ->leftJoin('delivery_plan_truck_master_dev as tm', 'tm.id', '=', 'ta.truck_id')
+            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
+            ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
+            ->leftJoin('parts as p', function ($join) {
+                $join->on(
+                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
+                    '=',
+                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
+                );
+            })
+            ->where('ta.truck_source', $truckSource)
+            ->whereRaw('CAST(ta.ship_posted_at AS date) = ?', [$shipDate])
+            ->whereRaw('ISNULL(ta.trip_no, 1) = ?', [$tripNo])
+            ->when($truckSource === 'MASTER', fn($q) => $q->where('ta.truck_id', $truckId))
+            ->when($truckSource === 'MANUAL', fn($q) => $q->where('ta.manual_plate_no', $manualPlateNo))
+            ->selectRaw("
+                dp.ord_id, dp.ship_posted_at, dp.window_at, dp.so_number, dp.delivery_type,
+                dp.part_number, dp.part_desc, p.f1 as part_f1, p.f2 as part_f2, p.f3 as part_f3,
+                dp.mfg_no, dp.qty, dp.line_qty, dp.sell_by_line, dp.address, dp.remark,
+                dp.edit_remark, dp.attach_docs, dp.attach_docs_other, c.name as customer_name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(e.login COLLATE DATABASE_DEFAULT)), ''),
+                    CONCAT('Sales#', CAST(dp.sales_id AS nvarchar(20)))
+                ) AS sales_name,
+                ta.assigned_weight, ta.trip_no, ta.closed_at, ta.driver_name, ta.driver_phone,
+                ta.helper1_name, ta.helper2_name, ta.helper3_name, ta.manual_plate_no,
+                ta.manual_driver_name, ta.manual_driver_phone, ta.manual_max_load,
+                ta.manual_car_length, ta.manual_remark, tm.plate_no as master_plate_no,
+                tm.driver_name as master_driver_name, tm.driver_phone as master_driver_phone,
+                tm.max_load as master_max_load, tm.car_length as master_car_length,
+                tm.remark as master_remark
+            ")
+            ->orderBy('dp.window_at')
+            ->orderBy('dp.so_number')
+            ->orderBy('dp.ord_id')
+            ->get();
+
+        abort_if($rows->isEmpty(), 404, 'Truck trip not found');
+
+        $mfgTokens = $rows->flatMap(function ($r) {
+            return collect(explode(',', (string) ($r->mfg_no ?? '')))
+                ->map(fn($x) => trim((string) $x))
+                ->filter();
+        })->unique()->values()->all();
+
+        $typeMap = [];
+        if (!empty($mfgTokens)) {
+            DB::connection('pgsqlmfgw')
+                ->table('workorder')
+                ->select(['workordernumber', 'brand'])
+                ->whereIn('workordernumber', $mfgTokens)
+                ->get()
+                ->each(function ($wo) use (&$typeMap) {
+                    $typeMap[trim((string) $wo->workordernumber)] = trim((string) ($wo->brand ?? ''));
+                });
+        }
+
+        $attachDocMap = $this->conn()
+            ->table('attach_docs_master')
+            ->where('active', 1)
+            ->pluck('name', 'code')
+            ->mapWithKeys(fn($name, $code) => [strtoupper(trim((string) $code)) => trim((string) $name)])
+            ->toArray();
+
+        $rows = $rows->map(function ($r) use ($typeMap, $attachDocMap) {
+            $isManual = trim((string) ($r->manual_plate_no ?? '')) !== '';
+            $mfgList = collect(explode(',', (string) ($r->mfg_no ?? '')))
+                ->map(fn($x) => trim((string) $x))
+                ->filter();
+
+            $r->type_display = $mfgList->map(fn($mfg) => $typeMap[$mfg] ?? null)
+                ->filter()->unique()->implode(', ') ?: '-';
+
+            $otherDoc = trim((string) ($r->attach_docs_other ?? ''));
+            $r->attach_docs_text = collect(explode(',', (string) ($r->attach_docs ?? '')))
+                ->map(fn($x) => strtoupper(trim((string) $x)))
+                ->filter()
+                ->unique()
+                ->map(fn($code) => $attachDocMap[$code] ?? $code)
+                ->when($otherDoc !== '', fn($items) => $items->push($otherDoc))
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            $r->package_text = collect([$r->part_f1 ?? null, $r->part_f2 ?? null, $r->part_f3 ?? null])
+                ->map(fn($x) => trim((string) $x))
+                ->filter()
+                ->implode(' / ');
+
+            $r->line_qty_display = ((int) ($r->sell_by_line ?? 0) === 1)
+                ? (float) ($r->line_qty ?? 0)
+                : null;
+            $r->line_qty_unit = ((int) ($r->sell_by_line ?? 0) === 1 && (float) ($r->qty ?? 0) == 0.0)
+                ? 'ชิ้น'
+                : 'เส้น';
+
+            $r->truck_plate_display = $isManual ? trim((string) ($r->manual_plate_no ?? '')) : trim((string) ($r->master_plate_no ?? ''));
+            $r->truck_driver_name = trim((string) ($r->driver_name ?? '')) ?: trim((string) ($isManual ? $r->manual_driver_name : $r->master_driver_name));
+            $r->truck_driver_phone = trim((string) ($r->driver_phone ?? '')) ?: trim((string) ($isManual ? $r->manual_driver_phone : $r->master_driver_phone));
+            $r->truck_max_load = (float) ($isManual ? ($r->manual_max_load ?? 0) : ($r->master_max_load ?? 0));
+            $r->truck_car_length = $isManual ? $r->manual_car_length : $r->master_car_length;
+            $r->truck_remark = trim((string) ($isManual ? $r->manual_remark : $r->master_remark));
+
+            return $r;
+        });
+
+        $first = $rows->first();
+
+        $helperNames = collect([
+            $rows->pluck('helper1_name')->map(fn($x) => trim((string) $x))->filter()->first(),
+            $rows->pluck('helper2_name')->map(fn($x) => trim((string) $x))->filter()->first(),
+            $rows->pluck('helper3_name')->map(fn($x) => trim((string) $x))->filter()->first(),
+        ])->filter()->implode(', ');
+
+        $summary = (object) [
+            'ship_date' => $shipDate,
+            'trip_no' => $tripNo,
+            'truck_label' => ($first->truck_plate_display ?: '-') . ' / เที่ยว ' . $tripNo,
+            'driver_name' => $first->truck_driver_name ?: '-',
+            'driver_phone' => $first->truck_driver_phone ?: '-',
+            'helper_names' => $helperNames,
+            'max_load' => (float) ($first->truck_max_load ?? 0),
+            'car_length' => $first->truck_car_length,
+            'remark' => $first->truck_remark,
+            'item_count' => $rows->count(),
+            'total_qty' => $rows->sum(fn($r) => (float) ($r->qty ?? 0)),
+            'total_assigned' => $rows->sum(fn($r) => (float) ($r->assigned_weight ?? 0)),
+            'closed_at' => $rows->pluck('closed_at')->filter()->first(),
+        ];
+
+        return compact('rows', 'summary');
     }
 
     private function normalizeMaterial($f3): ?string
@@ -2587,8 +3558,8 @@ class DeliveryPlanInquiryController extends Controller
     private function getTruckUsageSummaryByShipDate(string $shipDate): array
     {
         $rows = $this->conn()
-            ->table('delivery_plan_truck_assign as ta')
-            ->join('delivery_plan_data as dp', 'dp.ord_id', '=', 'ta.ord_id')
+            ->table('delivery_plan_truck_assign_dev as ta')
+            ->join('delivery_plan_data_dev as dp', 'dp.ord_id', '=', 'ta.ord_id')
             ->leftJoin('workorder as wo', function ($join) {
                 $join->on(
                     DB::raw('wo.workordernumber COLLATE DATABASE_DEFAULT'),
@@ -2655,7 +3626,7 @@ class DeliveryPlanInquiryController extends Controller
     private function getTruckStaffMasterOptions(): array
     {
         $rows = $this->conn()
-            ->table('delivery_plan_truck_staff_master')
+            ->table('delivery_plan_truck_staff_master_dev')
             ->where('is_active', 1)
             ->orderBy('role_type')
             ->orderBy('first_name')
@@ -2699,8 +3670,8 @@ class DeliveryPlanInquiryController extends Controller
 
         if ($truckId > 0) {
             $rows = $this->conn()
-                ->table('delivery_plan_truck_staff_map as m')
-                ->join('delivery_plan_truck_staff_master as s', 's.id', '=', 'm.staff_id')
+                ->table('delivery_plan_truck_staff_map_dev as m')
+                ->join('delivery_plan_truck_staff_master_dev as s', 's.id', '=', 'm.staff_id')
                 ->where('m.truck_id', $truckId)
                 ->where('m.is_active', 1)
                 ->where('s.is_active', 1)
@@ -2733,11 +3704,39 @@ class DeliveryPlanInquiryController extends Controller
                     }
                 }
             }
+
+            if (!$driver) {
+                $truck = $this->conn()
+                    ->table('delivery_plan_truck_master_dev')
+                    ->where('id', $truckId)
+                    ->first(['driver_name', 'driver_phone']);
+
+                $driverName = trim((string) ($truck->driver_name ?? ''));
+                $driverPhone = trim((string) ($truck->driver_phone ?? ''));
+
+                if ($driverName !== '') {
+                    $driverRow = $this->conn()
+                        ->table('delivery_plan_truck_staff_master_dev')
+                        ->where('role_type', 'DRIVER')
+                        ->where('is_active', 1)
+                        ->whereRaw(
+                            "LTRIM(RTRIM(ISNULL(prefix_name, '') + ' ' + ISNULL(first_name, '') + ' ' + ISNULL(last_name, ''))) = ?",
+                            [$driverName]
+                        )
+                        ->first();
+
+                    $driver = [
+                        'id' => $driverRow ? (int) $driverRow->id : null,
+                        'name' => $driverRow ? $this->fullStaffName($driverRow) : $driverName,
+                        'phone' => $driverRow ? trim((string) ($driverRow->phone ?? '')) : $driverPhone,
+                    ];
+                }
+            }
         }
 
         if ($truckId <= 0 && $manualPlateNo !== '' && $shipDate !== '') {
             $last = $this->conn()
-                ->table('delivery_plan_truck_assign')
+                ->table('delivery_plan_truck_assign_dev')
                 ->where('truck_source', 'MANUAL')
                 ->where('manual_plate_no', $manualPlateNo)
                 ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDate])
@@ -2801,7 +3800,7 @@ class DeliveryPlanInquiryController extends Controller
         $staffMap = $ids->isEmpty()
             ? collect()
             : $this->conn()
-            ->table('delivery_plan_truck_staff_master')
+            ->table('delivery_plan_truck_staff_master_dev')
             ->whereIn('id', $ids->all())
             ->get()
             ->keyBy('id');
@@ -2825,6 +3824,195 @@ class DeliveryPlanInquiryController extends Controller
             'helper3_staff_id' => $helper3 ? (int) $helper3->id : null,
             'helper3_name' => $helper3 ? $this->fullStaffName($helper3) : null,
         ];
+    }
+
+    public function closeTruckTrip(Request $request)
+    {
+        $data = $request->validate([
+            'truck_source' => ['required', 'in:MASTER,MANUAL'],
+            'truck_id' => ['nullable', 'integer'],
+            'manual_plate_no' => ['nullable', 'string', 'max:50'],
+            'ship_date' => ['required', 'date'],
+            'trip_no' => ['required', 'integer', 'min:1', 'max:99'],
+            'closed_remark' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $truckSource = strtoupper((string) $data['truck_source']);
+        $shipDate = Carbon::parse($data['ship_date'])->toDateString();
+        $tripNo = max(1, (int) $data['trip_no']);
+        $userId = auth()->check() ? (int) auth()->id() : null;
+        $remark = trim((string) ($data['closed_remark'] ?? ''));
+
+        $this->conn()->transaction(function () use ($truckSource, $data, $shipDate, $tripNo, $userId, $remark) {
+            $q = $this->conn()
+                ->table('delivery_plan_truck_assign_dev')
+                ->where('truck_source', $truckSource)
+                ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDate])
+                ->whereRaw('ISNULL(trip_no, 1) = ?', [$tripNo]);
+
+            if ($truckSource === 'MASTER') {
+                $truckId = (int) ($data['truck_id'] ?? 0);
+                if ($truckId <= 0) {
+                    throw ValidationException::withMessages(['truck_id' => ['ไม่พบรถในระบบที่ต้องการปิดรอบ']]);
+                }
+                $q->where('truck_id', $truckId);
+            } else {
+                $plate = trim((string) ($data['manual_plate_no'] ?? ''));
+                if ($plate === '') {
+                    throw ValidationException::withMessages(['manual_plate_no' => ['ไม่พบทะเบียนรถนอกที่ต้องการปิดรอบ']]);
+                }
+                $q->where('manual_plate_no', $plate);
+            }
+
+            $assignments = $q->select(['id', 'ord_id', 'closed_at'])->get();
+            if ($assignments->isEmpty()) {
+                throw ValidationException::withMessages(['trip_no' => ['ไม่พบรายการของรอบรถนี้']]);
+            }
+
+            if ($assignments->every(fn($r) => !empty($r->closed_at))) {
+                throw ValidationException::withMessages(['trip_no' => ['รอบรถนี้ปิดไปแล้ว']]);
+            }
+
+            $assignmentIds = $assignments->pluck('id')->all();
+            $ordIds = $assignments->pluck('ord_id')->filter()->unique()->values()->all();
+
+            $this->conn()
+                ->table('delivery_plan_truck_assign_dev')
+                ->whereIn('id', $assignmentIds)
+                ->update([
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'closed_remark' => $remark !== '' ? $remark : null,
+                ]);
+
+            if (!empty($ordIds)) {
+                $this->conn()
+                    ->table('delivery_plan_data_dev')
+                    ->whereIn('ord_id', $ordIds)
+                    ->whereNotIn('status', ['VOID'])
+                    ->update([
+                        'status' => 'CLOSED',
+                        'revise_by' => $userId,
+                    ]);
+            }
+        });
+
+        return back()->with('success', 'ปิดรอบรถเรียบร้อย');
+    }
+
+    public function markSpecialDispatch(Request $request, int $ordId)
+    {
+        $data = $request->validate([
+            'dispatch_type' => ['required', 'in:' . implode(',', array_keys(self::SPECIAL_DISPATCH_TYPES))],
+            'remark' => ['nullable', 'string', 'max:500'],
+            'return_url' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $dispatchType = strtoupper((string) $data['dispatch_type']);
+        $status = $dispatchType === 'POSTPONED' ? 'POSTPONED' : 'SPECIAL';
+        $userId = auth()->check() ? (int) auth()->id() : null;
+        $remark = trim((string) ($data['remark'] ?? ''));
+
+        $this->conn()->transaction(function () use ($ordId, $dispatchType, $status, $userId, $remark) {
+            $row = $this->conn()
+                ->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->first(['ord_id', 'status']);
+
+            if (!$row) {
+                throw ValidationException::withMessages(['ord_id' => ['ไม่พบรายการ']]);
+            }
+
+            if (in_array(strtoupper((string) ($row->status ?? '')), ['VOID', 'CLOSED'], true)) {
+                throw ValidationException::withMessages(['ord_id' => ['รายการนี้ปิดหรือยกเลิกแล้ว']]);
+            }
+
+            $this->conn()
+                ->table('delivery_plan_special_dispatch_dev')
+                ->where('ord_id', $ordId)
+                ->where('status', 'OPEN')
+                ->update([
+                    'status' => 'SUPERSEDED',
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'close_remark' => 'Replaced by new special dispatch action',
+                ]);
+
+            $this->conn()
+                ->table('delivery_plan_truck_assign_dev')
+                ->where('ord_id', $ordId)
+                ->delete();
+
+            $this->conn()
+                ->table('delivery_plan_special_dispatch_dev')
+                ->insert([
+                    'ord_id' => $ordId,
+                    'dispatch_type' => $dispatchType,
+                    'status' => 'OPEN',
+                    'remark' => $remark !== '' ? $remark : null,
+                    'action_by' => $userId,
+                    'action_at' => now(),
+                ]);
+
+            $this->conn()
+                ->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->whereNotIn('status', ['VOID', 'CLOSED'])
+                ->update([
+                    'status' => $status,
+                    'revise_by' => $userId,
+                ]);
+        });
+
+        return redirect($data['return_url'] ?? url()->previous())->with('success', 'บันทึกช่องทางพิเศษแล้ว');
+    }
+
+    public function closeSpecialDispatch(Request $request, int $ordId)
+    {
+        $data = $request->validate([
+            'close_remark' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $userId = auth()->check() ? (int) auth()->id() : null;
+        $remark = trim((string) ($data['close_remark'] ?? ''));
+
+        $this->conn()->transaction(function () use ($ordId, $userId, $remark) {
+            $special = $this->conn()
+                ->table('delivery_plan_special_dispatch_dev')
+                ->where('ord_id', $ordId)
+                ->where('status', 'OPEN')
+                ->orderByDesc('id')
+                ->first();
+
+            if (!$special) {
+                throw ValidationException::withMessages(['ord_id' => ['ไม่พบงานพิเศษที่เปิดอยู่']]);
+            }
+
+            if (strtoupper((string) $special->dispatch_type) === 'POSTPONED') {
+                throw ValidationException::withMessages(['ord_id' => ['งานเลื่อนต้องให้ DP revise/แก้วันส่งใหม่']]);
+            }
+
+            $this->conn()
+                ->table('delivery_plan_special_dispatch_dev')
+                ->where('id', $special->id)
+                ->update([
+                    'status' => 'CLOSED',
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'close_remark' => $remark !== '' ? $remark : null,
+                ]);
+
+            $this->conn()
+                ->table('delivery_plan_data_dev')
+                ->where('ord_id', $ordId)
+                ->whereNotIn('status', ['VOID'])
+                ->update([
+                    'status' => 'CLOSED',
+                    'revise_by' => $userId,
+                ]);
+        });
+
+        return back()->with('success', 'ปิดงานพิเศษแล้ว');
     }
 
     public function truckStaffOptions(Request $request)

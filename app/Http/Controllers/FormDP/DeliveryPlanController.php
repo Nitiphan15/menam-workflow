@@ -139,6 +139,7 @@ class DeliveryPlanController extends Controller
         ];
 
         $lines = [];
+        $editMailSentRevisions = [];
 
         if ($isEdit) {
             $row = $this->conn()
@@ -174,6 +175,7 @@ class DeliveryPlanController extends Controller
 
             $shipDate = $row->ship_posted_at ? Carbon::parse($row->ship_posted_at)->toDateString() : $day->toDateString();
             $winTime  = $row->window_at ? Carbon::parse($row->window_at)->format('H:i') : '08:00';
+            $editMailSentRevisions = $this->sentRevisionNumbersForShipDate($shipDate);
 
             $header = [
                 'due_date'          => Carbon::parse($row->due_date)->toDateString(),
@@ -251,7 +253,7 @@ class DeliveryPlanController extends Controller
             ->table('attach_docs_master')->where('active', 1)->orderBy('id')
             ->get()->map(fn($x) => (array)$x)->values()->all();
 
-        return view('formdp.index', compact('day', 'rows', 'lines', 'header', 'attachMasters', 'isEdit'));
+        return view('formdp.index', compact('day', 'rows', 'lines', 'header', 'attachMasters', 'isEdit', 'editMailSentRevisions'));
     }
 
     /* =========================================================
@@ -614,6 +616,26 @@ class DeliveryPlanController extends Controller
                     }
 
                     $payload['revision_number'] = (int) $revisionInput;
+                    $newShipDate = $shipPostedAt->toDateString();
+                    $sentRevisions = $this->sentRevisionNumbersForShipDate($newShipDate);
+
+                    if (!empty($sentRevisions)) {
+                        $currentRevision = (int) ($row->revision_number ?? 0);
+                        $requestedRevision = (int) $payload['revision_number'];
+                        $sentRevisionText = implode(', ', $sentRevisions);
+
+                        if ($requestedRevision === $currentRevision) {
+                            throw new \RuntimeException(
+                                "วันที่ส่งสินค้า {$newShipDate} เคยส่งเมลแล้ว กรุณาเปลี่ยน Revision จาก {$currentRevision} เป็นเลขใหม่"
+                            );
+                        }
+
+                        if (in_array($requestedRevision, $sentRevisions, true)) {
+                            throw new \RuntimeException(
+                                "วันที่ส่งสินค้า {$newShipDate} revision {$requestedRevision} เคยส่งเมลแล้ว กรุณาใช้ Revision ใหม่ที่ยังไม่เคยส่งเมล (ที่เคยส่งแล้ว: {$sentRevisionText})"
+                            );
+                        }
+                    }
 
                     // due_date ห้ามแก้ไขตอน update
                     unset($payload['due_date']);
@@ -933,6 +955,24 @@ class DeliveryPlanController extends Controller
         }
 
         return round($lineQty * $kgPerLine, 3);
+    }
+
+    private function sentRevisionNumbersForShipDate(?string $shipDate): array
+    {
+        if (!$shipDate) {
+            return [];
+        }
+
+        return $this->conn()
+            ->table('delivery_plan_mail_logs_dev')
+            ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDate])
+            ->whereNotNull('sent_at')
+            ->pluck('revision_number')
+            ->map(fn($revision) => (int) $revision)
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
     }
 
     private function buildContinueSameSoPayload(Request $request): ?array

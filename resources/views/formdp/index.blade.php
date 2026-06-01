@@ -30,6 +30,7 @@
         if ($isSales8User) {
             $sbl = '1';
         }
+        $editMailSentRevisions = $editMailSentRevisions ?? [];
     @endphp
 
     <div class="container-fluid py-3 px-3">
@@ -57,6 +58,14 @@
                         <li>{{ $e }}</li>
                     @endforeach
                 </ul>
+            </div>
+        @endif
+
+        @if ($isEdit && !empty($editMailSentRevisions))
+            <div class="alert alert-warning py-2">
+                <div class="fw-bold">วันที่ส่งสินค้านี้เคยส่งเมลแล้ว</div>
+                <div>ต้องเปลี่ยน Revision เป็นเลขใหม่ที่ยังไม่เคยส่งเมล (ส่งแล้ว:
+                    {{ implode(', ', $editMailSentRevisions) }})</div>
             </div>
         @endif
 

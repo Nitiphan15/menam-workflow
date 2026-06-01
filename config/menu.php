@@ -56,6 +56,7 @@ return [
             ],
 
             ['icon' => 'fa-solid fa-magnifying-glass', 'text' => 'Delivery Plan Inquiry',  'route'  => 'dp.inquiry'],
+            ['icon' => 'fa-solid fa-list-check', 'text' => 'Production Status Tracking', 'route' => 'dp.production-status'],
             ['icon' => 'fa-solid fa-clipboard-check',  'text' => 'Inspection', 'route' => 'isr.index'],
             ['icon' => 'fa-solid fa-pen-to-square',    'text' => 'ทำแบบทดสอบ (User Test)', 'route'  => 'exam.select'],
 
@@ -182,14 +183,20 @@ return [
             [
                 'icon' => 'fa-edit',
                 'text' => 'Delivery Plan',
-                'permission' => 'DP',
+                'permission' => ['DP', 'DPA', 'DPEMAIL', 'DPMAIL'],
                 'children' => [
                     ['icon' => 'fa-solid fa-plus', 'text' => 'เปิดแผนการจัดส่งใหม่', 'route' => 'dp.index', 'permission' => 'DP'],
                     ['icon' => 'fa-solid fa-magnifying-glass', 'text' => 'Inquiry', 'route' => 'dp.inquiry', 'permission' => ['DP', 'DPA', 'DPEMAIL', 'DPMAIL']],
+                    ['icon' => 'fa-solid fa-list-check', 'text' => 'Production Status Tracking', 'route' => 'dp.production-status', 'permission' => ['DP', 'DPA']],
                     ['icon' => 'fa-solid fa-truck', 'text' => 'ตารางงานรถขนส่ง', 'route' => 'dp.dashboard.truck-board', 'permission' => ['DPA']],
+                    ['icon' => 'fa-solid fa-truck-moving', 'text' => 'Master รถ', 'route' => 'dp.master.trucks', 'permission' => ['DPA']],
+                    ['icon' => 'fa-solid fa-id-card', 'text' => 'Master พนักงานขับรถ', 'route' => 'dp.master.drivers', 'permission' => ['DPA']],
+                    ['icon' => 'fa-solid fa-people-carry-box', 'text' => 'Master เด็กรถ', 'route' => 'dp.master.helpers', 'permission' => ['DPA']],
                 ],
             ],
         ],
+
+
 
         'fc' => [
             [
@@ -306,6 +313,7 @@ return [
                     ['icon' => 'fa-building', 'text' => 'เพิ่มแผนก', 'route' => 'adminweb.dept.create', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-user-tie', 'text' => 'จัดการหัวหน้าแผนก', 'route' => 'adminweb.deptmgr.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-briefcase', 'text' => 'จัดการโครงสร้างแผนก', 'route' => 'adminweb.deptroles.index', 'permission' => 'ADMINWEB'],
+                    ['icon' => 'fa-id-card', 'text' => 'กำหนดแผนก/ตำแหน่ง User', 'route' => 'adminweb.user-department-assignments.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-key', 'text' => 'เพิ่มสิทธิ์', 'route' => 'adminweb.roles.create', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-key', 'text' => 'กำหนดสิทธิ์ให้ User', 'route' => 'adminweb.user-permissions.index', 'permission' => 'ADMINWEB'],
                 ],

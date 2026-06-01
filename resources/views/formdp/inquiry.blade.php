@@ -23,6 +23,7 @@
                 (method_exists($u, 'hasRoleCode') && $u->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
 
         $tableColspan = 18;
+        $fmtTon = fn($kg) => number_format(((float) ($kg ?? 0)) / 1000, 3);
     @endphp
 
     <div class="container-fluid">
@@ -135,6 +136,8 @@
                             <select id="f_status" name="status" class="form-select form-select-sm">
                                 <option value="NEW" {{ $st === 'NEW' ? 'selected' : '' }}>NEW</option>
                                 <option value="ASSIGN" {{ $st === 'ASSIGN' ? 'selected' : '' }}>ASSIGN</option>
+                                <option value="SPECIAL" {{ $st === 'SPECIAL' ? 'selected' : '' }}>SPECIAL</option>
+                                <option value="POSTPONED" {{ $st === 'POSTPONED' ? 'selected' : '' }}>POSTPONED</option>
                                 <option value="CLOSED" {{ $st === 'CLOSED' ? 'selected' : '' }}>CLOSED</option>
                                 <option value="VOID" {{ $st === 'VOID' ? 'selected' : '' }}>VOID</option>
                                 <option value="ALL" {{ $st === 'ALL' ? 'selected' : '' }}>ALL</option>
@@ -336,9 +339,16 @@
 
                                     $statusUpper = strtoupper(trim((string) ($r->status ?? '')));
                                     $canAssignTruckUi =
-                                        !in_array($statusUpper, ['VOID', 'CLOSED'], true) &&
+                                        !in_array($statusUpper, ['VOID', 'CLOSED', 'SPECIAL', 'POSTPONED'], true) &&
                                         !empty($r->can_pick_truck) &&
                                         ($remainingQty > 0 || $assignedQty > 0);
+                                    $canSpecialDispatchUi = $canDpa && !in_array($statusUpper, ['VOID', 'CLOSED'], true);
+                                    $canOpenDispatchModalUi =
+                                        $canDpa && !in_array($statusUpper, ['VOID', 'CLOSED'], true);
+                                    $specialLabel = trim((string) ($r->special_dispatch_label ?? ''));
+                                    $specialIsOpen =
+                                        strtoupper(trim((string) ($r->special_dispatch_status ?? ''))) === 'OPEN' &&
+                                        strtoupper(trim((string) ($r->special_dispatch_type ?? ''))) !== 'POSTPONED';
                                 @endphp
 
                                 <tr class="rev-row data-row" style="--rev: {{ $revColor }};"
@@ -425,7 +435,48 @@
                                     </td>
 
                                     <td class="text-center">{{ $revNo }}</td>
-                                    <td>{{ $r->status ?? '-' }}</td>
+                                    <td>
+                                        <div>{{ $r->status ?? '-' }}</div>
+                                        @if ($specialLabel !== '')
+                                            <div class="small text-primary">{{ $specialLabel }}</div>
+                                        @endif
+                                        @php
+                                            $pcStatus = $r->planner_confirmation_status ?? null;
+                                            $pcLabel = $r->planner_confirmation_label ?? '-';
+                                            $pcBadge = $r->planner_confirmation_badge ?? 'light text-dark border';
+                                            $pcNewDate = !empty($r->planner_confirmation_new_date)
+                                                ? \Carbon\Carbon::parse($r->planner_confirmation_new_date)->format('d/m/Y')
+                                                : null;
+                                            $pcAt = !empty($r->planner_confirmation_confirmed_at)
+                                                ? \Carbon\Carbon::parse($r->planner_confirmation_confirmed_at)->format('d/m H:i')
+                                                : null;
+                                            $statusUpperForPc = strtoupper(trim((string) ($r->status ?? '')));
+                                        @endphp
+                                        @if (!empty($pcStatus))
+                                            @php
+                                                $tip = 'ฝ่ายวางแผน: ' . $pcLabel
+                                                    . ($pcNewDate ? ' → ' . $pcNewDate : '')
+                                                    . ($pcAt ? "\nบันทึก " . $pcAt : '')
+                                                    . (!empty($r->planner_confirmation_by) ? ' โดย ' . $r->planner_confirmation_by : '');
+                                            @endphp
+                                            <div class="small mt-1" title="{{ $tip }}">
+                                                <span class="badge bg-{{ $pcBadge }}">
+                                                    <i class="fas fa-clipboard-check me-1"></i>{{ $pcLabel }}
+                                                </span>
+                                                @if ($pcStatus === 'POSTPONE' && $pcNewDate)
+                                                    <div class="text-warning fw-semibold mt-1">
+                                                        วันส่งใหม่: {{ $pcNewDate }}
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        @elseif (!in_array($statusUpperForPc, ['VOID', 'CLOSED'], true))
+                                            <div class="small mt-1" title="ฝ่ายวางแผนยังไม่ได้ยืนยัน — ระบบถือว่าส่งได้ตามแผนเดิมโดย default">
+                                                <span class="badge bg-light text-dark border">
+                                                    <i class="far fa-clock me-1"></i>รอวางแผนยืนยัน
+                                                </span>
+                                            </div>
+                                        @endif
+                                    </td>
 
                                     <td class="text-center">
                                         <div class="d-flex gap-1 justify-content-center flex-wrap">
@@ -437,6 +488,17 @@
                                                     href="{{ route('dp.day', ['date' => $shipDateOnly ?: now()->toDateString()]) }}?edit={{ $r->ord_id }}">
                                                     แก้ไข
                                                 </a>
+                                                @if (!in_array($statusUpper, ['VOID', 'CLOSED', 'POSTPONED'], true))
+                                                    <button type="button"
+                                                        class="btn btn-sm btn-outline-warning jsPostponeBtn"
+                                                        data-ord-id="{{ $r->ord_id }}"
+                                                        data-so="{{ e($soText) }}"
+                                                        data-part="{{ e($r->part_number ?? '') }}"
+                                                        data-ship-date="{{ e($shipDateOnly) }}"
+                                                        data-window-time="{{ e($timeFromWindow) }}">
+                                                        เลื่อนแผน
+                                                    </button>
+                                                @endif
                                             @endif
 
                                             @php
@@ -444,7 +506,7 @@
                                                 $soLineKey = (string) ($r->so_number ?? '') . '|' . $shipDateKey;
                                             @endphp
 
-                                            @if ($canAssignTruckUi)
+                                            @if ($canOpenDispatchModalUi)
                                                 @if (!$isLoggedIn)
                                                     <a class="btn btn-sm btn-outline-info" href="{{ $loginUrl }}">
                                                         {{ !empty($r->truck_plate_display) ? 'เปลี่ยนรถ' : 'เลือกรถ' }}
@@ -453,15 +515,42 @@
                                                     <button type="button"
                                                         class="btn btn-sm btn-outline-info jsOpenTruckModal"
                                                         data-ord-id="{{ $r->ord_id }}" data-so="{{ e($soText) }}"
+                                                        data-mfg="{{ e($mfgText) }}"
+                                                        data-status="{{ e($statusUpper) }}"
                                                         data-ship-date="{{ e($shipDateOnly) }}"
                                                         data-shipto="{{ e($shiptoText) }}"
                                                         data-current-truck-id="{{ e($r->truck_id ?? '') }}"
                                                         data-current-truck-source="{{ e($r->truck_source ?? '') }}"
                                                         data-current-manual-plate="{{ e($r->manual_plate_no ?? '') }}"
+                                                        data-current-special-type="{{ e($r->special_dispatch_type ?? '') }}"
                                                         data-lines='@json($soLines[$soLineKey] ?? [])'>
                                                         {{ !empty($r->truck_plate_display) ? 'เปลี่ยนรถ' : 'เลือกรถ' }}
                                                     </button>
+
+                                                    @if (!empty($r->truck_plate_display) && empty($r->truck_closed_at))
+                                                        <button type="button"
+                                                            class="btn btn-sm btn-outline-warning jsUnassignTruckBtn"
+                                                            data-ord-id="{{ $r->ord_id }}"
+                                                            data-so="{{ e($soText) }}"
+                                                            data-mfg="{{ e($mfgText) }}"
+                                                            data-plate="{{ e($r->truck_plate_display) }}"
+                                                            title="ยกเลิกรถของรายการนี้">
+                                                            ยกเลิกรถ
+                                                        </button>
+                                                    @endif
                                                 @endif
+                                            @endif
+
+                                            @if ($specialIsOpen)
+                                                <form method="POST"
+                                                    action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $r->ord_id]) }}"
+                                                    class="d-inline"
+                                                    onsubmit="return confirm('ยืนยันปิดงานพิเศษนี้?');">
+                                                    @csrf
+                                                    <button type="submit" class="btn btn-sm btn-outline-success">
+                                                        ปิดงานพิเศษ
+                                                    </button>
+                                                </form>
                                             @endif
 
                                             @php
@@ -584,6 +673,56 @@
             </div>
         </div>
 
+        {{-- Postpone Modal --}}
+        <div class="modal fade" id="postponeModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" method="POST" id="postponeForm">
+                    @csrf
+                    <input type="hidden" name="return_url" value="{{ url()->full() }}">
+
+                    <div class="modal-header">
+                        <h5 class="modal-title">เลื่อนแผนส่ง</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการเดิม</div>
+                            <div class="fw-semibold" id="postponeInfo">-</div>
+                        </div>
+
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">วันที่ส่งใหม่</label>
+                                <input type="date" class="form-control" name="new_ship_posted_date"
+                                    id="postponeShipDate" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">เวลาใหม่</label>
+                                <input type="time" class="form-control" name="new_window_time"
+                                    id="postponeWindowTime" required>
+                            </div>
+                        </div>
+
+                        <div class="mt-2">
+                            <label class="form-label fw-semibold">เหตุผลเลื่อนแผน</label>
+                            <textarea class="form-control" name="postpone_reason" id="postponeReason" rows="3"
+                                placeholder="กรอกเหตุผล" required></textarea>
+                        </div>
+
+                        <div class="alert alert-warning small mb-0 mt-3">
+                            ระบบจะสร้างแผนใหม่จากข้อมูลเดิม และเก็บรายการเดิมไว้เป็น reference สถานะ POSTPONED
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-warning" id="btnConfirmPostpone">ยืนยันเลื่อนแผน</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         {{-- Void Modal --}}
         <div class="modal fade" id="voidModal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
@@ -614,6 +753,42 @@
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
                         <button type="submit" class="btn btn-danger" id="btnConfirmVoid">Void</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- Unassign Truck Modal --}}
+        <div class="modal fade" id="unassignTruckModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" method="POST" id="unassignTruckForm">
+                    @csrf
+
+                    <div class="modal-header">
+                        <h5 class="modal-title">ยกเลิกรถ</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการ</div>
+                            <div class="fw-semibold" id="unassignTruckInfo">-</div>
+                        </div>
+
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">เหตุผลยกเลิกรถ</label>
+                            <textarea class="form-control" name="remark_unassign" id="remarkUnassign" rows="3"
+                                placeholder="กรอกเหตุผล" required></textarea>
+                        </div>
+
+                        <div class="alert alert-warning small mb-0">
+                            จะลบการ assign รถของงานชิ้นนี้ และเปลี่ยนสถานะกลับเป็น NEW
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-warning" id="btnConfirmUnassignTruck">ยืนยันยกเลิกรถ</button>
                     </div>
                 </form>
             </div>
@@ -655,7 +830,66 @@
                             <input type="hidden" name="manual_car_length" id="tmManualLengthHidden">
                             <input type="hidden" name="manual_remark" id="tmManualRemarkHidden">
 
-                            <div class="mb-3">
+                            <div class="dp-dispatch-panel mb-3">
+                                <div class="d-flex flex-wrap align-items-end gap-3">
+                                    <div class="flex-grow-1">
+                                        <label class="form-label small fw-semibold mb-2">รูปแบบการจัดส่ง</label>
+                                        <div class="btn-group btn-group-sm dispatch-mode-group" role="group"
+                                            aria-label="dispatch mode">
+                                            <input type="radio" class="btn-check" name="tm_dispatch_mode"
+                                                id="tmDispatchTruckMode" value="TRUCK" checked>
+                                            <label class="btn btn-outline-primary" for="tmDispatchTruckMode">
+                                                จัดรถปกติ
+                                            </label>
+
+                                            <input type="radio" class="btn-check" name="tm_dispatch_mode"
+                                                id="tmDispatchSpecialMode" value="SPECIAL">
+                                            <label class="btn btn-outline-warning" for="tmDispatchSpecialMode">
+                                                ช่องทางพิเศษ
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="dp-trip-control" id="tmTripControl">
+                                        <label class="form-label small fw-semibold mb-2" for="tmTripNo">เที่ยวที่</label>
+                                        <div class="input-group input-group-sm">
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                id="tmTripMinus">-</button>
+                                            <input type="number" class="form-control text-center" name="trip_no"
+                                                id="tmTripNo" min="1" max="99" step="1" value="1">
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                id="tmTripPlus">+</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="dp-special-panel mt-3 d-none" id="tmSpecialDispatchPanel">
+                                    <div class="row g-2">
+                                        <div class="col-md-5">
+                                            <label class="form-label small fw-semibold mb-1"
+                                                for="tmSpecialDispatchType">ประเภทช่องทางพิเศษ</label>
+                                            <select class="form-select form-select-sm" name="dispatch_type"
+                                                id="tmSpecialDispatchType">
+                                                @foreach ($specialDispatchTypes as $type => $label)
+                                                    <option value="{{ $type }}">{{ $label }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div class="col-md-7">
+                                            <label class="form-label small fw-semibold mb-1"
+                                                for="tmSpecialDispatchRemark">หมายเหตุ</label>
+                                            <textarea class="form-control form-control-sm" name="remark"
+                                                id="tmSpecialDispatchRemark" rows="2"
+                                                placeholder="ระบุรายละเอียดเพิ่มเติม"></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="form-text">
+                                        ช่องทางพิเศษจะไม่คิด capacity รถ และจะลบ assignment รถเดิมของรายการนี้ออก
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3" id="tmLineSelectPanel">
                                 <div class="d-flex gap-2 mb-2">
                                     <button type="button" class="btn btn-sm btn-outline-primary"
                                         id="tmCheckAll">เลือกทั้งหมด</button>
@@ -673,8 +907,9 @@
                                                 <th>Part Desc</th>
                                                 <th>ระบุเส้น</th>
                                                 <th>สถานที่ส่ง</th>
-                                                <th class="text-end">ขึ้นรถแล้ว/KG</th>
-                                                <th class="text-end">คงเหลือ/KG</th>
+                                                <th class="text-end">ขึ้นรถแล้ว (ตัน)</th>
+                                                <th class="text-end">คงเหลือ (ตัน)</th>
+                                                <th class="text-end">น้ำหนักขึ้นรถ (ตัน)</th>
                                             </tr>
                                         </thead>
                                         <tbody id="tmLineTbody"></tbody>
@@ -682,13 +917,14 @@
                                             <tr>
                                                 <th colspan="7" class="text-end">รวมที่เลือก</th>
                                                 <th class="text-end" id="tmTotalQty">0.000</th>
+                                                <th></th>
                                             </tr>
                                         </tfoot>
                                     </table>
                                 </div>
                             </div>
 
-                            <div class="row g-3">
+                            <div class="row g-3" id="tmTruckPickPanel">
                                 <div class="col-lg-7">
                                     <div class="card h-100">
                                         <div class="card-header py-2 fw-semibold">รถในระบบ</div>
@@ -702,7 +938,7 @@
 
                                             <div class="alert alert-secondary py-2 px-3 small mb-2">
                                                 น้ำหนักที่เลือก: <span class="fw-bold" id="tmSelectedWeight">0.000</span>
-                                                KG
+                                                ตัน
                                                 <span class="mx-2">|</span>
                                                 รถจะเหลือ: <span class="fw-bold" id="tmTruckRemainAfter">-</span>
                                             </div>
@@ -733,9 +969,9 @@
                                                             <tr>
                                                                 <th class="text-center">เลือก</th>
                                                                 <th>ทะเบียน / คนขับ</th>
-                                                                <th class="text-end">Max</th>
-                                                                <th class="text-end">Current</th>
-                                                                <th class="text-end">Remain</th>
+                                                                <th class="text-end">Max (ตัน)</th>
+                                                                <th class="text-end">Current (ตัน)</th>
+                                                                <th class="text-end">Remain (ตัน)</th>
                                                                 <th class="text-end">Length</th>
                                                                 <th>ลูกค้า / ประเภทงาน</th>
                                                                 <th>SO / MFG / หมายเหตุ</th>
@@ -749,19 +985,14 @@
                                                                     $rowKey = $t->row_key ?? '';
                                                                     $jobSummary = collect($t->job_summary ?? []);
                                                                     $jobSummaryText = $jobSummary
-                                                                        ->map(function ($x) {
+                                                                        ->map(function ($x) use ($fmtTon) {
                                                                             return trim(
                                                                                 ($x['customer_name'] ?? '-') .
                                                                                     ' | ' .
                                                                                     ($x['job_type'] ?? '-') .
                                                                                     ' (' .
-                                                                                    number_format(
-                                                                                        (float) ($x[
-                                                                                            'assigned_weight'
-                                                                                        ] ?? 0),
-                                                                                        3,
-                                                                                    ) .
-                                                                                    ' KG)',
+                                                                                    $fmtTon($x['assigned_weight'] ?? 0) .
+                                                                                    ' ตัน)',
                                                                             );
                                                                         })
                                                                         ->implode(' || ');
@@ -772,6 +1003,9 @@
                                                                         (string) ($t->mfg_summary_text ?? ''),
                                                                     );
                                                                     $remarkText = trim((string) ($t->remark ?? ''));
+                                                                    $capacityUnlimited =
+                                                                        !empty($t->capacity_unlimited) ||
+                                                                        (float) ($t->max_load ?? 0) <= 0;
                                                                 @endphp
 
                                                                 <tr class="tmTruckRow" data-row-key="{{ e($rowKey) }}"
@@ -793,10 +1027,11 @@
                                                                             data-max="{{ e((float) ($t->max_load ?? 0)) }}"
                                                                             data-current="{{ e((float) ($t->current_load ?? 0)) }}"
                                                                             data-remaining="{{ e((float) ($t->remaining_capacity ?? 0)) }}"
+                                                                            data-capacity-unlimited="{{ $capacityUnlimited ? '1' : '0' }}"
                                                                             data-car-length="{{ e($t->car_length ?? '') }}"
                                                                             data-remark="{{ e($remarkText) }}"
                                                                             data-job-summary="{{ e($jobSummaryText) }}"
-                                                                            {{ (float) ($t->remaining_capacity ?? 0) <= 0 ? 'disabled' : '' }}>
+                                                                            {{ !$capacityUnlimited && (float) ($t->remaining_capacity ?? 0) <= 0 ? 'disabled' : '' }}>
                                                                     </td>
 
                                                                     <td>
@@ -817,11 +1052,11 @@
                                                                     </td>
 
                                                                     <td class="text-end">
-                                                                        {{ number_format((float) ($t->max_load ?? 0), 3) }}
+                                                                        {{ $capacityUnlimited ? 'ไม่ระบุ' : $fmtTon($t->max_load ?? 0) }}
                                                                     </td>
 
                                                                     <td class="text-end">
-                                                                        {{ number_format((float) ($t->current_load ?? 0), 3) }}
+                                                                        {{ $fmtTon($t->current_load ?? 0) }}
                                                                     </td>
 
                                                                     @php
@@ -838,13 +1073,8 @@
                                                                                     $mfgSummaryText ?:
                                                                                         '-') .
                                                                                     ' || ' .
-                                                                                    number_format(
-                                                                                        (float) ($job[
-                                                                                            'assigned_weight'
-                                                                                        ] ?? 0),
-                                                                                        3,
-                                                                                    ) .
-                                                                                    ' KG || ' .
+                                                                                    $fmtTon($job['assigned_weight'] ?? 0) .
+                                                                                    ' ตัน || ' .
                                                                                     ($job['address'] ?? '-');
                                                                             }
                                                                         }
@@ -856,12 +1086,12 @@
                                                                         $remainTooltip = implode("\n", $tooltipLines);
                                                                     @endphp
 
-                                                                    <td class="text-end {{ (float) ($t->remaining_capacity ?? 0) < 0 ? 'text-danger fw-bold' : 'fw-semibold' }}"
+                                                                    <td class="text-end {{ !$capacityUnlimited && (float) ($t->remaining_capacity ?? 0) < 0 ? 'text-danger fw-bold' : 'fw-semibold' }}"
                                                                         data-bs-toggle="tooltip" data-bs-placement="top"
                                                                         data-bs-html="false"
                                                                         data-bs-custom-class="truck-remain-tooltip"
                                                                         title="{{ $remainTooltip }}">
-                                                                        {{ number_format((float) ($t->remaining_capacity ?? 0), 3) }}
+                                                                        {{ $capacityUnlimited ? 'ตามน้ำหนักที่กรอก' : $fmtTon($t->remaining_capacity ?? 0) }}
                                                                     </td>
 
                                                                     <td class="text-end">
@@ -876,8 +1106,8 @@
                                                                                 <span class="text-muted">|
                                                                                     {{ $job['job_type'] ?? '-' }}</span>
                                                                                 <span
-                                                                                    class="text-primary">({{ number_format((float) ($job['assigned_weight'] ?? 0), 3) }}
-                                                                                    KG)</span>
+                                                                                    class="text-primary">({{ $fmtTon($job['assigned_weight'] ?? 0) }}
+                                                                                    ตัน)</span>
                                                                             </div>
                                                                         @empty
                                                                             <span class="text-muted">ยังไม่มีรายการ</span>
@@ -950,10 +1180,10 @@
                                                 </div>
 
                                                 <div class="col-md-6">
-                                                    <label class="form-label small mb-1">Max Load</label>
+                                                    <label class="form-label small mb-1">Max Load (ตัน)</label>
                                                     <input type="number" step="0.01"
                                                         class="form-control form-control-sm" id="tmManualMaxLoad"
-                                                        placeholder="ถ้าเป็นรถคันเดิมของวันเดียวกัน ปล่อยว่างได้">
+                                                        placeholder="เช่น 25 = 25 ตัน">
                                                 </div>
 
                                                 <div class="col-md-6">
@@ -1012,13 +1242,6 @@
                                                 </div>
                                             </div>
 
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="radio" name="truck_pick_mode"
-                                                    id="tmManualMode" value="MANUAL">
-                                                <label class="form-check-label" for="tmManualMode">
-                                                    ใช้ข้อมูลรถนอกนี้
-                                                </label>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1026,7 +1249,7 @@
                         </div>
 
                         <div class="modal-footer">
-                            <div class="me-auto small text-muted">
+                            <div class="me-auto small text-muted" id="tmFooterHelp">
                                 ระบบจะบันทึกตามน้ำหนักที่รถยังรับได้จริง และถ้าเต็มก่อนจะบันทึกเฉพาะบางส่วน
                             </div>
                             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
@@ -1126,7 +1349,10 @@
                 history: @json(route('dp.inquiry.history', ['ordId' => '__ID__'])),
                 historyDb: @json(route('dp.history.db', ['ord_id' => '__ID__'])),
                 void: @json(route('dp.void', ['ordId' => '__ID__'])),
+                postpone: @json(route('dp.inquiry.postpone', ['ordId' => '__ID__'])),
+                specialDispatch: @json(route('dp.inquiry.special-dispatch', ['ordId' => '__ID__'])),
                 truckAssign: @json(route('dp.inquiry.truck.assign', ['ordId' => '__ID__'])),
+                truckUnassign: @json(route('dp.inquiry.truck.unassign', ['ordId' => '__ID__'])),
                 base: @json(route('dp.inquiry')),
                 truckCapacity: @json(route('dp.truck.capacity')),
                 truckStaffOptions: @json(route('dp.truck.staff.options')),
@@ -1135,5 +1361,5 @@
         };
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260507_1"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260601_1"></script>
 @endpush

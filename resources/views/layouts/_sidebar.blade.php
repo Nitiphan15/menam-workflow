@@ -26,7 +26,15 @@
         $menus = array_merge($menus, auth()->user()->hasRoleCode('WR') ? config('menu.menu.wr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('EXAM') ? config('menu.menu.exam', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ISR') ? config('menu.menu.isr', []) : []);
-        $menus = array_merge($menus, auth()->user()->hasRoleCode('DP') ? config('menu.menu.dp', []) : []);
+        $menus = array_merge(
+            $menus,
+            auth()
+                ->user()
+                ->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL'])
+                ? config('menu.menu.dp', [])
+                : [],
+        );
+        //$menus = array_merge($menus, auth()->user()->hasRoleCode('DPA') ? config('menu.menu.dpa', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('RISK') ? config('menu.menu.risk', []) : []);
 
         $menus = array_merge(

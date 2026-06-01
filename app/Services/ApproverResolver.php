@@ -192,7 +192,7 @@ class ApproverResolver
         }
 
         if ($appCode === 'po' && $stepNo === 3) {
-            return (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+            return (int) ($context['submitter_department_id'] ?? $context['purchase_department_id'] ?? $context['department_id'] ?? 0);
         }
 
         if ($sourceType === 'ROLE' && isset($json['role_in']) && (int) ($rule->source_ref_id ?? 0) > 0) {

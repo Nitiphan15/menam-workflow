@@ -32,6 +32,7 @@ use App\Http\Controllers\Admin\RoleAdminController;
 use App\Http\Controllers\Admin\DeptManagerAdminController;
 use App\Http\Controllers\Admin\DepartmentRoleAdminController;
 use App\Http\Controllers\Admin\UserDeptRoleAdminController;
+use App\Http\Controllers\Admin\UserDepartmentAssignmentController;
 use App\Http\Controllers\Admin\UserPermissionController;
 //WR
 use App\Http\Controllers\FormWR\IncomeController;
@@ -67,6 +68,8 @@ use App\Http\Controllers\FormRisk\ProductionRiskController;
 //DP
 use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
+use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
+use App\Http\Controllers\FormDP\TruckMasterController;
 //Forecast
 use App\Http\Controllers\FormFC\ForecastRmController;
 use App\Http\Controllers\FormFC\ForecastRmDivisionController;
@@ -131,6 +134,12 @@ Route::get('/dp/so-lines',  [DeliveryPlanController::class, 'soLines'])->name('d
 Route::get('/dp/sales-lookup',    [DeliveryPlanController::class, 'salesLookup'])->name('dp.salesLookup');
 Route::get('/dp/mfg-lookup', [DeliveryPlanController::class, 'mfgLookup'])->name('dp.mfgLookup');
 Route::get('/dp/part-lookup', [DeliveryPlanController::class, 'partLookup'])->name('dp.partLookup');
+Route::get('/dp/production-status', [ProductionStatusTrackingController::class, 'index'])->name('dp.production-status');
+Route::get('/dp/production-status/export', [ProductionStatusTrackingController::class, 'export'])->name('dp.production-status.export');
+Route::get('/dp/production-status/detail', [ProductionStatusTrackingController::class, 'detail'])->name('dp.production-status.detail');
+Route::post('/dp/production-status/confirm', [ProductionStatusTrackingController::class, 'confirm'])->name('dp.production-status.confirm');
+Route::post('/dp/production-status/confirm-bulk', [ProductionStatusTrackingController::class, 'confirmBulk'])->name('dp.production-status.confirm.bulk');
+Route::get('/dp/production-status/confirm/history', [ProductionStatusTrackingController::class, 'confirmHistory'])->name('dp.production-status.confirm.history');
 //Inquiry
 
 Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
@@ -317,6 +326,9 @@ Route::middleware(['auth'])
       Route::post('/reset', [DeliveryPlanController::class, 'resetAll'])->name('resetAll');
       Route::post('/line/{id}/update', [DeliveryPlanController::class, 'updateLine'])->name('updateLine');
       Route::get('/line/{id}/history', [DeliveryPlanController::class, 'history'])->name('history');
+      Route::post('/inquiry/{ordId}/postpone', [DeliveryPlanInquiryController::class, 'postponePlan'])
+        ->whereNumber('ordId')
+        ->name('inquiry.postpone');
 
       Route::get('/customer-lookup', [DeliveryPlanController::class, 'customerLookup'])->name('customerLookup');
     });
@@ -348,8 +360,46 @@ Route::middleware(['auth'])
     Route::middleware(['can:DPA'])->group(function () {
       Route::post('/inquiry/truck-assign/{ordId}', [DeliveryPlanInquiryController::class, 'assignTruck'])
         ->name('inquiry.truck.assign');
+      Route::post('/inquiry/truck-unassign/{ordId}', [DeliveryPlanInquiryController::class, 'unassignTruck'])
+        ->whereNumber('ordId')
+        ->name('inquiry.truck.unassign');
+      Route::post('/inquiry/special-dispatch/{ordId}', [DeliveryPlanInquiryController::class, 'markSpecialDispatch'])
+        ->whereNumber('ordId')
+        ->name('inquiry.special-dispatch');
+      Route::post('/inquiry/special-dispatch/{ordId}/close', [DeliveryPlanInquiryController::class, 'closeSpecialDispatch'])
+        ->whereNumber('ordId')
+        ->name('inquiry.special-dispatch.close');
 
       Route::get('/dashboard/truck-board', [DeliveryPlanInquiryController::class, 'truckBoard'])->name('dashboard.truck-board');
+      Route::get('/dashboard/truck-board/export/print', [DeliveryPlanInquiryController::class, 'printAssignedTruckBoard'])
+        ->name('dashboard.truck-board.export.print');
+      Route::get('/dashboard/truck-board/export/pdf', [DeliveryPlanInquiryController::class, 'downloadAssignedTruckBoardPdf'])
+        ->name('dashboard.truck-board.export.pdf');
+      Route::get('/dashboard/truck-board/export/excel', [DeliveryPlanInquiryController::class, 'downloadAssignedTruckBoardExcel'])
+        ->name('dashboard.truck-board.export.excel');
+      Route::get('/dashboard/truck-board/trip/print', [DeliveryPlanInquiryController::class, 'printTruckTrip'])
+        ->name('dashboard.truck-board.trip.print');
+      Route::get('/dashboard/truck-board/trip/pdf', [DeliveryPlanInquiryController::class, 'downloadTruckTripPdf'])
+        ->name('dashboard.truck-board.trip.pdf');
+      Route::get('/dashboard/truck-board/trip/excel', [DeliveryPlanInquiryController::class, 'downloadTruckTripExcel'])
+        ->name('dashboard.truck-board.trip.excel');
+      Route::post('/dashboard/truck-board/trip/close', [DeliveryPlanInquiryController::class, 'closeTruckTrip'])
+        ->name('dashboard.truck-board.trip.close');
+
+      Route::get('/master/trucks', [TruckMasterController::class, 'trucks'])->name('master.trucks');
+      Route::post('/master/trucks', [TruckMasterController::class, 'saveTruck'])->name('master.trucks.store');
+      Route::post('/master/trucks/{id}', [TruckMasterController::class, 'saveTruck'])->whereNumber('id')->name('master.trucks.update');
+      Route::post('/master/trucks/{id}/delete', [TruckMasterController::class, 'deleteTruck'])->whereNumber('id')->name('master.trucks.delete');
+
+      Route::get('/master/drivers', [TruckMasterController::class, 'drivers'])->name('master.drivers');
+      Route::post('/master/drivers', [TruckMasterController::class, 'saveDriver'])->name('master.drivers.store');
+      Route::post('/master/drivers/{id}', [TruckMasterController::class, 'saveDriver'])->whereNumber('id')->name('master.drivers.update');
+      Route::post('/master/drivers/{id}/delete', [TruckMasterController::class, 'deleteDriver'])->whereNumber('id')->name('master.drivers.delete');
+
+      Route::get('/master/helpers', [TruckMasterController::class, 'helpers'])->name('master.helpers');
+      Route::post('/master/helpers', [TruckMasterController::class, 'saveHelper'])->name('master.helpers.store');
+      Route::post('/master/helpers/{id}', [TruckMasterController::class, 'saveHelper'])->whereNumber('id')->name('master.helpers.update');
+      Route::post('/master/helpers/{id}/delete', [TruckMasterController::class, 'deleteHelper'])->whereNumber('id')->name('master.helpers.delete');
     });
   });
 
@@ -734,6 +784,10 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::get('/user-department-roles',            [UserDeptRoleAdminController::class, 'index'])->name('udr.index');
     Route::post('/user-department-roles',            [UserDeptRoleAdminController::class, 'store'])->name('udr.store');
     Route::delete('/user-department-roles/{id}', [UserDeptRoleAdminController::class, 'destroy'])->name('udr.destroy');
+    Route::get('/user-department-assignments', [UserDepartmentAssignmentController::class, 'index'])->name('user-department-assignments.index');
+    Route::put('/user-department-assignments/{userId}', [UserDepartmentAssignmentController::class, 'update'])
+      ->whereNumber('userId')
+      ->name('user-department-assignments.update');
 
     // แก้ไขข้อมูลส่วนตัว
     Route::get('/profile/edit', [ProfileController::class, 'edit'])->name('profile.edit');

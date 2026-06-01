@@ -279,6 +279,18 @@
     const tmTruckTableBody = byId("tmTruckTableBody");
     const tmTruckSearch = byId("tmTruckSearch");
     const tmReplaceMode = byId("tmReplaceMode");
+    const tmTripNo = byId("tmTripNo");
+    const tmTripMinus = byId("tmTripMinus");
+    const tmTripPlus = byId("tmTripPlus");
+    const tmTripControl = byId("tmTripControl");
+    const tmDispatchTruckMode = byId("tmDispatchTruckMode");
+    const tmDispatchSpecialMode = byId("tmDispatchSpecialMode");
+    const tmLineSelectPanel = byId("tmLineSelectPanel");
+    const tmTruckPickPanel = byId("tmTruckPickPanel");
+    const tmSpecialDispatchPanel = byId("tmSpecialDispatchPanel");
+    const tmSpecialDispatchType = byId("tmSpecialDispatchType");
+    const tmSpecialDispatchRemark = byId("tmSpecialDispatchRemark");
+    const tmFooterHelp = byId("tmFooterHelp");
 
     const tmManualMode = byId("tmManualMode");
     const tmManualPlate = byId("tmManualPlate");
@@ -314,6 +326,8 @@
         ordId: "",
         lines: [],
         currentTruckId: "",
+        currentSpecialType: "",
+        currentStatus: "",
         isSubmitting: false,
     };
 
@@ -340,6 +354,15 @@
             minimumFractionDigits: digits,
             maximumFractionDigits: digits,
         });
+    }
+
+    function tonFormat(kg, digits = 3) {
+        return numberFormat(Number(kg || 0) / 1000, digits);
+    }
+
+    function kgFromTonInput(value) {
+        const tons = Number(value || 0);
+        return tons > 0 ? String(tons * 1000) : "";
     }
 
     function clearTruckSelection() {
@@ -562,6 +585,70 @@
         }
     }
 
+    function setSpecialDispatchAction(ordId) {
+        const base = ROUTES.specialDispatch || "";
+        if (form) {
+            form.action = String(base).replace("__ID__", String(ordId || 0));
+        }
+    }
+
+    function isSpecialDispatchMode() {
+        return !!tmDispatchSpecialMode?.checked;
+    }
+
+    function setDispatchMode(mode) {
+        const specialMode = String(mode || "").toUpperCase() === "SPECIAL";
+
+        if (tmDispatchTruckMode) tmDispatchTruckMode.checked = !specialMode;
+        if (tmDispatchSpecialMode) tmDispatchSpecialMode.checked = specialMode;
+
+        [
+            tmLineSelectPanel,
+            tmTruckPickPanel,
+            tmTripControl,
+        ].forEach((el) => {
+            if (el) el.classList.toggle("d-none", specialMode);
+        });
+
+        if (tmSpecialDispatchPanel) {
+            tmSpecialDispatchPanel.classList.toggle("d-none", !specialMode);
+        }
+
+        if (tmSpecialDispatchType) tmSpecialDispatchType.disabled = !specialMode;
+        if (tmSpecialDispatchRemark) tmSpecialDispatchRemark.disabled = !specialMode;
+
+        if (tmFooterHelp) {
+            tmFooterHelp.textContent = specialMode
+                ? "ช่องทางพิเศษจะไม่กิน capacity รถ และจะติดตามแยกใน dashboard งานพิเศษ"
+                : "ระบบจะบันทึกตามน้ำหนักที่รถยังรับได้จริง และถ้าเต็มก่อนจะบันทึกเฉพาะบางส่วน";
+        }
+
+        if (submitBtn) {
+            submitBtn.classList.toggle("btn-primary", !specialMode);
+            submitBtn.classList.toggle("btn-warning", specialMode);
+            submitBtn.textContent = specialMode ? "บันทึกช่องทางพิเศษ" : "บันทึก";
+        }
+
+        if (specialMode) {
+            setSpecialDispatchAction(state.ordId);
+            clearTruckSelection();
+            clearManualHiddenFields();
+            if (tmManualMode) tmManualMode.checked = false;
+            return;
+        }
+
+        setTruckAssignAction(state.ordId);
+        updateTruckRemainPreview();
+    }
+
+    function stepTrip(delta) {
+        if (!tmTripNo) return;
+        const current = Math.max(1, parseInt(tmTripNo.value || "1", 10) || 1);
+        const next = Math.min(99, Math.max(1, current + delta));
+        tmTripNo.value = String(next);
+        tmTripNo.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
     function selectedOrdIds() {
         if (!modalEl) return [];
         return Array.from(modalEl.querySelectorAll(".tmOrdCheckbox:checked"))
@@ -576,7 +663,9 @@
         ).reduce((sum, checkbox) => {
             const tr = checkbox.closest("tr");
             if (!tr) return sum;
-            const qty = Number(tr.dataset.qtyRemaining || 0);
+            const manualTonInput = tr.querySelector(".tmAssignWeightTon");
+            const manualKg = Number(manualTonInput?.value || 0) * 1000;
+            const qty = manualKg > 0 ? manualKg : Number(tr.dataset.qtyRemaining || 0);
             return sum + qty;
         }, 0);
     }
@@ -585,7 +674,7 @@
         const selectedWeight = selectedTotalQty();
 
         if (tmSelectedWeight) {
-            tmSelectedWeight.textContent = numberFormat(selectedWeight);
+            tmSelectedWeight.textContent = tonFormat(selectedWeight);
         }
 
         if (!tmTruckRemainAfter || !modalEl) return;
@@ -598,10 +687,19 @@
             return;
         }
 
+        const capacityUnlimited =
+            String(selectedTruck.dataset.capacityUnlimited || "") === "1";
+        if (capacityUnlimited) {
+            tmTruckRemainAfter.textContent = "ตามน้ำหนักที่กรอก";
+            tmTruckRemainAfter.classList.remove("text-danger");
+            tmTruckRemainAfter.classList.add("text-success");
+            return;
+        }
+
         const currentRemain = Number(selectedTruck.dataset.remaining || 0);
         const remainAfter = currentRemain - selectedWeight;
 
-        tmTruckRemainAfter.textContent = `${numberFormat(remainAfter)} KG`;
+        tmTruckRemainAfter.textContent = `${tonFormat(remainAfter)} ตัน`;
         tmTruckRemainAfter.classList.toggle("text-danger", remainAfter < 0);
         tmTruckRemainAfter.classList.toggle("text-success", remainAfter >= 0);
     }
@@ -614,11 +712,11 @@
 
         if (!safeLines.length) {
             tmLineTbody.innerHTML =
-                '<tr><td colspan="8" class="text-center text-muted">ไม่มีรายการ</td></tr>';
-            tmTotalQty.textContent = numberFormat(0);
+                '<tr><td colspan="9" class="text-center text-muted">ไม่มีรายการ</td></tr>';
+            tmTotalQty.textContent = tonFormat(0);
 
             if (tmSelectedWeight) {
-                tmSelectedWeight.textContent = numberFormat(0);
+                tmSelectedWeight.textContent = tonFormat(0);
             }
 
             updateTruckRemainPreview();
@@ -655,18 +753,27 @@
                         <td>${esc(line.desc || "-")}</td>
                         <td>${esc(lineText)}</td>
                         <td>${esc(shipto)}</td>
-                        <td class="text-end">${numberFormat(qtyAssigned)}</td>
-                        <td class="text-end">${numberFormat(qtyRemaining)}</td>
+                        <td class="text-end">${tonFormat(qtyAssigned)}</td>
+                        <td class="text-end">${tonFormat(qtyRemaining)}</td>
+                        <td>
+                            <input type="number"
+                                class="form-control form-control-sm text-end tmAssignWeightTon"
+                                name="assign_weight_tons[${esc(line.ord_id || "")}]"
+                                min="0"
+                                step="0.001"
+                                value="${tonFormat(qtyRemaining)}"
+                                placeholder="ใส่เอง">
+                        </td>
                     </tr>
                 `;
             })
             .join("");
 
         tmLineTbody.innerHTML = html;
-        tmTotalQty.textContent = numberFormat(total);
+        tmTotalQty.textContent = tonFormat(total);
 
         if (tmSelectedWeight) {
-            tmSelectedWeight.textContent = numberFormat(total);
+            tmSelectedWeight.textContent = tonFormat(total);
         }
 
         updateTruckRemainPreview();
@@ -704,9 +811,15 @@
                 const remaining = Number(t.remaining_capacity || 0);
                 const current = Number(t.current_load || 0);
                 const max = Number(t.max_load || 0);
+                const capacityUnlimited =
+                    !!t.capacity_unlimited || max <= 0;
                 const rowKey = String(t.row_key || "");
                 const truckId = t.truck_id ?? "";
                 const manualPlate = t.manual_plate_no ?? "";
+                const maxText = capacityUnlimited ? "ไม่ระบุ" : tonFormat(max);
+                const remainingText = capacityUnlimited
+                    ? "ตามน้ำหนักที่กรอก"
+                    : tonFormat(remaining);
 
                 const jobSummary = Array.isArray(t.job_summary)
                     ? t.job_summary
@@ -715,10 +828,8 @@
                     .map((x) => {
                         const customer = x.customer_name || "-";
                         const jobType = x.job_type || "-";
-                        const weight = numberFormat(
-                            Number(x.assigned_weight || 0),
-                        );
-                        return `${customer} | ${jobType} (${weight} KG)`;
+                        const weight = tonFormat(Number(x.assigned_weight || 0));
+                        return `${customer} | ${jobType} (${weight} ตัน)`;
                     })
                     .join(" || ");
 
@@ -729,7 +840,7 @@
                 if (jobSummary.length) {
                     jobSummary.forEach((x) => {
                         tooltipLines.push(
-                            `${x.so_number || soSummaryText || "-"} || ${x.mfg_no || mfgSummaryText || "-"} || ${numberFormat(Number(x.assigned_weight || 0))} KG || ${x.address || "-"}`,
+                            `${x.so_number || soSummaryText || "-"} || ${x.mfg_no || mfgSummaryText || "-"} || ${tonFormat(Number(x.assigned_weight || 0))} ตัน || ${x.address || "-"}`,
                         );
                     });
                 } else {
@@ -747,7 +858,7 @@
                         <div class="mb-1">
                             <span class="fw-semibold">${esc(x.customer_name || "-")}</span>
                             <span class="text-muted">| ${esc(x.job_type || "-")}</span>
-                            <span class="text-primary">(${numberFormat(Number(x.assigned_weight || 0))} KG)</span>
+                            <span class="text-primary">(${tonFormat(Number(x.assigned_weight || 0))} ตัน)</span>
                         </div>
                     `,
                           )
@@ -775,10 +886,11 @@
                                 data-max="${esc(max)}"
                                 data-current="${esc(current)}"
                                 data-remaining="${esc(remaining)}"
+                                data-capacity-unlimited="${capacityUnlimited ? "1" : "0"}"
                                 data-car-length="${esc(t.car_length ?? "")}"
                                 data-remark="${esc(t.remark || "")}"
                                 data-job-summary="${esc(jobSummaryText)}"
-                                ${remaining <= 0 ? "disabled" : ""}>
+                                ${!capacityUnlimited && remaining <= 0 ? "disabled" : ""}>
                         </td>
 
                         <td>
@@ -794,17 +906,17 @@
                             <div class="small text-muted">${esc(t.driver_phone || "-")}</div>
                         </td>
 
-                        <td class="text-end">${numberFormat(max)}</td>
-                        <td class="text-end">${numberFormat(current)}</td>
+                        <td class="text-end">${maxText}</td>
+                        <td class="text-end">${tonFormat(current)}</td>
                         <td
-                            class="text-end ${remaining < 0 ? "text-danger fw-bold" : "fw-semibold"}"
+                            class="text-end ${!capacityUnlimited && remaining < 0 ? "text-danger fw-bold" : "fw-semibold"}"
                             data-bs-toggle="tooltip"
                             data-bs-placement="top"
                             data-bs-html="false"
                             data-bs-custom-class="truck-remain-tooltip"
                             title="${esc(remainTooltip)}"
                         >
-                            ${numberFormat(remaining)}
+                            ${remainingText}
                         </td>
                         <td class="text-end">${t.car_length ? numberFormat(t.car_length, 0) : "-"}</td>
                         <td class="small">${jobHtml}</td>
@@ -829,7 +941,8 @@
         if (!ROUTES.truckCapacity || !shipDate) return [];
 
         try {
-            const url = `${ROUTES.truckCapacity}?ship_posted_at=${encodeURIComponent(shipDate)}`;
+            const tripNo = Math.max(1, parseInt(tmTripNo?.value || "1", 10) || 1);
+            const url = `${ROUTES.truckCapacity}?ship_posted_at=${encodeURIComponent(shipDate)}&trip_no=${encodeURIComponent(tripNo)}`;
             const res = await fetch(url, {
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
@@ -860,6 +973,10 @@
             btn.dataset.currentTruckSource || "",
         ).toUpperCase();
         const currentManualPlate = btn.dataset.currentManualPlate || "";
+        const currentSpecialType = String(
+            btn.dataset.currentSpecialType || "",
+        ).trim();
+        const currentStatus = String(btn.dataset.status || "").trim().toUpperCase();
         const lines = parseJsonSafe(btn.dataset.lines || "[]", []);
 
         state.ordId = ordId;
@@ -868,6 +985,8 @@
         state.shipto = shipto;
         state.lines = Array.isArray(lines) ? lines : [];
         state.currentTruckId = currentTruckId;
+        state.currentSpecialType = currentSpecialType;
+        state.currentStatus = currentStatus;
 
         if (tmSoText) tmSoText.textContent = so || "-";
         if (tmShipDateText) tmShipDateText.textContent = shipDate || "-";
@@ -877,11 +996,26 @@
         if (tmSoHidden) tmSoHidden.value = so;
         if (tmShipDateHidden) tmShipDateHidden.value = shipDate;
         if (tmReturnUrl) tmReturnUrl.value = window.location.href;
+        if (tmTripNo) tmTripNo.value = "1";
+        if (tmSpecialDispatchType) {
+            tmSpecialDispatchType.value = currentSpecialType || "CONTAINER_LOAD";
+        }
+        if (tmSpecialDispatchRemark) {
+            tmSpecialDispatchRemark.value = "";
+        }
 
         clearStaffSelection();
         loadTruckStaffOptions();
 
-        setTruckAssignAction(ordId);
+        const lockedToSpecial = ["SPECIAL", "POSTPONED"].includes(currentStatus);
+        if (tmDispatchTruckMode) tmDispatchTruckMode.disabled = lockedToSpecial;
+        if (lockedToSpecial) {
+            setSpecialDispatchAction(ordId);
+            setDispatchMode("SPECIAL");
+        } else {
+            setTruckAssignAction(ordId);
+            setDispatchMode("TRUCK");
+        }
         renderLineTable(state.lines);
         clearTruckSelection();
         clearManualFields();
@@ -957,6 +1091,16 @@
     }
 
     function validateBeforeSubmit() {
+        if (isSpecialDispatchMode()) {
+            const dispatchType = String(tmSpecialDispatchType?.value || "").trim();
+            if (!dispatchType) {
+                alert("กรุณาเลือกประเภทช่องทางพิเศษ");
+                return false;
+            }
+            setSpecialDispatchAction(state.ordId);
+            return true;
+        }
+
         const ordIds = selectedOrdIds();
 
         if (!ordIds.length) {
@@ -998,7 +1142,7 @@
                 tmManualPhoneHidden.value = tmManualPhone.value || "";
             }
             if (tmManualMaxLoadHidden) {
-                tmManualMaxLoadHidden.value = tmManualMaxLoad.value || "";
+                tmManualMaxLoadHidden.value = kgFromTonInput(tmManualMaxLoad.value);
             }
             if (tmManualLengthHidden) {
                 tmManualLengthHidden.value = tmManualLength.value || "";
@@ -1073,6 +1217,11 @@
             return;
         }
 
+        if (target === tmDispatchTruckMode || target === tmDispatchSpecialMode) {
+            setDispatchMode(target === tmDispatchSpecialMode ? "SPECIAL" : "TRUCK");
+            return;
+        }
+
         if (target.id === "tmManualMode") {
             if (target.checked) {
                 clearTruckSelection();
@@ -1105,6 +1254,19 @@
 
         if (target === tmTruckSearch) {
             filterTruckRows(target.value || "");
+        }
+
+        if (target.classList.contains("tmAssignWeightTon")) {
+            updateTruckRemainPreview();
+            return;
+        }
+
+        if (target === tmTripNo) {
+            clearTruckSelection();
+            clearManualHiddenFields();
+            if (state.shipDate) {
+                loadTruckCapacity(state.shipDate);
+            }
         }
     });
 
@@ -1158,8 +1320,66 @@
         });
     }
 
+    if (tmTripMinus) {
+        tmTripMinus.addEventListener("click", () => stepTrip(-1));
+    }
+
+    if (tmTripPlus) {
+        tmTripPlus.addEventListener("click", () => stepTrip(1));
+    }
+
     simplifyHelperInputs();
     keepOnlyTopManualModeOption();
+})();
+
+(function postponeModal() {
+    const byId = (id) => document.getElementById(id);
+    const CONFIG = window.DP_INQUIRY || {};
+    const ROUTES = CONFIG.routes || {};
+
+    const modalEl = byId("postponeModal");
+    const form = byId("postponeForm");
+    const infoEl = byId("postponeInfo");
+    const shipDateEl = byId("postponeShipDate");
+    const windowTimeEl = byId("postponeWindowTime");
+    const reasonEl = byId("postponeReason");
+
+    if (!modalEl || !form) return;
+    if (typeof bootstrap === "undefined" || !bootstrap.Modal) return;
+
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+    function setAction(ordId) {
+        const base = ROUTES.postpone || "";
+        form.action = String(base).replace("__ID__", String(ordId || 0));
+    }
+
+    function buildInfo(btn) {
+        const parts = [
+            `ord_id: ${btn.dataset.ordId || "-"}`,
+            `SO: ${btn.dataset.so || "-"}`,
+            `Part: ${btn.dataset.part || "-"}`,
+            `Ship: ${btn.dataset.shipDate || "-"}`,
+        ];
+        return parts.join(" | ");
+    }
+
+    document.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) return;
+
+        const btn = event.target.closest(".jsPostponeBtn");
+        if (!btn || btn.hasAttribute("disabled")) return;
+
+        setAction(btn.dataset.ordId || "");
+        if (infoEl) infoEl.textContent = buildInfo(btn);
+
+        const currentShipDate = btn.dataset.shipDate || "";
+        if (shipDateEl) shipDateEl.value = currentShipDate;
+        if (windowTimeEl) windowTimeEl.value = btn.dataset.windowTime || "08:00";
+        if (reasonEl) reasonEl.value = "";
+
+        modal.show();
+    });
 })();
 
 (function voidModal() {
@@ -1216,6 +1436,61 @@
         if (remarkEl) {
             remarkEl.value = "";
         }
+    });
+})();
+
+(function unassignTruckModal() {
+    const byId = (id) => document.getElementById(id);
+    const CONFIG = window.DP_INQUIRY || {};
+    const ROUTES = CONFIG.routes || {};
+
+    const modalEl = byId("unassignTruckModal");
+    const form = byId("unassignTruckForm");
+    const infoEl = byId("unassignTruckInfo");
+    const remarkEl = byId("remarkUnassign");
+
+    if (!modalEl || !form) return;
+    if (typeof bootstrap === "undefined" || !bootstrap.Modal) return;
+
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+    function setAction(ordId) {
+        const base = ROUTES.truckUnassign || "";
+        form.action = String(base).replace("__ID__", String(ordId || 0));
+    }
+
+    function buildInfo(btn) {
+        const so = String(btn.dataset.so || "").trim();
+        const mfg = String(btn.dataset.mfg || "").trim();
+        const plate = String(btn.dataset.plate || "").trim();
+        return [
+            so ? "SO: " + so : "",
+            mfg ? "MFG: " + mfg : "",
+            plate ? "ทะเบียน: " + plate : "",
+        ].filter(Boolean).join(" | ") || "-";
+    }
+
+    document.addEventListener("click", (e) => {
+        if (!(e.target instanceof Element)) return;
+
+        const btn = e.target.closest(".jsUnassignTruckBtn");
+        if (!btn || btn.hasAttribute("disabled")) return;
+
+        setAction(btn.dataset.ordId || "");
+
+        if (infoEl) {
+            infoEl.textContent = buildInfo(btn);
+        }
+        if (remarkEl) {
+            remarkEl.value = "";
+        }
+
+        modal.show();
+    });
+
+    modalEl.addEventListener("hidden.bs.modal", () => {
+        if (infoEl) infoEl.textContent = "-";
+        if (remarkEl) remarkEl.value = "";
     });
 })();
 

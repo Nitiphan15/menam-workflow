@@ -220,7 +220,69 @@
     color: #0f172a;
 }
 
+.dp-dispatch-panel {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 12px;
+}
+
+.dispatch-mode-group .btn {
+    min-width: 118px;
+}
+
+.dp-trip-control {
+    width: 168px;
+}
+
+.dp-trip-control .input-group {
+    flex-wrap: nowrap;
+}
+
+.dp-trip-control .form-control {
+    max-width: 64px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.dp-special-panel {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 12px;
+}
+
+@media (max-width: 576px) {
+    .dispatch-mode-group,
+    .dispatch-mode-group .btn,
+    .dp-trip-control {
+        width: 100%;
+    }
+
+    .dp-trip-control .form-control {
+        max-width: none;
+    }
+}
+
 .truck-meta {
     font-size: 12px;
     color: #6b7280;
+}
+
+#truckModal .modal-dialog {
+    max-height: calc(100vh - 24px);
+}
+
+#truckModal .modal-content {
+    max-height: calc(100vh - 24px);
+}
+
+#truckModal .truck-modal-body {
+    max-height: calc(100vh - 190px);
+    overflow: auto;
+}
+
+#truckModal .modal-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    background: #fff;
 }
