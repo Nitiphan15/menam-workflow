@@ -20,22 +20,132 @@
 }
 
 /* ===============================
-   Filter Grid
+   Filter Grid (flex auto-wrap)
 ================================ */
 .dp-filter-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 12px;
-    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 12px;
+    align-items: flex-end;
 }
-@media (max-width: 1200px) {
-    .dp-filter-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
+
+.dp-fg-col {
+    flex: 1 1 140px;
+    min-width: 130px;
+    max-width: 200px;
 }
+
+/* ===============================
+   Autocomplete dropdown (style ตาม dp.index)
+================================ */
+.dp-ac-wrap {
+    position: relative;
+}
+.dp-ac-wrap .dp-ac-input {
+    padding-right: 28px;
+}
+.dp-ac-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    line-height: 18px;
+    text-align: center;
+    border: 0;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 16px;
+    cursor: pointer;
+    display: none;
+    padding: 0;
+}
+.dp-ac-clear:hover {
+    background: #cbd5e1;
+    color: #0f172a;
+}
+.dp-ac-wrap.has-value .dp-ac-clear {
+    display: inline-block;
+}
+
+.dp-suggest {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
+    padding: 6px;
+    max-height: 260px;
+    overflow: auto;
+    z-index: 1060;
+    min-width: 220px;
+}
+
+.dp-suggest button {
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+}
+
+.dp-suggest-item {
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dp-suggest-item:hover,
+.dp-suggest-item.is-active {
+    background: #eef4ff;
+}
+
+.dp-suggest-title {
+    font-weight: 700;
+    font-size: 13px;
+    color: #0f172a;
+}
+
+.dp-suggest-title mark {
+    background: #fef08a;
+    color: inherit;
+    padding: 0;
+}
+
+.dp-suggest-sub {
+    font-size: 11px;
+    color: #6b7280;
+}
+
+.dp-suggest-empty {
+    padding: 10px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+.dp-fg-actions {
+    display: flex;
+    gap: 6px;
+    align-items: flex-end;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
 @media (max-width: 768px) {
-    .dp-filter-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .dp-fg-col {
+        flex: 1 1 45%;
+    }
+    .dp-fg-actions {
+        flex: 1 1 100%;
+        justify-content: flex-end;
     }
 }
 
@@ -58,6 +168,110 @@
     font-weight: 900;
 }
 
+/* Legend: รหัสสี = จำนวน Revision/เพิ่มเติม */
+.dp-rev-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 6px 12px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    font-size: 12px;
+}
+.dp-rev-legend-title {
+    color: #475569;
+    font-weight: 700;
+}
+.dp-rev-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.dp-rev-legend-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(15, 23, 42, 0.2);
+}
+
+/* Compact KPI strip (new design) */
+.dp-kpi-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.dp-kpi-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-left: 4px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 10px 16px;
+    flex: 1 1 180px;
+    min-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+.dp-kpi-chip > i {
+    font-size: 20px;
+    width: 24px;
+    text-align: center;
+    flex: 0 0 auto;
+}
+.dp-kpi-chip > div {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+.dp-kpi-chip-label {
+    font-size: 12px;
+    color: #475569;
+    line-height: 1.15;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dp-kpi-chip-value {
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1.2;
+    color: #0f172a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dp-kpi-chip-sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: #64748b;
+    margin-left: 6px;
+}
+.dp-kpi-chip.dp-kpi-danger {
+    border-left-color: #dc3545;
+    background: #fff5f6;
+}
+.dp-kpi-chip.dp-kpi-danger > i {
+    color: #dc3545;
+}
+.dp-kpi-chip.dp-kpi-warning {
+    border-left-color: #f59e0b;
+    background: #fffaf0;
+}
+.dp-kpi-chip.dp-kpi-warning > i {
+    color: #f59e0b;
+}
+.dp-kpi-chip.dp-kpi-info {
+    border-left-color: #8b5cf6;
+    background: #f8f5ff;
+}
+.dp-kpi-chip.dp-kpi-info > i {
+    color: #8b5cf6;
+}
+
 /* ===============================
    Table wrapper / scrolling
    (แนะนำให้ครอบ table ด้วย .dp-table-wrap)
@@ -77,20 +291,21 @@
     width: 100%;
 }
 #inqTable thead th {
-    position: static;
-    top: auto;
+    position: sticky;
+    top: 0;
     background: #f8fafc;
-    z-index: 10;
+    z-index: 20;
     white-space: nowrap;
+    box-shadow: inset 0 -1px 0 #dbe3ef;
 }
 
 #inqTable thead tr.dp-inquiry-filter-row th {
-    top: auto;
-    z-index: 11;
+    position: sticky;
+    top: 36px;
+    z-index: 19;
     padding: 6px;
     background: #fff;
-    position: static;
-    box-shadow: none;
+    box-shadow: inset 0 -1px 0 #dbe3ef;
 }
 
 #inqTable thead tr.dp-inquiry-filter-row th:first-child {
@@ -113,6 +328,150 @@
     margin-left: 4px;
 }
 
+.inq-column-menu {
+    max-height: 420px;
+    min-width: 340px;
+    overflow-y: auto;
+}
+
+.inq-column-item {
+    align-items: center;
+    display: grid;
+    grid-template-columns: 24px 28px minmax(0, 1fr) 28px 28px;
+    gap: 6px;
+    padding: 4px 2px;
+}
+
+.inq-column-item.is-dragging {
+    opacity: .48;
+}
+
+.inq-column-item.is-hidden span {
+    color: #94a3b8;
+}
+
+.inq-column-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inq-column-drag {
+    align-items: center;
+    color: #94a3b8;
+    cursor: grab;
+    display: inline-flex;
+    height: 24px;
+    justify-content: center;
+}
+
+.inq-column-drag:active {
+    cursor: grabbing;
+}
+
+.inq-column-eye,
+.inq-column-move {
+    align-items: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+    color: #475569;
+    display: inline-flex;
+    height: 24px;
+    justify-content: center;
+    padding: 0;
+    width: 24px;
+}
+
+.inq-column-eye {
+    color: #2563eb;
+}
+
+.inq-column-eye.is-hidden {
+    color: #94a3b8;
+}
+
+.inq-column-move:disabled {
+    color: #cbd5e1;
+    cursor: not-allowed;
+}
+
+.inq-hide-col-btn {
+    border: 0;
+    background: transparent;
+    color: #2563eb;
+    cursor: pointer;
+    font-size: 12px;
+    margin-left: 5px;
+    padding: 0 2px;
+}
+
+.inq-hide-col-btn:hover {
+    color: #dc3545;
+}
+
+.action-compact {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    max-width: none;
+    width: auto;
+}
+
+.action-compact .action-primary {
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.action-compact .action-icon {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-compact .action-more {
+    width: 34px;
+}
+
+.action-compact .dropdown {
+    width: 34px;
+}
+
+.action-menu {
+    min-width: 190px;
+}
+
+.action-menu .dropdown-item {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+}
+
+.action-menu .dropdown-item i {
+    text-align: center;
+    width: 16px;
+}
+
+.planner-confirm-wrap {
+    max-width: 160px;
+}
+
+.planner-confirm-badge,
+.planner-confirm-meta {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
 #inqTable .dp-col-filter {
     width: 100%;
     min-width: 72px;
@@ -132,51 +491,55 @@
     color: var(--rev) !important;
 }
 
+#inqTable tbody tr.data-row[data-rev="3"] > * {
+    color: #ff008c !important;
+}
+
 /* ===============================
-   Sticky Columns
+   Sticky Columns (ปิดการตรึงซ้าย-ขวา เพราะมีฟีเจอร์สลับคอลัมน์)
+   คงเฉพาะ min-width / width เพื่อรักษาขนาดคอลัมน์
 ================================ */
 
-/* base sticky */
-#inqTable .sticky-col {
-    position: static;
-    background: #fff;
-    z-index: 2;
-}
-
-/* thead ให้สูงกว่า body */
-#inqTable thead .sticky-col {
-    background: #f8fafc;
-    z-index: 15;
-}
-
-/* left offsets (ปรับเลขให้ตรงกับความกว้างจริง) */
 #inqTable .sticky-1,
 #inqTable .c1 {
-    left: auto;
+    min-width: 46px;
+    width: 46px;
 } /* # */
 #inqTable .sticky-2,
 #inqTable .c2 {
-    left: auto;
+    min-width: 132px;
+    width: 132px;
 } /* วันที่ส่งสินค้า */
+#inqTable .sticky-truck {
+    min-width: 160px;
+    width: 160px;
+}
 #inqTable .sticky-3,
 #inqTable .c3 {
-    left: auto;
+    min-width: 160px;
+    width: 160px;
 } /* ลูกค้า */
 #inqTable .sticky-4,
 #inqTable .c4 {
-    left: auto;
+    min-width: 300px;
+    width: 300px;
 } /* Part Desc */
 
-/* เงาขอบคอลัมน์สุดท้าย กันดูแบน */
-#inqTable .sticky-4,
-#inqTable .c4 {
-    box-shadow: none;
-}
-
-/* กันข้อความล้นใน sticky column */
+/* กันข้อความล้นในคอลัมน์ที่ต้องการความกว้างคงที่ */
 #inqTable td.sticky-col,
 #inqTable th.sticky-col {
     white-space: nowrap;
+}
+
+#inqTable td.sticky-4 {
+    white-space: normal;
+}
+
+.part-number-muted {
+    color: #64748b;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    margin-top: 2px;
 }
 
 /* ===============================
@@ -268,16 +631,228 @@
 }
 
 #truckModal .modal-dialog {
+    height: calc(100vh - 24px);
     max-height: calc(100vh - 24px);
+    margin-top: 12px;
+    margin-bottom: 12px;
 }
 
 #truckModal .modal-content {
+    height: 100%;
     max-height: calc(100vh - 24px);
 }
 
+#truckModal #truckAssignForm {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+}
+
 #truckModal .truck-modal-body {
-    max-height: calc(100vh - 190px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#truckModal #tmLineSelectPanel {
+    flex: 0 0 auto;
+    margin-bottom: 0 !important;
+}
+
+#truckModal .truck-lines-wrap {
+    max-height: 220px;
     overflow: auto;
+}
+
+#truckModal #tmTruckPickPanel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+#truckModal #tmTruckPickPanel > [class*="col-"] {
+    min-height: 0;
+}
+
+#truckModal #tmTruckPickPanel .card {
+    min-height: 0;
+}
+
+#truckModal .truck-system-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+#truckModal .truck-master-area {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+#truckModal .truck-master-wrap {
+    max-height: min(46vh, 470px);
+    overflow: auto;
+}
+
+#truckModal .truck-master-table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+#truckModal .truck-master-table thead {
+    display: none;
+}
+
+#truckModal .truck-master-table tbody {
+    display: block;
+}
+
+#truckModal .truck-master-table .tmTruckRow {
+    display: grid;
+    grid-template-columns: 40px minmax(150px, 0.75fr) minmax(170px, 0.9fr) minmax(240px, 1.25fr);
+    gap: 6px 12px;
+    align-items: start;
+    margin-bottom: 8px;
+    padding: 10px;
+    border: 1px solid #dbe4ee;
+    border-radius: 8px;
+    background: #fff;
+}
+
+#truckModal .truck-master-table .tmTruckRow:hover {
+    background: #f8fbff;
+    border-color: #b9d2f1;
+}
+
+#truckModal .truck-master-table .tmTruckRow td {
+    display: block;
+    border: 0;
+    padding: 0;
+    text-align: left !important;
+    white-space: normal;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1 / span 4;
+    padding-top: 4px;
+    text-align: center !important;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(4) {
+    grid-column: 3;
+    grid-row: 2;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(5) {
+    grid-column: 3;
+    grid-row: 3;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(6) {
+    grid-column: 3;
+    grid-row: 4;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(7) {
+    grid-column: 4;
+    grid-row: 1 / span 2;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(8) {
+    grid-column: 4;
+    grid-row: 3 / span 2;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(3)::before {
+    content: "Max: ";
+    color: #6b7280;
+    font-weight: 600;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(4)::before {
+    content: "Current: ";
+    color: #6b7280;
+    font-weight: 600;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(5)::before {
+    content: "Remain: ";
+    color: #6b7280;
+    font-weight: 600;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(6)::before {
+    content: "Length: ";
+    color: #6b7280;
+    font-weight: 600;
+}
+
+#truckModal .tm-manual-staff-body {
+    overflow: visible;
+}
+
+#truckModal .tm-manual-section,
+#truckModal .tm-staff-section {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    padding: 12px;
+}
+
+#truckModal .tm-manual-section {
+    background: #fbfdff;
+}
+
+#truckModal .tm-staff-section {
+    background: #f8fafc;
+}
+
+#truckModal .tm-staff-grid > .tm-staff-field {
+    flex: 0 0 50%;
+    max-width: 50%;
+}
+
+#truckModal .tm-staff-grid > .tm-staff-driver {
+    flex-basis: 100%;
+    max-width: 100%;
+}
+
+#truckModal #tmDriverStaffId,
+#truckModal #tmHelper1StaffId,
+#truckModal #tmHelper2StaffId,
+#truckModal #tmHelper3StaffId,
+#truckModal #tmHelper4StaffId,
+#truckModal #tmHelper5StaffId {
+    min-height: 31px;
+}
+
+#truckModal #tmDriverStaffId,
+#truckModal #tmHelper1StaffId {
+    background-color: #fff;
+}
+
+#truckModal #tmDriverStaffId:focus,
+#truckModal #tmHelper1StaffId:focus,
+#truckModal #tmHelper2StaffId:focus,
+#truckModal #tmHelper3StaffId:focus,
+#truckModal #tmHelper4StaffId:focus,
+#truckModal #tmHelper5StaffId:focus {
+    box-shadow: 0 0 0 0.16rem rgba(13, 110, 253, 0.16);
 }
 
 #truckModal .modal-footer {
@@ -285,4 +860,159 @@
     bottom: 0;
     z-index: 3;
     background: #fff;
+}
+
+@media (max-width: 991.98px) {
+    #truckModal .truck-modal-body {
+        overflow: auto;
+    }
+
+    #truckModal .truck-master-table .tmTruckRow {
+        grid-template-columns: 36px 1fr;
+    }
+
+    #truckModal .truck-master-table .tmTruckRow td:nth-child(n) {
+        grid-column: 2;
+        grid-row: auto;
+    }
+
+    #truckModal .truck-master-table .tmTruckRow td:nth-child(1) {
+        grid-column: 1;
+        grid-row: 1 / span 8;
+    }
+}
+
+@media (max-width: 576px) {
+    #truckModal .tm-staff-grid > .tm-staff-field {
+        flex-basis: 100%;
+        max-width: 100%;
+    }
+}
+
+/* Keep the truck modal on one natural scroll, without nested vertical scrollbars. */
+#truckModal .modal-dialog {
+    height: auto;
+    max-height: calc(100vh - 24px);
+}
+
+#truckModal .modal-content {
+    height: auto;
+    max-height: calc(100vh - 24px);
+}
+
+#truckModal #truckAssignForm {
+    display: block;
+    height: auto;
+}
+
+#truckModal .truck-modal-body {
+    display: block;
+    max-height: calc(100vh - 190px);
+    overflow: auto;
+}
+
+#truckModal #tmTruckPickPanel {
+    overflow: visible;
+}
+
+#truckModal .truck-lines-wrap,
+#truckModal .truck-master-wrap {
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: visible;
+}
+
+#truckModal #tmTruckPickPanel .col-lg-5 .card-body {
+    max-height: none;
+    overflow: visible;
+}
+
+#truckModal .truck-master-table {
+    border-collapse: collapse;
+    border-spacing: 0;
+}
+
+#truckModal .truck-master-table thead {
+    display: table-header-group;
+}
+
+#truckModal .truck-master-table tbody {
+    display: table-row-group;
+}
+
+#truckModal .truck-master-table .tmTruckRow {
+    display: table-row;
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+#truckModal .truck-master-table .tmTruckRow td {
+    display: table-cell;
+    border-top: 1px solid #dee2e6;
+    padding: 0.35rem;
+    vertical-align: middle;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(n) {
+    grid-column: auto;
+    grid-row: auto;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(1),
+#truckModal .truck-master-table .tmTruckRow td:nth-child(3),
+#truckModal .truck-master-table .tmTruckRow td:nth-child(4),
+#truckModal .truck-master-table .tmTruckRow td:nth-child(5),
+#truckModal .truck-master-table .tmTruckRow td:nth-child(6) {
+    text-align: center !important;
+}
+
+#truckModal .truck-master-table .tmTruckRow td:nth-child(3)::before,
+#truckModal .truck-master-table .tmTruckRow td:nth-child(4)::before,
+#truckModal .truck-master-table .tmTruckRow td:nth-child(5)::before,
+#truckModal .truck-master-table .tmTruckRow td:nth-child(6)::before {
+    content: none;
+}
+.duplicate-mfg-suggest {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 1065;
+    max-height: 260px;
+    overflow: auto;
+    padding: 6px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .12);
+}
+
+.duplicate-mfg-suggest-item {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    text-align: left;
+}
+
+.duplicate-mfg-suggest-item:hover,
+.duplicate-mfg-suggest-item:focus {
+    background: #f3f4f6;
+}
+
+.duplicate-mfg-suggest-title {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.duplicate-mfg-suggest-sub {
+    font-size: 12px;
+    color: #64748b;
 }

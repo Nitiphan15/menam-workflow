@@ -127,19 +127,14 @@ Route::get('/api/mfgs/search', [MfgLookupController::class, 'byMFG'])->name('api
 Route::get('/api/wr/items', [IncomeController::class, 'itemsSuggest'])->name('wr.autocomplete.items');
 Route::get('/api/wr/po',    [IncomeController::class, 'poSuggest'])->name('wr.autocomplete.po');
 
-Route::get('/dp/customer-lookup', [DeliveryPlanController::class, 'customerLookup'])
-  ->name('dp.customerLookup');
-Route::get('/dp/so-lookup', [DeliveryPlanController::class, 'soLookup'])->name('dp.soLookup');
-Route::get('/dp/so-lines',  [DeliveryPlanController::class, 'soLines'])->name('dp.soLines');
-Route::get('/dp/sales-lookup',    [DeliveryPlanController::class, 'salesLookup'])->name('dp.salesLookup');
-Route::get('/dp/mfg-lookup', [DeliveryPlanController::class, 'mfgLookup'])->name('dp.mfgLookup');
-Route::get('/dp/part-lookup', [DeliveryPlanController::class, 'partLookup'])->name('dp.partLookup');
-Route::get('/dp/production-status', [ProductionStatusTrackingController::class, 'index'])->name('dp.production-status');
-Route::get('/dp/production-status/export', [ProductionStatusTrackingController::class, 'export'])->name('dp.production-status.export');
-Route::get('/dp/production-status/detail', [ProductionStatusTrackingController::class, 'detail'])->name('dp.production-status.detail');
-Route::post('/dp/production-status/confirm', [ProductionStatusTrackingController::class, 'confirm'])->name('dp.production-status.confirm');
-Route::post('/dp/production-status/confirm-bulk', [ProductionStatusTrackingController::class, 'confirmBulk'])->name('dp.production-status.confirm.bulk');
-Route::get('/dp/production-status/confirm/history', [ProductionStatusTrackingController::class, 'confirmHistory'])->name('dp.production-status.confirm.history');
+Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
+  Route::get('/dp/production-status', [ProductionStatusTrackingController::class, 'index'])->name('dp.production-status');
+  Route::get('/dp/production-status/export', [ProductionStatusTrackingController::class, 'export'])->name('dp.production-status.export');
+  Route::get('/dp/production-status/detail', [ProductionStatusTrackingController::class, 'detail'])->name('dp.production-status.detail');
+  Route::post('/dp/production-status/confirm', [ProductionStatusTrackingController::class, 'confirm'])->name('dp.production-status.confirm');
+  Route::post('/dp/production-status/confirm-bulk', [ProductionStatusTrackingController::class, 'confirmBulk'])->name('dp.production-status.confirm.bulk');
+  Route::get('/dp/production-status/confirm/history', [ProductionStatusTrackingController::class, 'confirmHistory'])->name('dp.production-status.confirm.history');
+});
 //Inquiry
 
 Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
@@ -329,8 +324,24 @@ Route::middleware(['auth'])
       Route::post('/inquiry/{ordId}/postpone', [DeliveryPlanInquiryController::class, 'postponePlan'])
         ->whereNumber('ordId')
         ->name('inquiry.postpone');
+      Route::post('/inquiry/bulk-postpone', [DeliveryPlanInquiryController::class, 'bulkPostponePlans'])
+        ->name('inquiry.bulk-postpone');
+      Route::post('/inquiry/{ordId}/duplicate', [DeliveryPlanInquiryController::class, 'duplicatePlan'])
+        ->whereNumber('ordId')
+        ->name('inquiry.duplicate');
 
       Route::get('/customer-lookup', [DeliveryPlanController::class, 'customerLookup'])->name('customerLookup');
+      Route::get('/so-lookup', [DeliveryPlanController::class, 'soLookup'])->name('soLookup');
+      Route::get('/so-lines', [DeliveryPlanController::class, 'soLines'])->name('soLines');
+      Route::get('/sales-lookup', [DeliveryPlanController::class, 'salesLookup'])->name('salesLookup');
+      Route::get('/mfg-lookup', [DeliveryPlanController::class, 'mfgLookup'])->name('mfgLookup');
+      Route::get('/duplicate-check', [DeliveryPlanController::class, 'duplicateCheck'])->name('duplicateCheck');
+      Route::get('/part-lookup', [DeliveryPlanController::class, 'partLookup'])->name('partLookup');
+      Route::post('/inquiry/sync-saleorder', [DeliveryPlanInquiryController::class, 'syncSaleOrderFromErp'])
+        ->name('inquiry.sync-saleorder');
+      Route::post('/{ordId}/void', [DeliveryPlanInquiryController::class, 'voidPlan'])
+        ->whereNumber('ordId')
+        ->name('void');
     });
 
     // ใช้ได้ทั้ง DP และ DPA
@@ -341,8 +352,8 @@ Route::middleware(['auth'])
         ->name('inquiry.history');
       Route::get('/history/db/{ord_id}', [DeliveryPlanInquiryController::class, 'historyDb'])->name('history.db');
       Route::get('/inquiry/export', [DeliveryPlanInquiryController::class, 'export'])->name('inquiry.export');
+      Route::get('/inquiry/export-pdf', [DeliveryPlanInquiryController::class, 'exportPdf'])->name('inquiry.export-pdf');
 
-      Route::post('/{ordId}/void', [DeliveryPlanInquiryController::class, 'voidPlan'])->name('void');
       Route::get('/truck-capacity', [DeliveryPlanInquiryController::class, 'truckCapacity'])->name('truck.capacity');
       Route::get('/truck-staff/options', [DeliveryPlanInquiryController::class, 'truckStaffOptions'])
         ->name('truck.staff.options');
@@ -354,6 +365,8 @@ Route::middleware(['auth'])
     Route::middleware(['permission.any:DPEMAIL,DPMAIL'])->group(function () {
       Route::post('/inquiry/send-plan-mail', [DeliveryPlanInquiryController::class, 'sendPlanMail'])
         ->name('inquiry.send-plan-mail');
+      Route::get('/inquiry/export-plan-pdf', [DeliveryPlanInquiryController::class, 'downloadPlanPdf'])
+        ->name('inquiry.export-plan-pdf');
     });
 
     // ใช้ได้เฉพาะ DPA
@@ -369,8 +382,13 @@ Route::middleware(['auth'])
       Route::post('/inquiry/special-dispatch/{ordId}/close', [DeliveryPlanInquiryController::class, 'closeSpecialDispatch'])
         ->whereNumber('ordId')
         ->name('inquiry.special-dispatch.close');
+      Route::post('/inquiry/special-dispatch/{ordId}/reopen', [DeliveryPlanInquiryController::class, 'reopenSpecialDispatch'])
+        ->whereNumber('ordId')
+        ->name('inquiry.special-dispatch.reopen');
 
       Route::get('/dashboard/truck-board', [DeliveryPlanInquiryController::class, 'truckBoard'])->name('dashboard.truck-board');
+      Route::get('/dashboard/logistics-summary', [DeliveryPlanInquiryController::class, 'logisticsSummary'])
+        ->name('dashboard.logistics-summary');
       Route::get('/dashboard/truck-board/export/print', [DeliveryPlanInquiryController::class, 'printAssignedTruckBoard'])
         ->name('dashboard.truck-board.export.print');
       Route::get('/dashboard/truck-board/export/pdf', [DeliveryPlanInquiryController::class, 'downloadAssignedTruckBoardPdf'])

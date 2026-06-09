@@ -187,6 +187,7 @@ class DeliveryConfirmationService
                     $it['original_ship_date'],
                     null
                 );
+                $existing->put($key, true);
                 $saved++;
             } catch (\Throwable $e) {
                 $errors++;

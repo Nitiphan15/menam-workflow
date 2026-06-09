@@ -57,8 +57,7 @@ class DeliveryPlanController extends Controller
             $login = trim((string)($r->sales_login ?? ''));
             $name  = trim((string)($r->sales_name ?? ''));
 
-            $thai  = $this->mapSalesThai($login, $name);
-            $salesText = trim(($login !== '' ? $login . ' ' : '') . ($thai !== '' ? $thai : $name));
+            $salesText = $this->salesDisplayText($login, $name);
 
             return [
                 'id'         => (int)$r->id,
@@ -126,6 +125,7 @@ class DeliveryPlanController extends Controller
 
         $editId = trim((string)$request->query('edit', ''));
         $isEdit = ($editId !== '');
+        $isSales8User = $this->isSales8User();
 
         $header = [
             'window_time'       => '17:00',
@@ -143,7 +143,7 @@ class DeliveryPlanController extends Controller
 
         if ($isEdit) {
             $row = $this->conn()
-                ->table('delivery_plan_data_dev as d')
+                ->table('delivery_plan_data as d')
                 ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
                 ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
                 ->leftJoin('parts as p', function ($join) {
@@ -191,7 +191,7 @@ class DeliveryPlanController extends Controller
             $login = trim((string)($row->emp_login ?? ''));
             $name  = trim((string)($row->emp_name ?? ''));
             $thai  = $this->mapSalesThai($login, $name);
-            $salesText = trim(($login !== '' ? $login . ' ' : '') . ($thai !== '' ? $thai : $name));
+            $salesText = $this->salesDisplayText($login, $name);
 
             $partNoForCalc = strtoupper(trim((string)($row->part_number ?? '')));
             $refUnit = strtoupper(trim((string)($row->ref_unit ?? '')));
@@ -208,6 +208,47 @@ class DeliveryPlanController extends Controller
                 $kgPerLine = $refUnitQty;
             }
 
+            $editQtyKg = $this->toNumberOrNull($row->qty ?? null);
+            $editLineQty = $this->toNumberOrNull($row->line_qty ?? null);
+            if (!$isSales8User && $editQtyKg !== null && $editQtyKg <= 0) {
+                $editQtyKg = null;
+            }
+
+            if ($editQtyKg === null && $editLineQty !== null && $editLineQty > 0 && $kgPerLine !== null) {
+                $editQtyKg = $editLineQty * $kgPerLine;
+            }
+
+            if ($editQtyKg === null && strtoupper((string) ($row->delivery_type ?? 'SO')) !== 'ACID') {
+                $mfgNoForQty = trim((string) ($row->mfg_no ?? ''));
+
+                if ($mfgNoForQty !== '' && !str_contains($mfgNoForQty, ',')) {
+                    $mfgQty = $this->toNumberOrNull(
+                        $this->conn()
+                            ->table('workorder')
+                            ->where('workordernumber', $mfgNoForQty)
+                            ->value('qty')
+                    );
+
+                    if ($mfgQty !== null && $mfgQty > 0) {
+                        $editQtyKg = $mfgQty;
+                    }
+                }
+
+                if ($editQtyKg === null) {
+                    $soQty = $this->toNumberOrNull(
+                        $this->conn()
+                            ->table('saleorder')
+                            ->where('ordnumber', trim((string) ($row->so_number ?? '')))
+                            ->where('parts_id', (int) ($row->parts_id ?? 0))
+                            ->value('ordered_qty')
+                    );
+
+                    if ($soQty !== null && $soQty > 0) {
+                        $editQtyKg = $soQty;
+                    }
+                }
+            }
+
             $lines = [[
                 'id'                => (string)$row->ord_id,
                 'mode'              => (string)($row->delivery_type ?? 'SO'),
@@ -220,7 +261,7 @@ class DeliveryPlanController extends Controller
                 'part_no'           => (string)($row->part_number ?? ''),
                 'part_desc'         => (string)($row->part_desc ?? ''),
                 'mfg_no'            => (string)($row->mfg_no ?? ''),
-                'qty_kg'            => (string)($row->qty ?? ''),
+                'qty_kg'            => $editQtyKg === null ? '' : (string)$editQtyKg,
                 'stock_fg'          => (string)($row->stock_qty ?? ''),
                 'delivery_location' => (string)($row->address ?? ''),
                 'sell_by_line'      => (int)($row->sell_by_line ?? 0),
@@ -232,7 +273,7 @@ class DeliveryPlanController extends Controller
         }
 
         $rows = $this->conn()
-            ->table('delivery_plan_data_dev as d')
+            ->table('delivery_plan_data as d')
             ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
             ->leftJoin('revision_master as r', 'r.revision_number', '=', 'd.revision_number')
@@ -342,6 +383,21 @@ class DeliveryPlanController extends Controller
         $qtyKgInput = $this->toNumberOrNull($firstLine['qty_kg'] ?? null);
         $lineQtyInput = $this->toNumberOrNull($firstLine['sell_by_line_qty'] ?? null);
 
+        if (
+            !$isSales8User &&
+            trim((string)($firstLine['id'] ?? '')) !== '' &&
+            ($qtyKgInput === null || $qtyKgInput <= 0)
+        ) {
+            $fallbackQtyKg = $this->resolveEditQtyKg($firstLine);
+            if ($fallbackQtyKg !== null && $fallbackQtyKg > 0) {
+                $firstLine['qty_kg'] = (string)$fallbackQtyKg;
+                $request->merge([
+                    'lines' => array_replace($request->input('lines', []), [0 => $firstLine]),
+                ]);
+                $qtyKgInput = $fallbackQtyKg;
+            }
+        }
+
         // ถ้าขายแบบระบุเส้น ให้ใช้ Qty ระบุเส้นไปเทียบกับ SO/MFG qty
         // ถ้าไม่ใช่ระบุเส้น ค่อยใช้ KG
         $qtyInputForMax = $isSellByLine
@@ -420,6 +476,7 @@ class DeliveryPlanController extends Controller
                 }
             }
         });
+        $validator->validate();
 
         $erpDue = Carbon::parse($request->input('due_date'))->startOfDay();
 
@@ -575,7 +632,7 @@ class DeliveryPlanController extends Controller
                 }
 
                 if ($ordId !== '') {
-                    $row = $this->conn()->table('delivery_plan_data_dev')
+                    $row = $this->conn()->table('delivery_plan_data')
                         ->select([
                             'ord_id',
                             'ship_posted_at',
@@ -620,15 +677,8 @@ class DeliveryPlanController extends Controller
                     $sentRevisions = $this->sentRevisionNumbersForShipDate($newShipDate);
 
                     if (!empty($sentRevisions)) {
-                        $currentRevision = (int) ($row->revision_number ?? 0);
                         $requestedRevision = (int) $payload['revision_number'];
                         $sentRevisionText = implode(', ', $sentRevisions);
-
-                        if ($requestedRevision === $currentRevision) {
-                            throw new \RuntimeException(
-                                "วันที่ส่งสินค้า {$newShipDate} เคยส่งเมลแล้ว กรุณาเปลี่ยน Revision จาก {$currentRevision} เป็นเลขใหม่"
-                            );
-                        }
 
                         if (in_array($requestedRevision, $sentRevisions, true)) {
                             throw new \RuntimeException(
@@ -645,7 +695,7 @@ class DeliveryPlanController extends Controller
 
                     $payload['revise_by'] = $userId;
 
-                    $this->conn()->table('delivery_plan_data_dev')
+                    $this->conn()->table('delivery_plan_data')
                         ->where('ord_id', $ordId)
                         ->update($payload);
                 } else {
@@ -663,7 +713,7 @@ class DeliveryPlanController extends Controller
                     $payload['created_by']      = $userLogin;
                     $payload['revision_number'] = (int) $revisionInput;
                     //dd($ln, $revisionInput, $payload['revision_number'], $payload);
-                    $this->conn()->table('delivery_plan_data_dev')->insert($payload);
+                    $this->conn()->table('delivery_plan_data')->insert($payload);
                 }
             }
 
@@ -680,6 +730,71 @@ class DeliveryPlanController extends Controller
         }
 
         return $redirect;
+    }
+
+    /* =========================================================
+     * DUPLICATE CHECK (SO + MFG)
+     * ========================================================= */
+    public function duplicateCheck(Request $request)
+    {
+        $soNumber   = trim((string) $request->query('so_number', ''));
+        $mfgNo      = trim((string) $request->query('mfg_no', ''));
+        $excludeOrd = trim((string) $request->query('exclude_ord_id', ''));
+
+        if ($soNumber === '' && $mfgNo === '') {
+            return response()->json(['items' => []]);
+        }
+
+        $q = $this->conn()->table('delivery_plan_data as d')
+            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
+            ->whereRaw("UPPER(ISNULL(d.status,'')) NOT IN ('VOID','VOIDED','CANCEL','CANCELED','CANCELLED')")
+            ->select([
+                'd.ord_id',
+                'd.so_number',
+                'd.mfg_no',
+                'd.part_number',
+                'd.part_desc',
+                'd.qty',
+                'd.line_qty',
+                'd.sell_by_line',
+                'd.due_date',
+                'd.ship_posted_at',
+                'd.status',
+                'd.revision_number',
+                'd.customer_id',
+                'c.customernumber',
+                'c.name as customer_name',
+                'e.login as sales_login',
+                'e.name as sales_name',
+            ]);
+
+        if ($soNumber !== '') $q->where('d.so_number', $soNumber);
+        if ($mfgNo !== '')    $q->where('d.mfg_no', $mfgNo);
+        if ($excludeOrd !== '') $q->where('d.ord_id', '!=', $excludeOrd);
+
+        $rows = $q->orderByDesc('d.ord_id')->limit(20)->get();
+
+        $items = $rows->map(function ($r) {
+            return [
+                'ord_id'          => (int) $r->ord_id,
+                'so_number'       => (string) ($r->so_number ?? ''),
+                'mfg_no'          => (string) ($r->mfg_no ?? ''),
+                'part_number'     => (string) ($r->part_number ?? ''),
+                'part_desc'       => (string) ($r->part_desc ?? ''),
+                'qty'             => (float) ($r->qty ?? 0),
+                'line_qty'        => $r->line_qty !== null ? (float) $r->line_qty : null,
+                'sell_by_line'    => (int) ($r->sell_by_line ?? 0),
+                'due_date'        => $r->due_date ? Carbon::parse($r->due_date)->toDateString() : null,
+                'ship_date'       => $r->ship_posted_at ? Carbon::parse($r->ship_posted_at)->toDateString() : null,
+                'status'          => (string) ($r->status ?? ''),
+                'revision_number' => (int) ($r->revision_number ?? 0),
+                'customer'        => trim((string) ($r->customernumber ?? '') . ' — ' . (string) ($r->customer_name ?? '')),
+                'sales'           => $this->salesDisplayText((string) ($r->sales_login ?? ''), (string) ($r->sales_name ?? '')),
+            ];
+        })->values();
+
+        return response()->json(['items' => $items]);
     }
 
     /* =========================================================
@@ -739,7 +854,7 @@ class DeliveryPlanController extends Controller
                 'sales_code'     => $login,
                 'sales_name'     => $name,
                 'sales_name_th'  => $thai,
-                'sales_text'     => trim(($login !== '' ? $login . ' ' : '') . ($thai !== '' ? $thai : $name)),
+                'sales_text'     => $this->salesDisplayText($login, $name),
             ];
         });
 
@@ -776,6 +891,10 @@ class DeliveryPlanController extends Controller
             ->get();
 
         $items = $rows->map(function ($r) {
+            $login = trim((string)($r->sales_login ?? ''));
+            $name  = trim((string)($r->sales_name ?? ''));
+            $salesText = $this->salesDisplayText($login, $name);
+
             return [
                 'ordnumber'      => (string)$r->ordnumber,
                 'parts_id'       => (int)($r->parts_id ?? 0),
@@ -789,8 +908,10 @@ class DeliveryPlanController extends Controller
                 'customernumber' => (string)($r->customernumber ?? ''),
 
                 'sales_id'       => (string)($r->sales_id ?? ''),
-                'sales_name'     => (string)($r->sales_name ?? ''),
-                'sales_code'     => (string)($r->sales_login ?? ''),
+                'sales_code'     => $login,
+                'sales_name'     => $name,
+                'sales_name_th'  => $thai,
+                'sales_text'     => $salesText,
             ];
         });
 
@@ -957,6 +1078,58 @@ class DeliveryPlanController extends Controller
         return round($lineQty * $kgPerLine, 3);
     }
 
+    private function resolveEditQtyKg(array $line): ?float
+    {
+        $sellByLine = (string)($line['sell_by_line'] ?? '0');
+        $isSellByLine = ($sellByLine === '1' || strtolower($sellByLine) === 'true');
+        $lineQty = $this->toNumberOrNull($line['sell_by_line_qty'] ?? null);
+        $partsId = (int)($line['parts_id'] ?? 0);
+
+        if ($isSellByLine && $lineQty !== null && $lineQty > 0) {
+            $qtyFromLine = $this->calcKgFromLineQty($partsId, (float)$lineQty);
+            if ($qtyFromLine !== null && $qtyFromLine > 0) {
+                return $qtyFromLine;
+            }
+        }
+
+        $mfgNo = trim((string)($line['mfg_no'] ?? ''));
+        if ($mfgNo !== '' && !str_contains($mfgNo, ',')) {
+            $qtyFromMfg = $this->toNumberOrNull(
+                $this->conn()
+                    ->table('workorder')
+                    ->where('workordernumber', $mfgNo)
+                    ->value('qty')
+            );
+
+            if ($qtyFromMfg !== null && $qtyFromMfg > 0) {
+                return $qtyFromMfg;
+            }
+        }
+
+        $soNo = trim((string)($line['so_number'] ?? ''));
+        if ($soNo === '') {
+            return null;
+        }
+
+        $soQuery = $this->conn()->table('saleorder as so')
+            ->leftJoin('parts as p', 'p.id', '=', 'so.parts_id')
+            ->where('so.ordnumber', $soNo);
+
+        if ($partsId > 0) {
+            $soQuery->where('so.parts_id', $partsId);
+        } else {
+            $partNo = trim((string)($line['part_no'] ?? ''));
+            if ($partNo !== '') {
+                $soQuery->whereRaw(
+                    'p.partnumber COLLATE DATABASE_DEFAULT = ?',
+                    [$partNo]
+                );
+            }
+        }
+
+        return $this->toNumberOrNull($soQuery->value('so.ordered_qty'));
+    }
+
     private function sentRevisionNumbersForShipDate(?string $shipDate): array
     {
         if (!$shipDate) {
@@ -964,7 +1137,7 @@ class DeliveryPlanController extends Controller
         }
 
         return $this->conn()
-            ->table('delivery_plan_mail_logs_dev')
+            ->table('delivery_plan_mail_logs')
             ->whereRaw('CAST(ship_posted_at AS date) = ?', [$shipDate])
             ->whereNotNull('sent_at')
             ->pluck('revision_number')
@@ -998,17 +1171,39 @@ class DeliveryPlanController extends Controller
             ->distinct()
             ->count('workordernumber');
 
-        if ($mfgCount <= 1) {
+        if ($mfgCount <= 1 && !$request->boolean('continue_same_so')) {
             return null;
         }
 
-        $payload = $request->except(['_token']);
-        unset($payload['lines'][0]['id'], $payload['lines'][0]['mfg_no']);
+        $payload = $request->except(['_token', 'continue_same_so']);
+        unset(
+            $payload['lines'][0]['id'],
+            $payload['lines'][0]['mfg_no'],
+            $payload['lines'][0]['qty_kg'],
+            $payload['lines'][0]['sell_by_line_qty'],
+            $payload['lines'][0]['auto_qty_kg']
+        );
         $payload['is_manual_mfg'] = '1';
+
+        $salesId = (int) ($payload['lines'][0]['sales_id'] ?? 0);
+        if ($salesId > 0) {
+            $sales = $this->conn()->table('employees')
+                ->select('login', 'name')
+                ->where('id', $salesId)
+                ->first();
+
+            if ($sales) {
+                $payload['lines'][0]['sales_text'] = $this->salesDisplayText(
+                    $sales->login ?? '',
+                    $sales->name ?? ''
+                );
+            }
+        }
 
         return [
             'so_number' => $soNo,
             'mfg_count' => $mfgCount,
+            'requested' => $request->boolean('continue_same_so'),
             'form' => $payload,
         ];
     }
@@ -1080,13 +1275,37 @@ class DeliveryPlanController extends Controller
     private function mapSalesThai(?string $login, ?string $name): string
     {
         $loginKey = trim(mb_strtolower((string)$login));
+        $nameKey = trim(mb_strtolower((string)$name));
         $map = $this->salesThaiMap();
 
         if ($loginKey !== '' && isset($map[$loginKey])) {
             return (string)$map[$loginKey];
         }
 
+        if (preg_match('/^export\s*(\d+)$/', $loginKey, $matches)) {
+            $exportNameKey = 'export sales ' . str_pad((string) ((int) $matches[1]), 2, '0', STR_PAD_LEFT);
+            if (isset($map[$exportNameKey])) {
+                return (string)$map[$exportNameKey];
+            }
+        }
+
+        if ($nameKey !== '' && isset($map[$nameKey])) {
+            return (string)$map[$nameKey];
+        }
+
         $name = trim((string)$name);
         return $name !== '' ? $name : '';
+    }
+
+    private function salesDisplayText(?string $login, ?string $name): string
+    {
+        $login = trim((string)$login);
+        $mappedName = $this->mapSalesThai($login, $name);
+
+        if ($login !== '' && $mappedName !== '') {
+            return $login . ' : ' . $mappedName;
+        }
+
+        return $mappedName;
     }
 }

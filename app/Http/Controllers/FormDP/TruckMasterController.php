@@ -16,7 +16,7 @@ class TruckMasterController extends Controller
     public function trucks()
     {
         $rows = $this->conn()
-            ->table('delivery_plan_truck_master_dev')
+            ->table('delivery_plan_truck_master')
             ->orderBy('id')
             ->get();
 
@@ -42,10 +42,10 @@ class TruckMasterController extends Controller
         $driverStaffId = (int) ($data['driver_staff_id'] ?? 0);
         $driver = $driverStaffId > 0
             ? $this->conn()
-                ->table('delivery_plan_truck_staff_master_dev')
-                ->where('id', $driverStaffId)
-                ->where('role_type', 'DRIVER')
-                ->first()
+            ->table('delivery_plan_truck_staff_master')
+            ->where('id', $driverStaffId)
+            ->where('role_type', 'DRIVER')
+            ->first()
             : null;
 
         $payload = [
@@ -58,7 +58,7 @@ class TruckMasterController extends Controller
             'status' => $data['status'] ?? 'ACTIVE',
         ];
 
-        $truckId = $this->saveRow('delivery_plan_truck_master_dev', $payload, $id);
+        $truckId = $this->saveRow('delivery_plan_truck_master', $payload, $id);
         $this->syncTruckDriverMap($truckId, $driverStaffId);
 
         return back()->with('success', 'บันทึกข้อมูลรถแล้ว');
@@ -66,7 +66,7 @@ class TruckMasterController extends Controller
 
     public function deleteTruck(int $id)
     {
-        $this->softDelete('delivery_plan_truck_master_dev', $id, ['status' => 'INACTIVE']);
+        $this->softDelete('delivery_plan_truck_master', $id, ['status' => 'INACTIVE']);
 
         return back()->with('success', 'ปิดการใช้งานรถแล้ว');
     }
@@ -104,7 +104,7 @@ class TruckMasterController extends Controller
     private function staffPage(string $roleType, string $title, string $view)
     {
         $rows = $this->conn()
-            ->table('delivery_plan_truck_staff_master_dev')
+            ->table('delivery_plan_truck_staff_master')
             ->where('role_type', $roleType)
             ->orderBy('id')
             ->get();
@@ -135,14 +135,14 @@ class TruckMasterController extends Controller
             'is_active' => (int) ($data['is_active'] ?? 1),
         ];
 
-        $this->saveRow('delivery_plan_truck_staff_master_dev', $payload, $id);
+        $this->saveRow('delivery_plan_truck_staff_master', $payload, $id);
 
         return back()->with('success', 'บันทึกข้อมูล ' . ($roleType === 'DRIVER' ? 'พนักงานขับรถ' : 'เด็กรถ') . ' แล้ว');
     }
 
     private function deleteStaff(int $id)
     {
-        $this->softDelete('delivery_plan_truck_staff_master_dev', $id, ['is_active' => 0]);
+        $this->softDelete('delivery_plan_truck_staff_master', $id, ['is_active' => 0]);
 
         return back()->with('success', 'ปิดการใช้งานแล้ว');
     }
@@ -150,7 +150,7 @@ class TruckMasterController extends Controller
     private function driverOptions()
     {
         return $this->conn()
-            ->table('delivery_plan_truck_staff_master_dev')
+            ->table('delivery_plan_truck_staff_master')
             ->where('role_type', 'DRIVER')
             ->where('is_active', 1)
             ->orderBy('id')
@@ -167,7 +167,7 @@ class TruckMasterController extends Controller
     private function truckDriverMap(): array
     {
         return $this->conn()
-            ->table('delivery_plan_truck_staff_map_dev')
+            ->table('delivery_plan_truck_staff_map')
             ->where('assign_role', 'DRIVER')
             ->where('is_active', 1)
             ->pluck('staff_id', 'truck_id')
@@ -181,10 +181,10 @@ class TruckMasterController extends Controller
             return;
         }
 
-        $inactivePayload = $this->onlyExistingColumns('delivery_plan_truck_staff_map_dev', ['is_active' => 0]);
+        $inactivePayload = $this->onlyExistingColumns('delivery_plan_truck_staff_map', ['is_active' => 0]);
         if (!empty($inactivePayload)) {
             $this->conn()
-                ->table('delivery_plan_truck_staff_map_dev')
+                ->table('delivery_plan_truck_staff_map')
                 ->where('truck_id', $truckId)
                 ->where('assign_role', 'DRIVER')
                 ->update($inactivePayload);
@@ -194,7 +194,7 @@ class TruckMasterController extends Controller
             return;
         }
 
-        $payload = $this->onlyExistingColumns('delivery_plan_truck_staff_map_dev', [
+        $payload = $this->onlyExistingColumns('delivery_plan_truck_staff_map', [
             'truck_id' => $truckId,
             'staff_id' => $driverStaffId,
             'assign_role' => 'DRIVER',
@@ -203,7 +203,7 @@ class TruckMasterController extends Controller
         ]);
 
         if (!empty($payload)) {
-            $this->conn()->table('delivery_plan_truck_staff_map_dev')->insert($payload);
+            $this->conn()->table('delivery_plan_truck_staff_map')->insert($payload);
         }
     }
 

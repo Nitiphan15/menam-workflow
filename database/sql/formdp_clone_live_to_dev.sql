@@ -1,12 +1,12 @@
 /*
-    Refresh FormDP truck workflow tables into *_dev tables.
+    Refresh FormDP truck workflow tables into * tables.
 
     Scope:
-    - Does not touch delivery_plan_data or delivery_plan_data_dev.
+    - Does not touch delivery_plan_data or delivery_plan_data.
     - Does not clone SO, WO, customer, or other reference tables.
-    - Creates missing *_dev truck workflow tables from the live table structure.
-    - Reloads *_dev data on every run.
-    - Adds trip close columns to delivery_plan_truck_assign_dev when missing.
+    - Creates missing * truck workflow tables from the live table structure.
+    - Reloads * data on every run.
+    - Adds trip close columns to delivery_plan_truck_assign when missing.
 
     Run this whole file in one SSMS tab.
 */
@@ -26,48 +26,60 @@ CREATE TABLE #formdp_clone_tables (
 
 INSERT INTO #formdp_clone_tables (sort_order, live_table, dev_table)
 VALUES
-    (10, N'delivery_plan_mail_logs', N'delivery_plan_mail_logs_dev'),
-    (20, N'delivery_plan_truck_master', N'delivery_plan_truck_master_dev'),
-    (30, N'delivery_plan_truck_staff_master', N'delivery_plan_truck_staff_master_dev'),
-    (40, N'delivery_plan_truck_staff_map', N'delivery_plan_truck_staff_map_dev'),
-    (50, N'delivery_plan_truck_assign', N'delivery_plan_truck_assign_dev');
+    (10, N'delivery_plan_mail_logs', N'delivery_plan_mail_logs'),
+    (20, N'delivery_plan_truck_master', N'delivery_plan_truck_master'),
+    (30, N'delivery_plan_truck_staff_master', N'delivery_plan_truck_staff_master'),
+    (40, N'delivery_plan_truck_staff_map', N'delivery_plan_truck_staff_map'),
+    (50, N'delivery_plan_truck_assign', N'delivery_plan_truck_assign');
 
-IF OBJECT_ID(N'dbo.delivery_plan_mail_logs_dev', N'U') IS NULL
-    SELECT TOP (0) * INTO dbo.delivery_plan_mail_logs_dev FROM dbo.delivery_plan_mail_logs;
+IF OBJECT_ID(N'dbo.delivery_plan_mail_logs', N'U') IS NULL
+    SELECT TOP (0) * INTO dbo.delivery_plan_mail_logs FROM dbo.delivery_plan_mail_logs;
 
-IF OBJECT_ID(N'dbo.delivery_plan_truck_master_dev', N'U') IS NULL
-    SELECT TOP (0) * INTO dbo.delivery_plan_truck_master_dev FROM dbo.delivery_plan_truck_master;
+IF OBJECT_ID(N'dbo.delivery_plan_truck_master', N'U') IS NULL
+    SELECT TOP (0) * INTO dbo.delivery_plan_truck_master FROM dbo.delivery_plan_truck_master;
 
-IF OBJECT_ID(N'dbo.delivery_plan_truck_staff_master_dev', N'U') IS NULL
-    SELECT TOP (0) * INTO dbo.delivery_plan_truck_staff_master_dev FROM dbo.delivery_plan_truck_staff_master;
+IF OBJECT_ID(N'dbo.delivery_plan_truck_staff_master', N'U') IS NULL
+    SELECT TOP (0) * INTO dbo.delivery_plan_truck_staff_master FROM dbo.delivery_plan_truck_staff_master;
 
-IF OBJECT_ID(N'dbo.delivery_plan_truck_staff_map_dev', N'U') IS NULL
-    SELECT TOP (0) * INTO dbo.delivery_plan_truck_staff_map_dev FROM dbo.delivery_plan_truck_staff_map;
+IF OBJECT_ID(N'dbo.delivery_plan_truck_staff_map', N'U') IS NULL
+    SELECT TOP (0) * INTO dbo.delivery_plan_truck_staff_map FROM dbo.delivery_plan_truck_staff_map;
 
-IF OBJECT_ID(N'dbo.delivery_plan_truck_assign_dev', N'U') IS NULL
-    SELECT TOP (0) * INTO dbo.delivery_plan_truck_assign_dev FROM dbo.delivery_plan_truck_assign;
+IF OBJECT_ID(N'dbo.delivery_plan_truck_assign', N'U') IS NULL
+    SELECT TOP (0) * INTO dbo.delivery_plan_truck_assign FROM dbo.delivery_plan_truck_assign;
 
-IF COL_LENGTH(N'dbo.delivery_plan_truck_assign_dev', N'trip_no') IS NULL
-    ALTER TABLE dbo.delivery_plan_truck_assign_dev
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'trip_no') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign
         ADD trip_no int NOT NULL
-            CONSTRAINT DF_delivery_plan_truck_assign_dev_trip_no DEFAULT (1);
+            CONSTRAINT DF_delivery_plan_truck_assign_trip_no DEFAULT (1);
 
-IF COL_LENGTH(N'dbo.delivery_plan_truck_assign_dev', N'closed_at') IS NULL
-    ALTER TABLE dbo.delivery_plan_truck_assign_dev ADD closed_at datetime NULL;
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'closed_at') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD closed_at datetime NULL;
 
-IF COL_LENGTH(N'dbo.delivery_plan_truck_assign_dev', N'closed_by') IS NULL
-    ALTER TABLE dbo.delivery_plan_truck_assign_dev ADD closed_by int NULL;
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'closed_by') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD closed_by int NULL;
 
-IF COL_LENGTH(N'dbo.delivery_plan_truck_assign_dev', N'closed_remark') IS NULL
-    ALTER TABLE dbo.delivery_plan_truck_assign_dev ADD closed_remark nvarchar(500) NULL;
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'closed_remark') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD closed_remark nvarchar(500) NULL;
+
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'helper4_staff_id') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD helper4_staff_id int NULL;
+
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'helper4_name') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD helper4_name nvarchar(200) NULL;
+
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'helper5_staff_id') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD helper5_staff_id int NULL;
+
+IF COL_LENGTH(N'dbo.delivery_plan_truck_assign', N'helper5_name') IS NULL
+    ALTER TABLE dbo.delivery_plan_truck_assign ADD helper5_name nvarchar(200) NULL;
 
 BEGIN TRANSACTION;
 
-DELETE FROM dbo.delivery_plan_truck_assign_dev;
-DELETE FROM dbo.delivery_plan_truck_staff_map_dev;
-DELETE FROM dbo.delivery_plan_truck_staff_master_dev;
-DELETE FROM dbo.delivery_plan_truck_master_dev;
-DELETE FROM dbo.delivery_plan_mail_logs_dev;
+DELETE FROM dbo.delivery_plan_truck_assign;
+DELETE FROM dbo.delivery_plan_truck_staff_map;
+DELETE FROM dbo.delivery_plan_truck_staff_master;
+DELETE FROM dbo.delivery_plan_truck_master;
+DELETE FROM dbo.delivery_plan_mail_logs;
 
 DECLARE @live_table sysname;
 DECLARE @dev_table sysname;
@@ -151,7 +163,7 @@ END;
 CLOSE clone_cur;
 DEALLOCATE clone_cur;
 
-UPDATE dbo.delivery_plan_truck_assign_dev
+UPDATE dbo.delivery_plan_truck_assign
 SET trip_no = 1
 WHERE trip_no IS NULL OR trip_no < 1;
 
@@ -159,16 +171,16 @@ COMMIT TRANSACTION;
 
 DROP TABLE #formdp_clone_tables;
 
-IF OBJECT_ID(N'dbo.delivery_plan_special_dispatch_dev', N'U') IS NULL
+IF OBJECT_ID(N'dbo.delivery_plan_special_dispatch', N'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.delivery_plan_special_dispatch_dev (
+    CREATE TABLE dbo.delivery_plan_special_dispatch (
         id int IDENTITY(1,1) NOT NULL PRIMARY KEY,
         ord_id int NOT NULL,
         dispatch_type nvarchar(50) NOT NULL,
-        status nvarchar(20) NOT NULL CONSTRAINT DF_delivery_plan_special_dispatch_dev_status DEFAULT (N'OPEN'),
+        status nvarchar(20) NOT NULL CONSTRAINT DF_delivery_plan_special_dispatch_status DEFAULT (N'OPEN'),
         remark nvarchar(500) NULL,
         action_by int NULL,
-        action_at datetime NOT NULL CONSTRAINT DF_delivery_plan_special_dispatch_dev_action_at DEFAULT (GETDATE()),
+        action_at datetime NOT NULL CONSTRAINT DF_delivery_plan_special_dispatch_action_at DEFAULT (GETDATE()),
         closed_at datetime NULL,
         closed_by int NULL,
         close_remark nvarchar(500) NULL
@@ -178,12 +190,12 @@ END;
 IF NOT EXISTS (
     SELECT 1
     FROM sys.indexes
-    WHERE object_id = OBJECT_ID(N'dbo.delivery_plan_special_dispatch_dev')
-      AND name = N'IX_delivery_plan_special_dispatch_dev_ord_open'
+    WHERE object_id = OBJECT_ID(N'dbo.delivery_plan_special_dispatch')
+      AND name = N'IX_delivery_plan_special_dispatch_ord_open'
 )
 BEGIN
-    CREATE INDEX IX_delivery_plan_special_dispatch_dev_ord_open
-        ON dbo.delivery_plan_special_dispatch_dev (ord_id, status, dispatch_type);
+    CREATE INDEX IX_delivery_plan_special_dispatch_ord_open
+        ON dbo.delivery_plan_special_dispatch (ord_id, status, dispatch_type);
 END;
 
 SELECT
@@ -197,11 +209,11 @@ INNER JOIN sys.partitions p
    AND p.index_id IN (0, 1)
 WHERE s.name = N'dbo'
   AND t.name IN (
-        N'delivery_plan_mail_logs_dev',
-        N'delivery_plan_truck_master_dev',
-        N'delivery_plan_truck_staff_master_dev',
-        N'delivery_plan_truck_staff_map_dev',
-        N'delivery_plan_truck_assign_dev',
-        N'delivery_plan_special_dispatch_dev'
+        N'delivery_plan_mail_logs',
+        N'delivery_plan_truck_master',
+        N'delivery_plan_truck_staff_master',
+        N'delivery_plan_truck_staff_map',
+        N'delivery_plan_truck_assign',
+        N'delivery_plan_special_dispatch'
   )
 ORDER BY t.name;

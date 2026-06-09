@@ -8,9 +8,7 @@ use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 
 class InquiryByShipDateExport implements WithMultipleSheets
 {
-    public function __construct(private array $filters = [])
-    {
-    }
+    public function __construct(private array $filters = []) {}
 
     public function sheets(): array
     {
@@ -36,7 +34,7 @@ class InquiryByShipDateExport implements WithMultipleSheets
     private function baseQuery()
     {
         $q = DB::connection('sqlsrv_menam')
-            ->table('delivery_plan_data_dev as d')
+            ->table('delivery_plan_data as d')
             ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id');

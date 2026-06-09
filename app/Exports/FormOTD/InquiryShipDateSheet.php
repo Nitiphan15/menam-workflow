@@ -17,9 +17,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
     private array $userMap = [];
     private array $groupRows = [];
 
-    public function __construct(private string $shipDate, private array $filters = [])
-    {
-    }
+    public function __construct(private string $shipDate, private array $filters = []) {}
 
     public function title(): string
     {
@@ -217,41 +215,38 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
             $q->whereRaw("CONVERT(date, d.ship_posted_at) = ?", [$this->shipDate]);
         }
 
-        $rows = $q->orderBy('d.sales_id')
-            ->orderBy('c.name')
-            ->orderBy('d.delivery_type')
-            ->orderBy('d.part_number')
-            ->get();
+        $orderBy  = trim((string) ($this->filters['order_by'] ?? ''));
+        $orderDir = strtolower(trim((string) ($this->filters['order_dir'] ?? '')));
+        $dir = in_array($orderDir, ['asc', 'desc'], true) ? $orderDir : 'asc';
 
-        $parts = $rows
-            ->pluck('part_number')
-            ->map(fn($x) => trim((string) $x))
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
+        $allowedOrder = [
+            'so'             => 'd.so_number',
+            'customer'       => 'c.name',
+            'shipto'         => 'd.address',
+            'qty'            => 'd.qty',
+            'window_at'      => 'd.window_at',
+            'ship_posted_at' => 'd.ship_posted_at',
+            'revision'       => 'd.revision_number',
+        ];
 
-        $stockMap = [];
-        if (!empty($parts)) {
-            $stockRows = DB::connection('pgsqlw')
-                ->table('parts')
-                ->select(['partnumber', 'totalonhand', 'onhand'])
-                ->whereIn('partnumber', $parts)
-                ->get();
-
-            foreach ($stockRows as $st) {
-                $pn = trim((string) $st->partnumber);
-                $stockMap[$pn] = [
-                    'totalonhand' => (float) ($st->totalonhand ?? 0),
-                    'onhand'      => (float) ($st->onhand ?? 0),
-                ];
-            }
+        if (isset($allowedOrder[$orderBy])) {
+            $q->orderBy('d.sales_id')
+                ->orderBy($allowedOrder[$orderBy], $dir)
+                ->orderBy('d.delivery_type')
+                ->orderBy('d.part_number');
+        } else {
+            $q->orderBy('d.sales_id')
+                ->orderBy('c.name')
+                ->orderBy('d.delivery_type')
+                ->orderBy('d.part_number');
         }
 
+        $rows = $q->get();
+
+        $stockMap = $this->trackingStockFgMapForRows($rows);
+
         foreach ($rows as $r) {
-            $partNo = trim((string) ($r->part_number ?? ''));
-            $stock = $stockMap[$partNo] ?? null;
-            $r->stock_qty = $stock['onhand'] ?? ($stock['totalonhand'] ?? 0);
+            $r->stock_qty = $this->trackingStockFgForRow($r, $stockMap);
 
             if ($displayRevision !== '' && is_numeric($displayRevision)) {
                 $r->revision_number = (int) $displayRevision;
@@ -264,6 +259,82 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         );
 
         return $this->withDivisionGroupRows($rows);
+    }
+
+    private function trackingStockFgMapForRows($rows): array
+    {
+        $partsByConnection = [
+            'pgsqlw' => collect(),
+            'pgsqlp' => collect(),
+        ];
+
+        foreach (collect($rows) as $row) {
+            $partNumber = trim((string) ($row->part_number ?? ''));
+            if ($partNumber === '') {
+                continue;
+            }
+
+            foreach ($this->stockConnectionsForMfg($row->mfg_no ?? '') as $connection) {
+                $partsByConnection[$connection]->push($partNumber);
+            }
+        }
+
+        $stockMap = [
+            'pgsqlw' => [],
+            'pgsqlp' => [],
+        ];
+
+        foreach ($partsByConnection as $connection => $partNumbers) {
+            $partNumbers = $partNumbers->filter()->unique()->values();
+            if ($partNumbers->isEmpty()) {
+                continue;
+            }
+
+            $stockRows = DB::connection($connection)
+                ->table('parts as p')
+                ->join('serializeunits as su', 'su.parts_id', '=', 'p.id')
+                ->join('serializeunitsmvmt as sus', 'sus.su_id', '=', 'su.id')
+                ->whereIn('p.partnumber', $partNumbers->all())
+                ->groupBy('p.partnumber')
+                ->selectRaw('p.partnumber, SUM(CASE WHEN su.onhand THEN sus.qty ELSE 0 END) AS balance_qty')
+                ->get();
+
+            foreach ($stockRows as $stockRow) {
+                $partNumber = trim((string) ($stockRow->partnumber ?? ''));
+                if ($partNumber !== '') {
+                    $stockMap[$connection][$partNumber] = (float) ($stockRow->balance_qty ?? 0);
+                }
+            }
+        }
+
+        return $stockMap;
+    }
+
+    private function trackingStockFgForRow($row, array $stockMap): float
+    {
+        $partNumber = trim((string) ($row->part_number ?? ''));
+        if ($partNumber === '') {
+            return 0.0;
+        }
+
+        $stock = 0.0;
+        foreach ($this->stockConnectionsForMfg($row->mfg_no ?? '') as $connection) {
+            $stock += (float) ($stockMap[$connection][$partNumber] ?? 0);
+        }
+
+        return $stock;
+    }
+
+    private function stockConnectionsForMfg($mfgNo): array
+    {
+        foreach (explode(',', (string) $mfgNo) as $rawToken) {
+            $token = strtoupper(trim((string) $rawToken, " \t\n\r\0\x0B'\""));
+            if ($token !== '' && str_starts_with($token, '+')) {
+                return ['pgsqlp'];
+            }
+        }
+
+        return ['pgsqlw'];
     }
 
     private function withDivisionGroupRows($rows)
@@ -399,7 +470,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
     private function baseQuery()
     {
         $q = DB::connection('sqlsrv_menam')
-            ->table('delivery_plan_data_dev as d')
+            ->table('delivery_plan_data as d')
             ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')

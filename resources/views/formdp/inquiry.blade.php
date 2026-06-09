@@ -22,30 +22,100 @@
             (($u->is_superadmin ?? 0) == 1 ||
                 (method_exists($u, 'hasRoleCode') && $u->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
 
-        $tableColspan = 18;
-        $fmtTon = fn($kg) => number_format(((float) ($kg ?? 0)) / 1000, 3);
+        $tableColspan = $canDp ? 19 : 18;
+        $fmtWeight = function ($kg) {
+            $kg = (float) ($kg ?? 0);
+            return number_format($kg, 0, '.', '');
+        };
     @endphp
 
     <div class="container-fluid">
 
         <div class="dp-inquiry-filter mb-2">
+            @if (session('success'))
+                <div class="alert alert-success py-2 mb-2">
+                    {{ session('success') }}
+                    @if (session('postpone_view_url'))
+                        <a href="{{ session('postpone_view_url') }}" class="btn btn-sm btn-outline-success ms-2">
+                            ดูแผนใหม่
+                        </a>
+                    @endif
+                </div>
+            @endif
+            @if (session('error'))
+                <div class="alert alert-danger py-2 mb-2">{{ session('error') }}</div>
+            @endif
+            @if (session('erp_sync_output'))
+                <details class="alert alert-secondary py-2 mb-2">
+                    <summary class="fw-semibold">ผลลัพธ์จาก ERP sync</summary>
+                    <pre class="bg-dark text-light p-3 rounded small mt-2 mb-0" style="max-height: 280px; overflow:auto;">{{ session('erp_sync_output') }}</pre>
+                </details>
+            @endif
+            @if ($canDpa)
+                @php
+                    $tnShipForNav = request('ship_from') ?: (request('ship_to') ?: now()->toDateString());
+                @endphp
+                @include('formdp.partials.transport-nav', [
+                    'tnActive'   => 'inquiry',
+                    'tnShipDate' => $tnShipForNav,
+                    'tnSo'       => request('so', ''),
+                    'tnCustomer' => request('customer', ''),
+                    'tnMfg'      => request('mfg', ''),
+                ])
+            @endif
+
             <div class="d-flex align-items-center justify-content-between mb-2">
                 <div class="fw-bold fs-5">กรองการค้นหา</div>
 
-                <div class="d-flex gap-2 align-items-center">
-                    <a href="{{ route('dp.inquiry.export', request()->query()) }}" class="btn btn-sm btn-success"
-                        id="btnExportExcel">
-                        Export Excel
-                    </a>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+
+                    @if ($canDp)
+                        <form method="POST" action="{{ route('dp.inquiry.sync-saleorder') }}"
+                            id="erpSyncSaleOrderForm">
+                            @csrf
+                            <button type="submit" class="btn btn-sm btn-warning">
+                                <i class="fa fa-rotate me-1"></i> ดึงข้อมูล ERP
+                            </button>
+                        </form>
+                    @endif
+
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle"
+                            data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fa fa-download me-1"></i> Export
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                                <a class="dropdown-item" id="btnExportExcel"
+                                    href="{{ route('dp.inquiry.export', request()->query()) }}">
+                                    <i class="fa fa-file-excel text-success me-2"></i> Export Excel
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item" id="btnExportPdf" target="_blank" rel="noopener"
+                                    href="{{ route('dp.inquiry.export-pdf', request()->query()) }}">
+                                    <i class="fa fa-file-pdf text-danger me-2"></i> Export PDF
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="button" class="dropdown-item" id="btnExportBoth"
+                                    data-excel-url="{{ route('dp.inquiry.export', request()->query()) }}"
+                                    data-pdf-url="{{ route('dp.inquiry.export-pdf', request()->query()) }}">
+                                    <i class="fa fa-download text-primary me-2"></i> Export ทั้งหมด (Excel + PDF)
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
 
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleKpi"
-                        aria-controls="kpiCollapse" aria-expanded="true">
-                        KPI
+                        aria-controls="kpiCollapse" aria-expanded="true" title="แสดง/ซ่อน KPI">
+                        <i class="fas fa-chart-bar me-1"></i>KPI
                     </button>
 
                     <button type="button" class="btn btn-sm btn-outline-primary" id="btnToggleFilter"
-                        aria-controls="filterCollapse" aria-expanded="true">
-                        Filters
+                        aria-controls="filterCollapse" aria-expanded="true" title="แสดง/ซ่อนตัวกรอง">
+                        <i class="fas fa-filter me-1"></i>Filters
                     </button>
 
                     @if ($canDpMail)
@@ -60,22 +130,72 @@
             </div>
 
             <div class="collapse show" id="kpiCollapse">
-                <div class="dp-kpi-row mb-2" id="kpiBar">
-                    <div class="dp-kpi-card">
-                        <div class="text-muted small">Lines (Visible / Total)</div>
-                        <div class="dp-kpi-num"><span id="kpi_visible">0</span> / <span id="kpi_total">0</span></div>
+                <div class="dp-kpi-strip mb-2" id="kpiBar">
+                    <div class="dp-kpi-chip" title="จำนวน Line ที่แสดง / ทั้งหมด">
+                        <i class="fa fa-list-ul text-muted"></i>
+                        <div>
+                            <div class="dp-kpi-chip-label">รายการ</div>
+                            <div class="dp-kpi-chip-value"><span id="kpi_visible">0</span> / <span id="kpi_total">0</span></div>
+                        </div>
                     </div>
 
-                    <div class="dp-kpi-card">
-                        <div class="text-muted small">SO / ACID</div>
-                        <div class="dp-kpi-num"><span id="kpi_so">0</span> / <span id="kpi_acid">0</span></div>
+                    <div class="dp-kpi-chip" title="น้ำหนักรวม / ยังไม่ขึ้นรถ (KG)">
+                        <i class="fa fa-weight-hanging text-primary"></i>
+                        <div>
+                            <div class="dp-kpi-chip-label">น้ำหนัก (KG)</div>
+                            <div class="dp-kpi-chip-value">
+                                <span id="kpi_total_kg">0</span>
+                                <span class="dp-kpi-chip-sub">เหลือ <span id="kpi_remain_kg">0</span></span>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="dp-kpi-card">
-                        <div class="text-muted small">Sell by line</div>
-                        <div class="dp-kpi-num"><span id="kpi_sbl">0</span></div>
+                    <div class="dp-kpi-chip dp-kpi-danger" title="Line ที่ planner เลื่อน (สถานะ POSTPONED)">
+                        <i class="fas fa-clock-rotate-left"></i>
+                        <div>
+                            <div class="dp-kpi-chip-label">เลื่อนโดย planner</div>
+                            <div class="dp-kpi-chip-value"><span id="kpi_postponed">0</span></div>
+                        </div>
+                    </div>
+
+                    <div class="dp-kpi-chip dp-kpi-warning" title="Line ที่ยังไม่ได้จัดรถ">
+                        <i class="fa fa-truck"></i>
+                        <div>
+                            <div class="dp-kpi-chip-label">รอจัดรถ</div>
+                            <div class="dp-kpi-chip-value"><span id="kpi_no_truck">0</span></div>
+                        </div>
+                    </div>
+
+                    <div class="dp-kpi-chip dp-kpi-info" title="Line ที่มีเพิ่มเติม (Revision &gt; 0)">
+                        <i class="fa fa-pen-to-square"></i>
+                        <div>
+                            <div class="dp-kpi-chip-label">เพิ่มเติม</div>
+                            <div class="dp-kpi-chip-value"><span id="kpi_rev">0</span></div>
+                        </div>
                     </div>
                 </div>
+
+                {{-- Legend: สีในตาราง = เพิ่มเติมกี่ครั้ง --}}
+                @if (!empty($revColorMap))
+                    <div class="dp-rev-legend mb-2">
+                        <span class="dp-rev-legend-title">สี = เพิ่มเติม:</span>
+                        @php
+                            $legendOrder = [0, 1, 2, 3, 4, 5];
+                        @endphp
+                        @foreach ($legendOrder as $rev)
+                            @php
+                                $color = $revColorMap[$rev] ?? null;
+                                $label = $rev === 0 ? 'ไม่มี' : ($rev >= 5 ? '5+' : (string) $rev . ' ครั้ง');
+                            @endphp
+                            @if ($color)
+                                <span class="dp-rev-legend-item">
+                                    <span class="dp-rev-legend-dot" style="background: {{ $color }};"></span>
+                                    <span style="color: {{ $color }}; font-weight: 600;">{{ $label }}</span>
+                                </span>
+                            @endif
+                        @endforeach
+                    </div>
+                @endif
             </div>
 
             <hr class="mt-0">
@@ -85,7 +205,7 @@
                     <input type="hidden" name="searched" value="1">
 
                     <div class="dp-filter-grid">
-                        <div>
+                        <div class="dp-fg-col">
                             <label class="form-label mb-1 small">Mode</label>
                             <select id="f_mode" name="mode" class="form-select form-select-sm">
                                 <option value="" {{ request('mode') === '' ? 'selected' : '' }}>ทั้งหมด</option>
@@ -94,43 +214,73 @@
                             </select>
                         </div>
 
-                        <div>
-                            <label class="form-label mb-1 small">วันที่ส่งสินค้า (เริ่มต้น)</label>
+                        <div class="dp-fg-col">
+                            <label class="form-label mb-1 small">วันที่ส่ง (เริ่ม)</label>
                             <input id="f_ship_from" name="ship_from" type="date" value="{{ request('ship_from', '') }}"
                                 class="form-control form-control-sm">
                         </div>
 
-                        <div>
-                            <label class="form-label mb-1 small">วันที่ส่งสินค้า (ถึง)</label>
+                        <div class="dp-fg-col">
+                            <label class="form-label mb-1 small">วันที่ส่ง (ถึง)</label>
                             <input id="f_ship_to" name="ship_to" type="date" value="{{ request('ship_to', '') }}"
                                 class="form-control form-control-sm">
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col position-relative">
                             <label class="form-label mb-1 small">Sales Order</label>
-                            <input id="f_so" name="so" value="{{ request('so', '') }}"
-                                class="form-control form-control-sm" placeholder="ค้นหา SO">
+                            <div class="dp-ac-wrap">
+                                <input id="f_so" name="so" value="{{ request('so', '') }}" autocomplete="off"
+                                    class="form-control form-control-sm dp-ac-input" data-ac-source="so"
+                                    placeholder="ค้นหา SO">
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_so" title="ล้าง" aria-label="ล้าง">&times;</button>
+                            </div>
+                            <div class="dp-suggest d-none" data-ac-for="f_so"></div>
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col position-relative">
                             <label class="form-label mb-1 small">Customer</label>
-                            <input id="f_customer" name="customer" value="{{ request('customer', '') }}"
-                                class="form-control form-control-sm" placeholder="ค้นหาลูกค้า">
+                            <div class="dp-ac-wrap">
+                                <input id="f_customer" name="customer" value="{{ request('customer', '') }}"
+                                    autocomplete="off" class="form-control form-control-sm dp-ac-input"
+                                    data-ac-source="customer" placeholder="ค้นหาลูกค้า">
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_customer" title="ล้าง" aria-label="ล้าง">&times;</button>
+                            </div>
+                            <div class="dp-suggest d-none" data-ac-for="f_customer"></div>
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col position-relative">
+                            <label class="form-label mb-1 small">MFG No</label>
+                            <div class="dp-ac-wrap">
+                                <input id="f_mfg" name="mfg" value="{{ request('mfg', '') }}"
+                                    autocomplete="off" class="form-control form-control-sm"
+                                    placeholder="ค้นหา MFG">
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_mfg" title="ล้าง" aria-label="ล้าง">&times;</button>
+                            </div>
+                        </div>
+
+                        <div class="dp-fg-col position-relative">
                             <label class="form-label mb-1 small">Ship To</label>
-                            <input id="f_shipto" name="shipto" value="{{ request('shipto', '') }}"
-                                class="form-control form-control-sm" placeholder="ค้นหา Ship To">
+                            <div class="dp-ac-wrap">
+                                <input id="f_shipto" name="shipto" value="{{ request('shipto', '') }}"
+                                    autocomplete="off" class="form-control form-control-sm dp-ac-input"
+                                    data-ac-source="shipto" placeholder="ค้นหา Ship To">
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_shipto" title="ล้าง" aria-label="ล้าง">&times;</button>
+                            </div>
+                            <div class="dp-suggest d-none" data-ac-for="f_shipto"></div>
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col position-relative">
                             <label class="form-label mb-1 small">Division/Sales</label>
-                            <input id="f_sales" name="divsales" value="{{ request('divsales', '') }}"
-                                class="form-control form-control-sm" placeholder="เช่น D3 / ภควดี / วางแผน">
+                            <div class="dp-ac-wrap">
+                                <input id="f_sales" name="divsales" value="{{ request('divsales', '') }}"
+                                    autocomplete="off" class="form-control form-control-sm dp-ac-input"
+                                    data-ac-source="divsales" placeholder="เช่น D3 / ภควดี">
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_sales" title="ล้าง" aria-label="ล้าง">&times;</button>
+                            </div>
+                            <div class="dp-suggest d-none" data-ac-for="f_sales"></div>
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col">
                             <label class="form-label mb-1 small">Status</label>
                             @php $st = strtoupper(request('status', 'NEW')); @endphp
                             <select id="f_status" name="status" class="form-select form-select-sm">
@@ -144,7 +294,14 @@
                             </select>
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col">
+                            <label class="form-label mb-1 small">Revision</label>
+                            <input id="f_revision" name="revision" type="number" min="0" step="1"
+                                value="{{ request('revision', '') }}" class="form-control form-control-sm"
+                                placeholder="0, 1, 2">
+                        </div>
+
+                        <div class="dp-fg-col">
                             <label class="form-label mb-1 small">Order By</label>
                             @php $ob = request('order_by',''); @endphp
                             <select id="f_order_by" name="order_by" class="form-select form-select-sm">
@@ -161,7 +318,7 @@
                             </select>
                         </div>
 
-                        <div>
+                        <div class="dp-fg-col">
                             <label class="form-label mb-1 small">Direction</label>
                             @php $od = request('order_dir',''); @endphp
                             <select id="f_order_dir" name="order_dir" class="form-select form-select-sm">
@@ -171,13 +328,11 @@
                             </select>
                         </div>
 
-                        <div class="d-flex gap-2 align-items-end">
-                            <button type="submit" class="btn btn-primary btn-sm" id="btnSearch">ค้นหา</button>
+                        <div class="dp-fg-actions">
+                            <button type="submit" class="btn btn-primary btn-sm" id="btnSearch">
+                                <i class="fas fa-search me-1"></i>ค้นหา
+                            </button>
                             <a class="btn btn-outline-secondary btn-sm" href="{{ route('dp.inquiry') }}">Reset</a>
-                        </div>
-
-                        <div class="d-flex align-items-end justify-content-end">
-                            <div id="inqCount" class="text-muted small"></div>
                         </div>
                     </div>
                 </form>
@@ -185,14 +340,62 @@
 
             <div class="fw-bold fs-5 mt-2">ตารางข้อมูล</div>
 
+            <div class="d-flex justify-content-end mb-2">
+                <div class="dropdown">
+                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                        id="inqColumnMenuBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                        aria-expanded="false">
+                        <i class="fas fa-table-columns me-1"></i> Columns
+                        <span class="badge bg-secondary ms-1" id="inqHiddenColumnCount">0</span>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end p-2 inq-column-menu"
+                        aria-labelledby="inqColumnMenuBtn">
+                        <div class="d-flex gap-2 mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary flex-fill"
+                                id="inqShowAllColumnsBtn">
+                                <i class="fas fa-eye me-1"></i> Show all
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill"
+                                id="inqResetColumnsBtn">
+                                <i class="fas fa-rotate-left me-1"></i> Reset
+                            </button>
+                        </div>
+                        <div id="inqColumnToggleList"></div>
+                    </div>
+                </div>
+            </div>
+
+            @if ($canDp)
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 p-2 border rounded bg-light">
+                    <div class="fw-semibold">
+                        เลือกแล้ว <span id="bulkPostponeCount">0</span> รายการ
+                        <span class="text-muted small ms-1">(<span id="bulkPostponeSoCount">0</span> SO)</span>
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkPostponeClearBtn" disabled>
+                            ล้างที่เลือก
+                        </button>
+                        <button type="button" class="btn btn-sm btn-warning" id="bulkPostponeOpenBtn" disabled>
+                            <i class="fas fa-calendar-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            @endif
+
             <div class="table-responsive dp-table-wrap">
                 <table class="table table-bordered table-sm align-middle mb-0" id="inqTable">
                     <thead class="table-light">
                         <tr class="dp-inquiry-header-row">
+                            @if ($canDp)
+                                <th class="text-center" style="width:46px;">
+                                    <input type="checkbox" class="form-check-input" id="bulkPostponeCheckAll"
+                                        title="เลือกทั้งหมดที่แสดง">
+                                </th>
+                            @endif
                             <th class="sticky-col sticky-1">#</th>
 
                             <th class="sticky-col sticky-2">วันที่ส่งสินค้า</th>
-                            <th class="text-center" style="min-width:160px;">Truck</th>
+                            <th class="sticky-col sticky-truck text-center" style="min-width:160px;">Truck</th>
                             <th class="sticky-col sticky-3">ลูกค้า</th>
                             <th class="sticky-col sticky-4">Part Desc</th>
                             <th>เลข MFG</th>
@@ -204,9 +407,9 @@
                             <th>เอกสารแนบ</th>
                             <th>เพิ่มเติม</th>
                             <th>เบอร์โทร/ชื่อผู้ติดต่อ</th>
-                            <th class="text-center" style="width:90px;">แก้ไข(ครั้ง)</th>
-                            <th>Status</th>
-                            <th class="text-center" style="min-width:120px;">Action</th>
+                            <th class="text-center" style="width:90px;">เพิ่มเติม</th>
+                            <th style="min-width:170px;">Status</th>
+                            <th class="text-center" style="min-width:{{ $canDp ? '230px' : '170px' }};">Action</th>
                             <th class="text-center" style="min-width:120px;">History</th>
                         </tr>
                     </thead>
@@ -310,13 +513,21 @@
                                         trim((string) ($r->part_desc ?? ''));
 
                                     $statusUpper = strtoupper(trim((string) ($r->status ?? '')));
+                                    $isVoidStatus = in_array(
+                                        $statusUpper,
+                                        ['VOID', 'VOIDED', 'CANCEL', 'CANCELED', 'CANCELLED'],
+                                        true,
+                                    );
                                     $canAssignTruckUi =
-                                        !in_array($statusUpper, ['VOID', 'CLOSED', 'SPECIAL', 'POSTPONED'], true) &&
+                                        !$isVoidStatus &&
+                                        !in_array($statusUpper, ['CLOSED', 'SPECIAL', 'POSTPONED'], true) &&
                                         !empty($r->can_pick_truck) &&
                                         ($remainingQty > 0 || $assignedQty > 0);
-                                    $canSpecialDispatchUi = $canDpa && !in_array($statusUpper, ['VOID', 'CLOSED'], true);
+                                    $canSpecialDispatchUi =
+                                        $canDpa && !$isVoidStatus && $statusUpper !== 'CLOSED';
                                     $canOpenDispatchModalUi =
-                                        $canDpa && !in_array($statusUpper, ['VOID', 'CLOSED'], true);
+                                        $canDpa && !$isVoidStatus && $statusUpper !== 'CLOSED';
+                                    $canBulkPostpone = $canDp && !$isVoidStatus && !in_array($statusUpper, ['CLOSED', 'POSTPONED'], true);
                                     $specialLabel = trim((string) ($r->special_dispatch_label ?? ''));
                                     $specialIsOpen =
                                         strtoupper(trim((string) ($r->special_dispatch_status ?? ''))) === 'OPEN' &&
@@ -329,13 +540,35 @@
                                     data-part="{{ e($partText) }}" data-shipto="{{ e($shiptoText) }}"
                                     data-ship="{{ e($shipSort) }}" data-window="{{ e($windowSort) }}"
                                     data-qty="{{ e(number_format($qty, 3, '.', '')) }}" data-rev="{{ e($revNo) }}"
-                                    data-sbl="{{ e($sellByLine) }}">
+                                    data-sbl="{{ e($sellByLine) }}"
+                                    data-assigned="{{ e(number_format($assignedQty, 3, '.', '')) }}"
+                                    data-remaining="{{ e(number_format($remainingQty, 3, '.', '')) }}"
+                                    data-stock="{{ e(number_format($stock, 3, '.', '')) }}"
+                                    data-has-truck="{{ trim((string) ($r->truck_plate_list ?? '')) !== '' ? '1' : '0' }}"
+                                    data-status="{{ e($statusUpper) }}"
+                                    data-pc-status="{{ e(strtoupper((string) ($r->planner_confirmation_status ?? ''))) }}"
+                                    data-mfg="{{ e($mfgText) }}">
+
+                                    @if ($canDp)
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input jsBulkPostponeCheck"
+                                                value="{{ $r->ord_id }}" {{ $canBulkPostpone ? '' : 'disabled' }}
+                                                data-ord-id="{{ $r->ord_id }}"
+                                                data-so="{{ e($soText) }}"
+                                                data-part="{{ e($r->part_number ?? '') }}"
+                                                data-part-desc="{{ e($r->part_desc ?? '') }}"
+                                                data-ship-date="{{ e($shipDateOnly) }}"
+                                                data-ship-label="{{ e($shipDateTimeText) }}"
+                                                data-status="{{ e($statusUpper) }}"
+                                                data-window-time="{{ e($timeFromWindow) }}">
+                                        </td>
+                                    @endif
 
                                     <td class="sticky-col sticky-1 text-center">{{ $no++ }}</td>
 
                                     <td class="sticky-col sticky-2">{{ $shipDateTimeText }}</td>
 
-                                    <td class="truck-cell">
+                                    <td class="sticky-col sticky-truck truck-cell">
                                         @php
                                             $truckList = collect(explode(',', (string) ($r->truck_plate_list ?? '')))
                                                 ->map(fn($x) => trim($x))
@@ -358,24 +591,29 @@
                                     </td>
 
                                     <td class="sticky-col sticky-3">{{ $customerText }}</td>
-                                    <td class="sticky-col sticky-4">{{ $r->part_desc ?? '' }}</td>
+                                    <td class="sticky-col sticky-4">
+                                        <div>{{ $r->part_desc ?? '' }}</div>
+                                        @if (trim((string) ($r->part_number ?? '')) !== '')
+                                            <div class="part-number-muted">{{ $r->part_number }}</div>
+                                        @endif
+                                    </td>
 
                                     <td class="text-wrap" style="white-space:normal;min-width:160px;">
                                         {{ $mfgText !== '' ? $mfgText : '-' }}
                                     </td>
 
                                     <td class="text-end qty-cell">
-                                        <div class="qty-main">{{ number_format($qty, 3) }}</div>
+                                        <div class="qty-main">{{ $fmtWeight($qty) }}</div>
 
                                         @if ($assignedQty > 0)
                                             <div class="qty-sub qty-sub-muted">
                                                 <span class="qty-label">ขึ้นรถแล้ว</span>
-                                                <span class="qty-value">{{ number_format($assignedQty, 3) }}</span>
+                                                <span class="qty-value">{{ $fmtWeight($assignedQty) }}</span>
                                             </div>
 
                                             <div class="qty-sub {{ $remainingQty > 0 ? 'qty-sub-warn' : 'qty-sub-ok' }}">
                                                 <span class="qty-label">คงเหลือ</span>
-                                                <span class="qty-value">{{ number_format($remainingQty, 3) }}</span>
+                                                <span class="qty-value">{{ $fmtWeight($remainingQty) }}</span>
                                             </div>
                                         @endif
                                     </td>
@@ -417,33 +655,57 @@
                                             $pcLabel = $r->planner_confirmation_label ?? '-';
                                             $pcBadge = $r->planner_confirmation_badge ?? 'light text-dark border';
                                             $pcNewDate = !empty($r->planner_confirmation_new_date)
-                                                ? \Carbon\Carbon::parse($r->planner_confirmation_new_date)->format('d/m/Y')
+                                                ? \Carbon\Carbon::parse($r->planner_confirmation_new_date)->format(
+                                                    'd/m/Y',
+                                                )
                                                 : null;
                                             $pcAt = !empty($r->planner_confirmation_confirmed_at)
-                                                ? \Carbon\Carbon::parse($r->planner_confirmation_confirmed_at)->format('d/m H:i')
+                                                ? \Carbon\Carbon::parse($r->planner_confirmation_confirmed_at)->format(
+                                                    'd/m H:i',
+                                                )
                                                 : null;
+                                            $pcBy = trim((string) ($r->planner_confirmation_by ?? ''));
+                                            $pcByParts = $pcBy !== '' ? preg_split('/\s+/', $pcBy) : [];
+                                            $pcByShort = trim((string) ($pcByParts[0] ?? ''));
                                             $statusUpperForPc = strtoupper(trim((string) ($r->status ?? '')));
                                         @endphp
-                                        @if (!empty($pcStatus))
+                                        @if (!$isVoidStatus && !empty($pcStatus))
                                             @php
-                                                $tip = 'ฝ่ายวางแผน: ' . $pcLabel
-                                                    . ($pcNewDate ? ' → ' . $pcNewDate : '')
-                                                    . ($pcAt ? "\nบันทึก " . $pcAt : '')
-                                                    . (!empty($r->planner_confirmation_by) ? ' โดย ' . $r->planner_confirmation_by : '');
+                                                $tip =
+                                                    'ฝ่ายวางแผน: ' .
+                                                    $pcLabel .
+                                                    ($pcNewDate ? ' → ' . $pcNewDate : '') .
+                                                    ($pcAt ? "\nบันทึก " . $pcAt : '') .
+                                                    ($pcBy !== ''
+                                                        ? ' โดย ' . $pcBy
+                                                        : '');
                                             @endphp
-                                            <div class="small mt-1" title="{{ $tip }}">
-                                                <span class="badge bg-{{ $pcBadge }}">
-                                                    <i class="fas fa-clipboard-check me-1"></i>{{ $pcLabel }}
+                                            <div class="small mt-1 planner-confirm-wrap" title="{{ $tip }}">
+                                                <span class="badge bg-{{ $pcBadge }} planner-confirm-badge">
+                                                    <i class="fas fa-clipboard-check me-1"></i>Planner: {{ $pcLabel }}
                                                 </span>
+                                                @if ($pcBy !== '' || $pcAt)
+                                                    <div class="text-muted small mt-1 planner-confirm-meta">
+                                                        โดย {{ $pcByShort !== '' ? $pcByShort : '-' }}{{ $pcAt ? ' - ' . $pcAt : '' }}
+                                                    </div>
+                                                @endif
                                                 @if ($pcStatus === 'POSTPONE' && $pcNewDate)
                                                     <div class="text-warning fw-semibold mt-1">
                                                         วันส่งใหม่: {{ $pcNewDate }}
                                                     </div>
                                                 @endif
+                                                @if (!empty($r->planner_confirmation_remark))
+                                                    <div class="text-muted small mt-1" style="white-space:normal;">
+                                                        <i
+                                                            class="fas fa-comment me-1"></i>{{ $r->planner_confirmation_remark }}
+                                                    </div>
+                                                @endif
                                             </div>
-                                        @elseif (!in_array($statusUpperForPc, ['VOID', 'CLOSED'], true))
-                                            <div class="small mt-1" title="ฝ่ายวางแผนยังไม่ได้ยืนยัน — ระบบถือว่าส่งได้ตามแผนเดิมโดย default">
+                                        @elseif (!$isVoidStatus && !in_array($statusUpperForPc, ['VOID', 'CLOSED'], true))
+                                            <div class="small mt-1"
+                                                title="ฝ่ายวางแผนยังไม่ได้ยืนยัน — ระบบถือว่าส่งได้ตามแผนเดิมโดย default">
                                                 <span class="badge bg-light text-dark border">
+                                                    Planner:
                                                     <i class="far fa-clock me-1"></i>รอวางแผนยืนยัน
                                                 </span>
                                             </div>
@@ -451,119 +713,141 @@
                                     </td>
 
                                     <td class="text-center">
-                                        <div class="d-flex gap-1 justify-content-center flex-wrap">
-                                            @if (!$isLoggedIn)
-                                                <a class="btn btn-sm btn-outline-primary"
-                                                    href="{{ $loginUrl }}">แก้ไข</a>
-                                            @elseif ($canDp)
-                                                <a class="btn btn-sm btn-outline-primary"
-                                                    href="{{ route('dp.day', ['date' => $shipDateOnly ?: now()->toDateString()]) }}?edit={{ $r->ord_id }}">
-                                                    แก้ไข
-                                                </a>
-                                                @if (!in_array($statusUpper, ['VOID', 'CLOSED', 'POSTPONED'], true))
-                                                    <button type="button"
-                                                        class="btn btn-sm btn-outline-warning jsPostponeBtn"
-                                                        data-ord-id="{{ $r->ord_id }}"
-                                                        data-so="{{ e($soText) }}"
-                                                        data-part="{{ e($r->part_number ?? '') }}"
-                                                        data-ship-date="{{ e($shipDateOnly) }}"
-                                                        data-window-time="{{ e($timeFromWindow) }}">
-                                                        เลื่อนแผน
-                                                    </button>
-                                                @endif
-                                            @endif
+                                        @php
+                                            $shipDateKey = $shipDateOnly ?: '';
+                                            $soLineKey = (string) ($r->so_number ?? '') . '|' . $shipDateKey;
+                                            $shipRaw = trim((string) ($r->ship_posted_at ?? ''));
+                                            $shipDt = null;
 
-                                            @php
-                                                $shipDateKey = $shipDateOnly ?: '';
-                                                $soLineKey = (string) ($r->so_number ?? '') . '|' . $shipDateKey;
-                                            @endphp
+                                            try {
+                                                $shipDt =
+                                                    $shipRaw !== ''
+                                                        ? \Carbon\Carbon::parse($shipRaw)->startOfDay()
+                                                        : null;
+                                            } catch (\Throwable $e) {
+                                                $shipDt = null;
+                                            }
 
-                                            @if ($canOpenDispatchModalUi)
+                                            $cutoff = $shipDt ? $shipDt->copy()->subDays(3)->endOfDay() : null;
+                                            $now = \Carbon\Carbon::now();
+                                            $canVoid = $canDp && $cutoff ? $now->lte($cutoff) : false;
+
+                                            $voidReason = !$shipDt
+                                                ? 'ยกเลิกไม่ได้ เพราะวันที่ส่งสินค้า(ship_posted_at) ไม่ถูกต้อง/ว่าง'
+                                                : 'ยกเลิกได้เฉพาะก่อนวันส่งสินค้าอย่างน้อย 3 วัน (ภายใน ' .
+                                                    $cutoff->format('d/m/Y') .
+                                                    ')';
+                                            $canPlanMore = !in_array($statusUpper, ['VOID', 'CLOSED', 'POSTPONED'], true);
+                                            $truckPlateForAction = trim((string) ($r->truck_plate_display ?? ''));
+                                            if ($truckPlateForAction === '') {
+                                                $truckPlateForAction = trim((string) ($r->truck_plate_list ?? ''));
+                                            }
+                                            $hasTruck = $truckPlateForAction !== '';
+                                            $truckActionLabel = $hasTruck ? 'เปลี่ยนรถ' : 'จัดรถ';
+                                            $showActionMenu =
+                                                !$isVoidStatus &&
+                                                (
+                                                    $specialIsOpen
+                                                );
+                                        @endphp
+
+                                        @unless ($isVoidStatus)
+                                            <div class="d-inline-flex gap-1 justify-content-center flex-wrap action-compact">
                                                 @if (!$isLoggedIn)
-                                                    <a class="btn btn-sm btn-outline-info" href="{{ $loginUrl }}">
-                                                        {{ !empty($r->truck_plate_display) ? 'เปลี่ยนรถ' : 'เลือกรถ' }}
+                                                    <a class="btn btn-sm btn-outline-primary" href="{{ $loginUrl }}">
+                                                        เข้าสู่ระบบ
                                                     </a>
-                                                @elseif ($canDpa)
-                                                    <button type="button"
-                                                        class="btn btn-sm btn-outline-info jsOpenTruckModal"
-                                                        data-ord-id="{{ $r->ord_id }}" data-so="{{ e($soText) }}"
-                                                        data-mfg="{{ e($mfgText) }}"
-                                                        data-status="{{ e($statusUpper) }}"
-                                                        data-ship-date="{{ e($shipDateOnly) }}"
-                                                        data-shipto="{{ e($shiptoText) }}"
-                                                        data-current-truck-id="{{ e($r->truck_id ?? '') }}"
-                                                        data-current-truck-source="{{ e($r->truck_source ?? '') }}"
-                                                        data-current-manual-plate="{{ e($r->manual_plate_no ?? '') }}"
-                                                        data-current-special-type="{{ e($r->special_dispatch_type ?? '') }}"
-                                                        data-lines='@json($soLines[$soLineKey] ?? [])'>
-                                                        {{ !empty($r->truck_plate_display) ? 'เปลี่ยนรถ' : 'เลือกรถ' }}
-                                                    </button>
-
-                                                    @if (!empty($r->truck_plate_display) && empty($r->truck_closed_at))
+                                                @else
+                                                    @if ($canDp)
+                                                        <a class="btn btn-sm btn-outline-primary action-primary"
+                                                            href="{{ route('dp.day', ['date' => $shipDateOnly ?: now()->toDateString()]) }}?edit={{ $r->ord_id }}">
+                                                            แก้ไข
+                                                        </a>
+                                                        @if ($canPlanMore)
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-warning action-icon jsPostponeBtn"
+                                                                data-ord-id="{{ $r->ord_id }}"
+                                                                data-so="{{ e($soText) }}"
+                                                                data-part="{{ e($r->part_number ?? '') }}"
+                                                                data-ship-date="{{ e($shipDateOnly) }}"
+                                                                data-window-time="{{ e($timeFromWindow) }}"
+                                                                title="เลื่อนแผน" aria-label="เลื่อนแผน">
+                                                                <i class="fas fa-calendar-alt"></i>
+                                                            </button>
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-success action-icon jsDuplicateBtn"
+                                                                data-ord-id="{{ $r->ord_id }}"
+                                                                data-so="{{ e($soText) }}"
+                                                                data-customer-id="{{ e($r->customer_id ?? '') }}"
+                                                                data-customer-name="{{ e($customerText) }}"
+                                                                data-sales-name="{{ e($r->sales_name ?? '') }}"
+                                                                data-part="{{ e($r->part_number ?? '') }}"
+                                                                data-part-desc="{{ e($r->part_desc ?? '') }}"
+                                                                data-parts-id="{{ e($r->parts_id ?? '') }}"
+                                                                data-delivery-type="{{ e($r->delivery_type ?? '') }}"
+                                                                data-revision="{{ e($revNo) }}"
+                                                                data-ship-date="{{ e($shipDateOnly) }}"
+                                                                data-window-time="{{ e($timeFromWindow) }}"
+                                                                data-mfg="{{ e($mfgText) }}"
+                                                                data-qty="{{ e(number_format($qty, 3, '.', '')) }}"
+                                                                data-sell-by-line="{{ e($sellByLine) }}"
+                                                                data-line-qty="{{ e($lineQty !== null ? (string) $lineQty : '') }}"
+                                                                data-address="{{ e($shiptoText) }}"
+                                                                data-tel="{{ e($telText) }}"
+                                                                data-remark="{{ e($r->remark ?? '') }}"
+                                                                data-attach-docs="{{ e($r->attach_docs ?? '') }}"
+                                                                data-attach-docs-other="{{ e($r->attach_docs_other ?? '') }}"
+                                                                title="คัดลอกแผน" aria-label="คัดลอกแผน">
+                                                                <i class="fas fa-copy"></i>
+                                                            </button>
+                                                        @endif
                                                         <button type="button"
-                                                            class="btn btn-sm btn-outline-warning jsUnassignTruckBtn"
+                                                            class="btn btn-sm {{ $canVoid ? 'btn-outline-danger jsVoidBtn' : 'btn-outline-secondary disabled' }} action-icon"
+                                                            {{ $canVoid ? '' : 'disabled' }}
                                                             data-ord-id="{{ $r->ord_id }}"
                                                             data-so="{{ e($soText) }}"
-                                                            data-mfg="{{ e($mfgText) }}"
-                                                            data-plate="{{ e($r->truck_plate_display) }}"
-                                                            title="ยกเลิกรถของรายการนี้">
-                                                            ยกเลิกรถ
+                                                            data-part="{{ e($r->part_number ?? '') }}"
+                                                            data-ship="{{ e($shipRaw) }}"
+                                                            title="{{ $canVoid ? 'ยกเลิกรายการ' : $voidReason }}">
+                                                            <i class="fas fa-ban"></i>
                                                         </button>
                                                     @endif
+
+                                                    @if ($canOpenDispatchModalUi && $canDpa)
+                                                        {{-- ปุ่มจัดรถ ลิงก์ไปหน้า "จัดรถส่งสินค้า" พร้อม filter SO ของแถวนี้ --}}
+                                                        <a href="{{ route('dp.dashboard.logistics-summary', ['ship_date' => $shipDateOnly, 'q' => $r->so_number ?? '']) }}"
+                                                            class="btn btn-sm btn-outline-info action-primary"
+                                                            title="ไปหน้าจัดรถส่งสินค้า (filter SO อัตโนมัติ)">
+                                                            <i class="fas fa-truck me-1"></i> จัดรถ
+                                                        </a>
+                                                    @endif
+
+                                                    @if ($showActionMenu)
+                                                        <div class="dropdown">
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-secondary action-more"
+                                                                data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                                                                aria-expanded="false" title="เพิ่มเติม" aria-label="เพิ่มเติม">
+                                                                <i class="fas fa-ellipsis-h"></i>
+                                                            </button>
+                                                            <div class="dropdown-menu dropdown-menu-end action-menu">
+                                                                @if ($specialIsOpen)
+                                                                    <form method="POST"
+                                                                        action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $r->ord_id]) }}"
+                                                                        onsubmit="return confirm('ยืนยันปิดงานพิเศษนี้?');">
+                                                                        @csrf
+                                                                        <button type="submit" class="dropdown-item">
+                                                                            <i class="fas fa-check-circle text-success"></i>
+                                                                            ปิดงานพิเศษ
+                                                                        </button>
+                                                                    </form>
+                                                                @endif
+                                                            </div>
+                                                        </div>
+                                                    @endif
                                                 @endif
-                                            @endif
-
-                                            @if ($specialIsOpen)
-                                                <form method="POST"
-                                                    action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $r->ord_id]) }}"
-                                                    class="d-inline"
-                                                    onsubmit="return confirm('ยืนยันปิดงานพิเศษนี้?');">
-                                                    @csrf
-                                                    <button type="submit" class="btn btn-sm btn-outline-success">
-                                                        ปิดงานพิเศษ
-                                                    </button>
-                                                </form>
-                                            @endif
-
-                                            @php
-                                                $shipRaw = trim((string) ($r->ship_posted_at ?? ''));
-                                                $shipDt = null;
-
-                                                try {
-                                                    $shipDt =
-                                                        $shipRaw !== ''
-                                                            ? \Carbon\Carbon::parse($shipRaw)->startOfDay()
-                                                            : null;
-                                                } catch (\Throwable $e) {
-                                                    $shipDt = null;
-                                                }
-
-                                                $cutoff = $shipDt ? $shipDt->copy()->subDays(3)->endOfDay() : null;
-                                                $now = \Carbon\Carbon::now();
-                                                $canVoid = $canDp && $cutoff ? $now->lte($cutoff) : false;
-
-                                                $voidReason = !$shipDt
-                                                    ? 'ยกเลิกไม่ได้ เพราะวันที่ส่งสินค้า(ship_posted_at) ไม่ถูกต้อง/ว่าง'
-                                                    : 'ยกเลิกได้เฉพาะก่อนวันส่งสินค้าอย่างน้อย 3 วัน (ภายใน ' .
-                                                        $cutoff->format('d/m/Y') .
-                                                        ')';
-                                            @endphp
-
-                                            @if (!$isLoggedIn)
-                                                <a class="btn btn-sm btn-outline-danger"
-                                                    href="{{ $loginUrl }}">ยกเลิก</a>
-                                            @elseif ($canDp)
-                                                <button type="button"
-                                                    class="btn btn-sm {{ $canVoid ? 'btn-outline-danger jsVoidBtn' : 'btn-outline-secondary' }}"
-                                                    {{ $canVoid ? '' : 'disabled' }} data-ord-id="{{ $r->ord_id }}"
-                                                    data-so="{{ e($soText) }}"
-                                                    data-part="{{ e($r->part_number ?? '') }}"
-                                                    data-ship="{{ e($shipRaw) }}"
-                                                    title="{{ $canVoid ? 'ยกเลิกรายการ' : $voidReason }}">
-                                                    ยกเลิก
-                                                </button>
-                                            @endif
-                                        </div>
+                                            </div>
+                                        @endunless
                                     </td>
 
                                     <td class="text-center">
@@ -678,8 +962,8 @@
 
                         <div class="mt-2">
                             <label class="form-label fw-semibold">เหตุผลเลื่อนแผน</label>
-                            <textarea class="form-control" name="postpone_reason" id="postponeReason" rows="3"
-                                placeholder="กรอกเหตุผล" required></textarea>
+                            <textarea class="form-control" name="postpone_reason" id="postponeReason" rows="3" placeholder="กรอกเหตุผล"
+                                required></textarea>
                         </div>
 
                         <div class="alert alert-warning small mb-0 mt-3">
@@ -690,6 +974,249 @@
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
                         <button type="submit" class="btn btn-warning" id="btnConfirmPostpone">ยืนยันเลื่อนแผน</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- Bulk Postpone Modal --}}
+        @if ($canDp)
+            <div class="modal fade" id="bulkPostponeModal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                    <form class="modal-content" method="POST" id="bulkPostponeForm"
+                        action="{{ route('dp.inquiry.bulk-postpone') }}">
+                        @csrf
+                        <input type="hidden" name="return_url" value="{{ url()->full() }}">
+                        <div id="bulkPostponeIds"></div>
+
+                        <div class="modal-header">
+                            <h5 class="modal-title">ย้ายแผนที่เลือก</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+
+                        <div class="modal-body">
+                            <div class="alert alert-warning py-2">
+                                เลือกแล้ว <strong id="bulkPostponeModalCount">0</strong> รายการ /
+                                <strong id="bulkPostponeModalSoCount">0</strong> SO
+                            </div>
+
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">วันที่ส่งใหม่</label>
+                                    <input type="date" class="form-control" name="new_ship_posted_date"
+                                        id="bulkPostponeShipDate" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-semibold">เวลาใหม่</label>
+                                    <input type="time" class="form-control" name="new_window_time"
+                                        id="bulkPostponeWindowTime" required>
+                                </div>
+                            </div>
+
+                            <div class="mt-2">
+                                <label class="form-label fw-semibold">เหตุผลเลื่อนแผน</label>
+                                <textarea class="form-control" name="postpone_reason" id="bulkPostponeReason" rows="3"
+                                    placeholder="กรอกเหตุผลครั้งเดียว ระบบจะใช้กับทุกรายการที่เลือก" required></textarea>
+                            </div>
+
+                            <div class="table-responsive mt-3">
+                                <table class="table table-sm table-bordered align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>SO</th>
+                                            <th>Part</th>
+                                            <th>วันที่เดิม</th>
+                                            <th>วันที่ใหม่</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="bulkPostponePreview"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+                            <button type="submit" class="btn btn-warning" id="bulkPostponeSubmit">
+                                ยืนยันย้ายแผนที่เลือก
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        @endif
+
+        {{-- Duplicate Modal --}}
+        <div class="modal fade" id="duplicateModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <form class="modal-content" method="POST" id="duplicateForm">
+                    @csrf
+                    <input type="hidden" name="return_url" value="{{ url()->full() }}">
+
+                    <div class="modal-header">
+                        <h5 class="modal-title">คัดลอกแผนส่ง</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการเดิม</div>
+                            <div class="fw-semibold" id="duplicateInfo">-</div>
+                        </div>
+
+                        @php
+                            $isSales8User = auth()->check() && in_array((int) auth()->id(), [50, 51], true);
+                        @endphp
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold d-block">โหมด</label>
+                            <div class="d-flex gap-3 flex-wrap">
+                                <label class="form-check mb-0">
+                                    <input class="form-check-input" type="radio" id="duplicateModeSo" disabled>
+                                    <span class="form-check-label">ปกติ (SO)</span>
+                                </label>
+                                <label class="form-check mb-0">
+                                    <input class="form-check-input" type="radio" id="duplicateModeAcid" disabled>
+                                    <span class="form-check-label">ส่งกัดกรด</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">วันที่ส่งสินค้า <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" name="duplicate_ship_posted_date"
+                                    id="duplicateShipDate" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">ช่วงเวลารับส่ง <span class="text-danger">*</span></label>
+                                <input type="time" class="form-control" name="duplicate_window_time"
+                                    id="duplicateWindowTime" required>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Sales Order</label>
+                                <input type="text" class="form-control" id="duplicateSoDisplay" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Customer</label>
+                                <input type="text" class="form-control" id="duplicateCustomerDisplay" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Sales</label>
+                                <input type="text" class="form-control" id="duplicateSalesDisplay" readonly>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">Part No</label>
+                                <input type="text" class="form-control" id="duplicatePartDisplay" readonly>
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label fw-semibold">Part Desc</label>
+                                <input type="text" class="form-control" id="duplicatePartDescDisplay" readonly>
+                            </div>
+
+                            <div class="col-md-12">
+                                <label class="form-label fw-semibold">MFG No</label>
+                                <div class="position-relative">
+                                    <input type="text" class="form-control" name="duplicate_mfg_no"
+                                        id="duplicateMfg" placeholder="พิมพ์ W26... แล้วเลือก (manual ได้)"
+                                        autocomplete="off">
+                                    <div id="duplicateMfgSuggest" class="duplicate-mfg-suggest d-none"></div>
+                                </div>
+                                <div class="form-text">รองรับหลายค่า คั่นด้วย ,</div>
+                                <input type="hidden" id="duplicatePartsId" value="">
+                                <input type="hidden" id="duplicateSoNumber" value="">
+                                <input type="hidden" id="duplicateCustomerId" value="">
+                            </div>
+                        </div>
+
+                        @if ($isSales8User)
+                            <input type="hidden" name="duplicate_sell_by_line" id="duplicateSellByLine" value="1">
+                        @else
+                            <div class="mt-3">
+                                <label class="form-label fw-semibold">ขายแบบระบุเส้น</label>
+                                <div class="d-flex gap-3 flex-wrap">
+                                    <label class="form-check mb-0">
+                                        <input class="form-check-input duplicateSellByLineChoice" type="radio"
+                                            name="duplicate_sell_by_line" value="1">
+                                        <span class="form-check-label">ใช่</span>
+                                    </label>
+                                    <label class="form-check mb-0">
+                                        <input class="form-check-input duplicateSellByLineChoice" type="radio"
+                                            name="duplicate_sell_by_line" value="0">
+                                        <span class="form-check-label">ไม่ใช่</span>
+                                    </label>
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-6" id="duplicateLineQtyWrap">
+                                <label class="form-label fw-semibold">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }} <span class="text-danger">*</span></label>
+                                <input type="number" min="1" step="1" class="form-control"
+                                    name="duplicate_line_qty" id="duplicateLineQty">
+                            </div>
+                            <div class="col-md-6" id="duplicateQtyWrap">
+                                <label class="form-label fw-semibold">จำนวน (KG) <span class="text-danger">*</span></label>
+                                <input type="number" step="0.001" min="0" class="form-control"
+                                    name="duplicate_qty" id="duplicateQty" placeholder="เช่น 1000">
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label fw-semibold">สถานที่ส่ง <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="duplicate_address"
+                                    id="duplicateAddress" placeholder="สถานที่ส่ง" required>
+                            </div>
+                        </div>
+
+                        <hr class="my-3">
+
+                        <div class="mt-2">
+                            <label class="form-label fw-semibold">เบอร์โทร</label>
+                            <input type="text" class="form-control" name="duplicate_tel" id="duplicateTel">
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label fw-semibold">หมายเหตุ (text)</label>
+                            <textarea class="form-control" name="duplicate_remark" id="duplicateRemark" rows="3"></textarea>
+                        </div>
+
+                        <div class="mt-2">
+                            <label class="form-label fw-semibold">เอกสารแนบ</label>
+                            <div class="row g-1">
+                                @foreach ($docMap as $code => $name)
+                                    <div class="col-md-4 col-sm-6">
+                                        <label class="form-check small mb-1">
+                                            <input class="form-check-input duplicateDocCheck" type="checkbox"
+                                                name="duplicate_attach_docs[]" value="{{ e($code) }}">
+                                            <span class="form-check-label">{{ $name }}</span>
+                                        </label>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <input type="text" class="form-control mt-1" name="duplicate_attach_docs_other"
+                                id="duplicateAttachDocsOther" placeholder="เอกสารอื่นๆ">
+                        </div>
+
+                        <div class="mt-2">
+                            <label class="form-label fw-semibold">Revision</label>
+                            <input type="number" class="form-control" name="duplicate_revision_number"
+                                id="duplicateRevisionNumber" min="0" step="1" value="0">
+                            <div class="form-text">เลือก Revision ที่ต้องการบันทึกเอง ระบบจะไม่คำนวณจากเวลาแล้ว</div>
+                        </div>
+
+                        <div class="alert alert-info small mb-0 mt-3">
+                            ระบบจะสร้างรายการใหม่ใน delivery plan เท่านั้น โดยไม่ copy หรือเปลี่ยน truck assignment ของรายการเดิม
+                        </div>
+
+                        <label class="form-check d-flex align-items-center gap-2 mt-3 mb-0">
+                            <input class="form-check-input mt-0" type="checkbox"
+                                name="duplicate_continue_same_plan" id="duplicateContinueSamePlan" value="1">
+                            <span class="form-check-label">บันทึกแล้วเพิ่มรายการจากแผนเดิมต่อ</span>
+                        </label>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-success" id="btnConfirmDuplicate">บันทึกเป็นรายการใหม่</button>
                     </div>
                 </form>
             </div>
@@ -749,8 +1276,8 @@
 
                         <div class="mb-2">
                             <label class="form-label fw-semibold">เหตุผลยกเลิกรถ</label>
-                            <textarea class="form-control" name="remark_unassign" id="remarkUnassign" rows="3"
-                                placeholder="กรอกเหตุผล" required></textarea>
+                            <textarea class="form-control" name="remark_unassign" id="remarkUnassign" rows="3" placeholder="กรอกเหตุผล"
+                                required></textarea>
                         </div>
 
                         <div class="alert alert-warning small mb-0">
@@ -760,7 +1287,8 @@
 
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
-                        <button type="submit" class="btn btn-warning" id="btnConfirmUnassignTruck">ยืนยันยกเลิกรถ</button>
+                        <button type="submit" class="btn btn-warning"
+                            id="btnConfirmUnassignTruck">ยืนยันยกเลิกรถ</button>
                     </div>
                 </form>
             </div>
@@ -828,7 +1356,8 @@
                                             <button class="btn btn-outline-secondary" type="button"
                                                 id="tmTripMinus">-</button>
                                             <input type="number" class="form-control text-center" name="trip_no"
-                                                id="tmTripNo" min="1" max="99" step="1" value="1">
+                                                id="tmTripNo" min="1" max="99" step="1"
+                                                value="1">
                                             <button class="btn btn-outline-secondary" type="button"
                                                 id="tmTripPlus">+</button>
                                         </div>
@@ -850,8 +1379,7 @@
                                         <div class="col-md-7">
                                             <label class="form-label small fw-semibold mb-1"
                                                 for="tmSpecialDispatchRemark">หมายเหตุ</label>
-                                            <textarea class="form-control form-control-sm" name="remark"
-                                                id="tmSpecialDispatchRemark" rows="2"
+                                            <textarea class="form-control form-control-sm" name="remark" id="tmSpecialDispatchRemark" rows="2"
                                                 placeholder="ระบุรายละเอียดเพิ่มเติม"></textarea>
                                         </div>
                                     </div>
@@ -879,16 +1407,16 @@
                                                 <th>Part Desc</th>
                                                 <th>ระบุเส้น</th>
                                                 <th>สถานที่ส่ง</th>
-                                                <th class="text-end">ขึ้นรถแล้ว (ตัน)</th>
-                                                <th class="text-end">คงเหลือ (ตัน)</th>
-                                                <th class="text-end">น้ำหนักขึ้นรถ (ตัน)</th>
+                                                <th class="text-end">ขึ้นรถแล้ว</th>
+                                                <th class="text-end">คงเหลือ</th>
+                                                <th class="text-end">น้ำหนักขึ้นรถ (kg)</th>
                                             </tr>
                                         </thead>
                                         <tbody id="tmLineTbody"></tbody>
                                         <tfoot>
                                             <tr>
                                                 <th colspan="7" class="text-end">รวมที่เลือก</th>
-                                                <th class="text-end" id="tmTotalQty">0.000</th>
+                                                <th class="text-end" id="tmTotalQty">0</th>
                                                 <th></th>
                                             </tr>
                                         </tfoot>
@@ -909,8 +1437,7 @@
                                             </div>
 
                                             <div class="alert alert-secondary py-2 px-3 small mb-2">
-                                                น้ำหนักที่เลือก: <span class="fw-bold" id="tmSelectedWeight">0.000</span>
-                                                ตัน
+                                                น้ำหนักที่เลือก: <span class="fw-bold" id="tmSelectedWeight">0</span>
                                                 <span class="mx-2">|</span>
                                                 รถจะเหลือ: <span class="fw-bold" id="tmTruckRemainAfter">-</span>
                                             </div>
@@ -941,9 +1468,9 @@
                                                             <tr>
                                                                 <th class="text-center">เลือก</th>
                                                                 <th>ทะเบียน / คนขับ</th>
-                                                                <th class="text-end">Max (ตัน)</th>
-                                                                <th class="text-end">Current (ตัน)</th>
-                                                                <th class="text-end">Remain (ตัน)</th>
+                                                                <th class="text-end">Max</th>
+                                                                <th class="text-end">Current</th>
+                                                                <th class="text-end">Remain</th>
                                                                 <th class="text-end">Length</th>
                                                                 <th>ลูกค้า / ประเภทงาน</th>
                                                                 <th>SO / MFG / หมายเหตุ</th>
@@ -957,14 +1484,16 @@
                                                                     $rowKey = $t->row_key ?? '';
                                                                     $jobSummary = collect($t->job_summary ?? []);
                                                                     $jobSummaryText = $jobSummary
-                                                                        ->map(function ($x) use ($fmtTon) {
+                                                                        ->map(function ($x) use ($fmtWeight) {
                                                                             return trim(
                                                                                 ($x['customer_name'] ?? '-') .
                                                                                     ' | ' .
                                                                                     ($x['job_type'] ?? '-') .
                                                                                     ' (' .
-                                                                                    $fmtTon($x['assigned_weight'] ?? 0) .
-                                                                                    ' ตัน)',
+                                                                                    $fmtWeight(
+                                                                                        $x['assigned_weight'] ?? 0,
+                                                                                    ) .
+                                                                                    ')',
                                                                             );
                                                                         })
                                                                         ->implode(' || ');
@@ -980,7 +1509,8 @@
                                                                         (float) ($t->max_load ?? 0) <= 0;
                                                                 @endphp
 
-                                                                <tr class="tmTruckRow" data-row-key="{{ e($rowKey) }}"
+                                                                <tr class="tmTruckRow"
+                                                                    data-row-key="{{ e($rowKey) }}"
                                                                     data-truck-id="{{ e($t->truck_id ?? '') }}"
                                                                     data-manual-plate="{{ e($t->manual_plate_no ?? '') }}"
                                                                     data-job-summary="{{ e($jobSummaryText) }}"
@@ -1024,11 +1554,11 @@
                                                                     </td>
 
                                                                     <td class="text-end">
-                                                                        {{ $capacityUnlimited ? 'ไม่ระบุ' : $fmtTon($t->max_load ?? 0) }}
+                                                                        {{ $capacityUnlimited ? 'ไม่ระบุ' : $fmtWeight($t->max_load ?? 0) }}
                                                                     </td>
 
                                                                     <td class="text-end">
-                                                                        {{ $fmtTon($t->current_load ?? 0) }}
+                                                                        {{ $fmtWeight($t->current_load ?? 0) }}
                                                                     </td>
 
                                                                     @php
@@ -1045,8 +1575,10 @@
                                                                                     $mfgSummaryText ?:
                                                                                         '-') .
                                                                                     ' || ' .
-                                                                                    $fmtTon($job['assigned_weight'] ?? 0) .
-                                                                                    ' ตัน || ' .
+                                                                                    $fmtWeight(
+                                                                                        $job['assigned_weight'] ?? 0,
+                                                                                    ) .
+                                                                                    ' || ' .
                                                                                     ($job['address'] ?? '-');
                                                                             }
                                                                         }
@@ -1063,7 +1595,7 @@
                                                                         data-bs-html="false"
                                                                         data-bs-custom-class="truck-remain-tooltip"
                                                                         title="{{ $remainTooltip }}">
-                                                                        {{ $capacityUnlimited ? 'ตามน้ำหนักที่กรอก' : $fmtTon($t->remaining_capacity ?? 0) }}
+                                                                        {{ $capacityUnlimited ? 'ตามน้ำหนักที่กรอก' : $fmtWeight($t->remaining_capacity ?? 0) }}
                                                                     </td>
 
                                                                     <td class="text-end">
@@ -1078,8 +1610,7 @@
                                                                                 <span class="text-muted">|
                                                                                     {{ $job['job_type'] ?? '-' }}</span>
                                                                                 <span
-                                                                                    class="text-primary">({{ $fmtTon($job['assigned_weight'] ?? 0) }}
-                                                                                    ตัน)</span>
+                                                                                    class="text-primary">({{ $fmtWeight($job['assigned_weight'] ?? 0) }})</span>
                                                                             </div>
                                                                         @empty
                                                                             <span class="text-muted">ยังไม่มีรายการ</span>
@@ -1124,93 +1655,112 @@
                                 <div class="col-lg-5">
                                     <div class="card h-100">
                                         <div class="card-header py-2 fw-semibold">รถนอก</div>
-                                        <div class="card-body">
-                                            <div class="form-check mb-3">
-                                                <input class="form-check-input" type="radio" name="truck_pick_mode"
-                                                    id="tmManualMode" value="MANUAL">
-                                                <label class="form-check-label" for="tmManualMode">
-                                                    ใช้ข้อมูลรถนอกนี้
-                                                </label>
+                                        <div class="card-body tm-manual-staff-body">
+                                            <div class="tm-manual-section">
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="radio" name="truck_pick_mode"
+                                                        id="tmManualMode" value="MANUAL">
+                                                    <label class="form-check-label" for="tmManualMode">
+                                                        ใช้ข้อมูลรถนอกนี้
+                                                    </label>
+                                                </div>
+                                                <div class="row g-2">
+                                                    <div class="col-md-6">
+                                                        <label class="form-label small mb-1">ทะเบียนรถ</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                            id="tmManualPlate">
+                                                    </div>
+
+                                                    <div class="col-md-6">
+                                                        <label class="form-label small mb-1">คนขับ</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                            id="tmManualDriver">
+                                                    </div>
+
+                                                    <div class="col-md-6">
+                                                        <label class="form-label small mb-1">เบอร์โทร</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                            id="tmManualPhone">
+                                                    </div>
+
+                                                    <div class="col-md-6">
+                                                        <label class="form-label small mb-1">Max Load (kg)</label>
+                                                        <input type="number" step="1"
+                                                            class="form-control form-control-sm" id="tmManualMaxLoad"
+                                                            placeholder="เช่น 25000">
+                                                    </div>
+
+                                                    <div class="col-md-6">
+                                                        <label class="form-label small mb-1">ความยาวรถ</label>
+                                                        <input type="number" step="1"
+                                                            class="form-control form-control-sm" id="tmManualLength">
+                                                    </div>
+
+                                                    <div class="col-md-6">
+                                                        <label class="form-label small mb-1">หมายเหตุ</label>
+                                                        <input type="text" class="form-control form-control-sm"
+                                                            id="tmManualRemark" placeholder="เช่น รถนอก / เปิดข้าง / ตู้">
+                                                    </div>
+                                                </div>
+
+                                                <div class="alert alert-info small mt-3 mb-2">
+                                                    ถ้าใช้ทะเบียนเดิมในวันส่งเดียวกัน ระบบจะถือเป็นรถนอกคันเดิม และจะนำ
+                                                    capacity
+                                                    ที่เหลือมาใช้ต่อกับ SO อื่นได้
+                                                </div>
+
                                             </div>
-                                            <div class="row g-2">
-                                                <div class="col-md-6">
-                                                    <label class="form-label small mb-1">ทะเบียนรถ</label>
-                                                    <input type="text" class="form-control form-control-sm"
-                                                        id="tmManualPlate">
-                                                </div>
 
-                                                <div class="col-md-6">
-                                                    <label class="form-label small mb-1">คนขับ</label>
-                                                    <input type="text" class="form-control form-control-sm"
-                                                        id="tmManualDriver">
-                                                </div>
+                                            <div class="tm-staff-section mt-3">
+                                                <div class="fw-semibold mb-2">พนักงานประจำรถ</div>
 
-                                                <div class="col-md-6">
-                                                    <label class="form-label small mb-1">เบอร์โทร</label>
-                                                    <input type="text" class="form-control form-control-sm"
-                                                        id="tmManualPhone">
-                                                </div>
+                                                <div class="row g-2 tm-staff-grid">
+                                                    <div class="col-md-12 tm-staff-field tm-staff-driver">
+                                                        <label class="form-label small mb-1">คนขับ</label>
+                                                        <select class="form-select form-select-sm" name="driver_staff_id"
+                                                            id="tmDriverStaffId">
+                                                            <option value="">-- เลือกคนขับ --</option>
+                                                        </select>
+                                                    </div>
 
-                                                <div class="col-md-6">
-                                                    <label class="form-label small mb-1">Max Load (ตัน)</label>
-                                                    <input type="number" step="0.01"
-                                                        class="form-control form-control-sm" id="tmManualMaxLoad"
-                                                        placeholder="เช่น 25 = 25 ตัน">
-                                                </div>
+                                                    <div class="col-md-12 tm-staff-field">
+                                                        <label class="form-label small mb-1">เด็กรถ 1</label>
+                                                        <select class="form-select form-select-sm" name="helper1_staff_id"
+                                                            id="tmHelper1StaffId">
+                                                            <option value="">-- เลือกเด็กรถ 1 --</option>
+                                                        </select>
+                                                    </div>
 
-                                                <div class="col-md-6">
-                                                    <label class="form-label small mb-1">ความยาวรถ</label>
-                                                    <input type="number" step="1"
-                                                        class="form-control form-control-sm" id="tmManualLength">
-                                                </div>
+                                                    <div class="col-md-12 tm-staff-field">
+                                                        <label class="form-label small mb-1">เด็กรถ 2</label>
+                                                        <select class="form-select form-select-sm" name="helper2_staff_id"
+                                                            id="tmHelper2StaffId">
+                                                            <option value="">-- เลือกเด็กรถ 2 --</option>
+                                                        </select>
+                                                    </div>
 
-                                                <div class="col-md-6">
-                                                    <label class="form-label small mb-1">หมายเหตุ</label>
-                                                    <input type="text" class="form-control form-control-sm"
-                                                        id="tmManualRemark" placeholder="เช่น รถนอก / เปิดข้าง / ตู้">
-                                                </div>
-                                            </div>
+                                                    <div class="col-md-12 tm-staff-field">
+                                                        <label class="form-label small mb-1">เด็กรถ 3</label>
+                                                        <select class="form-select form-select-sm" name="helper3_staff_id"
+                                                            id="tmHelper3StaffId">
+                                                            <option value="">-- เลือกเด็กรถ 3 --</option>
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-md-12 tm-staff-field">
+                                                        <label class="form-label small mb-1">เด็กรถ 4</label>
+                                                        <select class="form-select form-select-sm" name="helper4_staff_id"
+                                                            id="tmHelper4StaffId">
+                                                            <option value="">-- เลือกเด็กรถ 4 --</option>
+                                                        </select>
+                                                    </div>
 
-                                            <div class="alert alert-info small mt-3 mb-2">
-                                                ถ้าใช้ทะเบียนเดิมในวันส่งเดียวกัน ระบบจะถือเป็นรถนอกคันเดิม และจะนำ capacity
-                                                ที่เหลือมาใช้ต่อกับ SO อื่นได้
-                                            </div>
-
-                                            <hr class="my-3">
-
-                                            <div class="fw-semibold mb-2">พนักงานประจำรถ</div>
-
-                                            <div class="row g-2">
-                                                <div class="col-md-12">
-                                                    <label class="form-label small mb-1">คนขับ</label>
-                                                    <select class="form-select form-select-sm" name="driver_staff_id"
-                                                        id="tmDriverStaffId">
-                                                        <option value="">-- เลือกคนขับ --</option>
-                                                    </select>
-                                                </div>
-
-                                                <div class="col-md-12">
-                                                    <label class="form-label small mb-1">เด็กรถ 1</label>
-                                                    <select class="form-select form-select-sm" name="helper1_staff_id"
-                                                        id="tmHelper1StaffId">
-                                                        <option value="">-- เลือกเด็กรถ 1 --</option>
-                                                    </select>
-                                                </div>
-
-                                                <div class="col-md-12">
-                                                    <label class="form-label small mb-1">เด็กรถ 2</label>
-                                                    <select class="form-select form-select-sm" name="helper2_staff_id"
-                                                        id="tmHelper2StaffId">
-                                                        <option value="">-- เลือกเด็กรถ 2 --</option>
-                                                    </select>
-                                                </div>
-
-                                                <div class="col-md-12">
-                                                    <label class="form-label small mb-1">เด็กรถ 3</label>
-                                                    <select class="form-select form-select-sm" name="helper3_staff_id"
-                                                        id="tmHelper3StaffId">
-                                                        <option value="">-- เลือกเด็กรถ 3 --</option>
-                                                    </select>
+                                                    <div class="col-md-12 tm-staff-field">
+                                                        <label class="form-label small mb-1">เด็กรถ 5</label>
+                                                        <select class="form-select form-select-sm" name="helper5_staff_id"
+                                                            id="tmHelper5StaffId">
+                                                            <option value="">-- เลือกเด็กรถ 5 --</option>
+                                                        </select>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -1291,6 +1841,7 @@
 
                     <div class="modal-footer">
                         <button type="button" class="btn btn-light" data-bs-dismiss="modal">ปิด</button>
+
                         <button type="submit" id="btnSendMail" class="btn btn-primary">
                             <span class="btn-text">
                                 <i class="fas fa-paper-plane me-1"></i> ส่งเมล
@@ -1310,18 +1861,28 @@
 @endsection
 
 @section('styles')
-    <link rel="stylesheet" href="{{ asset('css/formdp/inquiry.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/formdp/inquiry.css') }}?v=20260609_action_compact_v1">
 @endsection
 
 @push('scripts')
     <script>
+        window.DP_AC_SOURCES = {
+            so: @json(($autocompleteSources['so'] ?? [])),
+            customer: @json(($autocompleteSources['customer'] ?? [])),
+            shipto: @json(($autocompleteSources['shipto'] ?? [])),
+            divsales: @json(array_values($divLabel ?? [])),
+        };
         window.DP_INQUIRY = {
             docMap: @json($docMap),
+            duplicateContinue: @json(session('dp_duplicate_continue')),
             routes: {
                 history: @json(route('dp.inquiry.history', ['ordId' => '__ID__'])),
                 historyDb: @json(route('dp.history.db', ['ord_id' => '__ID__'])),
                 void: @json(route('dp.void', ['ordId' => '__ID__'])),
                 postpone: @json(route('dp.inquiry.postpone', ['ordId' => '__ID__'])),
+                bulkPostpone: @json(route('dp.inquiry.bulk-postpone')),
+                duplicate: @json(route('dp.inquiry.duplicate', ['ordId' => '__ID__'])),
+                mfgLookup: @json(route('dp.mfgLookup')),
                 specialDispatch: @json(route('dp.inquiry.special-dispatch', ['ordId' => '__ID__'])),
                 truckAssign: @json(route('dp.inquiry.truck.assign', ['ordId' => '__ID__'])),
                 truckUnassign: @json(route('dp.inquiry.truck.unassign', ['ordId' => '__ID__'])),
@@ -1331,7 +1892,50 @@
                 truckStaffDefaults: @json(route('dp.truck.staff.defaults')),
             }
         };
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('erpSyncSaleOrderForm');
+            if (!form) return;
+
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+
+                if (!window.Swal) {
+                    if (confirm('ดึงข้อมูล Sale/Work Order จาก ERP ตอนนี้เลยหรือไม่?')) {
+                        form.submit();
+                    }
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'ดึงข้อมูล ERP?',
+                    text: 'ระบบจะดึงข้อมูล Sale Order และ Work Order จาก ERP ตอนนี้',
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonText: 'ดึงข้อมูล',
+                    cancelButtonText: 'ยกเลิก',
+                    confirmButtonColor: '#f59e0b',
+                    cancelButtonColor: '#64748b',
+                    reverseButtons: true,
+                    focusCancel: true
+                }).then(function (result) {
+                    if (result.isConfirmed) {
+                        Swal.fire({
+                            title: 'กำลังดึงข้อมูล',
+                            text: 'กรุณารอสักครู่',
+                            allowOutsideClick: false,
+                            allowEscapeKey: false,
+                            didOpen: function () {
+                                Swal.showLoading();
+                            }
+                        });
+
+                        form.submit();
+                    }
+                });
+            });
+        });
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260601_1"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260609_action_compact_v1"></script>
 @endpush

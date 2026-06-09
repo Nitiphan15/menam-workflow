@@ -19,6 +19,7 @@
         $dataQualitySummary = collect($insights['dataQualitySummary'] ?? []);
         $movementSummary = collect($insights['movementSummary'] ?? []);
         $divisionSummary = collect($insights['divisionSummary'] ?? []);
+        $siteCounts = $siteSummary->keyBy(fn($item) => strtoupper((string) ($item['site'] ?? '')));
         $fmtDate = fn($value) => $value ? \Carbon\Carbon::parse($value)->format('d/m/Y') : '-';
         $riskClass = fn($risk) => match ($risk) {
             'HIGH' => 'danger',
@@ -39,12 +40,40 @@
             'เสร็จแล้ว' => 'success',
             default => 'primary',
         };
-        $filterQuery = fn($value) => array_merge(request()->except(['page']), ['completion_filter' => $value]);
-        $statusQuery = fn($value) => array_merge(request()->except(['page']), ['status_filter' => $value]);
+        $filterQuery = fn($value) => array_merge(request()->except(['page']), [
+            'completion_filter' => $value,
+            'status_filter' => 'all',
+        ]);
+        $statusQuery = fn($value) => array_merge(request()->except(['page']), [
+            'completion_filter' => 'all',
+            'status_filter' => $value,
+        ]);
+        $siteQuery = function ($value) use ($filters) {
+            $query = request()->except(['page']);
+            if (($filters['site'] ?? '') === $value) {
+                unset($query['site']);
+                return $query;
+            }
+
+            return array_merge($query, ['site' => $value]);
+        };
+        $clearSiteQuery = request()->except(['page', 'site']);
         $movementQuery = fn($value) => array_merge(request()->except(['page']), ['movement_filter' => $value]);
         $processQuery = fn($value) => array_merge(request()->except(['page']), ['process_filter' => $value]);
         $divisionQuery = fn($value) => array_merge(request()->except(['page']), ['keyword' => $value]);
         $clearProcessQuery = request()->except(['page', 'process_filter']);
+        $confirmationQuery = fn($value) => array_merge(request()->except(['page']), ['confirmation_filter' => $value]);
+        $confirmationFilterValue = strtolower((string) ($filters['confirmation_filter'] ?? 'all'));
+        $hasActiveFilters =
+            !empty($filters['keyword']) ||
+            !empty($filters['site']) ||
+            !empty($filters['risk_status']) ||
+            !empty($filters['process_filter']) ||
+            ($filters['delivery_status'] ?? 'NEW') !== 'NEW' ||
+            ($filters['completion_filter'] ?? 'all') !== 'all' ||
+            ($filters['status_filter'] ?? 'all') !== 'all' ||
+            ($filters['movement_filter'] ?? 'all') !== 'all' ||
+            $confirmationFilterValue !== 'all';
     @endphp
 
     <style>
@@ -59,6 +88,11 @@
             border: 1px solid #dfe5ec;
             border-radius: 8px;
             overflow: hidden;
+        }
+
+        /* Filters panel must allow autocomplete dropdowns to overflow */
+        .pst-panel-filters {
+            overflow: visible;
         }
 
         .pst-head {
@@ -96,6 +130,44 @@
             color: #667085;
             font-size: .78rem;
             margin-top: 2px;
+        }
+
+        .pst-kpi-groups {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 12px;
+        }
+
+        .pst-kpi-group {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 10px;
+            padding: 10px 12px 12px;
+            position: relative;
+        }
+
+        .pst-kpi-group-alert {
+            background: #fff7f7;
+            border-color: #f3c2c2;
+        }
+
+        .pst-kpi-group-label {
+            color: #475569;
+            font-size: .72rem;
+            font-weight: 700;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .pst-kpi-group-alert .pst-kpi-group-label {
+            color: #b91c1c;
+        }
+
+        @media (max-width: 991.98px) {
+            .pst-kpi-groups {
+                grid-template-columns: 1fr;
+            }
         }
 
         .pst-board {
@@ -268,6 +340,145 @@
             gap: 6px;
         }
 
+        .pst-quality-link {
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            border-radius: 6px;
+            padding: 4px 6px;
+            margin: -4px -6px;
+            transition: background-color .12s ease;
+        }
+
+        .pst-quality-link:hover {
+            background: #fef2f2;
+            color: inherit;
+        }
+
+        .pst-collapsible {
+            border: 1px solid #dfe5ec;
+            border-radius: 8px;
+            background: #fff;
+        }
+
+        .pst-collapsible>.pst-collapsible-summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            user-select: none;
+        }
+
+        .pst-collapsible>.pst-collapsible-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .pst-collapsible[open]>.pst-collapsible-summary {
+            border-bottom: 1px solid #e8edf2;
+        }
+
+        .pst-collapsible-icon {
+            color: #94a3b8;
+            font-size: .8rem;
+            transition: transform .15s ease;
+        }
+
+        .pst-collapsible[open] .pst-collapsible-icon {
+            transform: rotate(180deg);
+        }
+
+        /* Autocomplete (same look & feel as DP inquiry) */
+        .dp-ac-wrap {
+            position: relative;
+        }
+
+        .dp-ac-wrap .dp-ac-input {
+            padding-right: 28px;
+        }
+
+        .dp-ac-clear {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            line-height: 18px;
+            text-align: center;
+            border: 0;
+            border-radius: 50%;
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 16px;
+            cursor: pointer;
+            display: none;
+            padding: 0;
+        }
+
+        .dp-ac-clear:hover {
+            background: #cbd5e1;
+            color: #0f172a;
+        }
+
+        .dp-ac-wrap.has-value .dp-ac-clear {
+            display: inline-block;
+        }
+
+        .dp-suggest {
+            position: absolute;
+            left: 12px;
+            right: 12px;
+            top: calc(100% + 2px);
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
+            padding: 6px;
+            max-height: 280px;
+            overflow: auto;
+            z-index: 1060;
+            min-width: 220px;
+        }
+
+        .dp-suggest-item {
+            width: 100%;
+            text-align: left;
+            border: 0;
+            background: transparent;
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .dp-suggest-item:hover,
+        .dp-suggest-item.is-active {
+            background: #eef4ff;
+        }
+
+        .dp-suggest-title {
+            font-weight: 600;
+            font-size: 13px;
+            color: #0f172a;
+        }
+
+        .dp-suggest-title mark {
+            background: #fef08a;
+            color: inherit;
+            padding: 0;
+        }
+
+        .dp-suggest-empty {
+            padding: 10px;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
         .pst-chip-row {
             display: flex;
             flex-wrap: wrap;
@@ -322,7 +533,7 @@
         }
 
         .pst-table-wrap {
-            max-height: 640px;
+            max-height: 1150px;
             overflow: auto;
         }
 
@@ -337,6 +548,65 @@
             z-index: 2;
             background: #edf4ff;
             white-space: nowrap;
+        }
+
+        .pst-resizable-table th {
+            position: sticky;
+            user-select: none;
+        }
+
+        .pst-resizer {
+            position: absolute;
+            top: 0;
+            right: -3px;
+            width: 8px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 5;
+        }
+
+        .pst-resizer::after {
+            content: "";
+            position: absolute;
+            top: 22%;
+            bottom: 22%;
+            left: 3px;
+            width: 1px;
+            background: rgba(100, 116, 139, .45);
+        }
+
+        .pst-table-resizing {
+            cursor: col-resize;
+            user-select: none;
+        }
+
+        .pst-hide-col-btn {
+            border: 0;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            font-size: 11px;
+            margin-left: 5px;
+            padding: 0 2px;
+            position: relative;
+            vertical-align: middle;
+            z-index: 6;
+        }
+
+        .pst-hide-col-btn:hover {
+            color: #dc3545;
+        }
+
+        .pst-column-menu {
+            max-height: 360px;
+            min-width: 260px;
+            overflow-y: auto;
+        }
+
+        .pst-column-menu .dropdown-item {
+            align-items: center;
+            display: flex;
+            gap: 8px;
         }
 
         .pst-table td {
@@ -404,6 +674,34 @@
         .pst-confirm-col {
             width: 280px;
             min-width: 280px;
+        }
+
+        .pst-no-col {
+            width: 48px;
+            min-width: 48px;
+        }
+
+        .pst-no-cell {
+            font-variant-numeric: tabular-nums;
+            color: #6b7280;
+        }
+
+        .pst-group-tag {
+            display: inline-block;
+            color: #6366f1;
+            font-size: 11px;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+
+        tr.pst-group-cont>td {
+            background-color: #f8faff;
+            border-top: 1px dashed #c7d2fe !important;
+        }
+
+        tr.pst-group-cont>td.pst-pin-left {
+            box-shadow: 6px 0 8px -8px rgba(15, 23, 42, .25);
+            border-left: 3px solid #6366f1;
         }
 
         .pst-table td.pst-confirm {
@@ -494,60 +792,110 @@
             </div>
         @endif
 
-        <div class="row g-3 mb-3">
-            <div class="col-md-2 col-6">
-                <div class="pst-kpi">
-                    <div class="label">MFG in plan</div>
-                    <div class="value">{{ number_format($summary['total'] ?? 0) }}</div>
+        <div class="pst-kpi-groups mb-3">
+            <div class="pst-kpi-group">
+                <div class="pst-kpi-group-label">Health</div>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <div class="pst-kpi">
+                            <div class="label">MFG in plan</div>
+                            <div class="value">{{ number_format($summary['total'] ?? 0) }}</div>
+                            <div class="hint">Avg progress
+                                {{ number_format($summary['avg_progress'] ?? 0, 1) }}%</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="pst-kpi">
+                            <div class="label">ยังไม่เสร็จ</div>
+                            <div class="value text-warning">{{ number_format($summary['open'] ?? 0) }}</div>
+                            <div class="hint">open jobs</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="pst-kpi">
+                            <div class="label">Due 1-3 days</div>
+                            <div class="value text-primary">{{ number_format($summary['due_soon'] ?? 0) }}</div>
+                            <div class="hint">ใกล้ครบกำหนด</div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-2 col-6">
-                <div class="pst-kpi">
-                    <div class="label">ยังไม่เสร็จ</div>
-                    <div class="value text-warning">{{ number_format($summary['open'] ?? 0) }}</div>
-                    <div class="hint">open jobs</div>
-                </div>
-            </div>
-            <div class="col-md-2 col-6">
-                <div class="pst-kpi">
-                    <div class="label">Delayed</div>
-                    <div class="value text-danger">{{ number_format($summary['delayed'] ?? 0) }}</div>
-                </div>
-            </div>
-            <div class="col-md-2 col-6">
-                <div class="pst-kpi">
-                    <div class="label">At Risk</div>
-                    <div class="value text-danger">{{ number_format($summary['at_risk'] ?? 0) }}</div>
-                </div>
-            </div>
-            <div class="col-md-2 col-6">
-                <div class="pst-kpi">
-                    <div class="label">Overdue</div>
-                    <div class="value text-danger">{{ number_format($summary['overdue'] ?? 0) }}</div>
-                    <div class="hint">not completed</div>
-                </div>
-            </div>
-            <div class="col-md-2 col-6">
-                <div class="pst-kpi">
-                    <div class="label">Due 1-3 days</div>
-                    <div class="value text-primary">{{ number_format($summary['due_soon'] ?? 0) }}</div>
-                    <div class="hint">Avg {{ number_format($summary['avg_progress'] ?? 0, 1) }}%</div>
+            <div class="pst-kpi-group pst-kpi-group-alert">
+                <div class="pst-kpi-group-label">Alert</div>
+                <div class="row g-2">
+                    <div class="col-4">
+                        <div class="pst-kpi">
+                            <div class="label">Overdue</div>
+                            <div class="value text-danger">{{ number_format($summary['overdue'] ?? 0) }}</div>
+                            <div class="hint">not completed</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="pst-kpi">
+                            <div class="label">Delayed</div>
+                            <div class="value text-danger">{{ number_format($summary['delayed'] ?? 0) }}</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="pst-kpi">
+                            <div class="label">At Risk</div>
+                            <div class="value text-danger">{{ number_format($summary['at_risk'] ?? 0) }}</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="pst-panel mb-3">
+        <details class="pst-panel mb-3 pst-collapsible" data-storage-key="pst-data-quality-open" open>
+            <summary class="pst-collapsible-summary">
+                <span class="fw-semibold">Data Quality</span>
+                @php
+                    $noRouteCount = (int) ($dataQualitySummary->firstWhere('label', 'ไม่พบ Routing')['count'] ?? 0);
+                    $unknownCount = (int) ($dataQualitySummary->firstWhere('label', 'UNKNOWN')['count'] ?? 0);
+                @endphp
+                <span class="pst-muted ms-auto small">
+                    @if ($noRouteCount === 0 && $unknownCount === 0)
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">ข้อมูลครบ</span>
+                    @else
+                        @if ($noRouteCount > 0)
+                            <span class="badge bg-danger me-1">ไม่พบ Routing {{ number_format($noRouteCount) }}</span>
+                        @endif
+                        @if ($unknownCount > 0)
+                            <span class="badge bg-warning text-dark">UNKNOWN {{ number_format($unknownCount) }}</span>
+                        @endif
+                    @endif
+                </span>
+                <i class="fas fa-chevron-down pst-collapsible-icon ms-2"></i>
+            </summary>
             <div class="pst-quality-strip">
-                <div class="fw-semibold">Data Quality</div>
                 @foreach ($dataQualitySummary->whereIn('label', ['ไม่พบ Routing', 'UNKNOWN']) as $quality)
-                    <div class="pst-quality-stat">
-                        <div class="d-flex align-items-center justify-content-between gap-2">
-                            <span class="label">{{ $quality['label'] ?? '-' }}</span>
-                            <span
-                                class="badge bg-{{ $quality['class'] ?? 'secondary' }}">{{ number_format((float) ($quality['pct'] ?? 0), 1) }}%</span>
+                    @php
+                        $qCount = (int) ($quality['count'] ?? 0);
+                        $qClass = $qCount === 0 ? 'success' : ($quality['class'] ?? 'secondary');
+                        $isNoRoute = ($quality['label'] ?? '') === 'ไม่พบ Routing';
+                        $qLinkable = $isNoRoute && $qCount > 0;
+                    @endphp
+                    @if ($qLinkable)
+                        <a class="pst-quality-stat pst-quality-link"
+                            href="{{ route('dp.production-status', $movementQuery('no_route')) }}"
+                            title="ดูเฉพาะรายการที่ไม่พบ Routing">
+                            <div class="d-flex align-items-center justify-content-between gap-2">
+                                <span class="label">{{ $quality['label'] ?? '-' }}</span>
+                                <span
+                                    class="badge bg-{{ $qClass }}">{{ number_format((float) ($quality['pct'] ?? 0), 1) }}%</span>
+                            </div>
+                            <div class="value mt-1">{{ number_format($qCount) }}</div>
+                        </a>
+                    @else
+                        <div class="pst-quality-stat">
+                            <div class="d-flex align-items-center justify-content-between gap-2">
+                                <span class="label">{{ $quality['label'] ?? '-' }}</span>
+                                <span
+                                    class="badge bg-{{ $qClass }}">{{ number_format((float) ($quality['pct'] ?? 0), 1) }}%</span>
+                            </div>
+                            <div class="value mt-1">{{ number_format($qCount) }}</div>
                         </div>
-                        <div class="value mt-1">{{ number_format($quality['count'] ?? 0) }}</div>
-                    </div>
+                    @endif
                 @endforeach
                 <div class="pst-quality-stat">
                     <div class="label mb-2">Site mix</div>
@@ -561,9 +909,9 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </details>
 
-        <div class="pst-panel mb-3">
+        <div class="pst-panel pst-panel-filters mb-3">
             <div class="pst-head">
                 <span>Filters</span>
                 <span class="pst-muted">Delivery Plan + Barcode/ManuCost route progress</span>
@@ -573,7 +921,50 @@
                 <input type="hidden" name="status_filter" value="{{ $filters['status_filter'] ?? 'all' }}">
                 <input type="hidden" name="process_filter" value="{{ $filters['process_filter'] ?? '' }}">
                 <input type="hidden" name="movement_filter" value="{{ $filters['movement_filter'] ?? 'all' }}">
+                <input type="hidden" name="confirmation_filter" value="{{ $confirmationFilterValue }}">
                 <div class="row g-3 align-items-end">
+                    <div class="col-lg-3 col-md-6 position-relative">
+                        <label class="form-label">MFG</label>
+                        <div class="dp-ac-wrap">
+                            <input id="pst_mfg" name="mfg" value="{{ $filters['mfg'] ?? '' }}" autocomplete="off"
+                                class="form-control dp-ac-input" data-ac-source="mfg" placeholder="ค้นหา MFG">
+                            <button type="button" class="dp-ac-clear" data-ac-clear="pst_mfg" title="ล้าง"
+                                aria-label="ล้าง">&times;</button>
+                        </div>
+                        <div class="dp-suggest d-none" data-ac-for="pst_mfg"></div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 position-relative">
+                        <label class="form-label">SO</label>
+                        <div class="dp-ac-wrap">
+                            <input id="pst_so" name="so" value="{{ $filters['so'] ?? '' }}" autocomplete="off"
+                                class="form-control dp-ac-input" data-ac-source="so" placeholder="ค้นหา SO">
+                            <button type="button" class="dp-ac-clear" data-ac-clear="pst_so" title="ล้าง"
+                                aria-label="ล้าง">&times;</button>
+                        </div>
+                        <div class="dp-suggest d-none" data-ac-for="pst_so"></div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 position-relative">
+                        <label class="form-label">Customer</label>
+                        <div class="dp-ac-wrap">
+                            <input id="pst_customer" name="customer" value="{{ $filters['customer'] ?? '' }}"
+                                autocomplete="off" class="form-control dp-ac-input" data-ac-source="customer"
+                                placeholder="ค้นหาลูกค้า">
+                            <button type="button" class="dp-ac-clear" data-ac-clear="pst_customer" title="ล้าง"
+                                aria-label="ล้าง">&times;</button>
+                        </div>
+                        <div class="dp-suggest d-none" data-ac-for="pst_customer"></div>
+                    </div>
+                    <div class="col-lg-3 col-md-6 position-relative">
+                        <label class="form-label">Item / Part</label>
+                        <div class="dp-ac-wrap">
+                            <input id="pst_item" name="item" value="{{ $filters['item'] ?? '' }}" autocomplete="off"
+                                class="form-control dp-ac-input" data-ac-source="item"
+                                placeholder="Part No หรือ Description">
+                            <button type="button" class="dp-ac-clear" data-ac-clear="pst_item" title="ล้าง"
+                                aria-label="ล้าง">&times;</button>
+                        </div>
+                        <div class="dp-suggest d-none" data-ac-for="pst_item"></div>
+                    </div>
                     <div class="col-lg-2 col-md-4">
                         <label class="form-label">Ship from</label>
                         <input type="date" name="ship_from" class="form-control"
@@ -622,30 +1013,40 @@
                             @endforeach
                         </select>
                     </div>
-                    <div class="col-lg-8 col-md-8">
-                        <label class="form-label">Search</label>
-                        <input type="search" name="keyword" class="form-control" value="{{ $filters['keyword'] ?? '' }}"
-                            placeholder="MFG, SO, customer, item, sales">
-                    </div>
-                    <div class="col-lg-4 col-md-4 d-flex gap-2">
-                        <button class="btn btn-primary flex-fill" type="submit"><i class="fas fa-filter me-1"></i>
-                            Apply</button>
+                    <div class="col-12 d-flex gap-2 justify-content-end">
+                        <a class="btn btn-outline-secondary" href="{{ route('dp.production-status') }}"
+                            title="ล้างตัวกรอง"><i class="fas fa-rotate-left me-1"></i> Reset</a>
                         <a class="btn btn-outline-success"
                             href="{{ route('dp.production-status.export', request()->query()) }}">
                             <i class="fas fa-file-export me-1"></i> Export
                         </a>
-                        <a class="btn btn-outline-secondary" href="{{ route('dp.production-status') }}"><i
-                                class="fas fa-rotate-left"></i></a>
+                        <button class="btn btn-primary" type="submit">
+                            <i class="fas fa-filter me-1"></i> Apply
+                        </button>
                     </div>
                 </div>
             </form>
         </div>
 
-        <div class="pst-panel mb-3">
-            <div class="pst-head">
-                <span>Movement Filter</span>
-                <span class="pst-muted">กดเพื่อดูงานตามสถานะเคลื่อนไหว</span>
-            </div>
+        <details class="pst-panel mb-3 pst-collapsible" data-storage-key="pst-movement-open" open>
+            <summary class="pst-collapsible-summary">
+                <span class="fw-semibold">Movement Filter</span>
+                @php
+                    $movementActive = $filters['movement_filter'] ?? 'all';
+                    $movementActiveLabel =
+                        $movementActive === 'all'
+                            ? 'ทั้งหมด'
+                            : ($movementSummary->firstWhere('value', $movementActive)['label'] ?? $movementActive);
+                @endphp
+                <span class="pst-muted ms-auto small">
+                    @if ($movementActive !== 'all')
+                        <span class="badge bg-primary">{{ $movementActiveLabel }}</span>
+                    @else
+                        กดเพื่อดูงานตามสถานะเคลื่อนไหว
+                    @endif
+                </span>
+                <i class="fas fa-chevron-down pst-collapsible-icon ms-2"></i>
+            </summary>
             <div class="p-3 pst-chip-row">
                 <a class="btn btn-sm {{ ($filters['movement_filter'] ?? 'all') === 'all' ? 'btn-primary' : 'btn-outline-primary' }}"
                     href="{{ route('dp.production-status', $movementQuery('all')) }}">
@@ -659,13 +1060,31 @@
                     </a>
                 @endforeach
             </div>
-        </div>
+        </details>
 
+        @php
+            $pstLabelTh = [
+                // statusSummary
+                'Delayed' => 'ล่าช้า',
+                'On Track' => 'ทันกำหนด',
+                'Completed' => 'เสร็จแล้ว',
+                // dueBuckets
+                'Overdue' => 'เลยกำหนด',
+                'Today' => 'วันนี้',
+                '1-3 Days' => 'อีก 1-3 วัน',
+                '4-7 Days' => 'อีก 4-7 วัน',
+                '> 7 Days' => 'เกิน 7 วัน',
+                // actionSummary
+                'Expedite' => 'เร่งด่วน',
+                'Keep Watching' => 'เฝ้าระวัง',
+                'Ready / Done' => 'พร้อม / เสร็จ',
+            ];
+            $pstTh = fn($k) => $pstLabelTh[$k] ?? $k;
+        @endphp
         <div class="pst-board">
             <div class="pst-lane">
                 <div class="pst-lane-head">
-                    <span>Production Control</span>
-                    <span class="pst-muted">{{ number_format($allRowsCount ?? 0) }} MFG</span>
+                    <span>ภาพรวมการผลิต</span>
                 </div>
                 <div class="pst-lane-body">
                     <div class="pst-status-grid">
@@ -677,11 +1096,11 @@
                             @endphp
                             <div class="pst-status-tile">
                                 <div class="d-flex align-items-center justify-content-between gap-2">
-                                    <span class="badge bg-{{ $tone }}">{{ $label }}</span>
+                                    <span class="badge bg-{{ $tone }}">{{ $pstTh($label) }}</span>
                                     <span class="pst-muted">{{ number_format($status['pct'] ?? 0, 1) }}%</span>
                                 </div>
                                 <div class="count mt-2">{{ number_format($status['count'] ?? 0) }}</div>
-                                <div class="caption">jobs in current filter</div>
+                                <div class="caption">งานในตัวกรองปัจจุบัน</div>
                                 <div class="pst-progress-rail">
                                     <div class="pst-progress-fill bg-{{ $tone }}"
                                         style="width: {{ max(0, min(100, (float) ($status['pct'] ?? 0))) }}%"></div>
@@ -709,17 +1128,17 @@
                         @foreach ($siteSummary as $site)
                             <span class="badge bg-light text-dark border">
                                 {{ $site['site'] }}: {{ number_format($site['count'] ?? 0) }}
-                                <span class="text-muted">open {{ number_format($site['open'] ?? 0) }}</span>
+                                <span class="text-muted">ค้าง {{ number_format($site['open'] ?? 0) }}</span>
                             </span>
                         @endforeach
                     </div>
 
                     <div class="pst-control-extra">
                         <div class="pst-mini-panel">
-                            <div class="fw-semibold mb-2">Due Pressure</div>
+                            <div class="fw-semibold mb-2">ความเร่งด่วน</div>
                             @foreach ($dueBuckets as $bucket)
                                 <div class="pst-mini-row">
-                                    <span class="pst-muted">{{ $bucket['label'] }}</span>
+                                    <span class="pst-muted">{{ $pstTh($bucket['label']) }}</span>
                                     <span class="fw-semibold num">{{ number_format($bucket['count'] ?? 0) }}</span>
                                     <div class="pst-bar">
                                         <span class="bg-{{ $bucket['class'] ?? 'primary' }}"
@@ -729,10 +1148,10 @@
                             @endforeach
                         </div>
                         <div class="pst-mini-panel">
-                            <div class="fw-semibold mb-2">Action Needed</div>
+                            <div class="fw-semibold mb-2">ต้องดำเนินการ</div>
                             @foreach ($actionSummary as $action)
                                 <div class="pst-mini-row">
-                                    <span class="pst-muted">{{ $action['label'] }}</span>
+                                    <span class="pst-muted">{{ $pstTh($action['label']) }}</span>
                                     <span class="fw-semibold num">{{ number_format($action['count'] ?? 0) }}</span>
                                     <div class="pst-bar">
                                         <span class="bg-{{ $action['class'] ?? 'primary' }}"
@@ -742,26 +1161,34 @@
                             @endforeach
                         </div>
                         <div class="pst-mini-panel">
-                            <div class="fw-semibold mb-2">Sales Unit</div>
+                            <div class="fw-semibold mb-2">หน่วยขาย</div>
                             @foreach ($unitSummary as $unit)
+                                @php
+                                    $uName = $unit['unit'] ?? '';
+                                    if ($uName === 'kg') {
+                                        $primaryQty = (float) ($unit['qty_kg'] ?? 0);
+                                        $primaryUnit = 'kg';
+                                    } elseif (in_array($uName, ['เส้น', 'ชิ้น'], true)) {
+                                        $primaryQty = (float) ($unit['line_qty'] ?? 0);
+                                        $primaryUnit = $uName;
+                                    } else {
+                                        $primaryQty = (float) ($unit['qty_kg'] ?? 0);
+                                        $primaryUnit = 'kg';
+                                    }
+                                @endphp
                                 <div class="pst-mini-row">
-                                    <span class="pst-muted">{{ $unit['unit'] }}</span>
-                                    <span class="fw-semibold num">{{ number_format($unit['count'] ?? 0) }}</span>
+                                    <span class="pst-muted">{{ $uName }}</span>
+                                    <span class="fw-semibold num" title="ยอดรวม">
+                                        {{ number_format($primaryQty, 0) }}
+                                        <span class="pst-muted small">{{ $primaryUnit }}</span>
+                                    </span>
                                     <div>
                                         <div class="pst-bar">
                                             <span
                                                 style="width: {{ max(0, min(100, (float) ($unit['pct'] ?? 0))) }}%"></span>
                                         </div>
                                         <div class="pst-muted mt-1">
-                                            @if (($unit['unit'] ?? '') === 'kg')
-                                                {{ number_format((float) ($unit['qty_kg'] ?? 0), 0) }} kg
-                                            @elseif (in_array($unit['unit'] ?? '', ['เส้น', 'ชิ้น'], true))
-                                                {{ number_format((float) ($unit['line_qty'] ?? 0), 0) }}
-                                                {{ $unit['unit'] }}
-                                            @else
-                                                {{ number_format((float) ($unit['qty_kg'] ?? 0), 0) }} kg /
-                                                {{ number_format((float) ($unit['line_qty'] ?? 0), 0) }} เส้น
-                                            @endif
+                                            {{ number_format($unit['count'] ?? 0) }} MFG
                                         </div>
                                     </div>
                                 </div>
@@ -829,14 +1256,14 @@
                     </div>
                     @php
                         $divisionLabelMap = [
-                            'D1'  => 'D1 - ดิลก + ขวัญเรือน',
-                            'D2'  => 'D2 - ปรียาพรรณ + นิตยา',
-                            'D3'  => 'D3 - ภควดี + ธนัชชา',
-                            'D5'  => 'D5 - ธัธลิญา + เฌอร์ลิญา',
-                            'D6'  => 'D6 - สุรศักดิ์ + คณัญญ์นิชา',
-                            'D7'  => 'D7 - ศิรินภา + มนพัทธ์',
-                            'D8'  => 'D8 - สาธิต + สุธาสินี',
-                            'D9'  => 'D9 - วรเดชา + ลัดดาวัลย์',
+                            'D1' => 'D1 - ดิลก + ขวัญเรือน',
+                            'D2' => 'D2 - ปรียาพรรณ + นิตยา',
+                            'D3' => 'D3 - ภควดี + ธนัชชา',
+                            'D5' => 'D5 - ธัธลิญา + เฌอร์ลิญา',
+                            'D6' => 'D6 - สุรศักดิ์ + คณัญญ์นิชา',
+                            'D7' => 'D7 - ศิรินภา + มนพัทธ์',
+                            'D8' => 'D8 - สาธิต + สุธาสินี',
+                            'D9' => 'D9 - วรเดชา + ลัดดาวัลย์',
                             'PLN' => 'PLN - วางแผน - กันยกร',
                         ];
                     @endphp
@@ -947,6 +1374,22 @@
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status', $clearProcessQuery) }}">Clear process</a>
                     @endif
+                    <a class="btn btn-sm {{ ($filters['site'] ?? '') === 'WIRE' ? 'btn-info' : 'btn-outline-info' }}"
+                        href="{{ route('dp.production-status', $siteQuery('WIRE')) }}">
+                        WIRE
+                        <span class="ms-1">{{ number_format($siteCounts->get('WIRE')['count'] ?? 0) }}</span>
+                    </a>
+                    <a class="btn btn-sm {{ ($filters['site'] ?? '') === 'PLUS' ? 'btn-warning' : 'btn-outline-warning' }}"
+                        href="{{ route('dp.production-status', $siteQuery('PLUS')) }}">
+                        PLUS
+                        <span class="ms-1">{{ number_format($siteCounts->get('PLUS')['count'] ?? 0) }}</span>
+                    </a>
+                    @if (!empty($filters['site']))
+                        <a class="btn btn-sm btn-outline-secondary"
+                            href="{{ route('dp.production-status', $clearSiteQuery) }}">
+                            <i class="fas fa-xmark me-1"></i> Clear site
+                        </a>
+                    @endif
                     <a class="btn btn-sm {{ ($filters['completion_filter'] ?? 'all') === 'all' ? 'btn-primary' : 'btn-outline-primary' }}"
                         href="{{ route('dp.production-status', $filterQuery('all')) }}">All</a>
                     <a class="btn btn-sm {{ ($filters['completion_filter'] ?? 'all') === 'open' ? 'btn-warning' : 'btn-outline-warning' }}"
@@ -969,26 +1412,63 @@
                         <i class="fas fa-bolt me-1"></i> At Risk
                         <span class="ms-1">{{ number_format($summary['at_risk'] ?? 0) }}</span>
                     </a>
+                    <a class="btn btn-sm {{ $confirmationFilterValue === 'postpone' ? 'btn-warning' : 'btn-outline-warning' }}"
+                        href="{{ route('dp.production-status', $confirmationQuery($confirmationFilterValue === 'postpone' ? 'all' : 'postpone')) }}"
+                        title="ดูรายการที่ขอเลื่อนส่ง">
+                        <i class="fas fa-calendar-xmark me-1"></i> ขอเลื่อนส่ง
+                        <span class="ms-1">{{ number_format($summary['postpone'] ?? 0) }}</span>
+                    </a>
+                    @if ($hasActiveFilters)
+                        <a class="btn btn-sm btn-outline-secondary"
+                            href="{{ route('dp.production-status') }}"
+                            title="ล้าง filter ทั้งหมด">
+                            <i class="fas fa-xmark me-1"></i> ยกเลิก Filter
+                        </a>
+                    @endif
                 </div>
                 <span class="pst-muted">{{ number_format($allRowsCount ?? 0) }} rows</span>
             </div>
             <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-light">
                 <div class="small text-muted">
                     <i class="fas fa-info-circle me-1"></i>
-                    รายการที่ยังไม่ได้บันทึก จะถือว่า <b>"รอวางแผนยืนยัน"</b> — กดปุ่มขวาเพื่อยืนยัน Confirm ทุกรายการที่ยังว่างในหน้านี้
+                    รายการที่ยังไม่ได้บันทึก จะถือว่า <b>"รอวางแผนยืนยัน"</b> — กดปุ่มขวาเพื่อยืนยัน Confirm
+                    ทุกรายการที่ยังว่างในหน้านี้
                 </div>
-                <button type="button" class="btn btn-sm btn-success" id="pstBulkConfirmBtn">
-                    <i class="fas fa-check-double me-1"></i>
-                    Confirm Delivery (ทุกรายการที่ยังไม่ยืนยัน)
-                    <span class="badge bg-light text-success ms-1" id="pstBulkPendingCount">0</span>
-                </button>
+                <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+                    <div class="dropdown">
+                        <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                            id="pstColumnMenuBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                            aria-expanded="false">
+                            <i class="fas fa-table-columns me-1"></i> Columns
+                            <span class="badge bg-secondary ms-1" id="pstHiddenColumnCount">0</span>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-end p-2 pst-column-menu"
+                            aria-labelledby="pstColumnMenuBtn">
+                            <div class="d-flex gap-2 mb-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary flex-fill"
+                                    id="pstShowAllColumnsBtn">
+                                    <i class="fas fa-eye me-1"></i> Show all
+                                </button>
+                            </div>
+                            <div id="pstColumnToggleList"></div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-success" id="pstBulkConfirmBtn">
+                        <i class="fas fa-check-double me-1"></i>
+                        Confirm Delivery (ทุกรายการที่ยังไม่ยืนยัน)
+                        <span class="badge bg-light text-success ms-1" id="pstBulkPendingCount">0</span>
+                    </button>
+                </div>
             </div>
             <div class="pst-table-wrap">
-                <table class="table table-sm table-hover align-middle mb-0 pst-table">
+                <table class="table table-sm table-hover align-middle mb-0 pst-table pst-resizable-table"
+                    id="pstMainTable">
                     <colgroup>
+                        <col class="pst-no-col">
                         <col class="pst-mfg">
                         <col class="pst-customer">
                         <col class="pst-item">
+                        <col class="pst-qty">
                         <col class="pst-qty">
                         <col class="pst-unit">
                         <col class="pst-date">
@@ -1005,13 +1485,15 @@
                     </colgroup>
                     <thead>
                         <tr>
+                            <th class="text-center pst-no-col">#</th>
                             <th class="pst-pin-left">Mfg No.</th>
                             <th class="pst-customer">ลูกค้า</th>
                             <th class="pst-item">สินค้า</th>
-                            <th class="num">จำนวน</th>
+                            <th class="num">จำนวนส่ง</th>
+                            <th class="num">Stock FG</th>
                             <th>Sale By</th>
-                            <th>วันส่ง</th>
-                            <th>กำหนดผลิต</th>
+                            <th>วันส่งตามแผน</th>
+                            <th>Due Date</th>
                             <th>ขั้นตอนปัจจุบัน</th>
                             <th>ความคืบหน้า</th>
                             <th>เคลื่อนไหวล่าสุด</th>
@@ -1019,27 +1501,58 @@
                             <th>สถานะ DP</th>
                             <th>สถานะผลิต</th>
                             <th>ความเสี่ยง</th>
-                            <th style="min-width:240px;">Delivery Confirmation</th>
+                            <th style="min-width:280px;">Delivery Confirmation</th>
                             <th class="pst-actions"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @php $seenSoQty = []; @endphp
+                        @php
+                            $seenGroup = [];
+                            $prevGroupKey = null;
+                            $rowNoStart =
+                                method_exists($rows, 'firstItem') && $rows->firstItem() ? $rows->firstItem() : 1;
+                            $rowIdx = 0;
+                        @endphp
                         @forelse ($rows as $row)
                             @php
                                 $row = is_array($row) ? (object) $row : $row;
                                 if (!(($row->remaining_process ?? null) instanceof \Illuminate\Support\Collection)) {
                                     $row->remaining_process = collect($row->remaining_process ?? []);
                                 }
-                                $soKey = trim((string) ($row->so_number ?? ''));
-                                $showQty = $soKey === '' || !isset($seenSoQty[$soKey]);
-                                if ($soKey !== '') { $seenSoQty[$soKey] = true; }
+                                $groupKey = trim((string) ($row->group_key ?? ''));
+                                $isGroupCont = $groupKey !== '' && $groupKey === $prevGroupKey;
+                                $isGroupFirst = $groupKey !== '' && !isset($seenGroup[$groupKey]);
+                                if ($groupKey !== '') {
+                                    $seenGroup[$groupKey] = ($seenGroup[$groupKey] ?? 0) + 1;
+                                }
+                                // qty + DP info shown once per group only
+                                $showGroupOnce = $groupKey === '' || $isGroupFirst;
+                                $prevGroupKey = $groupKey;
+                                $displayNo = $rowNoStart + $rowIdx;
+                                $rowIdx++;
                             @endphp
-                            <tr>
+                            <tr class="{{ $isGroupCont ? 'pst-group-cont' : '' }}">
+                                <td class="text-center pst-no-cell">
+                                    <span class="fw-semibold text-muted">{{ $displayNo }}</span>
+                                    @if ($isGroupCont)
+                                        <div class="pst-muted" style="font-size:10px;line-height:1;">↳</div>
+                                    @endif
+                                </td>
                                 <td class="pst-pin-left">
-                                    <div class="fw-semibold">{{ $row->mfg_no ?: '-' }}</div>
+                                    <div class="fw-semibold">
+                                        @if ($isGroupCont)
+                                            <span class="pst-group-tag"
+                                                title="กลุ่มเดียวกับแถวบน (มาจาก Delivery Plan record เดียวกัน)">
+                                                <i class="fas fa-link"></i>
+                                            </span>
+                                        @endif
+                                        {{ $row->mfg_no ?: '-' }}
+                                    </div>
                                     <div class="pst-muted">{{ $row->site ?: '-' }}
                                         {{ $row->so_number ? '| SO ' . $row->so_number : '' }}</div>
+                                    @if ($isGroupCont)
+                                        <div class="pst-muted small fst-italic">↳ กลุ่มเดียวกัน</div>
+                                    @endif
                                 </td>
                                 <td class="pst-customer">
                                     <div>{{ $row->customer ?: '-' }}</div>
@@ -1050,21 +1563,38 @@
                                     <div class="pst-muted">{{ $row->item_desc ?: '' }}</div>
                                 </td>
                                 <td class="num">
-                                    @if ($showQty)
-                                        {{ $row->qty_display ?? '-' }}
+                                    @if ($showGroupOnce)
+                                        @if (is_numeric($row->qty_kg ?? null) && (float) $row->qty_kg > 0)
+                                            {{ number_format((float) $row->qty_kg, 0) }} kg
+                                            @if (is_numeric($row->line_qty ?? null) && (float) $row->line_qty > 0)
+                                                <div class="pst-muted small">
+                                                    {{ number_format((float) $row->line_qty, 0) }}
+                                                    {{ ($row->sale_type ?? '') === 'ชิ้น' ? 'ชิ้น' : 'เส้น' }}
+                                                </div>
+                                            @endif
+                                        @else
+                                            <span class="pst-muted">-</span>
+                                        @endif
                                     @else
-                                        <span class="pst-muted" title="รวมอยู่ใน SO {{ $soKey }} แถวบนแล้ว">—</span>
+                                        <span class="pst-muted" title="ยอดแสดงในแถวบนของกลุ่มเดียวกัน">—</span>
+                                    @endif
+                                </td>
+                                <td class="num">
+                                    @if (is_numeric($row->stock_fg ?? null))
+                                        {{ number_format((float) $row->stock_fg, 2) }}
+                                    @else
+                                        <span class="pst-muted">-</span>
                                     @endif
                                 </td>
                                 <td><span class="badge bg-light text-dark border">{{ $row->sale_type ?? '-' }}</span>
                                 </td>
-                                <td>{{ $fmtDate($row->ship_date ?? null) }}</td>
                                 <td>
-                                    <div>{{ $fmtDate($row->due_date) }}</div>
+                                    <div>{{ $fmtDate($row->ship_date ?? $row->due_date) }}</div>
                                     <div class="pst-muted">
                                         {{ is_numeric($row->days_to_due) ? $row->days_to_due . ' days' : '-' }}
                                     </div>
                                 </td>
+                                <td>{{ $fmtDate($row->dp_due_date ?? null) }}</td>
                                 <td>{{ $row->current_process ?: '-' }}</td>
                                 <td class="pst-progress">
                                     <div class="d-flex align-items-center gap-2">
@@ -1122,27 +1652,36 @@
                                 @endphp
                                 <td class="pst-confirm">
                                     <form class="pst-confirm-form d-flex flex-column gap-1"
-                                        data-mfg="{{ $row->mfg_no }}"
-                                        data-site="{{ $row->site }}"
-                                        data-so="{{ $row->so_number ?? '' }}"
-                                        data-orig-ship="{{ $origShip }}"
+                                        data-mfg="{{ $row->mfg_no }}" data-site="{{ $row->site }}"
+                                        data-so="{{ $row->so_number ?? '' }}" data-orig-ship="{{ $origShip }}"
                                         data-saved="{{ $confStatus ? '1' : '0' }}">
                                         <div class="d-flex align-items-center gap-1 flex-wrap">
-                                            <select class="form-select form-select-sm pst-confirm-status" style="width:130px;flex:0 0 130px;">
-                                                <option value="CONFIRM" {{ !$confStatus || $confStatus === 'CONFIRM' ? 'selected' : '' }}>Confirm Delivery</option>
-                                                <option value="POSTPONE" {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>Request Postpone</option>
+                                            <select class="form-select form-select-sm pst-confirm-status"
+                                                style="width:130px;flex:0 0 130px;">
+                                                <option value="CONFIRM"
+                                                    {{ !$confStatus || $confStatus === 'CONFIRM' ? 'selected' : '' }}>
+                                                    Confirm Delivery</option>
+                                                <option value="POSTPONE"
+                                                    {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>Request Postpone
+                                                </option>
                                             </select>
                                             <input type="date" class="form-control form-control-sm pst-confirm-date"
                                                 value="{{ $confNewDate }}"
                                                 min="{{ $origShip ? \Carbon\Carbon::parse($origShip)->addDay()->format('Y-m-d') : '' }}"
                                                 style="width:130px;flex:0 0 130px; {{ $confStatus === 'POSTPONE' ? '' : 'display:none;' }}">
-                                            <button type="button" class="btn btn-sm btn-primary pst-confirm-save" title="บันทึก">
+                                            <button type="button" class="btn btn-sm btn-primary pst-confirm-save"
+                                                title="บันทึก">
                                                 <i class="fas fa-save"></i>
                                             </button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary pst-confirm-history" title="ประวัติ">
+                                            <button type="button"
+                                                class="btn btn-sm btn-outline-secondary pst-confirm-history"
+                                                title="ประวัติ">
                                                 <i class="fas fa-clock-rotate-left"></i>
                                             </button>
                                         </div>
+                                        <input type="text" class="form-control form-control-sm pst-confirm-remark"
+                                            placeholder="หมายเหตุ (ไม่บังคับ)" maxlength="500"
+                                            value="{{ $row->confirmation_remark ?? '' }}">
                                         <div class="pst-confirm-status-display">
                                             @if ($confStatus)
                                                 <span class="badge bg-{{ $confBadge }}">{{ $confLabel }}</span>
@@ -1151,10 +1690,17 @@
                                                 @endif
                                                 @if (!empty($row->confirmation_confirmed_at))
                                                     <div class="pst-muted small">
-                                                        บันทึก {{ \Carbon\Carbon::parse($row->confirmation_confirmed_at)->format('d/m H:i') }}
+                                                        บันทึก
+                                                        {{ \Carbon\Carbon::parse($row->confirmation_confirmed_at)->format('d/m H:i') }}
                                                         @if (!empty($row->confirmation_confirmed_by))
                                                             โดย {{ $row->confirmation_confirmed_by }}
                                                         @endif
+                                                    </div>
+                                                @endif
+                                                @if (!empty($row->confirmation_remark))
+                                                    <div class="pst-muted small">
+                                                        <i
+                                                            class="fas fa-comment me-1"></i>{{ $row->confirmation_remark }}
                                                     </div>
                                                 @endif
                                             @else
@@ -1166,14 +1712,25 @@
                                 </td>
                                 <td class="text-end pst-actions">
                                     <a class="btn btn-sm btn-outline-primary"
-                                        href="{{ route('dp.production-status.detail', ['mfg_no' => $row->mfg_no, 'site' => $row->site, 'return_url' => request()->fullUrl()]) }}">
+                                        href="{{ route('dp.production-status.detail', [
+                                            'mfg_no' => $row->mfg_no,
+                                            'site' => $row->site,
+                                            'ord_id' => $row->ord_id ?? null,
+                                            'so_number' => $row->so_number ?? null,
+                                            'dp_qty' => $row->qty_display ?? null,
+                                            'dp_sale_type' => $row->sale_type ?? null,
+                                            'dp_status' => $row->dp_status ?? null,
+                                            'ship_date' => $row->ship_date ?? null,
+                                            'deadline' => $row->due_date ?? null,
+                                            'return_url' => request()->fullUrl(),
+                                        ]) }}">
                                         <i class="fas fa-list-check me-1"></i> รายละเอียด
                                     </a>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="16" class="text-center text-muted py-4">ไม่พบข้อมูล Production Status
+                                <td colspan="18" class="text-center text-muted py-4">ไม่พบข้อมูล Production Status
                                     ตามเงื่อนไขที่เลือก</td>
                             </tr>
                         @endforelse
@@ -1190,7 +1747,8 @@
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">ประวัติ Delivery Confirmation <small class="text-muted" id="pstHistMfg"></small></h5>
+                    <h5 class="modal-title">ประวัติ Delivery Confirmation <small class="text-muted"
+                            id="pstHistMfg"></small></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
@@ -1203,12 +1761,17 @@
     </div>
 
     <style>
-        .pst-confirm-form .pst-confirm-status-display { font-size: 12px; }
-        .pst-confirm-form .pst-confirm-status-display .pst-muted { color: #6b7280; }
+        .pst-confirm-form .pst-confirm-status-display {
+            font-size: 12px;
+        }
+
+        .pst-confirm-form .pst-confirm-status-display .pst-muted {
+            color: #6b7280;
+        }
     </style>
 
     <script>
-        (function () {
+        (function() {
             const SAVE_URL = @json(route('dp.production-status.confirm'));
             const BULK_URL = @json(route('dp.production-status.confirm.bulk'));
             const HIST_URL = @json(route('dp.production-status.confirm.history'));
@@ -1224,6 +1787,8 @@
                         showConfirmButton: false,
                         timer: ok ? 2200 : 3200,
                         timerProgressBar: true,
+                        heightAuto: false,
+                        scrollbarPadding: false,
                     });
                 } else if (window.toastr) {
                     ok ? toastr.success(msg) : toastr.error(msg);
@@ -1246,6 +1811,8 @@
                     confirmButtonColor: opts.confirmColor || '#0d6efd',
                     cancelButtonColor: '#6c757d',
                     reverseButtons: true,
+                    heightAuto: false,
+                    scrollbarPadding: false,
                 }).then(r => r.isConfirmed);
             }
 
@@ -1259,14 +1826,199 @@
                 if (el) el.textContent = pendingForms().length;
             }
 
-            document.querySelectorAll('.pst-confirm-form').forEach(function (form) {
+            function initResizableTable() {
+                const table = document.getElementById('pstMainTable');
+                if (!table) return;
+
+                const cols = Array.from(table.querySelectorAll('colgroup col'));
+                const headers = Array.from(table.querySelectorAll('thead th'));
+                const widthStorageKey = 'pst.productionStatus.columnWidths.v3';
+                const hiddenStorageKey = 'pst.productionStatus.hiddenColumns.v3';
+                const protectedColumns = new Set([0]);
+                const toggleList = document.getElementById('pstColumnToggleList');
+                const showAllBtn = document.getElementById('pstShowAllColumnsBtn');
+                const hiddenCount = document.getElementById('pstHiddenColumnCount');
+                let saved = {};
+                let hiddenColumns = [];
+                try {
+                    saved = JSON.parse(localStorage.getItem(widthStorageKey) || '{}') || {};
+                } catch (e) {
+                    saved = {};
+                }
+                try {
+                    hiddenColumns = JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]') || [];
+                } catch (e) {
+                    hiddenColumns = [];
+                }
+
+                const hiddenSet = new Set(hiddenColumns.map(Number).filter(Number.isFinite));
+
+                function headerLabel(th, idx) {
+                    const clone = th.cloneNode(true);
+                    clone.querySelectorAll('button, span.pst-resizer').forEach(el => el.remove());
+                    const text = clone.textContent.trim().replace(/\s+/g, ' ');
+                    return text || 'Column ' + (idx + 1);
+                }
+
+                function saveHiddenColumns() {
+                    try {
+                        localStorage.setItem(hiddenStorageKey, JSON.stringify(Array.from(hiddenSet).sort((a, b) => a -
+                            b)));
+                    } catch (e) {
+                        // Column visibility still applies for the current page when browser storage is unavailable.
+                    }
+                }
+
+                function applyColumnVisibility() {
+                    const rows = Array.from(table.querySelectorAll('tr'));
+                    cols.forEach((col, idx) => {
+                        col.style.display = hiddenSet.has(idx) ? 'none' : '';
+                    });
+                    headers.forEach((th, idx) => {
+                        th.style.display = hiddenSet.has(idx) ? 'none' : '';
+                    });
+                    rows.forEach(row => {
+                        Array.from(row.children).forEach((cell, idx) => {
+                            cell.style.display = hiddenSet.has(idx) ? 'none' : '';
+                        });
+                    });
+
+                    let visibleWidth = 0;
+                    cols.forEach((col, idx) => {
+                        if (hiddenSet.has(idx)) return;
+                        visibleWidth += Math.round(col.getBoundingClientRect().width || parseInt(col.style
+                            .width, 10) || 90);
+                    });
+                    table.style.minWidth = Math.max(760, visibleWidth) + 'px';
+
+                    if (hiddenCount) {
+                        hiddenCount.textContent = hiddenSet.size;
+                        hiddenCount.classList.toggle('bg-danger', hiddenSet.size > 0);
+                        hiddenCount.classList.toggle('bg-secondary', hiddenSet.size === 0);
+                    }
+
+                    if (toggleList) {
+                        toggleList.querySelectorAll('input[data-col-index]').forEach(input => {
+                            input.checked = !hiddenSet.has(Number(input.dataset.colIndex));
+                        });
+                    }
+                }
+
+                function toggleColumn(idx, visible) {
+                    if (protectedColumns.has(idx)) return;
+                    if (visible) {
+                        hiddenSet.delete(idx);
+                    } else {
+                        hiddenSet.add(idx);
+                    }
+                    saveHiddenColumns();
+                    applyColumnVisibility();
+                }
+
+                cols.forEach((col, idx) => {
+                    if (saved[idx]) {
+                        col.style.width = saved[idx] + 'px';
+                    }
+                });
+
+                headers.forEach((th, idx) => {
+                    if (!cols[idx]) return;
+
+                    if (!protectedColumns.has(idx)) {
+                        const hideBtn = document.createElement('button');
+                        hideBtn.type = 'button';
+                        hideBtn.className = 'pst-hide-col-btn';
+                        hideBtn.title = 'Hide column';
+                        hideBtn.innerHTML = '<i class="fas fa-eye-slash"></i>';
+                        hideBtn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleColumn(idx, false);
+                        });
+                        th.appendChild(hideBtn);
+                    }
+
+                    const handle = document.createElement('span');
+                    handle.className = 'pst-resizer';
+                    handle.setAttribute('aria-hidden', 'true');
+                    th.appendChild(handle);
+
+                    handle.addEventListener('mousedown', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const startX = e.clientX;
+                        const startWidth = cols[idx].getBoundingClientRect().width || th
+                            .getBoundingClientRect().width;
+                        document.body.classList.add('pst-table-resizing');
+
+                        const onMove = (moveEvent) => {
+                            const nextWidth = Math.max(48, Math.round(startWidth + moveEvent
+                                .clientX - startX));
+                            cols[idx].style.width = nextWidth + 'px';
+                        };
+
+                        const onUp = () => {
+                            document.removeEventListener('mousemove', onMove);
+                            document.removeEventListener('mouseup', onUp);
+                            document.body.classList.remove('pst-table-resizing');
+                            const widths = {};
+                            cols.forEach((col, colIdx) => {
+                                const width = Math.round(col.getBoundingClientRect().width);
+                                if (width) widths[colIdx] = width;
+                            });
+                            try {
+                                localStorage.setItem(widthStorageKey, JSON.stringify(widths));
+                            } catch (e) {
+                                // Resizing still applies for the current page when browser storage is unavailable.
+                            }
+                        };
+
+                        document.addEventListener('mousemove', onMove);
+                        document.addEventListener('mouseup', onUp);
+                    });
+                });
+
+                if (toggleList) {
+                    toggleList.innerHTML = '';
+                    headers.forEach((th, idx) => {
+                        if (protectedColumns.has(idx)) return;
+
+                        const item = document.createElement('label');
+                        item.className = 'dropdown-item mb-1';
+                        item.innerHTML =
+                            '<input type="checkbox" class="form-check-input m-0" data-col-index="' + idx +
+                            '">' +
+                            '<span>' + headerLabel(th, idx) + '</span>';
+                        const input = item.querySelector('input');
+                        input.checked = !hiddenSet.has(idx);
+                        input.addEventListener('change', function(e) {
+                            toggleColumn(idx, e.target.checked);
+                        });
+                        toggleList.appendChild(item);
+                    });
+                }
+
+                if (showAllBtn) {
+                    showAllBtn.addEventListener('click', function() {
+                        hiddenSet.clear();
+                        saveHiddenColumns();
+                        applyColumnVisibility();
+                    });
+                }
+
+                applyColumnVisibility();
+            }
+
+            initResizableTable();
+
+            document.querySelectorAll('.pst-confirm-form').forEach(function(form) {
                 const select = form.querySelector('.pst-confirm-status');
                 const dateInp = form.querySelector('.pst-confirm-date');
                 const saveBtn = form.querySelector('.pst-confirm-save');
                 const histBtn = form.querySelector('.pst-confirm-history');
                 const display = form.querySelector('.pst-confirm-status-display');
 
-                select.addEventListener('change', function () {
+                select.addEventListener('change', function() {
                     if (select.value === 'POSTPONE') {
                         dateInp.style.display = '';
                     } else {
@@ -1275,8 +2027,11 @@
                     }
                 });
 
-                saveBtn.addEventListener('click', async function () {
+                const remarkInp = form.querySelector('.pst-confirm-remark');
+
+                saveBtn.addEventListener('click', async function() {
                     const status = select.value;
+                    const remark = remarkInp ? remarkInp.value.trim() : '';
                     if (!status) {
                         notify('กรุณาเลือกสถานะ', false);
                         return;
@@ -1294,23 +2049,38 @@
                         return day + '/' + m + '/' + y;
                     };
 
+                    const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        '"': '&quot;',
+                        "'": '&#39;'
+                    } [c]));
+                    const remarkLine = remark ?
+                        '<div class="mt-2"><b>หมายเหตุ:</b> ' + escapeHtml(remark) + '</div>' :
+                        '';
+
                     let html = '';
                     if (status === 'CONFIRM') {
-                        html = '<div class="text-start">'
-                            + '<div><b>MFG:</b> ' + mfg + '</div>'
-                            + '<div><b>วันส่งเดิม:</b> ' + fmt(origShip) + '</div>'
-                            + '<div class="mt-2 text-success"><b>ยืนยันส่งได้ตามกำหนดเดิม</b></div>'
-                            + '</div>';
+                        html = '<div class="text-start">' +
+                            '<div><b>MFG:</b> ' + mfg + '</div>' +
+                            '<div><b>วันส่งเดิม:</b> ' + fmt(origShip) + '</div>' +
+                            '<div class="mt-2 text-success"><b>ยืนยันส่งได้ตามกำหนดเดิม</b></div>' +
+                            remarkLine +
+                            '</div>';
                     } else {
-                        html = '<div class="text-start">'
-                            + '<div><b>MFG:</b> ' + mfg + '</div>'
-                            + '<div><b>วันส่งเดิม:</b> ' + fmt(origShip) + '</div>'
-                            + '<div class="mt-2 text-warning"><b>ขอเลื่อนส่งเป็น:</b> ' + fmt(dateInp.value) + '</div>'
-                            + '</div>';
+                        html = '<div class="text-start">' +
+                            '<div><b>MFG:</b> ' + mfg + '</div>' +
+                            '<div><b>วันส่งเดิม:</b> ' + fmt(origShip) + '</div>' +
+                            '<div class="mt-2 text-warning"><b>ขอเลื่อนส่งเป็น:</b> ' + fmt(dateInp
+                                .value) + '</div>' +
+                            remarkLine +
+                            '</div>';
                     }
 
                     const ok = await confirmDialog({
-                        title: status === 'CONFIRM' ? 'ยืนยันการส่งมอบ' : 'ยืนยันขอเลื่อนส่ง',
+                        title: status === 'CONFIRM' ? 'ยืนยันการส่งมอบ' :
+                            'ยืนยันขอเลื่อนส่ง',
                         html: html,
                         icon: status === 'CONFIRM' ? 'success' : 'warning',
                         confirmText: 'บันทึก',
@@ -1323,6 +2093,8 @@
                         Swal.fire({
                             title: 'กำลังบันทึก...',
                             allowOutsideClick: false,
+                            heightAuto: false,
+                            scrollbarPadding: false,
                             didOpen: () => Swal.showLoading(),
                         });
                     }
@@ -1337,15 +2109,27 @@
                     if (status === 'POSTPONE') {
                         fd.append('new_delivery_date', dateInp.value);
                     }
+                    if (remark) {
+                        fd.append('remark', remark);
+                    }
 
                     fetch(SAVE_URL, {
-                        method: 'POST',
-                        body: fd,
-                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                        credentials: 'same-origin'
-                    })
-                        .then(r => r.json().then(j => ({ status: r.status, json: j })))
-                        .then(({ status: code, json }) => {
+                            method: 'POST',
+                            body: fd,
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Accept': 'application/json'
+                            },
+                            credentials: 'same-origin'
+                        })
+                        .then(r => r.json().then(j => ({
+                            status: r.status,
+                            json: j
+                        })))
+                        .then(({
+                            status: code,
+                            json
+                        }) => {
                             if (window.Swal) Swal.close();
                             if (!json.ok) {
                                 notify(json.message || 'บันทึกไม่สำเร็จ', false);
@@ -1353,12 +2137,29 @@
                             }
                             notify(json.message || 'บันทึกแล้ว', true);
                             const d = json.data || {};
-                            let html = '<span class="badge bg-' + (d.badge_class || 'secondary') + '">' + (d.status_label || '-') + '</span>';
-                            if (d.confirmation_status === 'POSTPONE' && d.new_delivery_date_display) {
-                                html += ' <span class="pst-muted">→ ' + d.new_delivery_date_display + '</span>';
+                            let html = '<span class="badge bg-' + (d.badge_class ||
+                                'secondary') + '">' + (d.status_label || '-') + '</span>';
+                            if (d.confirmation_status === 'POSTPONE' && d
+                                .new_delivery_date_display) {
+                                html += ' <span class="pst-muted">→ ' + d
+                                    .new_delivery_date_display + '</span>';
                             }
                             if (d.confirmed_at) {
-                                html += '<div class="pst-muted small">บันทึก ' + d.confirmed_at + (d.confirmed_by_name ? ' โดย ' + d.confirmed_by_name : '') + '</div>';
+                                html += '<div class="pst-muted small">บันทึก ' + d
+                                    .confirmed_at + (d.confirmed_by_name ? ' โดย ' + d
+                                        .confirmed_by_name : '') + '</div>';
+                            }
+                            if (d.remark) {
+                                const esc = (s) => String(s).replace(/[&<>"']/g, c => ({
+                                    '&': '&amp;',
+                                    '<': '&lt;',
+                                    '>': '&gt;',
+                                    '"': '&quot;',
+                                    "'": '&#39;'
+                                } [c]));
+                                html +=
+                                    '<div class="pst-muted small"><i class="fas fa-comment me-1"></i>' +
+                                    esc(d.remark) + '</div>';
                             }
                             display.innerHTML = html;
                             form.dataset.saved = '1';
@@ -1368,34 +2169,48 @@
                             if (window.Swal) Swal.close();
                             notify('เกิดข้อผิดพลาดในการบันทึก', false);
                         })
-                        .finally(() => { saveBtn.disabled = false; });
+                        .finally(() => {
+                            saveBtn.disabled = false;
+                        });
                 });
 
                 // refresh pending count when status changes (e.g. switched to POSTPONE → no longer "pending bulk")
                 select.addEventListener('change', refreshPendingCount);
 
-                histBtn.addEventListener('click', function () {
+                histBtn.addEventListener('click', function() {
                     const mfg = form.dataset.mfg || '';
                     const site = form.dataset.site || '';
-                    document.getElementById('pstHistMfg').textContent = mfg + (site ? ' (' + site + ')' : '');
+                    document.getElementById('pstHistMfg').textContent = mfg + (site ? ' (' + site +
+                        ')' : '');
                     const body = document.getElementById('pstHistBody');
                     body.innerHTML = '<div class="text-center text-muted py-4">กำลังโหลด...</div>';
                     new bootstrap.Modal(document.getElementById('pstConfirmHistoryModal')).show();
 
-                    const url = HIST_URL + '?mfg_no=' + encodeURIComponent(mfg) + '&site=' + encodeURIComponent(site);
-                    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                    const url = HIST_URL + '?mfg_no=' + encodeURIComponent(mfg) + '&site=' +
+                        encodeURIComponent(site);
+                    fetch(url, {
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            credentials: 'same-origin'
+                        })
                         .then(r => r.json())
                         .then(j => {
                             if (!j.ok || !j.rows || j.rows.length === 0) {
-                                body.innerHTML = '<div class="text-center text-muted py-4">ยังไม่มีประวัติ</div>';
+                                body.innerHTML =
+                                    '<div class="text-center text-muted py-4">ยังไม่มีประวัติ</div>';
                                 return;
                             }
-                            let html = '<div class="table-responsive"><table class="table table-sm table-bordered align-middle">';
-                            html += '<thead class="table-light"><tr><th>วันที่บันทึก</th><th>สถานะ</th><th>วันส่งเดิม</th><th>วันส่งใหม่</th><th>ผู้บันทึก</th><th>หมายเหตุ</th></tr></thead><tbody>';
-                            j.rows.forEach(function (r) {
+                            let html =
+                                '<div class="table-responsive"><table class="table table-sm table-bordered align-middle">';
+                            html +=
+                                '<thead class="table-light"><tr><th>วันที่บันทึก</th><th>สถานะ</th><th>วันส่งเดิม</th><th>วันส่งใหม่</th><th>ผู้บันทึก</th><th>หมายเหตุ</th></tr></thead><tbody>';
+                            j.rows.forEach(function(r) {
                                 html += '<tr>';
                                 html += '<td>' + (r.confirmed_at || '-') + '</td>';
-                                html += '<td><span class="badge bg-' + (r.badge_class || 'secondary') + '">' + (r.status_label || '-') + '</span></td>';
+                                html += '<td><span class="badge bg-' + (r.badge_class ||
+                                        'secondary') + '">' + (r.status_label || '-') +
+                                    '</span></td>';
                                 html += '<td>' + (r.original_ship_date || '-') + '</td>';
                                 html += '<td>' + (r.new_delivery_date || '-') + '</td>';
                                 html += '<td>' + (r.confirmed_by_name || '-') + '</td>';
@@ -1406,7 +2221,8 @@
                             body.innerHTML = html;
                         })
                         .catch(() => {
-                            body.innerHTML = '<div class="text-center text-danger py-4">โหลดประวัติไม่สำเร็จ</div>';
+                            body.innerHTML =
+                                '<div class="text-center text-danger py-4">โหลดประวัติไม่สำเร็จ</div>';
                         });
                 });
             });
@@ -1414,19 +2230,37 @@
             // Bulk confirm button
             const bulkBtn = document.getElementById('pstBulkConfirmBtn');
             if (bulkBtn) {
-                bulkBtn.addEventListener('click', async function () {
-                    const forms = pendingForms().filter(f => (f.querySelector('.pst-confirm-status') || {}).value === 'CONFIRM');
+                bulkBtn.addEventListener('click', async function() {
+                    const pending = pendingForms();
+                    const forms = pending.filter(f => (f.querySelector('.pst-confirm-status') || {})
+                        .value === 'CONFIRM');
+                    const postponeCount = pending.length - forms.length;
+
                     if (forms.length === 0) {
-                        notify('ไม่มีรายการที่รอยืนยัน (รายการที่เลือก Postpone จะไม่ถูก bulk save)', false);
+                        if (pending.length === 0) {
+                            notify('ทุกรายการในหน้านี้บันทึกแล้ว ไม่มีอะไรต้องยืนยันเพิ่ม', false);
+                        } else {
+                            notify('รายการที่ยังไม่ยืนยันทั้งหมดเลือกเป็น Request Postpone — กรุณากด Save แยกแต่ละแถว เพราะต้องระบุวันส่งใหม่',
+                                false);
+                        }
                         return;
                     }
 
+                    let html = '<div class="text-start">' +
+                        '<div>จะบันทึก <b class="text-success">Confirm Delivery</b> จำนวน <b>' + forms
+                        .length + '</b> รายการ</div>';
+                    if (postponeCount > 0) {
+                        html += '<div class="text-warning small mt-2">' +
+                            '<i class="fas fa-triangle-exclamation me-1"></i>' +
+                            'ข้าม ' + postponeCount +
+                            ' รายการที่เลือก Request Postpone (ต้องกรอกวันใหม่ + Save แยก)' +
+                            '</div>';
+                    }
+                    html += '</div>';
+
                     const ok = await confirmDialog({
                         title: 'ยืนยันส่งได้ตามแผน (Bulk)',
-                        html: '<div class="text-start">'
-                            + '<div>จะบันทึก <b class="text-success">Confirm Delivery</b> ทั้งหมด <b>' + forms.length + '</b> รายการที่ยังไม่ได้ยืนยัน</div>'
-                            + '<div class="text-muted small mt-2">รายการที่เลือก "Request Postpone" จะไม่ถูกบันทึก ต้องกด Save แยกทีละแถว</div>'
-                            + '</div>',
+                        html: html,
                         icon: 'success',
                         confirmText: 'บันทึกทั้งหมด',
                         confirmColor: '#198754',
@@ -1438,6 +2272,8 @@
                         Swal.fire({
                             title: 'กำลังบันทึก ' + forms.length + ' รายการ...',
                             allowOutsideClick: false,
+                            heightAuto: false,
+                            scrollbarPadding: false,
                             didOpen: () => Swal.showLoading(),
                         });
                     }
@@ -1452,11 +2288,14 @@
                     });
 
                     fetch(BULK_URL, {
-                        method: 'POST',
-                        body: fd,
-                        headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
-                        credentials: 'same-origin'
-                    })
+                            method: 'POST',
+                            body: fd,
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Accept': 'application/json'
+                            },
+                            credentials: 'same-origin'
+                        })
                         .then(r => r.json())
                         .then(j => {
                             if (window.Swal) Swal.close();
@@ -1470,8 +2309,9 @@
                                 f.dataset.saved = '1';
                                 const disp = f.querySelector('.pst-confirm-status-display');
                                 if (disp) {
-                                    disp.innerHTML = '<span class="badge bg-success">Confirm Delivery</span>'
-                                        + '<div class="pst-muted small">เพิ่งบันทึก (bulk)</div>';
+                                    disp.innerHTML =
+                                        '<span class="badge bg-success">Confirm Delivery</span>' +
+                                        '<div class="pst-muted small">เพิ่งบันทึก (bulk)</div>';
                                 }
                             });
                             refreshPendingCount();
@@ -1480,11 +2320,164 @@
                             if (window.Swal) Swal.close();
                             notify('เกิดข้อผิดพลาดในการบันทึก', false);
                         })
-                        .finally(() => { bulkBtn.disabled = false; });
+                        .finally(() => {
+                            bulkBtn.disabled = false;
+                        });
                 });
             }
 
             refreshPendingCount();
+        })();
+
+        // Persist collapsible panels (Data Quality / Movement Filter) state in localStorage
+        (function () {
+            document.querySelectorAll('details.pst-collapsible[data-storage-key]').forEach(function (el) {
+                const key = el.getAttribute('data-storage-key');
+                if (!key) return;
+                try {
+                    const saved = localStorage.getItem(key);
+                    if (saved === '1') el.setAttribute('open', '');
+                    else if (saved === '0') el.removeAttribute('open');
+                } catch (e) {}
+                el.addEventListener('toggle', function () {
+                    try {
+                        localStorage.setItem(key, el.open ? '1' : '0');
+                    } catch (e) {}
+                });
+            });
+        })();
+
+        // Autocomplete for filter inputs (MFG, SO, Customer, Item)
+        @php
+            $pstAcSources = $insights['autocompleteSources'] ?? [
+                'mfg' => [],
+                'so' => [],
+                'customer' => [],
+                'item' => [],
+            ];
+        @endphp
+        (function pstAutocomplete() {
+            const sources = {!! json_encode($pstAcSources, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!};
+            const sourceArrays = {};
+            ['mfg', 'so', 'customer', 'item'].forEach(function (key) {
+                const list = Array.isArray(sources[key]) ? sources[key] : [];
+                sourceArrays[key] = list
+                    .map(function (v) { return String(v || '').trim(); })
+                    .filter(function (v) { return v !== ''; })
+                    .sort(function (a, b) { return a.localeCompare(b, 'th'); });
+            });
+
+            const escapeHtml = function (s) {
+                return String(s).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            };
+            const escapeRegex = function (s) {
+                return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            };
+            const highlight = function (text, term) {
+                if (!term) return escapeHtml(text);
+                const re = new RegExp('(' + escapeRegex(term) + ')', 'ig');
+                return escapeHtml(text).replace(re, '<mark>$1</mark>');
+            };
+
+            // Clear (X) buttons
+            document.querySelectorAll('.dp-ac-clear').forEach(function (btn) {
+                const targetId = btn.dataset.acClear;
+                const input = document.getElementById(targetId);
+                if (!input) return;
+                const wrap = btn.closest('.dp-ac-wrap');
+                const sync = function () {
+                    if (wrap) wrap.classList.toggle('has-value', input.value.trim() !== '');
+                };
+                sync();
+                input.addEventListener('input', sync);
+                input.addEventListener('change', sync);
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    input.value = '';
+                    sync();
+                    input.focus();
+                    input.dispatchEvent(new Event('input'));
+                });
+            });
+
+            document.querySelectorAll('.dp-ac-input').forEach(function (input) {
+                const sourceKey = input.dataset.acSource || '';
+                const list = sourceArrays[sourceKey] || [];
+                const dd = document.querySelector('.dp-suggest[data-ac-for="' + input.id + '"]');
+                if (!dd) return;
+
+                let activeIdx = -1;
+
+                function render(term) {
+                    const q = (term || '').trim().toLowerCase();
+                    const matched = q
+                        ? list.filter(function (v) { return v.toLowerCase().includes(q); }).slice(0, 30)
+                        : list.slice(0, 30);
+
+                    if (!matched.length) {
+                        dd.innerHTML = '<div class="dp-suggest-empty">ไม่พบรายการ</div>';
+                    } else {
+                        dd.innerHTML = matched.map(function (v, i) {
+                            return '<button type="button" class="dp-suggest-item" data-val="' + escapeHtml(v) + '" data-idx="' + i + '">' +
+                                '<div class="dp-suggest-title">' + highlight(v, term) + '</div>' +
+                                '</button>';
+                        }).join('');
+                    }
+                    dd.classList.remove('d-none');
+                    activeIdx = -1;
+                }
+
+                function hide() {
+                    dd.classList.add('d-none');
+                    activeIdx = -1;
+                }
+
+                function setActive(idx) {
+                    const items = dd.querySelectorAll('.dp-suggest-item');
+                    items.forEach(function (el) { el.classList.remove('is-active'); });
+                    if (idx >= 0 && idx < items.length) {
+                        items[idx].classList.add('is-active');
+                        items[idx].scrollIntoView({ block: 'nearest' });
+                        activeIdx = idx;
+                    }
+                }
+
+                input.addEventListener('focus', function () { render(input.value); });
+                input.addEventListener('input', function () { render(input.value); });
+
+                input.addEventListener('keydown', function (e) {
+                    const items = dd.querySelectorAll('.dp-suggest-item');
+                    if (!items.length || dd.classList.contains('d-none')) return;
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setActive(Math.min(activeIdx + 1, items.length - 1));
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setActive(Math.max(activeIdx - 1, 0));
+                    } else if (e.key === 'Enter' && activeIdx >= 0) {
+                        e.preventDefault();
+                        input.value = items[activeIdx].dataset.val || '';
+                        hide();
+                    } else if (e.key === 'Escape') {
+                        hide();
+                    }
+                });
+
+                dd.addEventListener('mousedown', function (e) {
+                    const btn = e.target.closest('.dp-suggest-item');
+                    if (!btn) return;
+                    e.preventDefault();
+                    input.value = btn.dataset.val || '';
+                    hide();
+                    input.focus();
+                });
+
+                document.addEventListener('click', function (e) {
+                    if (!input.contains(e.target) && !dd.contains(e.target)) hide();
+                });
+            });
         })();
     </script>
 @endsection

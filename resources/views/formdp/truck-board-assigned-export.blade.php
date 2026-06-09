@@ -128,6 +128,15 @@
             padding: 4px 6px;
         }
 
+        .special-title {
+            background: #fef3c7;
+            border: 1px solid #000;
+            border-bottom: 0;
+            padding: 5px 6px;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -179,8 +188,14 @@
 
 <body>
     @php
-        $fmtTon = fn($kg) => number_format(((float) ($kg ?? 0)) / 1000, 3);
+        $fmtTon = fn($kg) => number_format((float) ($kg ?? 0), 0, '.', ',');
+        $fmtLoad = function ($kg) {
+            $kg = (float) ($kg ?? 0);
+            return number_format($kg, 0, '.', ',') . ' kg';
+        };
         $shipText = \Carbon\Carbon::parse($shipDate)->translatedFormat('l j F Y');
+        $specialGroups = collect($specialGroups ?? []);
+        $specialCount = (int) ($summary->special_count ?? $specialGroups->flatten(1)->count());
     @endphp
 
     @if (empty($exportMode))
@@ -211,18 +226,27 @@
             <td>วันที่: {{ $shipText }}</td>
             <td>รถที่จัดแล้ว: {{ number_format($summary->truck_count) }}</td>
             <td>รายการ: {{ number_format($summary->item_count) }}</td>
-            <td>ขึ้นรถรวม: {{ $fmtTon($summary->total_assigned) }} ตัน</td>
+            <td>งานพิเศษ: {{ number_format($specialCount) }}</td>
+            <td>ขึ้นรถรวม: {{ $fmtTon($summary->total_assigned) }} kg</td>
         </tr>
     </table>
 
     @php
         $truckHeaderText = function ($truck) use ($fmtTon) {
             $helpers = trim((string) ($truck->helper_names ?? ''));
-            return $truck->truck_label . ' | คนขับ: ' . $truck->driver_name
-                . ' | โทร: ' . $truck->driver_phone
-                . ' | Max: ' . ($truck->max_load > 0 ? $fmtTon($truck->max_load) . ' ตัน' : 'ไม่ระบุ')
-                . ' | ขึ้นรถ: ' . $fmtTon($truck->total_assigned) . ' ตัน'
-                . ' | เด็กรถ: ' . ($helpers !== '' ? $helpers : '-');
+            $carLength = trim((string) ($truck->car_length ?? ''));
+            $truckRemark = trim((string) ($truck->remark ?? ''));
+            $tripStatus = !empty($truck->is_closed) ? 'ปิดรอบแล้ว' : 'รอบเปิดอยู่';
+            return $truck->truck_label
+                . ' | สถานะ: ' . $tripStatus
+                . ' | คนขับ: ' . ($truck->driver_name !== '' ? $truck->driver_name : '-')
+                . ' | โทร: ' . ($truck->driver_phone !== '' ? $truck->driver_phone : '-')
+                . ' | ความยาวรถ: ' . ($carLength !== '' ? $carLength : '-')
+                . ' | Max: ' . ($truck->max_load > 0 ? $fmtTon($truck->max_load) . ' kg' : 'ไม่ระบุ')
+                . ' | ขึ้นรถ: ' . $fmtTon($truck->total_assigned) . ' kg'
+                . ' | คงเหลือ: ' . (!is_null($truck->remaining_load ?? null) ? $fmtTon($truck->remaining_load) . ' kg' : '-')
+                . ' | เด็กรถ: ' . ($helpers !== '' ? $helpers : '-')
+                . ' | หมายเหตุรถ: ' . ($truckRemark !== '' ? $truckRemark : '-');
         };
     @endphp
 
@@ -297,8 +321,83 @@
             </table>
         </div>
     @empty
-        <p>ไม่พบรายการที่จัดรถแล้ว</p>
+        @if ($specialGroups->isEmpty())
+            <p>ไม่พบรายการที่จัดรถแล้ว</p>
+        @endif
     @endforelse
+
+    @if ($specialGroups->isNotEmpty())
+        <div class="truck-block">
+            @if (($exportMode ?? '') !== 'excel')
+                <div class="special-title">งานพิเศษวันนี้ ({{ number_format($specialCount) }} รายการ)</div>
+            @endif
+            <table>
+                <colgroup>
+                    <col style="width:38px">
+                    <col style="width:85px">
+                    <col style="width:105px">
+                    <col style="width:130px">
+                    <col style="width:260px">
+                    <col style="width:150px">
+                    <col style="width:250px">
+                    <col style="width:150px">
+                </colgroup>
+                <thead>
+                    @if (($exportMode ?? '') === 'excel')
+                        <tr>
+                            <th colspan="8" class="truck-title-row">งานพิเศษวันนี้ ({{ number_format($specialCount) }} รายการ)</th>
+                        </tr>
+                    @endif
+                    <tr>
+                        <th>#</th>
+                        <th>เวลา</th>
+                        <th>SO</th>
+                        <th>MFG</th>
+                        <th>สินค้า</th>
+                        <th>ลูกค้า / Sales</th>
+                        <th>สถานที่ส่ง</th>
+                        <th>สถานะ / หมายเหตุ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @php $specialIndex = 1; @endphp
+                    @foreach ($specialGroups as $dispatchType => $specialRows)
+                        @php
+                            $firstSpecial = $specialRows->first();
+                            $dispatchLabel = $firstSpecial->dispatch_label ?? $dispatchType;
+                        @endphp
+                        <tr>
+                            <td colspan="8" class="truck-title-row">{{ $dispatchLabel }} ({{ number_format($specialRows->count()) }} รายการ)</td>
+                        </tr>
+                        @foreach ($specialRows as $row)
+                            <tr>
+                                <td class="center">{{ $specialIndex++ }}</td>
+                                <td class="center">{{ !empty($row->window_at) ? \Carbon\Carbon::parse($row->window_at)->format('H:i') : '-' }}</td>
+                                <td>{{ $row->so_number ?: '-' }}</td>
+                                <td>{{ $row->mfg_no ?: '-' }}</td>
+                                <td>
+                                    <strong>{{ $row->part_number ?: '-' }}</strong><br>
+                                    {{ $row->part_desc ?: '-' }}<br>
+                                    QTY {{ $fmtLoad($row->qty ?? 0) }}
+                                </td>
+                                <td>
+                                    <strong>{{ $row->customer_name ?: '-' }}</strong><br>
+                                    {{ $row->sales_name ?: '-' }}
+                                </td>
+                                <td>{{ $row->address ?: '-' }}</td>
+                                <td>
+                                    {{ $row->dp_status ?: '-' }}
+                                    @if (!empty($row->special_remark))
+                                        <br>{{ $row->special_remark }}
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
 </body>
 
 </html>

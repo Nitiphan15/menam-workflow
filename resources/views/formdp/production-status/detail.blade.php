@@ -8,6 +8,7 @@
         $fmtDate = fn($value) => $value ? \Carbon\Carbon::parse($value)->format('d/m/Y') : '-';
         $stepClass = fn($status) => match ($status) {
             'Completed' => 'success',
+            'In Progress' => 'warning',
             'Current' => 'primary',
             default => 'secondary',
         };
@@ -20,16 +21,66 @@
     @endphp
 
     <style>
-        .pst-wrap { background:#f5f7fa; border-radius:8px; padding:16px; }
-        .pst-panel { background:#fff; border:1px solid #dfe5ec; border-radius:8px; overflow:hidden; }
-        .pst-head { padding:12px 16px; border-bottom:1px solid #e8edf2; display:flex; align-items:center; justify-content:space-between; gap:12px; font-weight:700; }
-        .pst-meta { color:#667085; font-size:.86rem; }
-        .pst-card { background:#fff; border:1px solid #dfe5ec; border-radius:8px; padding:14px; height:100%; }
-        .pst-card .label { color:#667085; font-size:.82rem; }
-        .pst-card .value { font-size:1.05rem; font-weight:700; margin-top:4px; }
-        .pst-table th { background:#edf4ff; white-space:nowrap; }
-        .pst-table td { vertical-align:middle; }
-        .num { text-align:right; font-variant-numeric:tabular-nums; }
+        .pst-wrap {
+            background: #f5f7fa;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .pst-panel {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .pst-head {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e8edf2;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-weight: 700;
+        }
+
+        .pst-meta {
+            color: #667085;
+            font-size: .86rem;
+        }
+
+        .pst-card {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 8px;
+            padding: 14px;
+            height: 100%;
+        }
+
+        .pst-card .label {
+            color: #667085;
+            font-size: .82rem;
+        }
+
+        .pst-card .value {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        .pst-table th {
+            background: #edf4ff;
+            white-space: nowrap;
+        }
+
+        .pst-table td {
+            vertical-align: middle;
+        }
+
+        .num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
     </style>
 
     <div class="pst-wrap">
@@ -62,7 +113,8 @@
                     <div class="label">ความคืบหน้า</div>
                     <div class="value">{{ number_format((float) ($tracking->progress_pct ?? 0), 1) }}%</div>
                     <div class="progress mt-2" style="height:8px;">
-                        <div class="progress-bar" style="width: {{ max(0, min(100, (int) ($tracking->progress_pct ?? 0))) }}%"></div>
+                        <div class="progress-bar"
+                            style="width: {{ max(0, min(100, (int) ($tracking->progress_pct ?? 0))) }}%"></div>
                     </div>
                     <div class="pst-meta mt-1">{{ $tracking->step_text ?? '' }}</div>
                 </div>
@@ -83,7 +135,8 @@
                 <div class="pst-card">
                     <div class="label">เคลื่อนไหวล่าสุด</div>
                     <div class="value">
-                        <span class="badge bg-{{ $movementClass($tracking->movement_status ?? '') }}">{{ $tracking->movement_status ?? '-' }}</span>
+                        <span
+                            class="badge bg-{{ $movementClass($tracking->movement_status ?? '') }}">{{ $tracking->movement_status ?? '-' }}</span>
                     </div>
                     <div class="pst-meta mt-1">
                         {{ !empty($tracking->last_receive_at) ? \Carbon\Carbon::parse($tracking->last_receive_at)->format('d/m/Y H:i') : '-' }}
@@ -101,7 +154,8 @@
         @if (($tracking->risk_status ?? '') === 'NO_ROUTE')
             <div class="alert alert-warning">
                 <div class="fw-semibold">ไม่พบ Routing ใน ManuCost</div>
-                <div class="small">รายการนี้มาจาก Delivery Plan แต่ยังหา Workorder/Route ฝั่งผลิตไม่เจอ กรุณาตรวจสอบ MFG No. และ site</div>
+                <div class="small">รายการนี้มาจาก Delivery Plan แต่ยังหา Workorder/Route ฝั่งผลิตไม่เจอ กรุณาตรวจสอบ MFG
+                    No. และ site</div>
             </div>
         @endif
 
@@ -121,8 +175,8 @@
                             <th class="num">Qty</th>
                             <th>Sale By</th>
                             <th>DP Status</th>
-                            <th>Ship Date</th>
-                            <th>MFG Due Date</th>
+                            <th>วันส่งตามแผน</th>
+                            <th>Due Date</th>
                             <th>Last Receive</th>
                             <th>Remaining</th>
                             <th>NCR</th>
@@ -138,13 +192,16 @@
                             <td class="num">{{ $tracking->qty_display ?? '-' }}</td>
                             <td><span class="badge bg-light text-dark border">{{ $tracking->sale_type ?? '-' }}</span></td>
                             <td>{{ $tracking->dp_status ?? '-' }}</td>
-                            <td>{{ $fmtDate($tracking->ship_date ?? null) }}</td>
-                            <td>{{ $fmtDate($tracking->due_date ?? null) }}</td>
+                            <td>{{ $fmtDate($tracking->ship_date ?? ($tracking->due_date ?? null)) }}</td>
+                            <td>{{ $fmtDate($tracking->dp_due_date ?? null) }}</td>
                             <td>
-                                <div>{{ !empty($tracking->last_receive_at) ? \Carbon\Carbon::parse($tracking->last_receive_at)->format('d/m/Y H:i') : '-' }}</div>
+                                <div>
+                                    {{ !empty($tracking->last_receive_at) ? \Carbon\Carbon::parse($tracking->last_receive_at)->format('d/m/Y H:i') : '-' }}
+                                </div>
                                 <div class="pst-meta">{{ $tracking->last_receive_process ?? '-' }}</div>
                             </td>
-                            <td>{{ $tracking->remaining_process->isNotEmpty() ? $tracking->remaining_process->implode(' -> ') : '-' }}</td>
+                            <td>{{ $tracking->remaining_process->isNotEmpty() ? $tracking->remaining_process->implode('->') : '-' }}
+                            </td>
                             <td>{{ number_format((int) ($tracking->ncr_count ?? 0)) }}</td>
                             <td>{{ number_format((int) ($tracking->breakdown_count ?? 0)) }}</td>
                         </tr>
@@ -184,14 +241,21 @@
                                 <td>{{ $step->size_in ?? '-' }}</td>
                                 <td>{{ $step->size_out ?? '-' }}</td>
                                 <td><span class="badge bg-{{ $stepClass($step->status) }}">{{ $step->status }}</span></td>
-                                <td class="num">{{ number_format((float) $step->received_qty, 2) }}</td>
+                                <td class="num">
+                                    <div>{{ number_format((float) $step->received_qty, 2) }}</div>
+                                    @if (($step->target_qty ?? 0) > 0)
+                                        <div class="pst-meta">/ {{ number_format((float) $step->target_qty, 2) }}</div>
+                                    @endif
+                                </td>
                                 <td>{{ $step->machine ?: '-' }}</td>
-                                <td>{{ $step->received_time ? \Carbon\Carbon::parse($step->received_time)->format('d/m/Y H:i') : '-' }}</td>
+                                <td>{{ $step->received_time ? \Carbon\Carbon::parse($step->received_time)->format('d/m/Y H:i') : '-' }}
+                                </td>
                                 <td class="num">{{ number_format((int) $step->ncr_count) }}</td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted py-4">ไม่พบ Routing การผลิตสำหรับ MFG นี้</td>
+                                <td colspan="9" class="text-center text-muted py-4">ไม่พบ Routing การผลิตสำหรับ MFG นี้
+                                </td>
                             </tr>
                         @endforelse
                     </tbody>

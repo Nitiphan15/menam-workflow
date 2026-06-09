@@ -25,6 +25,160 @@
 
     bindToggle("btnToggleKpi", "kpiCollapse");
     bindToggle("btnToggleFilter", "filterCollapse");
+
+    // Autocomplete: custom dropdown (style ตาม dp.index)
+    (function initAutocomplete() {
+        // Source: ดึงจาก server (distinct ทั้ง DB) ก่อน, fallback เป็น rows ในหน้า
+        const fullSources = (window.DP_AC_SOURCES || {});
+        const rows = document.querySelectorAll("#inqTbody tr.data-row");
+        const fallback = { so: new Set(), customer: new Set(), shipto: new Set(), divsales: new Set() };
+
+        rows.forEach((row) => {
+            const so = (row.dataset.so || "").trim();
+            const customer = (row.dataset.customer || "").trim();
+            const shipto = (row.dataset.shipto || "").trim();
+            const group = (row.dataset.group || "").trim();
+            if (so) fallback.so.add(so);
+            if (customer) fallback.customer.add(customer);
+            if (shipto) fallback.shipto.add(shipto);
+            if (group) fallback.divsales.add(group);
+        });
+
+        const sourceArrays = {};
+        ["so", "customer", "shipto", "divsales"].forEach((key) => {
+            const fromServer = Array.isArray(fullSources[key]) ? fullSources[key] : [];
+            const merged = new Set([...(fromServer || []), ...fallback[key]]);
+            sourceArrays[key] = Array.from(merged)
+                .map((v) => String(v || "").trim())
+                .filter((v) => v !== "")
+                .sort((a, b) => a.localeCompare(b, "th"));
+        });
+
+        // ปุ่ม clear (X)
+        document.querySelectorAll(".dp-ac-clear").forEach((btn) => {
+            const targetId = btn.dataset.acClear;
+            const input = document.getElementById(targetId);
+            if (!input) return;
+            const wrap = btn.closest(".dp-ac-wrap");
+            const sync = () => wrap?.classList.toggle("has-value", input.value.trim() !== "");
+            sync();
+            input.addEventListener("input", sync);
+            input.addEventListener("change", sync);
+            btn.addEventListener("click", (e) => {
+                e.preventDefault();
+                input.value = "";
+                sync();
+                input.focus();
+                input.dispatchEvent(new Event("input"));
+            });
+        });
+
+        const escapeHtml = (s) =>
+            String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+        const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        const highlight = (text, term) => {
+            if (!term) return escapeHtml(text);
+            const re = new RegExp("(" + escapeRegex(term) + ")", "ig");
+            return escapeHtml(text).replace(re, "<mark>$1</mark>");
+        };
+
+        document.querySelectorAll(".dp-ac-input").forEach((input) => {
+            const sourceKey = input.dataset.acSource || "";
+            const list = sourceArrays[sourceKey] || [];
+            const dd = document.querySelector(`.dp-suggest[data-ac-for="${input.id}"]`);
+            if (!dd) return;
+
+            let activeIdx = -1;
+
+            function render(term) {
+                const q = (term || "").trim().toLowerCase();
+                const matched = q
+                    ? list.filter((v) => v.toLowerCase().includes(q)).slice(0, 30)
+                    : list.slice(0, 30);
+
+                if (!matched.length) {
+                    dd.innerHTML = `<div class="dp-suggest-empty">ไม่พบรายการ</div>`;
+                } else {
+                    dd.innerHTML = matched
+                        .map(
+                            (v, i) => `
+                            <button type="button" class="dp-suggest-item" data-val="${escapeHtml(v)}" data-idx="${i}">
+                                <div class="dp-suggest-title">${highlight(v, term)}</div>
+                            </button>`,
+                        )
+                        .join("");
+                }
+                dd.classList.remove("d-none");
+                activeIdx = -1;
+            }
+
+            function hide() {
+                dd.classList.add("d-none");
+                activeIdx = -1;
+            }
+
+            function setActive(idx) {
+                const items = dd.querySelectorAll(".dp-suggest-item");
+                items.forEach((el) => el.classList.remove("is-active"));
+                if (idx >= 0 && idx < items.length) {
+                    items[idx].classList.add("is-active");
+                    items[idx].scrollIntoView({ block: "nearest" });
+                    activeIdx = idx;
+                }
+            }
+
+            input.addEventListener("focus", () => render(input.value));
+            input.addEventListener("input", () => render(input.value));
+
+            input.addEventListener("keydown", (e) => {
+                const items = dd.querySelectorAll(".dp-suggest-item");
+                if (!items.length || dd.classList.contains("d-none")) return;
+                if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setActive(Math.min(activeIdx + 1, items.length - 1));
+                } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActive(Math.max(activeIdx - 1, 0));
+                } else if (e.key === "Enter" && activeIdx >= 0) {
+                    e.preventDefault();
+                    input.value = items[activeIdx].dataset.val || "";
+                    hide();
+                } else if (e.key === "Escape") {
+                    hide();
+                }
+            });
+
+            dd.addEventListener("mousedown", (e) => {
+                const btn = e.target.closest(".dp-suggest-item");
+                if (!btn) return;
+                e.preventDefault();
+                input.value = btn.dataset.val || "";
+                hide();
+                input.focus();
+            });
+
+            document.addEventListener("click", (e) => {
+                if (!input.contains(e.target) && !dd.contains(e.target)) hide();
+            });
+        });
+    })();
+
+    // Export ทั้งหมด — โหลด Excel แล้วเปิด PDF tab ใหม่
+    const btnExportBoth = document.getElementById("btnExportBoth");
+    if (btnExportBoth) {
+        btnExportBoth.addEventListener("click", () => {
+            const excelUrl = btnExportBoth.dataset.excelUrl || "";
+            const pdfUrl = btnExportBoth.dataset.pdfUrl || "";
+            if (excelUrl) {
+                window.location.href = excelUrl;
+            }
+            if (pdfUrl) {
+                setTimeout(() => window.open(pdfUrl, "_blank", "noopener"), 600);
+            }
+        });
+    }
 })();
 
 (function inquiryExcelTable() {
@@ -35,15 +189,39 @@
     const headerRow = table.tHead.querySelector(".dp-inquiry-header-row");
     if (!headerRow || table.tHead.querySelector(".dp-inquiry-filter-row")) return;
 
+    const hasBulkPostponeColumn = !!document.getElementById("bulkPostponeCheckAll");
+    const columnKeys = [
+        ...(hasBulkPostponeColumn ? ["bulk_select"] : []),
+        "no",
+        "ship_date",
+        "truck",
+        "customer",
+        "part_desc",
+        "mfg",
+        "qty",
+        "stock_fg",
+        "sell_by_line",
+        "shipto",
+        "so",
+        "docs",
+        "more",
+        "contact",
+        "revision",
+        "status",
+        "action",
+        "history",
+    ];
     const dataRows = () => Array.from(tbody.querySelectorAll("tr.data-row"));
     const groupRows = () => Array.from(tbody.querySelectorAll("tr.group-row"));
     const originalGroupRows = groupRows();
-    const numericColumns = new Set([0, 6, 7, 14]);
-    const filterableColumns = new Set(
-        Array.from(headerRow.cells)
-            .map((_, idx) => idx)
-            .filter((idx) => ![0, 16, 17].includes(idx)),
-    );
+    const numericColumns = new Set(["no", "qty", "stock_fg", "revision"]);
+    const filterableColumns = new Set(columnKeys.filter((key) => !["bulk_select", "no", "action", "history"].includes(key)));
+    const protectedColumns = new Set(["bulk_select", "no"]);
+    const hiddenStorageKey = "dp.inquiry.hiddenColumns.v3";
+    const orderStorageKey = "dp.inquiry.columnOrder.v3";
+    const defaultOrder = columnKeys.slice();
+    let hiddenSet = new Set();
+    let columnOrder = defaultOrder.slice();
     const state = {
         sortCol: null,
         sortDir: 1,
@@ -66,18 +244,79 @@
         );
     }
 
+    function readStoredArray(key) {
+        try {
+            const value = JSON.parse(localStorage.getItem(key) || "[]");
+            return Array.isArray(value) ? value : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    function writeStoredArray(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+        } catch (_) {
+            // The current page still updates when browser storage is unavailable.
+        }
+    }
+
+    function normalizeOrder(order) {
+        const seen = new Set();
+        const valid = [];
+        const fixedLeading = columnKeys.filter((key) => ["bulk_select", "no"].includes(key));
+        fixedLeading.forEach((key) => {
+            seen.add(key);
+            valid.push(key);
+        });
+
+        order.forEach((key) => {
+            if (columnKeys.includes(key) && !seen.has(key)) {
+                seen.add(key);
+                valid.push(key);
+            }
+        });
+        defaultOrder.forEach((key) => {
+            if (!seen.has(key)) valid.push(key);
+        });
+        return valid;
+    }
+
+    function loadColumnPrefs() {
+        hiddenSet = new Set(
+            readStoredArray(hiddenStorageKey).filter((key) => columnKeys.includes(key) && !protectedColumns.has(key)),
+        );
+        columnOrder = normalizeOrder(readStoredArray(orderStorageKey));
+    }
+
+    function assignColumnKeys() {
+        Array.from(headerRow.cells).forEach((cell, idx) => {
+            if (columnKeys[idx]) cell.dataset.colKey = columnKeys[idx];
+        });
+
+        dataRows().forEach((row) => {
+            Array.from(row.cells).forEach((cell, idx) => {
+                if (columnKeys[idx]) cell.dataset.colKey = columnKeys[idx];
+            });
+        });
+    }
+
+    function cellByKey(row, key) {
+        return row.querySelector(`[data-col-key="${key}"]`);
+    }
+
     function cellText(row, col) {
-        const cell = row.cells[col];
+        const cell = cellByKey(row, col);
         return cell ? cell.innerText.trim() : "";
     }
 
     function sortValue(row, col) {
-        if (col === 1) return row.dataset.ship || "";
-        if (col === 3) return row.dataset.customer || "";
-        if (col === 4) return row.dataset.part || "";
-        if (col === 6) return parseNum(row.dataset.qty || cellText(row, col));
-        if (col === 10) return row.dataset.so || "";
-        if (col === 14) return parseNum(row.dataset.rev || cellText(row, col));
+        if (col === "ship_date") return row.dataset.ship || "";
+        if (col === "customer") return row.dataset.customer || "";
+        if (col === "part_desc") return row.dataset.part || "";
+        if (col === "qty") return parseNum(row.dataset.qty || cellText(row, col));
+        if (col === "so") return row.dataset.so || "";
+        if (col === "revision") return parseNum(row.dataset.rev || cellText(row, col));
         return numericColumns.has(col) ? parseNum(cellText(row, col)) : normalizeText(cellText(row, col));
     }
 
@@ -105,7 +344,7 @@
     function activeFilters() {
         return Array.from(table.querySelectorAll(".dp-col-filter"))
             .map((input) => {
-                const col = parseInt(input.dataset.filterCol || "0", 10);
+                const col = input.dataset.filterKey || input.dataset.filterCol || "";
                 return {
                     col,
                     value: input.value,
@@ -118,23 +357,60 @@
     function setKpi(visibleRows) {
         const rows = visibleRows || dataRows().filter((row) => row.style.display !== "none");
         const total = dataRows().length;
-        const so = rows.filter((row) => String(row.dataset.mode || "").toUpperCase() !== "ACID").length;
-        const acid = rows.filter((row) => String(row.dataset.mode || "").toUpperCase() === "ACID").length;
-        const sellByLine = rows.filter((row) => String(row.dataset.sbl || "") === "1").length;
 
-        const visibleEl = document.getElementById("kpi_visible");
-        const totalEl = document.getElementById("kpi_total");
-        const soEl = document.getElementById("kpi_so");
-        const acidEl = document.getElementById("kpi_acid");
-        const sblEl = document.getElementById("kpi_sbl");
-        const countEl = document.getElementById("inqCount");
+        const num = (v) => {
+            const n = parseFloat(v);
+            return Number.isFinite(n) ? n : 0;
+        };
+        const fmtInt = (n) => Math.round(n).toLocaleString();
 
-        if (visibleEl) visibleEl.textContent = rows.length.toLocaleString();
-        if (totalEl) totalEl.textContent = total.toLocaleString();
-        if (soEl) soEl.textContent = so.toLocaleString();
-        if (acidEl) acidEl.textContent = acid.toLocaleString();
-        if (sblEl) sblEl.textContent = sellByLine.toLocaleString();
-        if (countEl) countEl.textContent = `${rows.length.toLocaleString()} / ${total.toLocaleString()} visible`;
+        let totalKg = 0;
+        let remainKg = 0;
+        let noTruck = 0;
+        let revised = 0;
+        const postponedKeys = new Set();
+
+        rows.forEach((row) => {
+            const qty = num(row.dataset.qty);
+            const remaining = num(row.dataset.remaining);
+            const hasTruck = String(row.dataset.hasTruck || "0") === "1";
+            const rev = parseInt(row.dataset.rev || "0", 10) || 0;
+            const status = String(row.dataset.status || "").toUpperCase();
+            const pcStatus = String(row.dataset.pcStatus || "").toUpperCase();
+            const so = String(row.dataset.so || "").trim();
+            const mfg = String(row.dataset.mfg || "").trim();
+
+            totalKg += qty;
+            remainKg += remaining;
+
+            // นับ line ที่ planner ขอเลื่อน — dedupe ตาม MFG (ไม่นับ revision/รอบเดิม)
+            // ถ้าไม่มี MFG ใช้ SO แทน, สุดท้ายเข้า DOM id เพื่อไม่ให้สูญ
+            if (status === "POSTPONED" || pcStatus === "POSTPONE") {
+                const key = mfg || so || (row.dataset.part || "") + "|" + (row.dataset.ship || "");
+                postponedKeys.add(key);
+            }
+
+            if (!hasTruck && !["CLOSED", "VOID", "VOIDED", "CANCEL", "CANCELED", "CANCELLED", "POSTPONED"].includes(status)) {
+                noTruck += 1;
+            }
+
+            if (rev > 0) revised += 1;
+        });
+
+        const postponed = postponedKeys.size;
+
+        const set = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        set("kpi_visible", rows.length.toLocaleString());
+        set("kpi_total", total.toLocaleString());
+        set("kpi_total_kg", fmtInt(totalKg));
+        set("kpi_remain_kg", fmtInt(remainKg));
+        set("kpi_postponed", postponed.toLocaleString());
+        set("kpi_no_truck", noTruck.toLocaleString());
+        set("kpi_rev", revised.toLocaleString());
     }
 
     function updateGroupRows() {
@@ -161,9 +437,190 @@
 
         updateGroupRows();
         setKpi(visibleRows);
+        document.dispatchEvent(new CustomEvent("dp:inquiry-filtered"));
+    }
+
+    function visibleColumnCount() {
+        return columnOrder.filter((key) => !hiddenSet.has(key)).length || 1;
+    }
+
+    function updateStickyColumns() {
+        // ปิดการตรึงคอลัมน์ซ้าย-ขวา (มีฟีเจอร์สลับ/ซ่อนคอลัมน์ ทำให้ตำแหน่งเพี้ยน)
+        // ล้าง inline left ที่อาจค้างจากเวอร์ชันก่อน
+        table.querySelectorAll(".sticky-col[data-col-key]").forEach((cell) => {
+            cell.style.left = "";
+        });
+    }
+
+    function applyColumnVisibility() {
+        columnKeys.forEach((key) => {
+            table.querySelectorAll(`[data-col-key="${key}"]`).forEach((cell) => {
+                cell.style.display = hiddenSet.has(key) ? "none" : "";
+            });
+        });
+
+        groupRows().forEach((row) => {
+            const cell = row.cells[0];
+            if (cell) cell.colSpan = visibleColumnCount();
+        });
+
+        const hiddenCount = document.getElementById("inqHiddenColumnCount");
+        if (hiddenCount) {
+            hiddenCount.textContent = hiddenSet.size;
+            hiddenCount.classList.toggle("bg-danger", hiddenSet.size > 0);
+            hiddenCount.classList.toggle("bg-secondary", hiddenSet.size === 0);
+        }
+
+        document.querySelectorAll("#inqColumnToggleList input[data-col-key]").forEach((input) => {
+            input.checked = !hiddenSet.has(input.dataset.colKey || "");
+        });
+
+        updateStickyColumns();
+    }
+
+    function orderedCells(row) {
+        const byKey = new Map();
+        Array.from(row.children).forEach((cell) => {
+            if (cell.dataset.colKey) byKey.set(cell.dataset.colKey, cell);
+        });
+        return columnOrder.map((key) => byKey.get(key)).filter(Boolean);
+    }
+
+    function applyColumnOrder() {
+        orderedCells(headerRow).forEach((cell) => headerRow.appendChild(cell));
+        const filterRow = table.tHead.querySelector(".dp-inquiry-filter-row");
+        if (filterRow) orderedCells(filterRow).forEach((cell) => filterRow.appendChild(cell));
+        dataRows().forEach((row) => orderedCells(row).forEach((cell) => row.appendChild(cell)));
+        applyColumnVisibility();
+    }
+
+    function headerLabel(key) {
+        if (key === "bulk_select") return "เลือกย้ายแผน";
+        const th = headerRow.querySelector(`[data-col-key="${key}"]`);
+        if (!th) return key;
+        const clone = th.cloneNode(true);
+        clone.querySelectorAll("button, .sort-ind").forEach((el) => el.remove());
+        return clone.textContent.trim().replace(/\s+/g, " ") || key;
+    }
+
+    function saveHiddenColumns() {
+        writeStoredArray(hiddenStorageKey, Array.from(hiddenSet));
+    }
+
+    function saveColumnOrder() {
+        writeStoredArray(orderStorageKey, columnOrder);
+    }
+
+    function moveColumnTo(sourceKey, targetKey) {
+        if (!sourceKey || !targetKey || sourceKey === targetKey) return;
+        const from = columnOrder.indexOf(sourceKey);
+        const to = columnOrder.indexOf(targetKey);
+        if (from < 0 || to < 0) return;
+        if (protectedColumns.has(sourceKey) || protectedColumns.has(targetKey)) return;
+
+        const next = columnOrder.slice();
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        columnOrder = next;
+        saveColumnOrder();
+        applyColumnOrder();
+        renderColumnMenu();
+    }
+
+    function renderColumnMenu() {
+        const list = document.getElementById("inqColumnToggleList");
+        if (!list) return;
+
+        list.innerHTML = "";
+        let draggedKey = "";
+        columnOrder.forEach((key, idx) => {
+            const item = document.createElement("div");
+            item.className = "inq-column-item";
+            item.classList.toggle("is-hidden", hiddenSet.has(key));
+            item.draggable = !protectedColumns.has(key);
+            item.dataset.colKey = key;
+            const label = headerLabel(key);
+            item.innerHTML = `
+                <span class="inq-column-drag" title="Drag to move"><i class="fas fa-grip-vertical"></i></span>
+                <button type="button" class="inq-column-eye ${hiddenSet.has(key) ? "is-hidden" : ""}" data-col-key="${key}" title="${hiddenSet.has(key) ? "Show column" : "Hide column"}" ${protectedColumns.has(key) ? "disabled" : ""}>
+                    <i class="fas ${hiddenSet.has(key) ? "fa-eye-slash" : "fa-eye"}"></i>
+                </button>
+                <span title="${label}">${label}</span>
+                <button type="button" class="inq-column-move" data-move="-1" data-col-key="${key}" ${idx === 0 || protectedColumns.has(key) ? "disabled" : ""}>
+                    <i class="fas fa-arrow-up"></i>
+                </button>
+                <button type="button" class="inq-column-move" data-move="1" data-col-key="${key}" ${idx === columnOrder.length - 1 || protectedColumns.has(key) ? "disabled" : ""}>
+                    <i class="fas fa-arrow-down"></i>
+                </button>
+            `;
+
+            item.addEventListener("dragstart", (event) => {
+                if (protectedColumns.has(key)) {
+                    event.preventDefault();
+                    return;
+                }
+                draggedKey = key;
+                item.classList.add("is-dragging");
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", key);
+            });
+            item.addEventListener("dragover", (event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+            });
+            item.addEventListener("drop", (event) => {
+                event.preventDefault();
+                const sourceKey = event.dataTransfer.getData("text/plain") || draggedKey;
+                moveColumnTo(sourceKey, key);
+            });
+            item.addEventListener("dragend", () => {
+                draggedKey = "";
+                item.classList.remove("is-dragging");
+            });
+
+            const eyeBtn = item.querySelector(".inq-column-eye");
+            eyeBtn.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (hiddenSet.has(key)) {
+                    hiddenSet.delete(key);
+                } else if (!protectedColumns.has(key)) {
+                    hiddenSet.add(key);
+                }
+                saveHiddenColumns();
+                applyColumnVisibility();
+                renderColumnMenu();
+            });
+
+            item.querySelectorAll("button[data-move]").forEach((btn) => {
+                btn.addEventListener("click", (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const current = columnOrder.indexOf(key);
+                    const next = current + Number(btn.dataset.move || 0);
+                    if (current < 0 || next < 0 || next >= columnOrder.length) return;
+                    if (protectedColumns.has(key) || protectedColumns.has(columnOrder[next])) return;
+                    [columnOrder[current], columnOrder[next]] = [columnOrder[next], columnOrder[current]];
+                    saveColumnOrder();
+                    applyColumnOrder();
+                    renderColumnMenu();
+                });
+            });
+
+            list.appendChild(item);
+        });
+    }
+
+    function hideColumn(key) {
+        if (protectedColumns.has(key)) return;
+        hiddenSet.add(key);
+        saveHiddenColumns();
+        applyColumnVisibility();
+        renderColumnMenu();
     }
 
     function applySort(col) {
+        if (col === "bulk_select" || !col) return;
         const dir = state.sortCol === col ? state.sortDir * -1 : 1;
         state.sortCol = col;
         state.sortDir = dir;
@@ -173,7 +630,7 @@
             if (ind) ind.textContent = "";
         });
 
-        const indicator = headerRow.cells[col]?.querySelector(".sort-ind");
+        const indicator = headerRow.querySelector(`[data-col-key="${col}"] .sort-ind`);
         if (indicator) indicator.textContent = dir === 1 ? "▲" : "▼";
 
         const sorted = dataRows().sort((a, b) => {
@@ -210,31 +667,52 @@
         applyFilters();
     }
 
-    Array.from(headerRow.cells).forEach((th, idx) => {
-        th.classList.add("sortable");
-        const indicator = document.createElement("span");
-        indicator.className = "sort-ind";
-        th.appendChild(indicator);
-        th.addEventListener("click", () => applySort(idx));
+    loadColumnPrefs();
+    assignColumnKeys();
+    applyColumnOrder();
+
+    Array.from(headerRow.cells).forEach((th) => {
+        const key = th.dataset.colKey || "";
+        if (key !== "bulk_select") {
+            th.classList.add("sortable");
+            const indicator = document.createElement("span");
+            indicator.className = "sort-ind";
+            th.appendChild(indicator);
+            th.addEventListener("click", () => applySort(key));
+        }
+
+        if (key && !protectedColumns.has(key)) {
+            const hideBtn = document.createElement("button");
+            hideBtn.type = "button";
+            hideBtn.className = "inq-hide-col-btn";
+            hideBtn.title = "Hide column";
+            hideBtn.innerHTML = '<i class="fas fa-eye-slash"></i>';
+            hideBtn.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                hideColumn(key);
+            });
+            th.appendChild(hideBtn);
+        }
     });
 
     const filterRow = document.createElement("tr");
     filterRow.className = "dp-inquiry-filter-row";
 
-    Array.from(headerRow.cells).forEach((th, idx) => {
+    Array.from(headerRow.cells).forEach((th) => {
+        const key = th.dataset.colKey || "";
         const filterTh = document.createElement("th");
+        filterTh.dataset.colKey = key;
         filterTh.className = th.className
             .replace(/\bsortable\b/g, "")
-            .replace(/\bsticky-col\b/g, "")
-            .replace(/\bsticky-[1-4]\b/g, "")
             .trim();
 
-        if (filterableColumns.has(idx)) {
+        if (filterableColumns.has(key)) {
             const input = document.createElement("input");
             input.type = "text";
             input.className = "form-control form-control-sm dp-col-filter";
-            input.dataset.filterCol = String(idx);
-            input.placeholder = numericColumns.has(idx) ? ">= or text" : "Filter";
+            input.dataset.filterKey = key;
+            input.placeholder = numericColumns.has(key) ? ">= or text" : "Filter";
             input.addEventListener("input", applyFilters);
             input.addEventListener("click", (event) => event.stopPropagation());
             filterTh.appendChild(input);
@@ -244,6 +722,33 @@
     });
 
     table.tHead.appendChild(filterRow);
+
+    applyColumnOrder();
+    renderColumnMenu();
+    applyColumnVisibility();
+    window.addEventListener("resize", updateStickyColumns);
+
+    const showAllBtn = document.getElementById("inqShowAllColumnsBtn");
+    if (showAllBtn) {
+        showAllBtn.addEventListener("click", () => {
+            hiddenSet.clear();
+            saveHiddenColumns();
+            applyColumnVisibility();
+            renderColumnMenu();
+        });
+    }
+
+    const resetBtn = document.getElementById("inqResetColumnsBtn");
+    if (resetBtn) {
+        resetBtn.addEventListener("click", () => {
+            hiddenSet.clear();
+            columnOrder = defaultOrder.slice();
+            saveHiddenColumns();
+            saveColumnOrder();
+            applyColumnOrder();
+            renderColumnMenu();
+        });
+    }
 
     applyFilters();
 })();
@@ -318,6 +823,15 @@
     const tmHelper1StaffId = byId("tmHelper1StaffId");
     const tmHelper2StaffId = byId("tmHelper2StaffId");
     const tmHelper3StaffId = byId("tmHelper3StaffId");
+    const tmHelper4StaffId = byId("tmHelper4StaffId");
+    const tmHelper5StaffId = byId("tmHelper5StaffId");
+    const tmHelperStaffIds = [
+        tmHelper1StaffId,
+        tmHelper2StaffId,
+        tmHelper3StaffId,
+        tmHelper4StaffId,
+        tmHelper5StaffId,
+    ].filter(Boolean);
 
     const state = {
         so: "",
@@ -330,6 +844,7 @@
         currentStatus: "",
         isSubmitting: false,
     };
+    let staffOptionsPromise = null;
 
     function parseJsonSafe(text, fallback) {
         try {
@@ -356,13 +871,31 @@
         });
     }
 
-    function tonFormat(kg, digits = 3) {
-        return numberFormat(Number(kg || 0) / 1000, digits);
+    function weightFormat(kg) {
+        const value = Number(kg || 0);
+        return String(Math.round(value));
     }
 
-    function kgFromTonInput(value) {
-        const tons = Number(value || 0);
-        return tons > 0 ? String(tons * 1000) : "";
+    function pieceFormat(value) {
+        return `${numberFormat(value, 0)} ชิ้น`;
+    }
+
+    function isPieceLine(line) {
+        return (
+            Number(line?.sell_by_line || 0) === 1 &&
+            Number(line?.line_qty || 0) > 0 &&
+            Number(line?.qty_total || 0) === 0
+        );
+    }
+
+    function loadDisplayFormat(weightKg, pieceQty = 0) {
+        const weight = Number(weightKg || 0);
+        const pieces = Number(pieceQty || 0);
+        if (weight > 0 && pieces > 0) {
+            return `${weightFormat(weight)} + ${pieceFormat(pieces)}`;
+        }
+        if (pieces > 0) return pieceFormat(pieces);
+        return weightFormat(weight);
     }
 
     function clearTruckSelection() {
@@ -416,46 +949,24 @@
 
     function clearStaffSelection() {
         if (tmDriverStaffId) tmDriverStaffId.value = "";
-        if (tmHelper1StaffId) tmHelper1StaffId.value = "";
-        if (tmHelper2StaffId) tmHelper2StaffId.value = "";
-        if (tmHelper3StaffId) tmHelper3StaffId.value = "";
+        tmHelperStaffIds.forEach((selectEl) => {
+            selectEl.value = "";
+        });
     }
 
     function simplifyHelperInputs() {
-        const helper2Wrap = tmHelper2StaffId
-            ? tmHelper2StaffId.closest(".col-md-12")
-            : null;
-        const helper3Wrap = tmHelper3StaffId
-            ? tmHelper3StaffId.closest(".col-md-12")
-            : null;
+        tmHelperStaffIds.forEach((selectEl, index) => {
+            const slot = index + 1;
+            const wrap = selectEl.closest(".tm-staff-field");
+            const label = wrap ? wrap.querySelector("label") : null;
+            const placeholder = selectEl.querySelector("option[value='']");
 
-        if (tmHelper2StaffId) {
-            tmHelper2StaffId.value = "";
-            tmHelper2StaffId.disabled = true;
-            tmHelper2StaffId.name = "";
-        }
-
-        if (tmHelper3StaffId) {
-            tmHelper3StaffId.value = "";
-            tmHelper3StaffId.disabled = true;
-            tmHelper3StaffId.name = "";
-        }
-
-        if (helper2Wrap) helper2Wrap.classList.add("d-none");
-        if (helper3Wrap) helper3Wrap.classList.add("d-none");
-
-        if (!tmHelper1StaffId) return;
-
-        const helper1Wrap = tmHelper1StaffId.closest(".col-md-12");
-        const helper1Label = helper1Wrap
-            ? helper1Wrap.querySelector("label")
-            : null;
-        const helper1Placeholder = tmHelper1StaffId.querySelector("option[value='']");
-
-        if (helper1Label) helper1Label.textContent = "เด็กรถ";
-        if (helper1Placeholder) {
-            helper1Placeholder.textContent = "-- เลือกเด็กรถ --";
-        }
+            selectEl.disabled = false;
+            selectEl.name = `helper${slot}_staff_id`;
+            if (wrap) wrap.classList.remove("d-none");
+            if (label) label.textContent = `เด็กรถ ${slot}`;
+            if (placeholder) placeholder.textContent = `-- เลือกเด็กรถ ${slot} --`;
+        });
     }
 
     function keepOnlyTopManualModeOption() {
@@ -475,8 +986,9 @@
 
     async function loadTruckStaffOptions() {
         if (!ROUTES.truckStaffOptions) return;
+        if (staffOptionsPromise) return staffOptionsPromise;
 
-        try {
+        staffOptionsPromise = (async () => {
             const res = await fetch(ROUTES.truckStaffOptions, {
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
@@ -489,7 +1001,11 @@
             fillStaffSelectOptions(data || {});
             simplifyHelperInputs();
             keepOnlyTopManualModeOption();
-        } catch (_) {}
+        })().catch(() => {
+            staffOptionsPromise = null;
+        });
+
+        return staffOptionsPromise;
     }
 
     function fillOneStaffSelect(selectEl, items, placeholder) {
@@ -528,10 +1044,17 @@
             data.helpers || [],
             "-- เลือกเด็กรถ 3 --",
         );
+        [
+            [tmHelper4StaffId, "-- เลือกเด็กรถ 4 --"],
+            [tmHelper5StaffId, "-- เลือกเด็กรถ 5 --"],
+        ].forEach(([selectEl, placeholder]) => {
+            fillOneStaffSelect(selectEl, data.helpers || [], placeholder);
+        });
     }
 
     async function loadTruckStaffDefaults(params = {}) {
         if (!ROUTES.truckStaffDefaults) return;
+        await loadTruckStaffOptions();
 
         const q = new URLSearchParams();
         if (params.truck_id) q.set("truck_id", params.truck_id);
@@ -551,8 +1074,6 @@
             if (!res.ok) return;
             const data = await res.json();
             applyTruckStaffDefaults(data || {});
-            if (tmHelper2StaffId) tmHelper2StaffId.value = "";
-            if (tmHelper3StaffId) tmHelper3StaffId.value = "";
         } catch (_) {}
     }
 
@@ -561,21 +1082,26 @@
         const helpers = Array.isArray(data.helpers) ? data.helpers : [];
 
         if (tmDriverStaffId) {
+            ensureStaffOption(tmDriverStaffId, driver);
             tmDriverStaffId.value =
                 driver && driver.id ? String(driver.id) : "";
         }
-        if (tmHelper1StaffId) {
-            tmHelper1StaffId.value =
-                helpers[0] && helpers[0].id ? String(helpers[0].id) : "";
-        }
-        if (tmHelper2StaffId) {
-            tmHelper2StaffId.value =
-                helpers[1] && helpers[1].id ? String(helpers[1].id) : "";
-        }
-        if (tmHelper3StaffId) {
-            tmHelper3StaffId.value =
-                helpers[2] && helpers[2].id ? String(helpers[2].id) : "";
-        }
+        tmHelperStaffIds.forEach((selectEl, index) => {
+            const helper = helpers[index] || null;
+            ensureStaffOption(selectEl, helper);
+            selectEl.value = helper && helper.id ? String(helper.id) : "";
+        });
+    }
+
+    function ensureStaffOption(selectEl, staff) {
+        if (!selectEl || !staff || !staff.id) return;
+        const id = String(staff.id);
+        if (Array.from(selectEl.options).some((option) => option.value === id)) return;
+
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = staff.name || `Staff #${id}`;
+        selectEl.appendChild(option);
     }
 
     function setTruckAssignAction(ordId) {
@@ -663,18 +1189,32 @@
         ).reduce((sum, checkbox) => {
             const tr = checkbox.closest("tr");
             if (!tr) return sum;
-            const manualTonInput = tr.querySelector(".tmAssignWeightTon");
-            const manualKg = Number(manualTonInput?.value || 0) * 1000;
+            const manualKgInput = tr.querySelector(".tmAssignWeightKg");
+            const manualKg = Number(manualKgInput?.value || 0);
             const qty = manualKg > 0 ? manualKg : Number(tr.dataset.qtyRemaining || 0);
             return sum + qty;
         }, 0);
     }
 
+    function selectedPieceQty() {
+        if (!modalEl) return 0;
+        return Array.from(
+            modalEl.querySelectorAll(".tmOrdCheckbox:checked"),
+        ).reduce((sum, checkbox) => {
+            const tr = checkbox.closest("tr");
+            if (!tr || tr.dataset.pieceLine !== "1") return sum;
+            const manualKgInput = tr.querySelector(".tmAssignWeightKg");
+            if (Number(manualKgInput?.value || 0) > 0) return sum;
+            return sum + Number(tr.dataset.lineQty || 0);
+        }, 0);
+    }
+
     function updateTruckRemainPreview() {
         const selectedWeight = selectedTotalQty();
+        const selectedPieces = selectedPieceQty();
 
         if (tmSelectedWeight) {
-            tmSelectedWeight.textContent = tonFormat(selectedWeight);
+            tmSelectedWeight.textContent = loadDisplayFormat(selectedWeight, selectedPieces);
         }
 
         if (!tmTruckRemainAfter || !modalEl) return;
@@ -699,7 +1239,8 @@
         const currentRemain = Number(selectedTruck.dataset.remaining || 0);
         const remainAfter = currentRemain - selectedWeight;
 
-        tmTruckRemainAfter.textContent = `${tonFormat(remainAfter)} ตัน`;
+        tmTruckRemainAfter.textContent =
+            selectedWeight > 0 ? weightFormat(remainAfter) : weightFormat(currentRemain);
         tmTruckRemainAfter.classList.toggle("text-danger", remainAfter < 0);
         tmTruckRemainAfter.classList.toggle("text-success", remainAfter >= 0);
     }
@@ -709,14 +1250,15 @@
 
         const safeLines = Array.isArray(lines) ? lines : [];
         let total = 0;
+        let totalPieces = 0;
 
         if (!safeLines.length) {
             tmLineTbody.innerHTML =
                 '<tr><td colspan="9" class="text-center text-muted">ไม่มีรายการ</td></tr>';
-            tmTotalQty.textContent = tonFormat(0);
+            tmTotalQty.textContent = weightFormat(0);
 
             if (tmSelectedWeight) {
-                tmSelectedWeight.textContent = tonFormat(0);
+                tmSelectedWeight.textContent = weightFormat(0);
             }
 
             updateTruckRemainPreview();
@@ -727,6 +1269,8 @@
             .map((line) => {
                 const qtyAssigned = Number(line.qty_assigned || 0);
                 const qtyRemaining = Number(line.qty_remaining || 0);
+                const pieceLine = isPieceLine(line);
+                const lineQty = Number(line.line_qty || 0);
 
                 const lineText =
                     Number(line.sell_by_line || 0) === 1
@@ -736,9 +1280,10 @@
                 const shipto = String(line.shipto || "-").trim() || "-";
 
                 total += qtyRemaining;
+                if (pieceLine) totalPieces += lineQty;
 
                 return `
-                    <tr data-qty-remaining="${qtyRemaining}">
+                    <tr data-qty-remaining="${qtyRemaining}" data-piece-line="${pieceLine ? "1" : "0"}" data-line-qty="${lineQty}">
                         <td class="text-center">
                             <input
                                 type="checkbox"
@@ -753,15 +1298,15 @@
                         <td>${esc(line.desc || "-")}</td>
                         <td>${esc(lineText)}</td>
                         <td>${esc(shipto)}</td>
-                        <td class="text-end">${tonFormat(qtyAssigned)}</td>
-                        <td class="text-end">${tonFormat(qtyRemaining)}</td>
+                        <td class="text-end">${pieceLine && qtyAssigned <= 0 ? "-" : weightFormat(qtyAssigned)}</td>
+                        <td class="text-end">${pieceLine && qtyRemaining <= 0 ? pieceFormat(lineQty) : weightFormat(qtyRemaining)}</td>
                         <td>
                             <input type="number"
-                                class="form-control form-control-sm text-end tmAssignWeightTon"
-                                name="assign_weight_tons[${esc(line.ord_id || "")}]"
+                                class="form-control form-control-sm text-end tmAssignWeightKg"
+                                name="assign_weight_kg[${esc(line.ord_id || "")}]"
                                 min="0"
-                                step="0.001"
-                                value="${tonFormat(qtyRemaining)}"
+                                step="1"
+                                value="${weightFormat(qtyRemaining)}"
                                 placeholder="ใส่เอง">
                         </td>
                     </tr>
@@ -770,10 +1315,10 @@
             .join("");
 
         tmLineTbody.innerHTML = html;
-        tmTotalQty.textContent = tonFormat(total);
+        tmTotalQty.textContent = loadDisplayFormat(total, totalPieces);
 
         if (tmSelectedWeight) {
-            tmSelectedWeight.textContent = tonFormat(total);
+            tmSelectedWeight.textContent = weightFormat(total);
         }
 
         updateTruckRemainPreview();
@@ -816,10 +1361,10 @@
                 const rowKey = String(t.row_key || "");
                 const truckId = t.truck_id ?? "";
                 const manualPlate = t.manual_plate_no ?? "";
-                const maxText = capacityUnlimited ? "ไม่ระบุ" : tonFormat(max);
+                const maxText = capacityUnlimited ? "ไม่ระบุ" : weightFormat(max);
                 const remainingText = capacityUnlimited
                     ? "ตามน้ำหนักที่กรอก"
-                    : tonFormat(remaining);
+                    : weightFormat(remaining);
 
                 const jobSummary = Array.isArray(t.job_summary)
                     ? t.job_summary
@@ -828,8 +1373,8 @@
                     .map((x) => {
                         const customer = x.customer_name || "-";
                         const jobType = x.job_type || "-";
-                        const weight = tonFormat(Number(x.assigned_weight || 0));
-                        return `${customer} | ${jobType} (${weight} ตัน)`;
+                        const weight = weightFormat(Number(x.assigned_weight || 0));
+                        return `${customer} | ${jobType} (${weight})`;
                     })
                     .join(" || ");
 
@@ -840,7 +1385,7 @@
                 if (jobSummary.length) {
                     jobSummary.forEach((x) => {
                         tooltipLines.push(
-                            `${x.so_number || soSummaryText || "-"} || ${x.mfg_no || mfgSummaryText || "-"} || ${tonFormat(Number(x.assigned_weight || 0))} ตัน || ${x.address || "-"}`,
+                            `${x.so_number || soSummaryText || "-"} || ${x.mfg_no || mfgSummaryText || "-"} || ${weightFormat(Number(x.assigned_weight || 0))} || ${x.address || "-"}`,
                         );
                     });
                 } else {
@@ -858,7 +1403,7 @@
                         <div class="mb-1">
                             <span class="fw-semibold">${esc(x.customer_name || "-")}</span>
                             <span class="text-muted">| ${esc(x.job_type || "-")}</span>
-                            <span class="text-primary">(${tonFormat(Number(x.assigned_weight || 0))} ตัน)</span>
+                            <span class="text-primary">(${weightFormat(Number(x.assigned_weight || 0))})</span>
                         </div>
                     `,
                           )
@@ -907,7 +1452,7 @@
                         </td>
 
                         <td class="text-end">${maxText}</td>
-                        <td class="text-end">${tonFormat(current)}</td>
+                        <td class="text-end">${weightFormat(current)}</td>
                         <td
                             class="text-end ${!capacityUnlimited && remaining < 0 ? "text-danger fw-bold" : "fw-semibold"}"
                             data-bs-toggle="tooltip"
@@ -1007,9 +1552,9 @@
         clearStaffSelection();
         loadTruckStaffOptions();
 
-        const lockedToSpecial = ["SPECIAL", "POSTPONED"].includes(currentStatus);
+        const lockedToSpecial = currentStatus === "POSTPONED";
         if (tmDispatchTruckMode) tmDispatchTruckMode.disabled = lockedToSpecial;
-        if (lockedToSpecial) {
+        if (lockedToSpecial || currentStatus === "SPECIAL") {
             setSpecialDispatchAction(ordId);
             setDispatchMode("SPECIAL");
         } else {
@@ -1108,6 +1653,26 @@
             return false;
         }
 
+        const staffSelections = [
+            [tmDriverStaffId, "คนขับ"],
+            ...tmHelperStaffIds.map((selectEl, index) => [selectEl, `เด็กรถ ${index + 1}`]),
+        ];
+        const staffSeen = new Map();
+        for (const [selectEl, label] of staffSelections) {
+            const staffId = String(selectEl?.value || "").trim();
+            if (!staffId) continue;
+
+            if (staffSeen.has(staffId)) {
+                alert(`${label} ซ้ำกับ ${staffSeen.get(staffId)} กรุณาเลือกพนักงานคนละคน`);
+                if (selectEl && typeof selectEl.focus === "function") {
+                    selectEl.focus();
+                }
+                return false;
+            }
+
+            staffSeen.set(staffId, label);
+        }
+
         const checked = modalEl.querySelector(
             'input[name="truck_pick_mode"]:checked',
         );
@@ -1142,7 +1707,7 @@
                 tmManualPhoneHidden.value = tmManualPhone.value || "";
             }
             if (tmManualMaxLoadHidden) {
-                tmManualMaxLoadHidden.value = kgFromTonInput(tmManualMaxLoad.value);
+                tmManualMaxLoadHidden.value = tmManualMaxLoad?.value || "";
             }
             if (tmManualLengthHidden) {
                 tmManualLengthHidden.value = tmManualLength.value || "";
@@ -1256,7 +1821,7 @@
             filterTruckRows(target.value || "");
         }
 
-        if (target.classList.contains("tmAssignWeightTon")) {
+        if (target.classList.contains("tmAssignWeightKg")) {
             updateTruckRemainPreview();
             return;
         }
@@ -1332,6 +1897,167 @@
     keepOnlyTopManualModeOption();
 })();
 
+(function bulkPostponeModal() {
+    const CONFIG = window.DP_INQUIRY || {};
+    const ROUTES = CONFIG.routes || {};
+    const checkAll = document.getElementById("bulkPostponeCheckAll");
+    const checks = Array.from(document.querySelectorAll(".jsBulkPostponeCheck"));
+    const openBtn = document.getElementById("bulkPostponeOpenBtn");
+    const clearBtn = document.getElementById("bulkPostponeClearBtn");
+    const countEl = document.getElementById("bulkPostponeCount");
+    const soCountEl = document.getElementById("bulkPostponeSoCount");
+    const modalEl = document.getElementById("bulkPostponeModal");
+    const form = document.getElementById("bulkPostponeForm");
+    const idsEl = document.getElementById("bulkPostponeIds");
+    const previewEl = document.getElementById("bulkPostponePreview");
+    const modalCountEl = document.getElementById("bulkPostponeModalCount");
+    const modalSoCountEl = document.getElementById("bulkPostponeModalSoCount");
+    const shipDateEl = document.getElementById("bulkPostponeShipDate");
+    const windowTimeEl = document.getElementById("bulkPostponeWindowTime");
+    const reasonEl = document.getElementById("bulkPostponeReason");
+
+    if (!checks.length || !openBtn || !modalEl || !form) return;
+    if (ROUTES.bulkPostpone) form.action = ROUTES.bulkPostpone;
+
+    const esc = (value) =>
+        String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function rowVisible(input) {
+        const row = input.closest("tr.data-row");
+        return row && row.style.display !== "none";
+    }
+
+    function selectedChecks() {
+        return checks.filter((input) => input.checked && !input.disabled);
+    }
+
+    function visibleEnabledChecks() {
+        return checks.filter((input) => !input.disabled && rowVisible(input));
+    }
+
+    function soCount(items) {
+        return new Set(items.map((input) => String(input.dataset.so || "").trim()).filter(Boolean)).size;
+    }
+
+    function formatThaiDate(value) {
+        if (!value) return "-";
+        const parts = String(value).split("-");
+        if (parts.length !== 3) return value;
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+
+    function syncState() {
+        const selected = selectedChecks();
+        const visible = visibleEnabledChecks();
+        const count = selected.length;
+
+        if (countEl) countEl.textContent = count.toLocaleString();
+        if (soCountEl) soCountEl.textContent = soCount(selected).toLocaleString();
+        openBtn.disabled = count === 0;
+        if (clearBtn) clearBtn.disabled = count === 0;
+
+        if (checkAll) {
+            const visibleSelected = visible.filter((input) => input.checked).length;
+            checkAll.checked = visible.length > 0 && visibleSelected === visible.length;
+            checkAll.indeterminate = visibleSelected > 0 && visibleSelected < visible.length;
+            checkAll.disabled = visible.length === 0;
+        }
+    }
+
+    function renderPreview() {
+        const selected = selectedChecks();
+        const newDateText = formatThaiDate(shipDateEl?.value || "");
+
+        if (idsEl) {
+            idsEl.innerHTML = selected
+                .map((input) => `<input type="hidden" name="ord_ids[]" value="${esc(input.value)}">`)
+                .join("");
+        }
+
+        if (modalCountEl) modalCountEl.textContent = selected.length.toLocaleString();
+        if (modalSoCountEl) modalSoCountEl.textContent = soCount(selected).toLocaleString();
+
+        if (previewEl) {
+            previewEl.innerHTML = selected
+                .map((input) => {
+                    const part = [input.dataset.part || "", input.dataset.partDesc || ""].filter(Boolean).join(" ");
+                    return `
+                        <tr>
+                            <td>${esc(input.dataset.so || "-")}</td>
+                            <td>${esc(part || "-")}</td>
+                            <td>${esc(input.dataset.shipLabel || "-")}</td>
+                            <td>${esc(newDateText)}</td>
+                        </tr>
+                    `;
+                })
+                .join("");
+        }
+    }
+
+    checks.forEach((input) => {
+        input.addEventListener("click", (event) => event.stopPropagation());
+        input.addEventListener("input", syncState);
+        input.addEventListener("change", syncState);
+    });
+
+    if (checkAll) {
+        checkAll.addEventListener("click", (event) => {
+            event.stopPropagation();
+        });
+        checkAll.addEventListener("change", (event) => {
+            event.stopPropagation();
+            const checked = checkAll.checked;
+            visibleEnabledChecks().forEach((input) => {
+                input.checked = checked;
+            });
+            syncState();
+        });
+    }
+
+    if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+            checks.forEach((input) => {
+                input.checked = false;
+            });
+            syncState();
+        });
+    }
+
+    openBtn.addEventListener("click", () => {
+        const selected = selectedChecks();
+        if (!selected.length) return;
+
+        const firstDate = selected[0]?.dataset.shipDate || "";
+        const firstTime = selected[0]?.dataset.windowTime || "08:00";
+        if (shipDateEl && !shipDateEl.value) shipDateEl.value = firstDate;
+        if (windowTimeEl && !windowTimeEl.value) windowTimeEl.value = firstTime || "08:00";
+        if (reasonEl) reasonEl.value = "";
+
+        renderPreview();
+        if (window.bootstrap?.Modal) {
+            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        } else {
+            modalEl.classList.add("show");
+            modalEl.style.display = "block";
+            modalEl.removeAttribute("aria-hidden");
+        }
+    });
+
+    shipDateEl?.addEventListener("change", renderPreview);
+    form.addEventListener("submit", () => {
+        renderPreview();
+    });
+
+    document.addEventListener("input", (event) => {
+        if (event.target?.classList?.contains("dp-col-filter")) {
+            window.setTimeout(syncState, 0);
+        }
+    });
+    document.addEventListener("dp:inquiry-filtered", syncState);
+
+    syncState();
+})();
+
 (function postponeModal() {
     const byId = (id) => document.getElementById(id);
     const CONFIG = window.DP_INQUIRY || {};
@@ -1380,6 +2106,271 @@
 
         modal.show();
     });
+})();
+
+(function duplicateModal() {
+    const byId = (id) => document.getElementById(id);
+    const CONFIG = window.DP_INQUIRY || {};
+    const ROUTES = CONFIG.routes || {};
+
+    const modalEl = byId("duplicateModal");
+    const form = byId("duplicateForm");
+    const infoEl = byId("duplicateInfo");
+    const shipDateEl = byId("duplicateShipDate");
+    const windowTimeEl = byId("duplicateWindowTime");
+    const mfgEl = byId("duplicateMfg");
+    const qtyEl = byId("duplicateQty");
+    const qtyWrapEl = byId("duplicateQtyWrap");
+    const sellByLineEl = byId("duplicateSellByLine");
+    const lineQtyEl = byId("duplicateLineQty");
+    const lineQtyWrapEl = byId("duplicateLineQtyWrap");
+    const partsIdEl = byId("duplicatePartsId");
+    const soNumberEl = byId("duplicateSoNumber");
+    const customerIdEl = byId("duplicateCustomerId");
+    const mfgSuggestEl = byId("duplicateMfgSuggest");
+    const addressEl = byId("duplicateAddress");
+    const telEl = byId("duplicateTel");
+    const remarkEl = byId("duplicateRemark");
+    const revisionEl = byId("duplicateRevisionNumber");
+    const docsOtherEl = byId("duplicateAttachDocsOther");
+    const continueEl = byId("duplicateContinueSamePlan");
+    const modeSoEl = byId("duplicateModeSo");
+    const modeAcidEl = byId("duplicateModeAcid");
+    const soDisplayEl = byId("duplicateSoDisplay");
+    const customerDisplayEl = byId("duplicateCustomerDisplay");
+    const salesDisplayEl = byId("duplicateSalesDisplay");
+    const partDisplayEl = byId("duplicatePartDisplay");
+    const partDescDisplayEl = byId("duplicatePartDescDisplay");
+
+    if (!modalEl || !form) return;
+    if (typeof bootstrap === "undefined" || !bootstrap.Modal) return;
+
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    let mfgDebounce = null;
+    let mfgItems = [];
+
+    function esc(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function setAction(ordId) {
+        const base = ROUTES.duplicate || "";
+        form.action = String(base).replace("__ID__", String(ordId || 0));
+    }
+
+    function buildInfo(btn) {
+        const parts = [
+            `ord_id: ${btn.dataset.ordId || "-"}`,
+            `SO: ${btn.dataset.so || "-"}`,
+            `Part: ${btn.dataset.part || "-"}`,
+            `Ship: ${btn.dataset.shipDate || "-"}`,
+        ];
+        return parts.join(" | ");
+    }
+
+    function setCheckedDocs(rawCodes) {
+        const selected = String(rawCodes || "")
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const selectedSet = new Set(selected);
+
+        modalEl.querySelectorAll(".duplicateDocCheck").forEach((input) => {
+            input.checked = selectedSet.has(input.value);
+        });
+    }
+
+    function isSellByLine() {
+        const checked = modalEl.querySelector('input[name="duplicate_sell_by_line"]:checked');
+        if (checked) return checked.value === "1";
+        return sellByLineEl ? sellByLineEl.value === "1" : false;
+    }
+
+    function setSellByLine(value) {
+        const radios = modalEl.querySelectorAll('input[name="duplicate_sell_by_line"]');
+        const normalized = radios.length === 0 && sellByLineEl?.value === "1"
+            ? "1"
+            : (String(value || "0") === "1" ? "1" : "0");
+        if (radios.length) {
+            radios.forEach((radio) => {
+                radio.checked = radio.value === normalized;
+            });
+        }
+        if (sellByLineEl) sellByLineEl.value = normalized;
+        if (lineQtyWrapEl) lineQtyWrapEl.classList.toggle("d-none", normalized !== "1");
+        if (qtyWrapEl) qtyWrapEl.classList.toggle("d-none", normalized === "1");
+    }
+
+    function closeMfgSuggest() {
+        if (!mfgSuggestEl) return;
+        mfgSuggestEl.classList.add("d-none");
+        mfgSuggestEl.innerHTML = "";
+        mfgItems = [];
+    }
+
+    function renderMfgSuggest(items) {
+        if (!mfgSuggestEl) return;
+        if (!Array.isArray(items) || !items.length) {
+            closeMfgSuggest();
+            return;
+        }
+
+        mfgItems = items;
+        mfgSuggestEl.innerHTML = items
+            .map(
+                (item, index) => `
+                    <button type="button" class="duplicate-mfg-suggest-item" data-index="${index}">
+                        <span class="duplicate-mfg-suggest-title">${esc(item.mfg_no || item.workordernumber || "")}</span>
+                        <span class="duplicate-mfg-suggest-sub">SO: ${esc(item.ordnumber || "-")} | Qty: ${esc(item.qty ?? "")}</span>
+                    </button>
+                `
+            )
+            .join("");
+        mfgSuggestEl.classList.remove("d-none");
+    }
+
+    function applyMfg(item) {
+        if (!item) return;
+
+        const mfgNo = String(item.mfg_no || item.workordernumber || "").trim();
+        const mfgQty = Number(item.qty || 0);
+        if (mfgEl) mfgEl.value = mfgNo;
+
+        if (isSellByLine()) {
+            if (lineQtyEl && mfgQty > 0) lineQtyEl.value = String(Math.round(mfgQty));
+            if (qtyEl) qtyEl.value = "0";
+        } else if (qtyEl && mfgQty > 0) {
+            qtyEl.value = String(mfgQty);
+        }
+
+        closeMfgSuggest();
+    }
+
+    async function lookupMfg() {
+        const q = String(mfgEl?.value || "").trim();
+        const base = ROUTES.mfgLookup || "";
+        if (!base || q.length < 2) {
+            closeMfgSuggest();
+            return;
+        }
+
+        const params = new URLSearchParams({
+            q,
+            ordnumber: String(soNumberEl?.value || "").trim(),
+            parts_id: String(partsIdEl?.value || "").trim(),
+            customer_id: String(customerIdEl?.value || "").trim(),
+        });
+
+        const res = await fetch(`${base}?${params.toString()}`, {
+            headers: { Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error("MFG lookup failed");
+        const data = await res.json();
+        renderMfgSuggest(data.items || []);
+    }
+
+    document.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) return;
+
+        const mfgItem = event.target.closest(".duplicate-mfg-suggest-item");
+        if (mfgItem) {
+            const index = Number(mfgItem.dataset.index || -1);
+            if (index >= 0) applyMfg(mfgItems[index]);
+            return;
+        }
+
+        const btn = event.target.closest(".jsDuplicateBtn");
+        if (!btn || btn.hasAttribute("disabled")) return;
+
+        setAction(btn.dataset.ordId || "");
+        if (infoEl) infoEl.textContent = buildInfo(btn);
+        if (partsIdEl) partsIdEl.value = btn.dataset.partsId || "";
+        if (soNumberEl) soNumberEl.value = btn.dataset.so || "";
+        if (customerIdEl) customerIdEl.value = btn.dataset.customerId || "";
+        const deliveryType = String(btn.dataset.deliveryType || "SO").toUpperCase();
+        if (modeSoEl) modeSoEl.checked = deliveryType !== "ACID";
+        if (modeAcidEl) modeAcidEl.checked = deliveryType === "ACID";
+        if (soDisplayEl) soDisplayEl.value = btn.dataset.so || "";
+        if (customerDisplayEl) customerDisplayEl.value = btn.dataset.customerName || "";
+        if (salesDisplayEl) salesDisplayEl.value = btn.dataset.salesName || "";
+        if (partDisplayEl) partDisplayEl.value = btn.dataset.part || "";
+        if (partDescDisplayEl) partDescDisplayEl.value = btn.dataset.partDesc || "";
+        if (shipDateEl) shipDateEl.value = btn.dataset.shipDate || "";
+        if (windowTimeEl) windowTimeEl.value = btn.dataset.windowTime || "08:00";
+        if (mfgEl) mfgEl.value = btn.dataset.mfg || "";
+        if (qtyEl) qtyEl.value = btn.dataset.qty || "";
+        setSellByLine(btn.dataset.sellByLine === "1" ? "1" : "0");
+        if (lineQtyEl) lineQtyEl.value = btn.dataset.lineQty || "";
+        if (addressEl) addressEl.value = btn.dataset.address || "";
+        if (telEl) telEl.value = btn.dataset.tel || "";
+        if (remarkEl) remarkEl.value = btn.dataset.remark || "";
+        if (revisionEl) revisionEl.value = btn.dataset.revision || "0";
+        if (docsOtherEl) docsOtherEl.value = btn.dataset.attachDocsOther || "";
+        if (continueEl) continueEl.checked = false;
+        setCheckedDocs(btn.dataset.attachDocs || "");
+        closeMfgSuggest();
+
+        modal.show();
+    });
+
+    function applyContinuePayload(payload) {
+        if (!payload || !payload.ord_id) return;
+
+        const btn = Array.from(document.querySelectorAll(".jsDuplicateBtn"))
+            .find((item) => String(item.dataset.ordId || "") === String(payload.ord_id));
+        if (!btn) return;
+
+        btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+        if (shipDateEl) shipDateEl.value = payload.ship_date || btn.dataset.shipDate || "";
+        if (windowTimeEl) windowTimeEl.value = payload.window_time || btn.dataset.windowTime || "08:00";
+        setSellByLine(String(payload.sell_by_line || "0") === "1" ? "1" : "0");
+        if (mfgEl) mfgEl.value = "";
+        if (qtyEl) qtyEl.value = "";
+        if (lineQtyEl) lineQtyEl.value = "";
+        if (addressEl) addressEl.value = payload.address || "";
+        if (telEl) telEl.value = payload.tel || "";
+        if (remarkEl) remarkEl.value = payload.remark || "";
+        if (revisionEl) revisionEl.value = payload.revision_number ?? "0";
+        if (docsOtherEl) docsOtherEl.value = payload.attach_docs_other || "";
+        if (continueEl) continueEl.checked = true;
+        setCheckedDocs(payload.attach_docs || "");
+
+        window.setTimeout(() => {
+            mfgEl?.focus();
+        }, 150);
+    }
+
+    if (mfgEl) {
+        mfgEl.addEventListener("input", () => {
+            window.clearTimeout(mfgDebounce);
+            mfgDebounce = window.setTimeout(() => lookupMfg().catch(closeMfgSuggest), 200);
+        });
+        mfgEl.addEventListener("blur", () => window.setTimeout(closeMfgSuggest, 200));
+    }
+
+    modalEl.querySelectorAll('input[name="duplicate_sell_by_line"]').forEach((radio) => {
+        radio.addEventListener("change", () => {
+            setSellByLine(radio.value);
+            if (radio.value !== "1" && lineQtyEl) lineQtyEl.value = "";
+        });
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!(event.target instanceof Element)) return;
+        if (!mfgSuggestEl || mfgSuggestEl.classList.contains("d-none")) return;
+        if (mfgSuggestEl.contains(event.target) || mfgEl?.contains(event.target)) return;
+        closeMfgSuggest();
+    });
+
+    if (CONFIG.duplicateContinue) {
+        window.setTimeout(() => applyContinuePayload(CONFIG.duplicateContinue), 100);
+    }
 })();
 
 (function voidModal() {

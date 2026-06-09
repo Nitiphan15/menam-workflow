@@ -2,6 +2,14 @@ html,
 body {
     height: 100%;
     margin: 0;
+    overflow-x: hidden;
+}
+
+@media (min-width: 768px) {
+    html,
+    body {
+        overflow: hidden;
+    }
 }
 
 .sidebar {
@@ -9,6 +17,8 @@ body {
     min-height: 100vh;
     max-height: 100vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
 }
 
 .sidebar .nav-link {
@@ -30,6 +40,15 @@ body {
 .main-content {
     background: #f8f9fa;
     min-height: 100vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+@media (min-width: 768px) {
+    .main-col {
+        overflow: hidden !important;
+    }
 }
 
 .nav-link {

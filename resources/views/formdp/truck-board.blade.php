@@ -1,11 +1,24 @@
 @extends('layouts.layout')
-@section('page-title', 'จัดรถส่งสินค้า')
-@section('title', 'จัดรถส่งสินค้า')
+@section('page-title', 'ตารางรถขนส่ง')
+@section('title', 'ตารางรถขนส่ง')
 
 @section('content')
     @php
         $refreshUrl = route('dp.dashboard.truck-board', ['ship_date' => $shipDate]);
-        $fmtTon = fn($kg) => number_format(((float) ($kg ?? 0)) / 1000, 3);
+        $fmtWeight = function ($kg) {
+            $kg = (float) ($kg ?? 0);
+            return number_format($kg, 0, '.', ',') . ' kg';
+        };
+        $fmtLineLoad = function ($row, $kg = null) use ($fmtWeight) {
+            $weight = (float) ($kg ?? ($row->qty ?? 0));
+            $lineQty = is_numeric($row->line_qty_display ?? null) ? (float) $row->line_qty_display : 0.0;
+            $unit = (string) ($row->line_qty_unit ?? '');
+            if ($weight == 0.0 && $lineQty > 0 && $unit === 'ชิ้น') {
+                return number_format($lineQty, 0) . ' ชิ้น';
+            }
+
+            return $fmtWeight($weight);
+        };
     @endphp
 
     <style>
@@ -260,6 +273,32 @@
             border-color: #1d4ed8;
         }
 
+        .truck-title-link {
+            color: inherit;
+            text-decoration: none;
+            border-bottom: 1px dashed rgba(255, 255, 255, .45);
+            transition: opacity .15s ease;
+        }
+
+        .truck-title-link:hover {
+            color: #fff;
+            opacity: .85;
+            border-bottom-color: #fff;
+        }
+
+        tr.jsTruckRowLink {
+            cursor: pointer;
+            transition: background-color .15s ease;
+        }
+
+        tr.jsTruckRowLink:hover {
+            background-color: #eff6ff;
+        }
+
+        tr.jsTruckRowLink:hover td {
+            background-color: #eff6ff;
+        }
+
         @media (max-width: 1199px) {
             .truck-stat-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -285,12 +324,17 @@
         <div class="container-fluid">
 
             <div class="top-bar pb-3">
+                @include('formdp.partials.transport-nav', [
+                    'tnActive'   => 'board',
+                    'tnShipDate' => $shipDate,
+                    'tnSo'       => request('q', ''),
+                    'tnCustomer' => '',
+                    'tnMfg'      => '',
+                ])
+
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-                    <div>
-                        <h2 class="mb-1 fw-bold">Dashboard จัดรถส่งสินค้า</h2>
-                        <div class="text-muted">
-                            วันที่ส่งสินค้า: <strong>{{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }}</strong>
-                        </div>
+                    <div class="text-muted">
+                        วันที่ส่งสินค้า: <strong>{{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }}</strong>
                     </div>
 
                     <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -304,13 +348,9 @@
                                 onchange="document.getElementById('truckBoardDateForm').submit();">
                             <button type="button" class="btn btn-outline-secondary btn-sm" id="btnBoardDateNext"
                                 title="วันถัดไป">&raquo;</button>
-                            <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="btnBoardDateToday"
-                                title="วันนี้">วันนี้</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap"
+                                id="btnBoardDateToday" title="วันนี้">วันนี้</button>
                         </form>
-                        <span class="small text-muted">
-                            <span class="refresh-dot"></span>
-                            Refresh ทุก 60 วินาที
-                        </span>
                         <div class="btn-group btn-group-sm">
                             <a href="{{ route('dp.dashboard.truck-board.export.print', ['ship_date' => $shipDate]) }}"
                                 class="btn btn-outline-primary" target="_blank">
@@ -321,6 +361,10 @@
                             <a href="{{ route('dp.dashboard.truck-board.export.excel', ['ship_date' => $shipDate]) }}"
                                 class="btn btn-outline-primary">Excel</a>
                         </div>
+                        <a href="{{ route('dp.dashboard.truck-board') }}" class="btn btn-outline-secondary btn-sm"
+                            title="ล้าง filter ทั้งหมด">
+                            <i class="fas fa-eraser me-1"></i> Reset
+                        </a>
                         <a href="{{ $refreshUrl }}" class="btn btn-primary btn-sm">
                             <i class="fas fa-rotate-right me-1"></i> Refresh
                         </a>
@@ -367,8 +411,8 @@
                     <div class="col-6 col-md-4 col-xl">
                         <div class="card summary-card h-100">
                             <div class="card-body">
-                                <div class="summary-label">QTY รวม (ตัน)</div>
-                                <div class="summary-value">{{ $fmtTon($summary['total_qty']) }}</div>
+                                <div class="summary-label">QTY รวม</div>
+                                <div class="summary-value">{{ $fmtWeight($summary['total_qty']) }}</div>
                             </div>
                         </div>
                     </div>
@@ -376,8 +420,8 @@
                     <div class="col-6 col-md-4 col-xl">
                         <div class="card summary-card h-100">
                             <div class="card-body">
-                                <div class="summary-label">น้ำหนักขึ้นรถรวม (ตัน)</div>
-                                <div class="summary-value">{{ $fmtTon($summary['total_weight']) }}</div>
+                                <div class="summary-label">น้ำหนักขึ้นรถรวม</div>
+                                <div class="summary-value">{{ $fmtWeight($summary['total_weight']) }}</div>
                             </div>
                         </div>
                     </div>
@@ -385,11 +429,14 @@
 
                 <div class="board-filter-bar mb-3" id="truckBoardFilters">
                     <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="truck board filters">
-                        <button type="button" class="btn btn-outline-primary active" data-board-filter="all">ทั้งหมด</button>
+                        <button type="button" class="btn btn-outline-primary active"
+                            data-board-filter="all">ทั้งหมด</button>
                         <button type="button" class="btn btn-outline-primary" data-board-filter="open">รอบเปิด</button>
                         <button type="button" class="btn btn-outline-primary" data-board-filter="closed">ปิดแล้ว</button>
-                        <button type="button" class="btn btn-outline-primary" data-board-filter="unassigned">ยังไม่จัดรถ</button>
-                        <button type="button" class="btn btn-outline-primary" data-board-filter="special">งานพิเศษ</button>
+                        <button type="button" class="btn btn-outline-primary"
+                            data-board-filter="unassigned">ยังไม่จัดรถ</button>
+                        <button type="button" class="btn btn-outline-primary"
+                            data-board-filter="special">งานพิเศษ</button>
                     </div>
                     <div class="ms-auto" style="min-width:260px;">
                         <input type="search" class="form-control form-control-sm" id="truckBoardSearch"
@@ -449,7 +496,19 @@
                                         </thead>
                                         <tbody>
                                             @foreach ($specialRows as $i => $row)
-                                                <tr>
+                                                @php
+                                                    $specialInquiryUrl = route('dp.inquiry', [
+                                                        'ship_from' => $shipDate,
+                                                        'ship_to' => $shipDate,
+                                                        'status' => 'ALL',
+                                                        'ord_id' => $row->ord_id ?? null,
+                                                        'so' => $row->so_number ?: null,
+                                                        'mfg' => $row->mfg_no ?: null,
+                                                        'searched' => 1,
+                                                    ]);
+                                                @endphp
+                                                <tr class="jsTruckRowLink" data-href="{{ $specialInquiryUrl }}"
+                                                    title="ดูรายการนี้ใน Inquiry">
                                                     <td class="text-center fw-bold">{{ $i + 1 }}</td>
                                                     <td>
                                                         {{ !empty($row->window_at) ? \Carbon\Carbon::parse($row->window_at)->format('H:i') : '-' }}
@@ -459,7 +518,8 @@
                                                     <td>
                                                         <div class="fw-semibold">{{ $row->part_number ?: '-' }}</div>
                                                         <div class="small">{{ $row->part_desc ?: '-' }}</div>
-                                                        <div class="small text-muted">QTY {{ $fmtTon($row->qty ?? 0) }} ตัน</div>
+                                                        <div class="small text-muted">QTY
+                                                            {{ $fmtLineLoad($row, $row->qty ?? 0) }}</div>
                                                     </td>
                                                     <td>
                                                         <div class="fw-semibold">{{ $row->customer_name ?: '-' }}</div>
@@ -478,7 +538,8 @@
                                                                 action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $row->ord_id]) }}"
                                                                 onsubmit="return confirm('ยืนยันปิดงานพิเศษนี้?');">
                                                                 @csrf
-                                                                <button class="btn btn-sm btn-outline-success">ปิดงาน</button>
+                                                                <button
+                                                                    class="btn btn-sm btn-outline-success">ปิดงาน</button>
                                                             </form>
                                                         @else
                                                             <span class="text-muted small">-</span>
@@ -503,17 +564,22 @@
                         $truck->driver_phone,
                         $truck->helper_names,
                         $truck->remark,
-                    ])->merge($truck->rows->flatMap(function ($row) {
-                        return [
-                            $row->so_number ?? '',
-                            $row->mfg_no ?? '',
-                            $row->customer_name ?? '',
-                            $row->sales_name ?? '',
-                            $row->address ?? '',
-                            $row->part_number ?? '',
-                            $row->part_desc ?? '',
-                        ];
-                    }))->filter()->implode(' ');
+                    ])
+                        ->merge(
+                            $truck->rows->flatMap(function ($row) {
+                                return [
+                                    $row->so_number ?? '',
+                                    $row->mfg_no ?? '',
+                                    $row->customer_name ?? '',
+                                    $row->sales_name ?? '',
+                                    $row->address ?? '',
+                                    $row->part_number ?? '',
+                                    $row->part_desc ?? '',
+                                ];
+                            }),
+                        )
+                        ->filter()
+                        ->implode(' ');
                     $boardStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
                 @endphp
                 <div class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4 jsBoardTruckCard"
@@ -522,8 +588,19 @@
                     <div class="truck-header">
                         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
                             <div>
+                                @php
+                                    $inquiryHeaderUrl = route('dp.inquiry', [
+                                        'ship_from' => $shipDate,
+                                        'ship_to' => $shipDate,
+                                        'status' => 'ALL',
+                                        'searched' => 1,
+                                    ]);
+                                @endphp
                                 <h3 class="truck-title mb-0">
-                                    <i class="fas fa-truck me-2"></i>{{ $truck->truck_label }}
+                                    <a href="{{ $inquiryHeaderUrl }}" class="truck-title-link"
+                                        title="ดูใน Inquiry (วันที่ส่ง {{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }})">
+                                        <i class="fas fa-truck me-2"></i>{{ $truck->truck_label }}
+                                    </a>
                                 </h3>
 
                                 <div class="truck-subtitle">
@@ -554,20 +631,26 @@
                                         {{ $truck->is_closed ? 'ปิดรอบแล้ว' : 'รอบเปิดอยู่' }}
                                     </span>
                                 @endif
-                                <span class="truck-badge metric-muted">รายการ {{ number_format($truck->item_count) }}</span>
-                                <span class="truck-badge metric">QTY {{ $fmtTon($truck->total_qty) }} ตัน</span>
-                                <span class="truck-badge metric">ขึ้นรถ {{ $fmtTon($truck->total_assigned) }} ตัน</span>
+                                <span class="truck-badge metric-muted">รายการ
+                                    {{ number_format($truck->item_count) }}</span>
+                                <span class="truck-badge metric">QTY {{ $fmtWeight($truck->total_qty) }}</span>
+                                <span class="truck-badge metric">ขึ้นรถ {{ $fmtWeight($truck->total_assigned) }}</span>
                                 @if (!$truck->is_unassigned && $truck->max_load > 0)
                                     @php
-                                        $remainingRatio = (float) $truck->max_load > 0
-                                            ? ((float) $truck->remaining_load / (float) $truck->max_load)
-                                            : 1;
-                                        $remainingClass = $remainingRatio < 0.1
-                                            ? 'metric-danger'
-                                            : ($remainingRatio < 0.25 ? 'metric-warning' : 'metric');
+                                        $remainingRatio =
+                                            (float) $truck->max_load > 0
+                                                ? (float) $truck->remaining_load / (float) $truck->max_load
+                                                : 1;
+                                        $remainingClass =
+                                            $remainingRatio < 0.1
+                                                ? 'metric-danger'
+                                                : ($remainingRatio < 0.25
+                                                    ? 'metric-warning'
+                                                    : 'metric');
                                     @endphp
-                                    <span class="truck-badge metric-muted">Max {{ $fmtTon($truck->max_load) }} ตัน</span>
-                                    <span class="truck-badge {{ $remainingClass }}">คงเหลือ {{ $fmtTon($truck->remaining_load) }} ตัน</span>
+                                    <span class="truck-badge metric-muted">Max {{ $fmtWeight($truck->max_load) }}</span>
+                                    <span class="truck-badge {{ $remainingClass }}">คงเหลือ
+                                        {{ $fmtWeight($truck->remaining_load) }}</span>
                                 @endif
                                 @if (!$truck->is_unassigned && !$truck->is_closed)
                                     <form method="POST" action="{{ route('dp.dashboard.truck-board.trip.close') }}"
@@ -575,7 +658,8 @@
                                         @csrf
                                         <input type="hidden" name="truck_source" value="{{ $truck->truck_source }}">
                                         <input type="hidden" name="truck_id" value="{{ $truck->truck_id }}">
-                                        <input type="hidden" name="manual_plate_no" value="{{ $truck->manual_plate_no }}">
+                                        <input type="hidden" name="manual_plate_no"
+                                            value="{{ $truck->manual_plate_no }}">
                                         <input type="hidden" name="ship_date" value="{{ $shipDate }}">
                                         <input type="hidden" name="trip_no" value="{{ $truck->trip_no }}">
                                         <button type="submit" class="btn btn-sm fw-semibold truck-close-btn">
@@ -595,16 +679,16 @@
                             </div>
                             <div class="truck-stat-box">
                                 <span class="label">QTY รวม</span>
-                                <span class="value">{{ $fmtTon($truck->total_qty) }} ตัน</span>
+                                <span class="value">{{ $fmtWeight($truck->total_qty) }}</span>
                             </div>
                             <div class="truck-stat-box">
                                 <span class="label">ขึ้นรถรวม</span>
-                                <span class="value">{{ $fmtTon($truck->total_assigned) }} ตัน</span>
+                                <span class="value">{{ $fmtWeight($truck->total_assigned) }}</span>
                             </div>
                             <div class="truck-stat-box">
                                 <span class="label">คงเหลือความจุ</span>
                                 <span class="value">
-                                    {{ !$truck->is_unassigned && !is_null($truck->remaining_load) ? $fmtTon($truck->remaining_load) . ' ตัน' : '-' }}
+                                    {{ !$truck->is_unassigned && !is_null($truck->remaining_load) ? $fmtWeight($truck->remaining_load) : '-' }}
                                 </span>
                             </div>
                         </div>
@@ -621,7 +705,7 @@
                                     <th class="col-main">สินค้า</th>
                                     <th style="width: 140px;">MFG</th>
                                     <th style="width: 130px;">ระบุเส้น/ชิ้น</th>
-                                    <th style="width: 130px;">Qty / ขึ้นรถ (ตัน)</th>
+                                    <th style="width: 130px;">Qty / ขึ้นรถ</th>
                                     <th style="width: 130px;">Stock FG</th>
                                     <th style="width: 160px;">ลูกค้า / Sales</th>
                                     <th class="address-text">สถานที่ส่ง</th>
@@ -631,7 +715,19 @@
                             </thead>
                             <tbody>
                                 @foreach ($truck->rows as $i => $row)
-                                    <tr>
+                                    @php
+                                        $rowInquiryUrl = route('dp.inquiry', [
+                                            'ship_from' => $shipDate,
+                                            'ship_to' => $shipDate,
+                                            'status' => 'ALL',
+                                            'ord_id' => $row->ord_id ?? null,
+                                            'so' => $row->so_number ?: null,
+                                            'mfg' => $row->mfg_no ?: null,
+                                            'searched' => 1,
+                                        ]);
+                                    @endphp
+                                    <tr class="jsTruckRowLink" data-href="{{ $rowInquiryUrl }}"
+                                        title="ดูรายการนี้ใน Inquiry">
                                         <td class="text-center fw-bold">{{ $i + 1 }}</td>
 
                                         <td>
@@ -663,7 +759,9 @@
                                         <td>
                                             @if (!is_null($row->line_qty_display) && (float) $row->line_qty_display > 0)
                                                 <div class="mini-text fw-bold text-danger">
-                                                    {{ ($row->line_qty_unit ?? 'เส้น') === 'ชิ้น' ? 'ชิ้น' : 'ระบุเส้น' }} : {{ number_format((float) $row->line_qty_display, 0) }} {{ $row->line_qty_unit ?? 'เส้น' }}
+                                                    {{ ($row->line_qty_unit ?? 'เส้น') === 'ชิ้น' ? 'ชิ้น' : 'ระบุเส้น' }}
+                                                    : {{ number_format((float) $row->line_qty_display, 0) }}
+                                                    {{ $row->line_qty_unit ?? 'เส้น' }}
                                                 </div>
                                             @else
                                                 <span class="text-muted">-</span>
@@ -671,10 +769,10 @@
                                         </td>
 
                                         <td>
-                                            <div class="value-strong">{{ $fmtTon($row->qty ?? 0) }}
+                                            <div class="value-strong">{{ $fmtLineLoad($row, $row->qty ?? 0) }}
                                             </div>
                                             <div class="mini-text">Assigned:
-                                                {{ $fmtTon($row->display_weight ?? 0) }}</div>
+                                                {{ $fmtLineLoad($row, $row->display_weight ?? 0) }}</div>
                                         </td>
 
                                         <td class="stock-text">
@@ -782,8 +880,21 @@
             if (btnToday) btnToday.addEventListener('click', today);
         })();
 
-        setTimeout(() => {
-            window.location.reload();
-        }, 60000);
+        (function truckBoardRowClick() {
+            document.querySelectorAll('tr.jsTruckRowLink').forEach((tr) => {
+                tr.addEventListener('click', (e) => {
+                    // ignore clicks on links, buttons, form controls inside the row
+                    const target = e.target;
+                    if (target.closest('a, button, input, select, textarea, form, label')) return;
+                    const url = tr.dataset.href;
+                    if (!url) return;
+                    if (e.ctrlKey || e.metaKey || e.button === 1) {
+                        window.open(url, '_blank');
+                    } else {
+                        window.location.href = url;
+                    }
+                });
+            });
+        })();
     </script>
 @endsection

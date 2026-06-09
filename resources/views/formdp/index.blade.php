@@ -108,7 +108,7 @@
 
                         <div class="dp-col-6">
                             <label class="form-label">วันที่ส่งสินค้า <span class="text-danger">*</span></label>
-                            <input type="date" name="ship_posted_date"
+                            <input type="date" id="shipPostedDate" name="ship_posted_date"
                                 class="form-control @error('ship_posted_date') is-invalid @enderror"
                                 value="{{ old('ship_posted_date', isset($header['ship_posted_date']) ? \Carbon\Carbon::parse($header['ship_posted_date'])->toDateString() : $dayStr) }}"
                                 required>
@@ -368,9 +368,16 @@
                         <div class="form-text">จำเป็นเมื่อแก้ไขรายการเดิม</div>
                     </div>
 
-                    <div class="d-flex gap-2 justify-content-end pt-3">
-                        <button class="btn btn-primary px-4" type="submit">บันทึก</button>
-                        <button class="btn btn-outline-secondary" type="button" id="btnResetLine">ล้างฟอร์ม</button>
+                    <div class="d-flex gap-2 justify-content-between align-items-center flex-wrap pt-3">
+                        <label class="form-check d-flex align-items-center gap-2 mb-0">
+                            <input class="form-check-input mt-0" type="checkbox" name="continue_same_so"
+                                value="1" {{ old('continue_same_so') ? 'checked' : '' }}>
+                            <span class="form-check-label">บันทึกแล้วกรอก SO เดิมต่อ</span>
+                        </label>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary px-4" type="submit">บันทึก</button>
+                            <button class="btn btn-outline-secondary" type="button" id="btnResetLine">ล้างฟอร์ม</button>
+                        </div>
                     </div>
                 </div>
             </form>
@@ -562,6 +569,11 @@
                 grid-template-columns: 1fr
             }
         }
+
+        .dp-dup-actions {
+            justify-content: center !important;
+            gap: .75rem;
+        }
     </style>
 
     <script>
@@ -580,6 +592,8 @@
 
             (function confirmRevisionOnEdit() {
                 const isEdit = @json($isEdit);
+                const sentRevisions = @json(array_map('intval', $editMailSentRevisions));
+                const sentRevisionShipDate = @json(!empty($header['ship_posted_date'] ?? null) ? \Carbon\Carbon::parse($header['ship_posted_date'])->toDateString() : null);
                 const form = document.getElementById('dpForm');
                 const ord = document.getElementById('ordId');
                 if (!form) return;
@@ -597,6 +611,33 @@
 
                     ev.preventDefault();
                     ev.stopImmediatePropagation();
+
+                    const revNo = Number.parseInt(revVal, 10);
+                    const shipDateInput = form.querySelector('input[name="ship_posted_date"]');
+                    const currentShipDate = shipDateInput ? (shipDateInput.value || '').trim() : '';
+                    const hasLockedRevision =
+                        (!sentRevisionShipDate || currentShipDate === sentRevisionShipDate) &&
+                        Number.isInteger(revNo) &&
+                        sentRevisions.includes(revNo);
+
+                    if (hasLockedRevision) {
+                        const msg = `Revision ${revNo} เคยส่งเมลแล้ว กรุณาเปลี่ยน Revision เป็นเลขใหม่ก่อนบันทึก`;
+
+                        if (typeof Swal === 'undefined') {
+                            window.alert(msg);
+                        } else {
+                            Swal.fire({
+                                title: 'บันทึกไม่ได้',
+                                text: msg,
+                                icon: 'error',
+                                confirmButtonText: 'ตกลง',
+                                confirmButtonColor: '#2563eb',
+                            });
+                        }
+
+                        revInput?.focus();
+                        return;
+                    }
 
                     if (typeof Swal === 'undefined') {
                         if (window.confirm(`ใช่ บันทึกด้วย revision ${revVal}`)) {
@@ -619,6 +660,118 @@
                     }).then((result) => {
                         if (result.isConfirmed) {
                             confirmed = true;
+                            form.submit();
+                        }
+                    });
+                });
+            })();
+
+            (function confirmDuplicateOnCreate() {
+                const isEdit = @json($isEdit);
+                const form = document.getElementById('dpForm');
+                const ord = document.getElementById('ordId');
+                if (!form) return;
+
+                let dupConfirmed = false;
+                const checkUrl = @json(route('dp.duplicateCheck'));
+
+                form.addEventListener('submit', async (ev) => {
+                    if (dupConfirmed) return;
+                    const hasId = ord && (ord.value || '').trim() !== '';
+                    if (isEdit || hasId) return; // create-mode only
+
+                    const modeEl = form.querySelector('input[name="lines[0][mode]"]:checked');
+                    const mode = modeEl ? (modeEl.value || 'SO').toUpperCase() : 'SO';
+                    if (mode !== 'SO') return;
+
+                    const soInputEl = form.querySelector('input[name="lines[0][so_number]"]');
+                    const mfgInputEl = form.querySelector('input[name="lines[0][mfg_no]"]');
+                    const soNumber = soInputEl ? (soInputEl.value || '').trim() : '';
+                    const mfgNo = mfgInputEl ? (mfgInputEl.value || '').trim() : '';
+                    if (soNumber === '' && mfgNo === '') return;
+
+                    ev.preventDefault();
+                    ev.stopImmediatePropagation();
+
+                    let items = [];
+                    try {
+                        const params = new URLSearchParams();
+                        if (soNumber !== '') params.set('so_number', soNumber);
+                        if (mfgNo !== '') params.set('mfg_no', mfgNo);
+                        const data = await fetchJson(`${checkUrl}?${params.toString()}`);
+                        items = Array.isArray(data.items) ? data.items : [];
+                    } catch (err) {
+                        // ถ้า check ไม่สำเร็จ ปล่อยให้บันทึกต่อ
+                        dupConfirmed = true;
+                        form.submit();
+                        return;
+                    }
+
+                    if (items.length === 0) {
+                        dupConfirmed = true;
+                        form.submit();
+                        return;
+                    }
+
+                    const rowsHtml = items.map((it) => `
+                        <tr>
+                            <td>${esc(it.so_number || '')}</td>
+                            <td>${esc(it.mfg_no || '')}</td>
+                            <td>${esc(it.part_number || '')}</td>
+                            <td class="text-end">${Number(it.qty || 0).toLocaleString(undefined,{maximumFractionDigits:3})}</td>
+                            <td class="text-center">${esc(it.ship_date || it.due_date || '')}</td>
+                        </tr>
+                    `).join('');
+
+                    const headerText = mfgNo !== ''
+                        ? `SO <b>${esc(soNumber)}</b> + MFG <b>${esc(mfgNo)}</b>`
+                        : `SO <b>${esc(soNumber)}</b>`;
+
+                    const html = `
+                        <div class="text-start">
+                            <div class="mb-2">${headerText} เคยถูกบันทึกแล้ว <b>${items.length}</b> รายการ (ไม่นับสถานะ VOID)</div>
+                            <div style="max-height:320px;overflow:auto">
+                                <table class="table table-sm table-bordered align-middle" style="font-size:12px">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Sales Order</th>
+                                            <th>MFG No</th>
+                                            <th>Part Number</th>
+                                            <th class="text-end">Qty (KG)</th>
+                                            <th class="text-center">วันที่ส่งสินค้า</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>${rowsHtml}</tbody>
+                                </table>
+                            </div>
+                            <div class="mt-2 text-danger">ต้องการบันทึกซ้ำหรือไม่?</div>
+                        </div>`;
+
+                    if (typeof Swal === 'undefined') {
+                        if (window.confirm(`พบรายการที่เคยบันทึก ${items.length} รายการ ต้องการบันทึกซ้ำหรือไม่?`)) {
+                            dupConfirmed = true;
+                            form.submit();
+                        }
+                        return;
+                    }
+
+                    Swal.fire({
+                        title: 'พบรายการที่เคยบันทึกไว้',
+                        html: html,
+                        icon: 'warning',
+                        width: 760,
+                        showCancelButton: true,
+                        confirmButtonText: 'ยืนยันบันทึกซ้ำ',
+                        cancelButtonText: 'ยกเลิก',
+                        confirmButtonColor: '#dc2626',
+                        cancelButtonColor: '#6b7280',
+                        reverseButtons: true,
+                        customClass: {
+                            actions: 'dp-dup-actions',
+                        },
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            dupConfirmed = true;
                             form.submit();
                         }
                     });
@@ -777,7 +930,9 @@
                 if (!qtyKg || !sellByLineQtyInput || !kgPerLineInput) return;
 
                 if (isSales8User) {
-                    qtyKg.value = '0';
+                    if (!qtyKg.value) {
+                        qtyKg.value = '0';
+                    }
                     setCalcHint('');
                     setCalcError('');
                     return;
@@ -800,21 +955,27 @@
                 qtyKg.classList.add('bg-light');
 
                 if (!hasPart) {
-                    qtyKg.value = '';
+                    if (!qtyKg.value) {
+                        qtyKg.value = '';
+                    }
                     setCalcHint('');
                     setCalcError('');
                     return;
                 }
 
                 if (!kgPerLine) {
-                    qtyKg.value = '';
+                    if (!qtyKg.value) {
+                        qtyKg.value = '';
+                    }
                     setCalcHint('');
                     setCalcError('Part นี้ไม่รองรับขายแบบระบุเส้น');
                     return;
                 }
 
                 if (!lineQty) {
-                    qtyKg.value = '';
+                    if (!qtyKg.value) {
+                        qtyKg.value = '';
+                    }
                     setCalcError('');
                     setCalcHint('กรอก Qty ระบุเส้น เพื่อคำนวณเป็น KG');
                     return;
@@ -1035,6 +1196,7 @@
                     }
 
                     const sid = (it.sales_id || '').toString().trim();
+                    const helperText = (it.sales_text || '').trim();
                     const snameTh = (it.sales_name_th || '').trim();
                     const sname = (it.sales_name || '').trim();
                     const scode = (it.sales_code || '').trim();
@@ -1043,7 +1205,7 @@
 
                     if (salesInput) {
                         const displayName = snameTh || sname || (sid ? `Sales ${sid}` : '');
-                        const text = (scode ? `${scode} ` : '') + displayName;
+                        const text = helperText || ((scode ? `${scode} ` : '') + displayName);
                         salesInput.value = text;
                         if (salesTextHidden) salesTextHidden.value = text;
                     }
@@ -1684,19 +1846,42 @@
 
                     setNamed('lines[0][id]', '');
                     setNamed('lines[0][mfg_no]', '');
+                    setNamed('lines[0][qty_kg]', isSales8User ? '0' : '');
+                    setNamed('lines[0][sell_by_line_qty]', '');
+                    setNamed('lines[0][auto_qty_kg]', '');
+                    setNamed('continue_same_so', '');
                     setNamed('is_manual_mfg', '1');
                     if (isSales8User) {
                         setNamed('lines[0][sell_by_line]', '1');
-                        setNamed('lines[0][qty_kg]', '0');
                     }
 
-                    document.getElementById('mfgNo')?.focus();
+                    const line = Array.isArray(data?.lines) ? (data.lines[0] || {}) : {};
+                    const salesText = (line.sales_text || '').trim();
+                    if (salesText) {
+                        const salesInput = document.getElementById('salesInput');
+                        const salesTextHidden = document.getElementById('salesTextHidden');
+                        if (salesInput) salesInput.value = salesText;
+                        if (salesTextHidden) salesTextHidden.value = salesText;
+                    }
+
                     syncSellByLineAvailability();
                     recalcSellByLineQtyToKg();
+
+                    const shipDateInput = document.getElementById('shipPostedDate') ||
+                        document.querySelector('input[name="ship_posted_date"]');
+                    shipDateInput?.focus();
+                    try {
+                        shipDateInput?.showPicker?.();
+                    } catch (_) {}
                 }
 
                 const soNo = continueSameSo.so_number || '';
-                const msg = `Sales Order ${soNo} มี MFG มากกว่า 1 รายการ ต้องการบันทึกด้วย SO เดิมไหม?`;
+                if (continueSameSo.requested) {
+                    fillForm(continueSameSo.form);
+                    return;
+                }
+
+                const msg = `Sales Order ${soNo} มี MFG มากกว่า 1 รายการ ต้องการกรอก SO เดิมต่อไหม?`;
 
                 if (typeof Swal === 'undefined') {
                     if (window.confirm(msg)) fillForm(continueSameSo.form);
@@ -1704,11 +1889,11 @@
                 }
 
                 Swal.fire({
-                    title: 'บันทึกด้วย SO เดิมไหม?',
+                    title: 'กรอก SO เดิมต่อไหม?',
                     text: msg,
                     icon: 'question',
                     showCancelButton: true,
-                    confirmButtonText: 'ใช่',
+                    confirmButtonText: 'ใช่ กรอกต่อ',
                     cancelButtonText: 'ไม่',
                     confirmButtonColor: '#2563eb',
                     cancelButtonColor: '#6b7280',

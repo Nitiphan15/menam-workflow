@@ -21,7 +21,7 @@
     <link rel="stylesheet" href="{{ asset('vendor/tom-select/css/tom-select.bootstrap5.min.css') }}">
     <link rel="stylesheet" href="{{ asset('vendor/frappe-gantt/frappe-gantt.css') }}">
     <link rel="stylesheet" href="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.css') }}">
-    <link rel="stylesheet" href="{{ asset('css/layout-base.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/layout-base.css') }}?v={{ filemtime(public_path('css/layout-base.css')) }}">
 
     @yield('styles')
     @stack('styles')

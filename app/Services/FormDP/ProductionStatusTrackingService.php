@@ -27,12 +27,7 @@ class ProductionStatusTrackingService
         try {
             $rows = $this->fetchProductionRows($filters)
                 ->filter(fn($row) => $this->passesFilters($row, $filters))
-                ->sortBy([
-                    ['ship_date_sort', 'asc'],
-                    ['due_date_sort', 'asc'],
-                    ['priority', 'asc'],
-                    ['mfg_no', 'asc'],
-                ])
+                ->sortBy($this->inquiryLikeSort())
                 ->values();
 
             $this->attachDeliveryConfirmations($rows);
@@ -41,13 +36,22 @@ class ProductionStatusTrackingService
             $dataError = $e->getMessage();
         }
 
+        $postponeCount = $rows->filter(fn($r) => strtoupper((string) ($r->confirmation_status ?? '')) === 'POSTPONE')->count();
+        $confirmationFilter = strtolower(trim((string) ($filters['confirmation_filter'] ?? 'all')));
+        if ($confirmationFilter === 'postpone') {
+            $rows = $rows->filter(fn($r) => strtoupper((string) ($r->confirmation_status ?? '')) === 'POSTPONE')->values();
+        }
+
+        $summary = $this->buildSummary($rows);
+        $summary['postpone'] = $postponeCount;
+
         return [
             'filters' => $filters,
             'rows' => $this->paginateCollection($rows, $perPage, $page, [
                 'path' => route('dp.production-status'),
                 'query' => request()->query(),
             ]),
-            'summary' => $this->buildSummary($rows),
+            'summary' => $summary,
             'insights' => $this->buildInsights($rows),
             'allRowsCount' => $rows->count(),
             'perPage' => $perPage,
@@ -67,7 +71,20 @@ class ProductionStatusTrackingService
         ];
     }
 
-    public function getDetailData(string $mfgNo, ?string $site = null, ?string $returnUrl = null): array
+    private function inquiryLikeSort(): array
+    {
+        return [
+            ['sales_id', 'asc'],
+            ['customer', 'asc'],
+            ['delivery_type', 'asc'],
+            ['part_number', 'asc'],
+            ['ship_date_sort', 'asc'],
+            ['priority', 'asc'],
+            ['mfg_no', 'asc'],
+        ];
+    }
+
+    public function getDetailData(string $mfgNo, ?string $site = null, ?string $returnUrl = null, $ordId = null, ?string $soNumber = null, array $detailFallback = []): array
     {
         $mfgNo = $this->normalizeMfgNo($mfgNo);
         $site = strtoupper(trim((string) $site));
@@ -76,7 +93,13 @@ class ProductionStatusTrackingService
 
         try {
             try {
-                $deliveryRows = $this->fetchDeliveryRowsForMfg($mfgNo);
+                $deliveryRows = $this->fetchDeliveryRowsForMfg($mfgNo, $ordId, $soNumber);
+                if ($deliveryRows->isEmpty() && trim((string) $soNumber) !== '') {
+                    $deliveryRows = $this->fetchDeliveryRowsForMfg($mfgNo, null, $soNumber);
+                }
+                if ($deliveryRows->isEmpty() && (is_numeric($ordId) || trim((string) $soNumber) !== '')) {
+                    $deliveryRows = $this->fetchDeliveryRowsForMfg($mfgNo);
+                }
             } catch (\Throwable $e) {
                 Log::warning('Production status detail Delivery Plan lookup failed', [
                     'mfg_no' => $mfgNo,
@@ -107,6 +130,9 @@ class ProductionStatusTrackingService
                 $steps = $this->fetchDetailSteps($connection, (int) $workorder->id);
                 $tracking = $this->rowFromWorkorder($workorder, collect([$workorder->id => $steps]), $this->deliveryMfgMap($deliveryRows));
             }
+
+            $tracking = $this->applyDetailFallback($tracking, $detailFallback);
+            $steps = collect($tracking->steps ?? $steps);
         } catch (\Throwable $e) {
             Log::warning('Production status detail load failed', [
                 'mfg_no' => $mfgNo,
@@ -119,6 +145,7 @@ class ProductionStatusTrackingService
                 'site' => $site,
             ];
             $tracking = $this->emptyTrackingRow($mfgNo, $site);
+            $tracking = $this->applyDetailFallback($tracking, $detailFallback);
             $steps = collect();
             $dataError = $e->getMessage();
         }
@@ -140,16 +167,7 @@ class ProductionStatusTrackingService
     {
         $rows = $this->fetchProductionRows($filters)
             ->filter(fn($row) => $this->passesFilters($row, $filters))
-            ->sortBy([
-                ['ship_date_sort', 'asc'],
-                ['division_sort', 'asc'],
-                ['division', 'asc'],
-                ['window_at', 'asc'],
-                ['due_date_sort', 'asc'],
-                ['customer', 'asc'],
-                ['priority', 'asc'],
-                ['mfg_no', 'asc'],
-            ])
+            ->sortBy($this->inquiryLikeSort())
             ->values();
 
         $this->attachDeliveryConfirmations($rows);
@@ -169,24 +187,19 @@ class ProductionStatusTrackingService
                 'ลูกค้า',
                 'Part No',
                 'Part Desc',
-                'SO',
                 'MFG No',
-                'KG',
+                'จำนวนส่ง',
                 'ขายระบุเส้น/ชิ้น',
                 'หน่วย',
                 'StockFG',
+                'SO',
                 'สถานที่ส่ง',
                 'หมายเหตุ',
-                'DP Status',
-                'Site',
                 'สถานะผลิต',
                 'ขั้นตอนปัจจุบัน',
                 'Step',
                 'Progress %',
                 'ขั้นตอนที่เหลือ',
-                'Last Receive',
-                'Last Receive Process',
-                'Movement Status',
                 'Risk Status',
                 'NCR Count',
                 'Machine Down',
@@ -194,12 +207,13 @@ class ProductionStatusTrackingService
                 'New Delivery Date',
                 'Confirmed At',
                 'Confirmed By',
+                'Confirm Remark',
             ]);
 
-            $seenSoQty = [];
             $currentGroupKey = null;
             $runNo = 0;
             $divisionLabels = $this->divisionLabels();
+            $seenRowGroup = [];
             foreach ($rows as $row) {
                 $shipDateKey = $this->dateOnly($row->ship_date ?? null) ?? '(ไม่ระบุวันที่ส่ง)';
                 $divisionCode = trim((string) ($row->division ?? ''));
@@ -213,12 +227,14 @@ class ProductionStatusTrackingService
                     $currentGroupKey = $groupKey;
                 }
 
-                $soKey = trim((string) ($row->so_number ?? ''));
-                $showQty = $soKey === '' || !isset($seenSoQty[$soKey]);
-                if ($soKey !== '') {
-                    $seenSoQty[$soKey] = true;
-                }
                 $runNo++;
+
+                // Mirror web view: qty + line_qty are shown once per delivery group (row->group_key).
+                $rowGroupKey = trim((string) ($row->group_key ?? ''));
+                $showGroupOnce = $rowGroupKey === '' || !isset($seenRowGroup[$rowGroupKey]);
+                if ($rowGroupKey !== '') {
+                    $seenRowGroup[$rowGroupKey] = true;
+                }
 
                 fputcsv($handle, [
                     $runNo,
@@ -229,24 +245,19 @@ class ProductionStatusTrackingService
                     $row->customer ?? '',
                     $this->csvText($row->part_number ?? $row->item ?? ''),
                     $row->item_desc ?? '',
-                    $this->csvText($row->so_number ?? ''),
                     $this->csvText($row->mfg_no ?? ''),
-                    $showQty && is_numeric($row->qty ?? null) ? number_format((float) $row->qty, 3, '.', '') : '',
-                    $showQty && is_numeric($row->line_qty ?? null) && (float) $row->line_qty > 0 ? number_format((float) $row->line_qty, 0, '.', '') : '',
+                    $showGroupOnce && is_numeric($row->qty_kg ?? null) ? number_format((float) $row->qty_kg, 3, '.', '') : '',
+                    $showGroupOnce && is_numeric($row->line_qty ?? null) && (float) $row->line_qty > 0 ? number_format((float) $row->line_qty, 0, '.', '') : '',
                     $row->sale_type ?? '',
                     is_numeric($row->stock_fg ?? null) ? number_format((float) $row->stock_fg, 3, '.', '') : '',
+                    $this->csvText($row->so_number ?? ''),
                     $row->ship_to ?? '',
                     $row->dp_remark ?? '',
-                    $row->dp_status ?? '',
-                    $row->site ?? '',
                     $row->delivery_status ?? '',
                     $row->current_process ?? '',
                     $this->csvText($row->step_text ?? ''),
                     is_numeric($row->progress_pct ?? null) ? number_format((float) $row->progress_pct, 1, '.', '') : '',
                     $row->remaining_process instanceof Collection ? $row->remaining_process->implode(' -> ') : '',
-                    $row->last_receive_at ? Carbon::parse($row->last_receive_at)->format('Y-m-d H:i') : '',
-                    $row->last_receive_process ?? '',
-                    $row->movement_status ?? '',
                     $row->risk_display ?? ($row->risk_status ?? ''),
                     (int) ($row->ncr_count ?? 0),
                     (int) ($row->breakdown_count ?? 0),
@@ -258,6 +269,7 @@ class ProductionStatusTrackingService
                         ? Carbon::parse($row->confirmation_confirmed_at)->format('Y-m-d H:i')
                         : '',
                     (string) ($row->confirmation_confirmed_by ?? ''),
+                    (string) ($row->confirmation_remark ?? ''),
                 ]);
             }
 
@@ -343,7 +355,7 @@ class ProductionStatusTrackingService
             );
 
             $rows = $rows->merge(
-                $workorders->map(fn($workorder) => $this->rowFromWorkorder($workorder, $stepMap, $deliveryMfgMap))
+                $workorders->flatMap(fn($workorder) => $this->rowsFromWorkorderDeliveryLines($workorder, $stepMap, $deliveryMfgMap))
             );
         }
 
@@ -362,7 +374,7 @@ class ProductionStatusTrackingService
 
                 $deliveryRowsForMfg = collect($deliveryMfgMap->get($key, collect()));
                 if ($deliveryRowsForMfg->isNotEmpty()) {
-                    $fallbackRows->push($this->rowFromDeliveryOnly($site, $mfgNo, $deliveryRowsForMfg));
+                    $fallbackRows = $fallbackRows->merge($this->rowsFromDeliveryOnlyLines($site, $mfgNo, $deliveryRowsForMfg));
                     $foundKeys->push($key);
                 }
             }
@@ -376,6 +388,10 @@ class ProductionStatusTrackingService
         $from = Carbon::parse($filters['ship_from'])->startOfDay();
         $to = Carbon::parse($filters['ship_to'])->endOfDay();
         $keyword = trim((string) ($filters['keyword'] ?? ''));
+        $mfgKw = trim((string) ($filters['mfg'] ?? ''));
+        $soKw = trim((string) ($filters['so'] ?? ''));
+        $customerKw = trim((string) ($filters['customer'] ?? ''));
+        $itemKw = trim((string) ($filters['item'] ?? ''));
         $deliveryStatus = strtoupper(trim((string) ($filters['delivery_status'] ?? 'NEW')));
 
         $query = DB::connection('sqlsrv_menam')
@@ -444,13 +460,37 @@ class ProductionStatusTrackingService
             });
         }
 
+        if ($mfgKw !== '') {
+            $query->where('d.mfg_no', 'like', '%' . $mfgKw . '%');
+        }
+
+        if ($soKw !== '') {
+            $query->where('d.so_number', 'like', '%' . $soKw . '%');
+        }
+
+        if ($customerKw !== '') {
+            $like = '%' . $customerKw . '%';
+            $query->where(function ($q) use ($like) {
+                $q->where('c.name', 'like', $like)
+                    ->orWhere('c.customernumber', 'like', $like);
+            });
+        }
+
+        if ($itemKw !== '') {
+            $like = '%' . $itemKw . '%';
+            $query->where(function ($q) use ($like) {
+                $q->where('d.part_number', 'like', $like)
+                    ->orWhere('d.part_desc', 'like', $like);
+            });
+        }
+
         return $query
             ->orderBy('d.ship_posted_at')
             ->orderBy('d.ord_id')
             ->get();
     }
 
-    private function fetchDeliveryRowsForMfg(string $mfgNo): Collection
+    private function fetchDeliveryRowsForMfg(string $mfgNo, $ordId = null, ?string $soNumber = null): Collection
     {
         $normalized = $this->normalizeMfgNo($mfgNo);
         if ($normalized === '') {
@@ -498,7 +538,18 @@ class ProductionStatusTrackingService
             ->where(function ($q) {
                 $q->whereNull('d.status')
                     ->orWhereNotIn('d.status', ['CANCEL', 'CANCELLED']);
-            })
+            });
+
+        if (is_numeric($ordId)) {
+            $query->where('d.ord_id', (int) $ordId);
+        }
+
+        $soNumber = trim((string) $soNumber);
+        if ($soNumber !== '') {
+            $query->where('d.so_number', $soNumber);
+        }
+
+        return $query
             ->orderByDesc('d.ship_posted_at')
             ->get()
             ->filter(fn($row) => $this->splitMfgNos($row->mfg_no ?? '')->contains($normalized))
@@ -804,9 +855,20 @@ JOIN LATERAL (
 ) total ON true
 
 JOIN LATERAL (
-  SELECT COUNT(DISTINCT workseq) AS cnt
-  FROM workorderreceive
-  WHERE workorder_id = wo.id
+  SELECT COUNT(DISTINCT received_step.workseq) AS cnt
+  FROM (
+    SELECT workseq, workcenter_id, SUM(qty) AS received_qty
+    FROM workorderreceive
+    WHERE workorder_id = wo.id
+    GROUP BY workseq, workcenter_id
+  ) received_step
+  WHERE (
+    COALESCE(wo.qty, 0) > 0
+    AND COALESCE(received_step.received_qty, 0) >= (COALESCE(wo.qty, 0) * 0.98)
+  ) OR (
+    COALESCE(wo.qty, 0) <= 0
+    AND COALESCE(received_step.received_qty, 0) > 0
+  )
 ) done_step ON true
 
 LEFT JOIN LATERAL (
@@ -828,6 +890,14 @@ LEFT JOIN LATERAL (
       WHERE wr.workorder_id = wo.id
         AND wr.workcenter_id = wowc.workcenter_id
         AND wr.workseq = wowc.workseq
+      GROUP BY wr.workseq, wr.workcenter_id
+      HAVING (
+        COALESCE(wo.qty, 0) > 0
+        AND COALESCE(SUM(wr.qty), 0) >= (COALESCE(wo.qty, 0) * 0.98)
+      ) OR (
+        COALESCE(wo.qty, 0) <= 0
+        AND COALESCE(SUM(wr.qty), 0) > 0
+      )
     )
 ) remain ON true
 
@@ -868,6 +938,7 @@ SQL;
         foreach (array_chunk($workorderIds, 200) as $chunk) {
             $detailRows = DB::connection($connection)
                 ->table('workorderworkcenter as wowc')
+                ->join('workorder as wo', 'wo.id', '=', 'wowc.workorder_id')
                 ->join('workcenter as wc', 'wc.id', '=', 'wowc.workcenter_id')
                 ->leftJoin(DB::raw("(
                     SELECT
@@ -894,6 +965,7 @@ SQL;
                     'wowc.workseq',
                     'wc.workcenternumber',
                     'wc.description as workcenter_name',
+                    'wo.qty as target_qty',
                 ])
                 ->selectRaw('COALESCE(r.qty, 0) as received_qty')
                 ->selectRaw('r.workmachine')
@@ -917,19 +989,22 @@ SELECT
   wc.description                            AS name,
   wowc.msizein                              AS size_in,
   wowc.msize                                AS size_out,
+  wo.qty                                    AS target_qty,
 
   COALESCE(r.qty, 0)                        AS received_qty,
   COALESCE(r.workmachine, '-')              AS machine,
   r.receivestamp                            AS received_time,
 
   CASE
-    WHEN r.qty IS NOT NULL THEN 'Completed'
+    WHEN COALESCE(r.qty, 0) >= (COALESCE(wo.qty, 0) * 0.98) AND COALESCE(wo.qty, 0) > 0 THEN 'Completed'
+    WHEN COALESCE(r.qty, 0) > 0 THEN 'In Progress'
     ELSE 'Pending'
   END                                       AS status,
 
   COALESCE(ncr_s.cnt, 0)                    AS ncr_count
 
 FROM workorderworkcenter wowc
+JOIN workorder wo ON wo.id = wowc.workorder_id
 JOIN workcenter wc ON wc.id = wowc.workcenter_id
 
 LEFT JOIN (
@@ -957,8 +1032,11 @@ WHERE wowc.workorder_id = ?
 ORDER BY wowc.workseq
 SQL;
 
-        return collect(DB::connection($connection)->select($sql, [$workorderId, $workorderId]))
-            ->map(fn($step) => $this->normalizeStep($step));
+        return $this->completePassedSteps(
+            collect(DB::connection($connection)->select($sql, [$workorderId, $workorderId]))
+                ->map(fn($step) => $this->normalizeStep($step))
+                ->values()
+        );
     }
 
     private function findWorkorder(string $mfgNo, string $site): array
@@ -1013,6 +1091,7 @@ SQL;
         $steps = collect($stepMap->get($workorder->id, collect()))
             ->map(fn($step) => $this->normalizeStep($step))
             ->values();
+        $steps = $this->completePassedSteps($steps);
         $rawMfgNo = trim((string) ($workorder->mfg_no ?? $workorder->workordernumber ?? ''));
         $mfgNo = $this->normalizeMfgNo($rawMfgNo);
         $site = strtoupper((string) ($workorder->site ?? ''));
@@ -1021,26 +1100,30 @@ SQL;
             : $mfgNo;
         $deliveryRows = $deliveryMfgMap ? collect($deliveryMfgMap->get($this->siteMfgKey($site, $mfgNo), collect())) : collect();
         $deliveryRow = $deliveryRows->first();
-        $deliveryQty = $this->deliveryQuantitySummary($deliveryRows);
+        $deliveryQty = $this->deliveryQuantitySummary($deliveryRows, $site, $mfgNo);
+        $steps = $this->stepsForDeliveryTarget($steps, $deliveryQty['target_qty_kg']);
         $division = $this->detectDivision((string) ($deliveryRow->sales_name ?? ''));
         $partNumber = trim((string) ($deliveryRow->part_number ?? $workorder->part_number ?? ''));
         $partDesc = trim((string) ($deliveryRow->part_desc ?? ''));
         $fallbackItem = trim((string) ($workorder->item ?? ''));
         $item = $partNumber !== '' ? $partNumber : $fallbackItem;
+        $deliveryDueDate = $this->dateOnly($deliveryRow->due_date ?? null);
+        $shipDate = $this->dateOnly($deliveryRow->ship_posted_at ?? null);
+        $workorderDueDate = $this->dateOnly($workorder->due_date ?? null);
+        $deadlineDate = $shipDate ?: ($deliveryDueDate ?: $workorderDueDate);
 
-        $remaining = $this->remainingFromText($workorder->remaining_process_text ?? null);
-        if ($remaining->isEmpty() && $steps->isNotEmpty()) {
-            $remaining = $steps
+        $remaining = $steps->isNotEmpty()
+            ? $steps
                 ->filter(fn($step) => $step->status !== 'Completed')
                 ->map(fn($step) => $this->stepLabel($step))
-                ->values();
-        }
+                ->values()
+            : $this->remainingFromText($workorder->remaining_process_text ?? null);
 
-        $totalSteps = (int) ($workorder->total_steps ?? $steps->count());
-        $doneSteps = (int) ($workorder->done_steps ?? $steps->where('status', 'Completed')->count());
-        $progress = isset($workorder->progress_pct)
-            ? (float) $workorder->progress_pct
-            : ($totalSteps > 0 ? round(($doneSteps * 100) / $totalSteps, 1) : 0.0);
+        $totalSteps = $steps->isNotEmpty() ? $steps->count() : (int) ($workorder->total_steps ?? 0);
+        $doneSteps = $steps->isNotEmpty()
+            ? $steps->where('status', 'Completed')->count()
+            : (int) ($workorder->done_steps ?? 0);
+        $progress = $totalSteps > 0 ? round(($doneSteps * 100) / $totalSteps, 1) : 0.0;
         $latestCompleted = $steps
             ->filter(fn($step) => $step->status === 'Completed' && !empty($step->received_time))
             ->sortByDesc(fn($step) => (string) $step->received_time)
@@ -1050,10 +1133,9 @@ SQL;
                 ? 'Completed'
                 : ($latestCompleted ? $latestCompleted->code : 'Not Started'));
         $stepText = $workorder->step_text ?? ($totalSteps > 0 ? $doneSteps . '/' . $totalSteps : '');
-        $deliveryStatus = $workorder->delivery_status
-            ?? ($doneSteps >= $totalSteps && $totalSteps > 0
-                ? 'Completed'
-                : (($this->daysToDate($workorder->due_date ?? null) ?? 0) >= 0 ? 'On Track' : 'Delayed'));
+        $deliveryStatus = $doneSteps >= $totalSteps && $totalSteps > 0
+            ? 'Completed'
+            : (($this->daysToDate($deadlineDate) ?? 0) >= 0 ? 'On Track' : 'Delayed');
         $ncrCount = (int) ($workorder->ncr_count ?? $steps->sum('ncr_count'));
         $riskStatus = (string) ($workorder->risk_status ?? ($ncrCount > 0 ? 'At Risk' : 'Normal'));
         $movement = $this->movementSummary($steps, $progress);
@@ -1063,6 +1145,7 @@ SQL;
             'ord_id' => null,
             'mfg_no' => $displayMfgNo,
             'site' => $site,
+            'sales_id' => $deliveryRow->sales_id ?? null,
             'customer' => trim((string) ($deliveryRow->customer_name ?? $workorder->customer ?? '')),
             'customernumber' => trim((string) ($deliveryRow->customernumber ?? '')),
             'division' => $division,
@@ -1073,22 +1156,25 @@ SQL;
             'item_desc' => $partDesc,
             'qty' => $deliveryRow->qty ?? null,
             'qty_kg' => $deliveryQty['qty_kg'],
+            'target_qty_kg' => $deliveryQty['target_qty_kg'],
             'line_qty' => $deliveryQty['line_qty'],
             'qty_display' => $deliveryQty['qty_display'],
+            'delivery_type' => trim((string) ($deliveryRow->delivery_type ?? '')),
             'sale_type' => $deliveryQty['sale_type'],
             'stock_fg' => $this->deliveryStockFgSummary($deliveryRows),
             'so_number' => trim((string) ($deliveryRow->so_number ?? '')),
             'dp_status' => $this->dpStatusSummary($deliveryRows),
-            'dp_due_date' => $this->dateOnly($deliveryRow->due_date ?? null),
+            'dp_due_date' => $deliveryDueDate,
             'window_at' => $deliveryRow->window_at ?? null,
             'ship_to' => trim((string) ($deliveryRow->address ?? '')),
             'dp_remark' => $this->dpRemarkSummary($deliveryRows),
-            'ship_date' => $this->dateOnly($deliveryRow->ship_posted_at ?? null),
-            'ship_date_sort' => $this->dateOnly($deliveryRow->ship_posted_at ?? null) ?: '9999-12-31',
+            'ship_date' => $shipDate,
+            'ship_date_sort' => $shipDate ?: '9999-12-31',
             'dp_ord_ids' => $deliveryRows->pluck('ord_id')->filter()->unique()->values(),
-            'due_date' => $this->dateOnly($workorder->due_date ?? null),
-            'due_date_sort' => $this->dateOnly($workorder->due_date ?? null) ?: '9999-12-31',
-            'days_to_due' => $this->daysToDate($workorder->due_date ?? null),
+            'group_key' => $this->deliveryGroupKey($deliveryRows),
+            'due_date' => $deadlineDate,
+            'due_date_sort' => $deadlineDate ?: '9999-12-31',
+            'days_to_due' => $this->daysToDate($deadlineDate),
             'current_process' => (string) $currentProcess,
             'step_text' => (string) $stepText,
             'progress_pct' => $progress,
@@ -1110,19 +1196,99 @@ SQL;
         ];
     }
 
+    private function rowsFromWorkorderDeliveryLines(object $workorder, Collection $stepMap, Collection $deliveryMfgMap): Collection
+    {
+        $baseRow = $this->rowFromWorkorder($workorder, $stepMap, $deliveryMfgMap);
+        $site = strtoupper((string) ($workorder->site ?? ''));
+        $mfgNo = $this->normalizeMfgNo($workorder->mfg_no ?? $workorder->workordernumber ?? '');
+        $deliveryRows = collect($deliveryMfgMap->get($this->siteMfgKey($site, $mfgNo), collect()));
+
+        if ($deliveryRows->isEmpty()) {
+            return collect([$baseRow]);
+        }
+
+        return $deliveryRows
+            ->map(fn($deliveryRow) => $this->withDeliveryLineFields($baseRow, $deliveryRow))
+            ->values();
+    }
+
+    private function rowsFromDeliveryOnlyLines(string $site, string $mfgNo, Collection $deliveryRows): Collection
+    {
+        if ($deliveryRows->isEmpty()) {
+            return collect();
+        }
+
+        return $deliveryRows
+            ->map(fn($deliveryRow) => $this->rowFromDeliveryOnly($site, $mfgNo, collect([$deliveryRow])))
+            ->values();
+    }
+
+    private function withDeliveryLineFields(object $baseRow, object $deliveryRow): object
+    {
+        $row = clone $baseRow;
+        $deliveryRows = collect([$deliveryRow]);
+        $deliveryQty = $this->deliveryQuantitySummary($deliveryRows, $row->site ?? null, $row->mfg_no ?? null);
+        $division = $this->detectDivision((string) ($deliveryRow->sales_name ?? ''));
+        $partNumber = trim((string) ($deliveryRow->part_number ?? $row->part_number ?? ''));
+
+        $row->ord_id = $deliveryRow->ord_id ?? null;
+        $row->sales_id = $deliveryRow->sales_id ?? null;
+        $row->customer = trim((string) ($deliveryRow->customer_name ?? ''));
+        $row->customernumber = trim((string) ($deliveryRow->customernumber ?? ''));
+        $row->division = $division;
+        $row->division_sort = $this->divisionSort($division);
+        $row->sales_name = trim((string) ($deliveryRow->sales_name ?? ''));
+        $row->item = $partNumber !== '' ? $partNumber : ($row->item ?? '');
+        $row->part_number = $partNumber;
+        $row->item_desc = trim((string) ($deliveryRow->part_desc ?? ''));
+        $row->qty = $deliveryRow->qty ?? null;
+        $row->qty_kg = $deliveryQty['qty_kg'];
+        $row->target_qty_kg = $deliveryQty['target_qty_kg'];
+        $row->line_qty = $deliveryQty['line_qty'];
+        $row->qty_display = $deliveryQty['qty_display'];
+        $row->delivery_type = trim((string) ($deliveryRow->delivery_type ?? ''));
+        $row->sale_type = $deliveryQty['sale_type'];
+        $row->stock_fg = $this->deliveryStockFgSummary($deliveryRows);
+        $row->so_number = trim((string) ($deliveryRow->so_number ?? ''));
+        $row->dp_status = $this->dpStatusSummary($deliveryRows);
+        $row->dp_due_date = $this->dateOnly($deliveryRow->due_date ?? null);
+        $row->window_at = $deliveryRow->window_at ?? null;
+        $row->ship_to = trim((string) ($deliveryRow->address ?? ''));
+        $row->dp_remark = $this->dpRemarkSummary($deliveryRows);
+        $row->ship_date = $this->dateOnly($deliveryRow->ship_posted_at ?? null);
+        $row->ship_date_sort = $row->ship_date ?: '9999-12-31';
+        $row->dp_ord_ids = collect([$deliveryRow->ord_id ?? null])->filter()->unique()->values();
+        $row->group_key = $this->deliveryGroupKey($deliveryRows);
+        $deadlineDate = $row->ship_date ?: ($row->dp_due_date ?: ($row->due_date ?? null));
+        $row->due_date = $deadlineDate;
+        $row->due_date_sort = $deadlineDate ?: '9999-12-31';
+        $row->days_to_due = $this->daysToDate($deadlineDate);
+        $row->steps = $this->stepsForDeliveryTarget(collect($row->steps ?? []), $deliveryQty['target_qty_kg']);
+        $this->refreshProductionSummaryFromSteps($row);
+        if (($row->delivery_status ?? '') !== 'Completed') {
+            $row->delivery_status = (($row->days_to_due ?? 0) >= 0) ? 'On Track' : 'Delayed';
+        }
+
+        return $row;
+    }
+
     private function rowFromDeliveryOnly(string $site, string $mfgNo, Collection $deliveryRows): object
     {
         $deliveryRow = $deliveryRows->first();
-        $deliveryQty = $this->deliveryQuantitySummary($deliveryRows);
+        $deliveryQty = $this->deliveryQuantitySummary($deliveryRows, $site, $mfgNo);
         $displayMfgNo = strtoupper($site) === 'PLUS' ? '+' . $mfgNo : $mfgNo;
         $partNumber = trim((string) ($deliveryRow->part_number ?? ''));
         $division = $this->detectDivision((string) ($deliveryRow->sales_name ?? ''));
+        $shipDate = $this->dateOnly($deliveryRow->ship_posted_at ?? null);
+        $deliveryDueDate = $this->dateOnly($deliveryRow->due_date ?? null);
+        $deadlineDate = $shipDate ?: $deliveryDueDate;
 
         return (object) [
             'workorder_id' => 0,
             'ord_id' => null,
             'mfg_no' => $displayMfgNo,
             'site' => strtoupper($site),
+            'sales_id' => $deliveryRow->sales_id ?? null,
             'customer' => trim((string) ($deliveryRow->customer_name ?? '')),
             'customernumber' => trim((string) ($deliveryRow->customernumber ?? '')),
             'division' => $division,
@@ -1133,22 +1299,25 @@ SQL;
             'item_desc' => trim((string) ($deliveryRow->part_desc ?? '')),
             'qty' => $deliveryRow->qty ?? null,
             'qty_kg' => $deliveryQty['qty_kg'],
+            'target_qty_kg' => $deliveryQty['target_qty_kg'],
             'line_qty' => $deliveryQty['line_qty'],
             'qty_display' => $deliveryQty['qty_display'],
+            'delivery_type' => trim((string) ($deliveryRow->delivery_type ?? '')),
             'sale_type' => $deliveryQty['sale_type'],
             'stock_fg' => $this->deliveryStockFgSummary($deliveryRows),
             'so_number' => trim((string) ($deliveryRow->so_number ?? '')),
             'dp_status' => $this->dpStatusSummary($deliveryRows),
-            'dp_due_date' => $this->dateOnly($deliveryRow->due_date ?? null),
+            'dp_due_date' => $deliveryDueDate,
             'window_at' => $deliveryRow->window_at ?? null,
             'ship_to' => trim((string) ($deliveryRow->address ?? '')),
             'dp_remark' => $this->dpRemarkSummary($deliveryRows),
-            'ship_date' => $this->dateOnly($deliveryRow->ship_posted_at ?? null),
-            'ship_date_sort' => $this->dateOnly($deliveryRow->ship_posted_at ?? null) ?: '9999-12-31',
+            'ship_date' => $shipDate,
+            'ship_date_sort' => $shipDate ?: '9999-12-31',
             'dp_ord_ids' => $deliveryRows->pluck('ord_id')->filter()->unique()->values(),
-            'due_date' => $this->dateOnly($deliveryRow->due_date ?? null),
-            'due_date_sort' => $this->dateOnly($deliveryRow->due_date ?? null) ?: '9999-12-31',
-            'days_to_due' => $this->daysToDate($deliveryRow->due_date ?? null),
+            'group_key' => $this->deliveryGroupKey($deliveryRows),
+            'due_date' => $deadlineDate,
+            'due_date_sort' => $deadlineDate ?: '9999-12-31',
+            'days_to_due' => $this->daysToDate($deadlineDate),
             'current_process' => 'ไม่พบข้อมูลผลิต',
             'step_text' => '0/0',
             'progress_pct' => 0.0,
@@ -1172,7 +1341,11 @@ SQL;
 
     private function normalizeStep(object $step): object
     {
-        $status = (string) ($step->status ?? ((float) ($step->received_qty ?? 0) > 0 ? 'Completed' : 'Pending'));
+        $receivedQty = (float) ($step->received_qty ?? 0);
+        $targetQty = (float) ($step->target_qty ?? 0);
+        $status = (string) ($step->status ?? (
+            $this->isStepQuantityComplete($receivedQty, $targetQty) ? 'Completed' : ($receivedQty > 0 ? 'In Progress' : 'Pending')
+        ));
 
         return (object) [
             'workorder_id' => (int) ($step->workorder_id ?? 0),
@@ -1183,11 +1356,107 @@ SQL;
             'size_out' => $step->size_out ?? null,
             'status' => $status,
             'receive_count' => $status === 'Completed' ? 1 : 0,
-            'received_qty' => (float) ($step->received_qty ?? 0),
+            'received_qty' => $receivedQty,
+            'target_qty' => $targetQty,
             'machine' => trim((string) ($step->machine ?? $step->workmachine ?? '-')) ?: '-',
             'received_time' => $step->received_time ?? $step->receivestamp ?? null,
             'ncr_count' => (int) ($step->ncr_count ?? 0),
         ];
+    }
+
+    private function completePassedSteps(Collection $steps): Collection
+    {
+        $maxCompletedSeq = $steps
+            ->filter(fn($step) => ($step->status ?? '') === 'Completed')
+            ->max('seq');
+
+        if (!is_numeric($maxCompletedSeq)) {
+            return $steps;
+        }
+
+        return $steps
+            ->map(function ($step) use ($maxCompletedSeq) {
+                if ((int) ($step->seq ?? 0) < (int) $maxCompletedSeq && ($step->status ?? '') !== 'Completed') {
+                    $step = clone $step;
+                    $step->status = 'Completed';
+                    $step->receive_count = 1;
+                }
+
+                return $step;
+            })
+            ->values();
+    }
+
+    private function stepsForDeliveryTarget(Collection $steps, $targetQty): Collection
+    {
+        $targetQty = is_numeric($targetQty) ? (float) $targetQty : 0.0;
+        if ($targetQty <= 0 || $steps->isEmpty()) {
+            return $steps;
+        }
+
+        return $this->completePassedSteps($steps
+            ->map(function ($step) use ($targetQty) {
+                $step = clone $step;
+                $receivedQty = (float) ($step->received_qty ?? 0);
+                $step->target_qty = $targetQty;
+                $step->status = $this->isStepQuantityComplete($receivedQty, $targetQty)
+                    ? 'Completed'
+                    : ($receivedQty > 0 ? 'In Progress' : 'Pending');
+                $step->receive_count = $step->status === 'Completed' ? 1 : 0;
+
+                return $step;
+            })
+            ->values());
+    }
+
+    private function refreshProductionSummaryFromSteps(object $row): void
+    {
+        $steps = collect($row->steps ?? []);
+        if ($steps->isEmpty()) {
+            return;
+        }
+
+        $remaining = $steps
+            ->filter(fn($step) => ($step->status ?? '') !== 'Completed')
+            ->map(fn($step) => $this->stepLabel($step))
+            ->values();
+        $totalSteps = $steps->count();
+        $doneSteps = $steps->where('status', 'Completed')->count();
+        $progress = $totalSteps > 0 ? round(($doneSteps * 100) / $totalSteps, 1) : 0.0;
+        $latestCompleted = $steps
+            ->filter(fn($step) => ($step->status ?? '') === 'Completed' && !empty($step->received_time))
+            ->sortByDesc(fn($step) => (string) $step->received_time)
+            ->first();
+
+        $row->remaining_process = $remaining;
+        $row->remaining_count = $remaining->count();
+        $row->progress_pct = $progress;
+        $row->step_text = $totalSteps > 0 ? $doneSteps . '/' . $totalSteps : '';
+        $row->current_process = $doneSteps >= $totalSteps && $totalSteps > 0
+            ? 'Completed'
+            : ($latestCompleted ? $latestCompleted->code : 'Not Started');
+        $row->delivery_status = $doneSteps >= $totalSteps && $totalSteps > 0
+            ? 'Completed'
+            : (($this->daysToDate($row->due_date ?? null) ?? 0) >= 0 ? 'On Track' : 'Delayed');
+
+        $movement = $this->movementSummary($steps, $progress);
+        $row->last_receive_at = $movement['last_receive_at'];
+        $row->last_receive_process = $movement['last_receive_process'];
+        $row->days_since_receive = $movement['days_since_receive'];
+        $row->movement_status = $movement['movement_status'];
+    }
+
+    private function isStepQuantityComplete(float $receivedQty, float $targetQty): bool
+    {
+        if ($receivedQty <= 0) {
+            return false;
+        }
+
+        if ($targetQty <= 0) {
+            return true;
+        }
+
+        return $receivedQty >= ($targetQty * 0.98);
     }
 
     private function passesFilters(object $row, array $filters): bool
@@ -1211,6 +1480,32 @@ SQL;
             }
         }
 
+        $mfgKw = mb_strtolower(trim((string) ($filters['mfg'] ?? '')));
+        if ($mfgKw !== '' && !str_contains(mb_strtolower((string) ($row->mfg_no ?? '')), $mfgKw)) {
+            return false;
+        }
+
+        $soKw = mb_strtolower(trim((string) ($filters['so'] ?? '')));
+        if ($soKw !== '' && !str_contains(mb_strtolower((string) ($row->so_number ?? '')), $soKw)) {
+            return false;
+        }
+
+        $customerKw = mb_strtolower(trim((string) ($filters['customer'] ?? '')));
+        if ($customerKw !== '') {
+            $hay = mb_strtolower(((string) ($row->customer ?? '')) . ' ' . ((string) ($row->customernumber ?? '')));
+            if (!str_contains($hay, $customerKw)) {
+                return false;
+            }
+        }
+
+        $itemKw = mb_strtolower(trim((string) ($filters['item'] ?? '')));
+        if ($itemKw !== '') {
+            $hay = mb_strtolower(((string) ($row->item ?? '')) . ' ' . ((string) ($row->item_desc ?? '')));
+            if (!str_contains($hay, $itemKw)) {
+                return false;
+            }
+        }
+
         $riskStatus = strtoupper(trim((string) ($filters['risk_status'] ?? '')));
         if ($riskStatus !== '' && strtoupper((string) $row->risk_status) !== $riskStatus) {
             return false;
@@ -1228,7 +1523,7 @@ SQL;
         }
         if ($completionFilter === 'completed') {
             return (float) ($row->progress_pct ?? 0) >= 100
-                || strtoupper((string) ($row->delivery_status ?? '')) === 'COMPLETED';
+                && strtoupper((string) ($row->delivery_status ?? '')) === 'COMPLETED';
         }
 
         $statusFilter = strtolower(trim((string) ($filters['status_filter'] ?? 'all')));
@@ -1267,7 +1562,7 @@ SQL;
             'total' => $rows->count(),
             'open' => $openRows->count(),
             'completed' => $rows->filter(fn($row) => (float) ($row->progress_pct ?? 0) >= 100
-                || strtoupper((string) ($row->delivery_status ?? '')) === 'COMPLETED')->count(),
+                && strtoupper((string) ($row->delivery_status ?? '')) === 'COMPLETED')->count(),
             'delayed' => $rows->filter(fn($row) => strtoupper((string) ($row->delivery_status ?? '')) === 'DELAYED')->count(),
             'at_risk' => $rows->filter(fn($row) => strtoupper((string) ($row->risk_display ?? '')) === 'AT RISK')->count(),
             'overdue' => $openRows->filter(fn($row) => is_numeric($row->days_to_due) && (int) $row->days_to_due < 0)->count(),
@@ -1454,28 +1749,33 @@ SQL;
             ];
         });
 
+        // Mutually exclusive: a row falls into exactly one bucket.
+        // Priority: Ready/Done > Expedite > Keep Watching.
+        $isReady = fn($row) => (float) ($row->progress_pct ?? 0) >= 100
+            && ($row->delivery_status ?? '') === 'Completed';
+        $isExpedite = fn($row) => !$isReady($row)
+            && (($row->delivery_status ?? '') === 'Delayed'
+                || ($row->risk_display ?? '') === 'At Risk'
+                || ($row->risk_status ?? '') === 'NO_ROUTE'
+                || ($row->movement_status ?? '') === 'งานนิ่ง'
+                || (is_numeric($row->days_to_due) && (int) $row->days_to_due < 0 && (float) ($row->progress_pct ?? 0) < 100));
+        $isKeepWatching = fn($row) => !$isReady($row) && !$isExpedite($row);
+
         $actionSummary = collect([
             [
                 'label' => 'Expedite',
                 'class' => 'danger',
-                'count' => $rows->filter(fn($row) => ($row->delivery_status ?? '') === 'Delayed'
-                    || ($row->risk_display ?? '') === 'At Risk'
-                    || ($row->risk_status ?? '') === 'NO_ROUTE'
-                    || ($row->movement_status ?? '') === 'งานนิ่ง'
-                    || (is_numeric($row->days_to_due) && (int) $row->days_to_due < 0 && (float) ($row->progress_pct ?? 0) < 100))->count(),
+                'count' => $rows->filter($isExpedite)->count(),
             ],
             [
                 'label' => 'Keep Watching',
                 'class' => 'warning',
-                'count' => $rows->filter(fn($row) => (float) ($row->progress_pct ?? 0) < 100
-                    && ($row->delivery_status ?? '') !== 'Delayed'
-                    && ($row->risk_display ?? '') !== 'At Risk')->count(),
+                'count' => $rows->filter($isKeepWatching)->count(),
             ],
             [
                 'label' => 'Ready / Done',
                 'class' => 'success',
-                'count' => $rows->filter(fn($row) => (float) ($row->progress_pct ?? 0) >= 100
-                    || ($row->delivery_status ?? '') === 'Completed')->count(),
+                'count' => $rows->filter($isReady)->count(),
             ],
         ])->map(fn($item) => array_merge($item, [
             'pct' => round(((int) $item['count'] / $total) * 100, 1),
@@ -1493,6 +1793,43 @@ SQL;
             ->sortByDesc('count')
             ->values();
 
+        $autocompleteSources = [
+            'mfg' => $rows->pluck('mfg_no')
+                ->map(fn($v) => trim((string) $v))
+                ->filter(fn($v) => $v !== '')
+                ->unique()
+                ->sort()
+                ->values()
+                ->all(),
+            'so' => $rows->pluck('so_number')
+                ->map(fn($v) => trim((string) $v))
+                ->filter(fn($v) => $v !== '')
+                ->unique()
+                ->sort()
+                ->values()
+                ->all(),
+            'customer' => $rows->pluck('customer')
+                ->map(fn($v) => trim((string) $v))
+                ->filter(fn($v) => $v !== '')
+                ->unique()
+                ->sort()
+                ->values()
+                ->all(),
+            'item' => $rows->map(function ($row) {
+                $code = trim((string) ($row->item ?? ''));
+                $desc = trim((string) ($row->item_desc ?? ''));
+                if ($code === '' && $desc === '') {
+                    return '';
+                }
+                return $code !== '' && $desc !== '' ? $code . ' — ' . $desc : ($code ?: $desc);
+            })
+                ->filter(fn($v) => $v !== '')
+                ->unique()
+                ->sort()
+                ->values()
+                ->all(),
+        ];
+
         return [
             'statusSummary' => $statusSummary,
             'siteSummary' => $siteSummary,
@@ -1505,6 +1842,7 @@ SQL;
             'dataQualitySummary' => $dataQualitySummary,
             'movementSummary' => $movementSummary,
             'divisionSummary' => $divisionSummary,
+            'autocompleteSources' => $autocompleteSources,
         ];
     }
 
@@ -1524,6 +1862,7 @@ SQL;
             'item_desc' => '',
             'qty' => null,
             'qty_kg' => 0.0,
+            'target_qty_kg' => 0.0,
             'line_qty' => 0.0,
             'qty_display' => '-',
             'sale_type' => '-',
@@ -1537,6 +1876,7 @@ SQL;
             'ship_date' => null,
             'ship_date_sort' => '9999-12-31',
             'dp_ord_ids' => collect(),
+            'group_key' => '',
             'due_date' => null,
             'due_date_sort' => '9999-12-31',
             'days_to_due' => null,
@@ -1559,6 +1899,37 @@ SQL;
             'steps' => collect(),
             'source_note' => 'No live data',
         ];
+    }
+
+    private function applyDetailFallback(object $tracking, array $fallback): object
+    {
+        $value = fn(string $key) => trim((string) ($fallback[$key] ?? ''));
+        $isBlank = fn($current) => trim((string) ($current ?? '')) === '' || trim((string) ($current ?? '')) === '-';
+
+        if ($value('dp_qty') !== '' && $isBlank($tracking->qty_display ?? null)) {
+            $tracking->qty_display = $value('dp_qty');
+        }
+        if ($value('dp_sale_type') !== '' && $isBlank($tracking->sale_type ?? null)) {
+            $tracking->sale_type = $value('dp_sale_type');
+        }
+        if ($value('dp_status') !== '' && $isBlank($tracking->dp_status ?? null)) {
+            $tracking->dp_status = $value('dp_status');
+        }
+
+        $shipDate = $this->dateOnly($value('ship_date'));
+        if ($shipDate) {
+            $tracking->ship_date = $shipDate;
+            $tracking->ship_date_sort = $shipDate;
+        }
+
+        $deadline = $this->dateOnly($value('deadline'));
+        if ($deadline) {
+            $tracking->due_date = $deadline;
+            $tracking->due_date_sort = $deadline;
+            $tracking->days_to_due = $this->daysToDate($deadline);
+        }
+
+        return $tracking;
     }
 
     private function filterYear(array $filters): int
@@ -1593,6 +1964,30 @@ SQL;
             ->values();
 
         return $statuses->isNotEmpty() ? $statuses->implode(' / ') : '-';
+    }
+
+    /**
+     * Build a group key based on delivery_plan_data.ord_id.
+     * Two tracking rows belong to the same group ONLY when they came from
+     * the same ord_id — typically when one DP record has a comma-separated
+     * mfg_no like "W2600873, W2600875, W2600876". Different ord_ids
+     * (even on the same SO / revision) are treated as separate groups.
+     */
+    private function deliveryGroupKey(Collection $deliveryRows): string
+    {
+        $ids = $deliveryRows
+            ->pluck('ord_id')
+            ->filter()
+            ->map(fn($v) => (string) $v)
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return '';
+        }
+
+        return 'O:' . $ids->implode('-');
     }
 
     private function dpRemarkSummary(Collection $deliveryRows): string
@@ -1644,9 +2039,10 @@ SQL;
         ];
     }
 
-    private function deliveryQuantitySummary(Collection $deliveryRows): array
+    private function deliveryQuantitySummary(Collection $deliveryRows, ?string $site = null, ?string $mfgNo = null): array
     {
         $qtyKg = 0.0;
+        $targetQtyKg = 0.0;
         $lineQty = 0.0;
         $parts = collect();
         $types = collect();
@@ -1655,16 +2051,24 @@ SQL;
             $sellByLine = (int) ($row->sell_by_line ?? 0) === 1;
             $rowQty = is_numeric($row->qty ?? null) ? (float) $row->qty : 0.0;
             $rowLineQty = is_numeric($row->line_qty ?? null) ? (float) $row->line_qty : 0.0;
+            $targetRowQty = $this->apportionedDeliveryQuantity($row, $rowQty, $site, $mfgNo);
 
             if ($sellByLine && $rowLineQty > 0) {
                 $unit = $rowQty == 0.0 ? 'ชิ้น' : 'เส้น';
                 $lineQty += $rowLineQty;
                 $types->push($unit);
-                $parts->put($unit, (float) ($parts->get($unit, 0) + $rowLineQty));
+                if ($rowQty > 0.0) {
+                    $qtyKg += $rowQty;
+                    $targetQtyKg += $targetRowQty;
+                    $parts->put('kg', (float) ($parts->get('kg', 0) + $rowQty));
+                } else {
+                    $parts->put($unit, (float) ($parts->get($unit, 0) + $rowLineQty));
+                }
                 continue;
             }
 
             $qtyKg += $rowQty;
+            $targetQtyKg += $targetRowQty;
             $types->push('kg');
             $parts->put('kg', (float) ($parts->get('kg', 0) + $rowQty));
         }
@@ -1678,10 +2082,37 @@ SQL;
 
         return [
             'qty_kg' => $qtyKg,
+            'target_qty_kg' => $targetQtyKg,
             'line_qty' => $lineQty,
             'qty_display' => $displayParts->isNotEmpty() ? $displayParts->implode(' / ') : '-',
             'sale_type' => $uniqueTypes->count() > 1 ? 'Mixed' : ($uniqueTypes->first() ?: '-'),
         ];
+    }
+
+    private function apportionedDeliveryQuantity(object $row, float $quantity, ?string $site, ?string $mfgNo): float
+    {
+        if ($quantity == 0.0) {
+            return 0.0;
+        }
+
+        $normalizedMfgNo = $this->normalizeMfgNo($mfgNo ?? '');
+        if ($normalizedMfgNo === '') {
+            return $quantity;
+        }
+
+        $tokens = $this->splitMfgTokens($row->mfg_no ?? '');
+        $matched = $tokens->contains(function ($token) use ($site, $normalizedMfgNo) {
+            $tokenSite = str_starts_with($token, '+') ? 'PLUS' : 'WIRE';
+
+            return ($site === null || strtoupper($site) === $tokenSite)
+                && $this->normalizeMfgNo($token) === $normalizedMfgNo;
+        });
+
+        if (!$matched || $tokens->count() <= 1) {
+            return $quantity;
+        }
+
+        return $quantity / $tokens->count();
     }
 
     private function deliveryStockFgSummary(Collection $deliveryRows): float

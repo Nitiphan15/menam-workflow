@@ -7,7 +7,7 @@
     <style>
         @page {
             size: A4 landscape;
-            margin: 4mm;
+            margin: 3mm;
         }
 
         @font-face {
@@ -29,8 +29,8 @@
             padding: 0;
             color: #000;
             font-family: "THSarabunNew", "DejaVu Sans", Tahoma, sans-serif;
-            font-size: 7.5px;
-            line-height: 1.05;
+            font-size: 7px;
+            line-height: 1;
         }
 
         table {
@@ -43,7 +43,7 @@
         th,
         td {
             border: 0.6px solid #111;
-            padding: 1px 2px;
+            padding: 0.7px 2px;
             vertical-align: middle;
             word-break: break-word;
             overflow-wrap: break-word;
@@ -52,19 +52,18 @@
         th {
             text-align: center;
             font-weight: 700;
-            font-size: 6.6px;
-            line-height: 1.05;
+            font-size: 6.2px;
+            line-height: 1;
         }
 
         td {
-            font-size: 7px;
-            line-height: 1.05;
+            font-size: 6.8px;
+            line-height: 1;
         }
 
         .top-rule {
-            border-top: 1.5px solid #111;
-            margin-left: 100px;
-            margin-bottom: 2px;
+            border-top: 1.1px solid #111;
+            margin: 0 33px 1px 20px;
         }
 
         .header-table td {
@@ -73,7 +72,7 @@
         }
 
         .logo-text {
-            font-size: 23px;
+            font-size: 28px;
             font-weight: 700;
             line-height: 0.9;
             letter-spacing: 0;
@@ -82,26 +81,36 @@
         .company-text {
             text-align: center;
             color: #0000ff;
-            font-size: 9px;
+            font-size: 9.8px;
             font-weight: 700;
             line-height: 1;
+            padding-top: 3px;
         }
 
         .title-text {
             color: #0000ff;
-            font-size: 7.5px;
+            font-size: 7.2px;
             font-weight: 700;
             line-height: 1;
-            padding-top: 2px;
+            padding-top: 0;
         }
 
         .badge {
             display: inline-block;
             background: #fff200;
-            padding: 3px 24px;
-            font-size: 8px;
+            padding: 2px 18px;
+            font-size: 7.5px;
             font-weight: 700;
             color: #000;
+            border: 0.6px solid #111;
+        }
+
+        .report-table {
+            border-top: 1.2px solid #111;
+        }
+
+        .report-table thead th {
+            height: 9px;
         }
 
         .pink {
@@ -137,7 +146,9 @@
         }
 
         .group-row td {
-            height: 10px;
+            height: 8px;
+            border-top: 0.8px solid #111;
+            border-bottom: 0.6px solid #111;
         }
 
         .group-title {
@@ -146,10 +157,11 @@
             text-decoration: underline;
             text-align: left;
             padding-left: 22px;
+            font-size: 7.1px;
         }
 
         .row-item td {
-            height: 10px;
+            height: 8px;
             font-weight: 700;
         }
 
@@ -163,6 +175,7 @@
         .cell-priority,
         .cell-place,
         .cell-oe,
+        .cell-attach,
         .cell-remark,
         .cell-plan {
             text-align: center;
@@ -178,10 +191,17 @@
         }
 
         .summary-cell {
-            color: #008000;
+            background: #fff200;
+            color: #ff0000;
             font-weight: 700;
-            text-decoration: underline;
             text-align: right;
+        }
+
+        .summary-row td {
+            height: 16px;
+            border-top: 1px solid #111;
+            font-size: 7.2px;
+            font-weight: 700;
         }
 
         .w-item {
@@ -189,7 +209,7 @@
         }
 
         .w-customer {
-            width: 122px;
+            width: 110px;
         }
 
         .w-package {
@@ -197,19 +217,19 @@
         }
 
         .w-type {
-            width: 58px;
+            width: 52px;
         }
 
         .w-size {
-            width: 104px;
+            width: 96px;
         }
 
         .w-mfg {
-            width: 122px;
+            width: 108px;
         }
 
         .w-piece {
-            width: 40px;
+            width: 38px;
         }
 
         .w-qty {
@@ -217,27 +237,31 @@
         }
 
         .w-logistics {
-            width: 86px;
+            width: 74px;
         }
 
         .w-priority {
-            width: 24px;
+            width: 22px;
         }
 
         .w-place {
-            width: 102px;
+            width: 92px;
         }
 
         .w-oe {
-            width: 76px;
+            width: 62px;
+        }
+
+        .w-attach {
+            width: 78px;
         }
 
         .w-remark {
-            width: 88px;
+            width: 80px;
         }
 
         .w-plan {
-            width: 112px;
+            width: 92px;
         }
     </style>
 </head>
@@ -266,7 +290,7 @@
         </tr>
     </table>
 
-    <table>
+    <table class="report-table">
         <thead>
             <tr>
                 <th class="w-item">ITEM</th>
@@ -276,7 +300,7 @@
                 <th class="pink w-qty">Production</th>
                 <th class="blue w-logistics">LOGISTICS</th>
                 <th class="blue w-priority">Priority</th>
-                <th colspan="4" class="red">CONFIRMED</th>
+                <th colspan="5" class="red">CONFIRMED</th>
             </tr>
             <tr>
                 <th class="w-item">ลำดับ</th>
@@ -288,6 +312,7 @@
                 <th></th>
                 <th class="blue w-place">สถานที่ส่งสินค้า</th>
                 <th class="pink w-oe">OE</th>
+                <th class="blue w-attach">เอกสารแนบ</th>
                 <th class="green w-remark">รายงานปัญหา</th>
                 <th class="blue w-plan">แผนการรับมือ</th>
             </tr>
@@ -306,6 +331,7 @@
                 <th></th>
                 <th class="blue">ที่อยู่</th>
                 <th class="blue">ลูกค้า</th>
+                <th class="blue">Attach</th>
                 <th class="blue">ประจำวัน</th>
                 <th></th>
             </tr>
@@ -316,7 +342,7 @@
                     0 => 'black',
                     1 => 'red',
                     2 => 'green',
-                    3 => '#ff00ff',
+                    3 => '#ff008c',
                     4 => 'blue',
                     5 => 'deepskyblue',
                 ];
@@ -327,6 +353,7 @@
                     <tr class="group-row">
                         <td></td>
                         <td colspan="6" class="group-title">{{ $row['group_name'] ?? '' }}</td>
+                        <td></td>
                         <td></td>
                         <td></td>
                         <td></td>
@@ -362,21 +389,23 @@
                         <td class="cell-priority">{{ $row['priority'] ?? '' }}</td>
                         <td class="cell-place">{{ $row['delivery_place'] }}</td>
                         <td class="cell-oe">{{ $row['oe_no'] }}</td>
+                        <td class="cell-attach">{{ $row['attach_docs'] ?? '-' }}</td>
                         <td class="cell-remark">{{ $row['problem_note'] ?? '' }}</td>
                         <td class="cell-plan">{{ $row['action_plan'] ?? '' }}</td>
                     </tr>
                 @endif
             @endforeach
 
-            <tr>
+            <tr class="summary-row">
                 <td colspan="7"></td>
                 <td class="summary-cell">{{ number_format((float) $sumSalesQty, 2) }}</td>
                 <td class="summary-cell">{{ number_format((float) $sumStockQty, 2) }}</td>
                 <td class="summary-cell">{{ number_format((float) $sumProductionQty, 2) }}</td>
-                <td colspan="6"></td>
+                <td colspan="7"></td>
             </tr>
         </tbody>
     </table>
+
 </body>
 
 </html>

@@ -37,7 +37,10 @@ class ProductionStatusTrackingController extends Controller
         return view('formdp.production-status.detail', $service->getDetailData(
             $mfgNo,
             $request->query('site'),
-            $request->query('return_url')
+            $request->query('return_url'),
+            $request->query('ord_id'),
+            $request->query('so_number'),
+            $request->only(['dp_qty', 'dp_sale_type', 'dp_status', 'ship_date', 'deadline'])
         ));
     }
 
@@ -95,6 +98,7 @@ class ProductionStatusTrackingController extends Controller
                 'new_delivery_date_display' => optional($row->new_delivery_date)->format('d/m/Y'),
                 'confirmed_at' => $row->confirmed_at?->format('Y-m-d H:i'),
                 'confirmed_by_name' => $row->confirmed_by_name,
+                'remark' => $row->remark,
             ],
         ]);
     }
@@ -154,25 +158,42 @@ class ProductionStatusTrackingController extends Controller
             'ship_to' => ['nullable', 'date'],
             'site' => ['nullable', 'in:WIRE,PLUS'],
             'keyword' => ['nullable', 'string', 'max:120'],
+            'mfg' => ['nullable', 'string', 'max:80'],
+            'so' => ['nullable', 'string', 'max:80'],
+            'customer' => ['nullable', 'string', 'max:160'],
+            'item' => ['nullable', 'string', 'max:160'],
             'delivery_status' => ['nullable', 'in:NEW,ASSIGN,CLOSED,VOID,ALL'],
             'completion_filter' => ['nullable', 'in:all,open,completed'],
             'status_filter' => ['nullable', 'in:all,delayed,at_risk'],
             'movement_filter' => ['nullable', 'in:all,stale,not_started,moving,completed,no_route'],
             'risk_status' => ['nullable', 'in:HIGH,MEDIUM,NORMAL,NO_ROUTE'],
             'process_filter' => ['nullable', 'string', 'max:80'],
+            'confirmation_filter' => ['nullable', 'in:all,postpone'],
         ]);
+
+        $completionFilter = strtolower(trim((string) ($validated['completion_filter'] ?? 'all'))) ?: 'all';
+        $statusFilter = strtolower(trim((string) ($validated['status_filter'] ?? 'all'))) ?: 'all';
+
+        if ($statusFilter !== 'all') {
+            $completionFilter = 'all';
+        }
 
         return [
             'ship_from' => $validated['ship_from'] ?? now('Asia/Bangkok')->toDateString(),
             'ship_to' => $validated['ship_to'] ?? now('Asia/Bangkok')->addDays(14)->toDateString(),
             'site' => strtoupper(trim((string) ($validated['site'] ?? ''))),
             'keyword' => trim((string) ($validated['keyword'] ?? '')),
+            'mfg' => trim((string) ($validated['mfg'] ?? '')),
+            'so' => trim((string) ($validated['so'] ?? '')),
+            'customer' => trim((string) ($validated['customer'] ?? '')),
+            'item' => trim((string) ($validated['item'] ?? '')),
             'delivery_status' => strtoupper(trim((string) ($validated['delivery_status'] ?? 'NEW'))) ?: 'NEW',
-            'completion_filter' => strtolower(trim((string) ($validated['completion_filter'] ?? 'all'))) ?: 'all',
-            'status_filter' => strtolower(trim((string) ($validated['status_filter'] ?? 'all'))) ?: 'all',
+            'completion_filter' => $completionFilter,
+            'status_filter' => $statusFilter,
             'movement_filter' => strtolower(trim((string) ($validated['movement_filter'] ?? 'all'))) ?: 'all',
             'risk_status' => strtoupper(trim((string) ($validated['risk_status'] ?? ''))),
             'process_filter' => trim((string) ($validated['process_filter'] ?? '')),
+            'confirmation_filter' => strtolower(trim((string) ($validated['confirmation_filter'] ?? 'all'))) ?: 'all',
         ];
     }
 
@@ -186,7 +207,13 @@ class ProductionStatusTrackingController extends Controller
                 return back()->withErrors(['ship_to' => 'Ship To must be greater than or equal to Ship From.'])->withInput();
             }
 
-            if ($from->diffInDays($to) > 62 && $filters['keyword'] === '') {
+            $hasSearch = ($filters['keyword'] ?? '') !== ''
+                || ($filters['mfg'] ?? '') !== ''
+                || ($filters['so'] ?? '') !== ''
+                || ($filters['customer'] ?? '') !== ''
+                || ($filters['item'] ?? '') !== '';
+
+            if ($from->diffInDays($to) > 62 && !$hasSearch) {
                 return back()->withErrors(['ship_to' => 'Please limit the date range to 62 days, or search by MFG/SO/customer.'])->withInput();
             }
         } catch (\Throwable $e) {
