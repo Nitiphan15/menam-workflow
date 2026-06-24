@@ -65,6 +65,8 @@ use App\Http\Controllers\FormExam\ExamImportController;
 use App\Http\Controllers\FormLIS\InquiryController;
 //Rick
 use App\Http\Controllers\FormRisk\ProductionRiskController;
+//DIE
+use App\Http\Controllers\FormDIE\DieTrackingController;
 //DP
 use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
@@ -141,6 +143,48 @@ Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
   ->name('dp.history');
 
 Route::view('/home', 'home')->name('home');
+
+Route::prefix('/die-tracking')
+  ->name('die.')
+  ->group(function () {
+    Route::get('/',              [DieTrackingController::class, 'index'])->name('index');
+    Route::get('/by-workorder',  [DieTrackingController::class, 'byWorkorder'])->name('by-workorder');
+    Route::get('/by-date',       [DieTrackingController::class, 'byDate'])->name('by-date');
+    Route::get('/by-week',       [DieTrackingController::class, 'byWeek'])->name('by-week');
+    Route::get('/compare',       [DieTrackingController::class, 'compare'])->name('compare');
+    Route::get('/export',        [DieTrackingController::class, 'export'])->name('export');
+
+    // Master / Profile / Location
+    Route::get('/master',                    [DieTrackingController::class, 'master'])->name('master');
+    Route::get('/api/master',                [DieTrackingController::class, 'dieMaster'])->name('api.master');
+    Route::get('/api/categories',            [DieTrackingController::class, 'categories'])->name('api.categories');
+    Route::get('/api/suppliers',             [DieTrackingController::class, 'suppliers'])->name('api.suppliers');
+    Route::get('/api/equiptypes',            [DieTrackingController::class, 'equipTypes'])->name('api.equiptypes');
+    Route::get('/api/statuses',              [DieTrackingController::class, 'statuses'])->name('api.statuses');
+    Route::get('/api/profile/{equipnumber}', [DieTrackingController::class, 'dieProfile'])->name('api.profile');
+    Route::get('/api/location',              [DieTrackingController::class, 'currentLocation'])->name('api.location');
+    Route::get('/api/material',              [DieTrackingController::class, 'materialTrace'])->name('api.material');
+
+    // Autocomplete suggest endpoints: type ∈ wo|die|heat|coil
+    Route::get('/api/suggest/{type}',        [DieTrackingController::class, 'suggest'])
+      ->whereIn('type', ['wo', 'die', 'heat', 'coil', 'desc'])
+      ->name('api.suggest');
+
+    // WO Detail Sheet
+    Route::get('/wo-detail',                 [DieTrackingController::class, 'woDetailPage'])->name('wo-detail');
+    Route::get('/api/wo-detail',             [DieTrackingController::class, 'woDetailApi'])->name('api.wo-detail');
+
+    // Customer Claim ในรอบ 1 เดือน (dashboard widget)
+    Route::get('/recent-claims',             [DieTrackingController::class, 'recentClaims'])->name('recent-claims');
+
+    // ไดร์ที่อยู่บนเครื่องไหน ณ ปัจจุบัน (dashboard widget)
+    Route::get('/current-machines',          [DieTrackingController::class, 'currentMachines'])->name('current-machines');
+
+    // Insights widgets
+    Route::get('/top-consumers', [DieTrackingController::class, 'topConsumers'])->name('top-consumers');
+    Route::get('/top-output',    [DieTrackingController::class, 'topOutputDies'])->name('top-output');
+    Route::get('/idle-dies',     [DieTrackingController::class, 'idleDies'])->name('idle-dies');
+  });
 
 Route::prefix('/risk')
   ->name('risk.')
