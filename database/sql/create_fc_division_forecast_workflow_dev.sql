@@ -1,6 +1,6 @@
-IF OBJECT_ID('dbo.fc_rm_division_forecast_submissions_dev', 'U') IS NULL
+IF OBJECT_ID('dbo.fc_rm_division_forecast_submissions', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.fc_rm_division_forecast_submissions_dev (
+    CREATE TABLE dbo.fc_rm_division_forecast_submissions (
         id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
         sales_code NVARCHAR(20) NOT NULL,
         forecast_base_month DATE NOT NULL,
@@ -21,11 +21,11 @@ BEGIN
         updated_by INT NULL
     );
 
-    CREATE UNIQUE INDEX UX_fc_rm_division_forecast_submissions_dev_month
-        ON dbo.fc_rm_division_forecast_submissions_dev (sales_code, forecast_base_month);
+    CREATE UNIQUE INDEX UX_fc_rm_division_forecast_submissions_month
+        ON dbo.fc_rm_division_forecast_submissions (sales_code, forecast_base_month);
 
-    CREATE INDEX IX_fc_rm_division_forecast_submissions_dev_wf
-        ON dbo.fc_rm_division_forecast_submissions_dev (wf_form_id);
+    CREATE INDEX IX_fc_rm_division_forecast_submissions_wf
+        ON dbo.fc_rm_division_forecast_submissions (wf_form_id);
 END;
 
 IF NOT EXISTS (SELECT 1 FROM dbo.workflows WHERE LOWER(code) = 'fc')

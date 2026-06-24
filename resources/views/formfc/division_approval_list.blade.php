@@ -54,12 +54,6 @@
             }
         </style>
 
-        @if (session('success'))
-            <div class="alert alert-success py-2">{{ session('success') }}</div>
-        @endif
-        @if (session('error'))
-            <div class="alert alert-danger py-2">{{ session('error') }}</div>
-        @endif
 
         @if (!empty($tableMissing))
             <div class="alert alert-warning py-2">

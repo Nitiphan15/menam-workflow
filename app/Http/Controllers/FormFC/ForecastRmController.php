@@ -337,6 +337,8 @@ class ForecastRmController extends Controller
             );
         });
 
+        $this->bumpForecastIndexCacheVersion();
+
         return back()->with('success', 'สร้าง Forecast 6 เดือนล่วงหน้าเรียบร้อยแล้ว');
     }
 
@@ -351,7 +353,7 @@ class ForecastRmController extends Controller
             'D6' => [1434],
             'D7' => [1435],
             'D8' => [1436],
-            'D9' => [528615586],
+            'D9' => [478468285, 528615586],
         ];
 
         $salespersonIds = $salespersonIdsByCode[strtoupper($salesCode)] ?? [];
@@ -390,6 +392,11 @@ class ForecastRmController extends Controller
                 return [$k => (float) $r['qty_sum']];
             });
         });
+    }
+
+    private function bumpForecastIndexCacheVersion(): void
+    {
+        Cache::forever('forecast_rm:index:version', (int) Cache::get('forecast_rm:index:version', 1) + 1);
     }
 
     private function forecastIndexCacheKey(
@@ -2268,8 +2275,10 @@ class ForecastRmController extends Controller
                 $a['k_factor'] = round((float) ($a['k_factor'] ?? 0), 1);
                 $a['division_forecast_1m'] = round((float) ($a['forecast_1m'] ?? ($a['forecast_qty'] ?? 0)), 2);
                 $a['division_forecast_6m'] = round((float) ($a['forecast_6m'] ?? 0), 2);
-                $a['forecast_1m'] = $a['division_forecast_1m'];
-                $a['forecast_6m'] = $a['division_forecast_6m'];
+                // ยังไม่ approve = ไม่มีค่า Manager (ส่ง null ให้ modal โชว์ "รอ approve")
+                // ไม่ fallback เป็นค่า division เพื่อไม่ให้ดูเหมือนหัวหน้าใส่ค่าแล้ว
+                $a['forecast_1m'] = null;
+                $a['forecast_6m'] = null;
                 $a['has_approval'] = false;
                 $a['row_remark'] = trim((string) ($a['row_remark'] ?? ''));
                 return $a;

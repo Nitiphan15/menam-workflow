@@ -130,6 +130,7 @@ class ForecastRmDivisionController extends Controller
         1434 => 'D6',
         1435 => 'D7',
         1436 => 'D8',
+        478468285 => 'D9',
         528615586 => 'D9',
     ];
 
@@ -862,6 +863,11 @@ class ForecastRmDivisionController extends Controller
         return $this->customerFgOwnerKey($row['customer_name'] ?? '', $row['fg_partnumber'] ?? '');
     }
 
+    private function rowCustomerFgDedupKey(array $row): string
+    {
+        return $this->rowCustomerFgOwnerKey($row);
+    }
+
     private function findOverrideCustomerCodeForName(?string $customerName): ?string
     {
         $customerName = trim((string) $customerName);
@@ -982,17 +988,24 @@ class ForecastRmDivisionController extends Controller
                         UPPER(TRIM(p_fg.partnumber)) AS fg_partnumber,
                         p_fg.description AS fg_description,
                         UPPER(LTRIM(RTRIM(COALESCE(p_fg.f4, \'\')))) AS rm_partnumber,
-                        DATE_TRUNC(\'month\', gl.transdate)::date AS month,
-                        SUM(ROUND(COALESCE(su.qty, 0), 2)) AS qty_sum
-                    FROM serializeunitsmvmt sus
-                    LEFT JOIN serializeunits su ON su.id = sus.su_id
-                    LEFT JOIN gl ON gl.id = sus.trans_id
-                    JOIN workorder wo ON wo.workordernumber = gl.reference
-                    JOIN customer c ON c.id = wo.customer_id
-                    LEFT JOIN parts p_fg ON p_fg.id = wo.parts_id
-                    WHERE gl.transnumber LIKE ?
-                    AND gl.transdate >= ?
-                    AND gl.transdate <= ?
+                        DATE_TRUNC(\'month\', sales.transdate)::date AS month,
+                        SUM(ROUND(COALESCE(sales.qty, 0), 2)) AS qty_sum
+                    FROM (
+                        SELECT ar.customer_id, inv.parts_id, ar.transdate, COALESCE(inv.qty, 0) AS qty
+                        FROM invoice inv
+                        JOIN ar ON ar.id = inv.trans_id
+                        UNION ALL
+                        SELECT ar.customer_id, inv.parts_id, ret.transdate, COALESCE(rei.qty, 0) AS qty
+                        FROM returnitems rei
+                        JOIN return ret ON ret.id = rei.trans_id
+                        JOIN invoice inv ON inv.id = rei.invoice_id
+                        JOIN ar ON ar.id = inv.trans_id
+                        WHERE ret.hasitems = TRUE
+                    ) sales
+                    JOIN customer c ON c.id = sales.customer_id
+                    LEFT JOIN parts p_fg ON p_fg.id = sales.parts_id
+                    WHERE sales.transdate >= ?
+                    AND sales.transdate <= ?
                     AND p_fg.partnumber IS NOT NULL
                     AND (' . implode(' OR ', $pairSql) . ')
                     GROUP BY
@@ -1001,12 +1014,12 @@ class ForecastRmDivisionController extends Controller
                         UPPER(TRIM(p_fg.partnumber)),
                         p_fg.description,
                         UPPER(LTRIM(RTRIM(COALESCE(p_fg.f4, \'\')))),
-                        DATE_TRUNC(\'month\', gl.transdate)::date
+                        DATE_TRUNC(\'month\', sales.transdate)::date
                     ORDER BY customer_name, fg_partnumber, month
                 ';
 
                 $bindings = array_merge(
-                    ['IUB%', $start->toDateString(), $end->toDateString()],
+                    [$start->toDateString(), $end->toDateString()],
                     $pairBindings
                 );
 
@@ -1055,6 +1068,12 @@ class ForecastRmDivisionController extends Controller
                 $filled = collect($historyYm)->map(fn($ym) => (float) ($monthMap[$ym] ?? 0));
                 $fgPartnumber = strtoupper(trim((string) ($target['fg_partnumber'] ?? $first['fg_partnumber'] ?? '')));
 
+                // f4 (RM) อาจว่างฝั่งหนึ่ง (เช่น WIRE) แต่มีอีกฝั่ง (PLUS) ใน group เดียวกัน
+                // จึงต้องเลือก rm ตัวแรกที่ "ไม่ว่าง" จากทุกแถว ไม่ใช่ยึดแถวแรกเฉย ๆ
+                $rmFromRows = (string) (collect($rows)
+                    ->map(fn($r) => strtoupper(trim((string) ($r['rm_partnumber'] ?? ''))))
+                    ->first(fn($v) => $v !== '') ?? '');
+
                 return [
                     'row_key' => ((int) ($target['customer_id'] ?? 0)) . '|' . $fgPartnumber,
                     'customer_id' => (int) ($target['customer_id'] ?? $first['customer_id'] ?? 0),
@@ -1065,7 +1084,7 @@ class ForecastRmDivisionController extends Controller
                         : ($first['fg_description'] ?? '')),
                     'rm_partnumber' => (string) (($target['rm_partnumber'] ?? '') !== ''
                         ? $target['rm_partnumber']
-                        : ($first['rm_partnumber'] ?? '')),
+                        : $rmFromRows),
                     'avg6' => round((float) $filled->avg(), 2),
                     'history_detail' => collect($historyYm)->map(fn($ym) => [
                         'ym' => $ym,
@@ -1133,18 +1152,24 @@ class ForecastRmDivisionController extends Controller
                     UPPER(TRIM(p_fg.partnumber)) AS fg_partnumber,
                     p_fg.description AS fg_description,
                     UPPER(LTRIM(RTRIM(COALESCE(p_fg.f4, '')))) AS rm_partnumber,
-                    DATE_TRUNC('month', gl.transdate)::date AS month,
-                    SUM(ROUND(COALESCE(su.qty, 0), 2)) AS qty_sum
-                FROM serializeunitsmvmt sus
-                LEFT JOIN serializeunits su ON su.id = sus.su_id
-                LEFT JOIN gl ON gl.id = sus.trans_id
-                LEFT JOIN parts p ON p.id = su.parts_id
-                JOIN workorder wo ON wo.workordernumber = gl.reference
-                JOIN customer c ON c.id = wo.customer_id
-                LEFT JOIN parts p_fg ON p_fg.id = wo.parts_id
-                WHERE gl.transnumber LIKE ?
-                AND gl.transdate >= ?
-                AND gl.transdate <= ?
+                    DATE_TRUNC('month', sales.transdate)::date AS month,
+                    SUM(ROUND(COALESCE(sales.qty, 0), 2)) AS qty_sum
+                FROM (
+                    SELECT ar.customer_id, inv.parts_id, ar.transdate, COALESCE(inv.qty, 0) AS qty
+                    FROM invoice inv
+                    JOIN ar ON ar.id = inv.trans_id
+                    UNION ALL
+                    SELECT ar.customer_id, inv.parts_id, ret.transdate, COALESCE(rei.qty, 0) AS qty
+                    FROM returnitems rei
+                    JOIN return ret ON ret.id = rei.trans_id
+                    JOIN invoice inv ON inv.id = rei.invoice_id
+                    JOIN ar ON ar.id = inv.trans_id
+                    WHERE ret.hasitems = TRUE
+                ) sales
+                JOIN customer c ON c.id = sales.customer_id
+                LEFT JOIN parts p_fg ON p_fg.id = sales.parts_id
+                WHERE sales.transdate >= ?
+                AND sales.transdate <= ?
                 {$customerDivisionSql}
                 {$custIdSql}
                 AND p_fg.partnumber IS NOT NULL
@@ -1156,12 +1181,12 @@ class ForecastRmDivisionController extends Controller
                     UPPER(TRIM(p_fg.partnumber)),
                     p_fg.description,
                     UPPER(LTRIM(RTRIM(COALESCE(p_fg.f4, '')))),
-                    DATE_TRUNC('month', gl.transdate)::date
+                    DATE_TRUNC('month', sales.transdate)::date
                 ORDER BY customer_name, fg_partnumber, month
                 SQL;
 
             $bindings = array_merge(
-                ['IUB%', $start->toDateString(), $end->toDateString()],
+                [$start->toDateString(), $end->toDateString()],
                 $customerDivisionBindings,
                 $custIdBindings,
                 $rmBindings,
@@ -1434,15 +1459,22 @@ class ForecastRmDivisionController extends Controller
                     UPPER(TRIM(p_fg.partnumber)) AS fg_partnumber,
                     MAX(p_fg.description) AS fg_description,
                     UPPER(LTRIM(RTRIM(COALESCE(MAX(p_fg.f4), '')))) AS rm_partnumber
-                FROM serializeunitsmvmt sus
-                LEFT JOIN serializeunits su ON su.id = sus.su_id
-                LEFT JOIN gl ON gl.id = sus.trans_id
-                JOIN workorder wo ON wo.workordernumber = gl.reference
-                JOIN customer c ON c.id = wo.customer_id
-                LEFT JOIN parts p_fg ON p_fg.id = wo.parts_id
-                WHERE gl.transnumber LIKE ?
-                AND gl.transdate >= ?
-                AND gl.transdate <= ?
+                FROM (
+                    SELECT ar.customer_id, inv.parts_id, ar.transdate
+                    FROM invoice inv
+                    JOIN ar ON ar.id = inv.trans_id
+                    UNION ALL
+                    SELECT ar.customer_id, inv.parts_id, ret.transdate
+                    FROM returnitems rei
+                    JOIN return ret ON ret.id = rei.trans_id
+                    JOIN invoice inv ON inv.id = rei.invoice_id
+                    JOIN ar ON ar.id = inv.trans_id
+                    WHERE ret.hasitems = TRUE
+                ) sales
+                JOIN customer c ON c.id = sales.customer_id
+                LEFT JOIN parts p_fg ON p_fg.id = sales.parts_id
+                WHERE sales.transdate >= ?
+                AND sales.transdate <= ?
                 {$customerDivisionSql}
                 {$custIdSql}
                 AND p_fg.partnumber IS NOT NULL
@@ -1456,7 +1488,7 @@ class ForecastRmDivisionController extends Controller
                 SQL;
 
             $bindings = array_merge(
-                ['IUB%', $start->toDateString(), $end->toDateString()],
+                [$start->toDateString(), $end->toDateString()],
                 $customerDivisionBindings,
                 $custIdBindings,
                 $rmBindings,
@@ -2389,7 +2421,7 @@ class ForecastRmDivisionController extends Controller
         }
         $rowDefaultK = $selectedK > 0 ? $selectedK : $defaultK;
 
-        $historyMonths = collect(range(1, 6))
+        $historyMonths = collect(range(0, 5))
             ->map(fn($i) => (clone $baseMonth)->subMonths($i))
             ->reverse()
             ->values();
@@ -2405,8 +2437,8 @@ class ForecastRmDivisionController extends Controller
             $salesCode,
             $rmKeywords,
             $customerNameKeywords,
-            (clone $baseMonth)->subMonths(6)->startOfMonth(),
-            (clone $baseMonth)->subMonths(1)->endOfMonth(),
+            (clone $baseMonth)->subMonths(5)->startOfMonth(),
+            (clone $baseMonth)->endOfMonth(),
             $companyMode,
             $customerIds
         );
@@ -2585,8 +2617,8 @@ class ForecastRmDivisionController extends Controller
         );
         $manualSeedHistory = $this->fetchHistoryForSavedCustomerFgRows(
             $missingManualSeeds,
-            (clone $baseMonth)->subMonths(6)->startOfMonth(),
-            (clone $baseMonth)->subMonths(1)->endOfMonth(),
+            (clone $baseMonth)->subMonths(5)->startOfMonth(),
+            (clone $baseMonth)->endOfMonth(),
             $historyYm,
             $companyMode
         );
@@ -2631,6 +2663,16 @@ class ForecastRmDivisionController extends Controller
                 })
             )->values();
         }
+
+        $grouped = $grouped
+            ->sortByDesc(function ($row) {
+                $row = (array) $row;
+                return ((float) ($row['avg6'] ?? 0) > 0 ? 100 : 0)
+                    + ((int) ($row['seed_is_selected'] ?? $row['is_selected'] ?? 0) === 1 ? 10 : 0)
+                    + ((float) ($row['seed_manual_forecast_1m'] ?? $row['manual_forecast_1m'] ?? 0) > 0 ? 1 : 0);
+            })
+            ->unique(fn($row) => $this->rowCustomerFgDedupKey((array) $row))
+            ->values();
 
         $keys = $grouped->pluck('row_key')->all();
 
@@ -2750,17 +2792,18 @@ class ForecastRmDivisionController extends Controller
             return $r;
         })->values();
 
+        $rowsWithHistoryKeys = $rows
+            ->filter(fn($r) => (float) ($r['avg6'] ?? 0) > 0)
+            ->map(fn($r) => $this->rowCustomerFgDedupKey((array) $r))
+            ->all();
+
         $manualOnlyRows = $rows
             ->filter(function ($r) {
                 $rmPart = strtoupper(trim((string) ($r['rm_partnumber'] ?? '')));
                 return (float) ($r['avg6'] ?? 0) <= 0 && $rmPart !== '';
             })
-            ->groupBy(function ($r) {
-                $customerId = (int) ($r['customer_id'] ?? 0);
-                $fgPart = strtoupper(trim((string) ($r['fg_partnumber'] ?? '')));
-
-                return $customerId . '|' . $fgPart;
-            })
+            ->reject(fn($r) => in_array($this->rowCustomerFgDedupKey((array) $r), $rowsWithHistoryKeys, true))
+            ->groupBy(fn($r) => $this->rowCustomerFgDedupKey((array) $r))
             ->map(function ($group) {
                 return collect($group)
                     ->sortByDesc(function ($r) {

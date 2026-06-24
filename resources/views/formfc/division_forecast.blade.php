@@ -27,7 +27,7 @@
             table.excel {
                 border-collapse: separate;
                 border-spacing: 0;
-                font-size: 12.5px;
+                font-size: 13.5px;
                 width: max-content;
                 min-width: 100%
             }
@@ -96,7 +96,7 @@
 
             table.excel thead th .col-filter {
                 width: 100%;
-                font-size: 11px;
+                font-size: 12px;
                 padding: 2px 4px;
                 font-weight: 400
             }
@@ -404,12 +404,6 @@
             }
         </style>
 
-        @if (session('success'))
-            <div class="alert alert-success py-2">{{ session('success') }}</div>
-        @endif
-        @if (session('error'))
-            <div class="alert alert-danger py-2">{{ session('error') }}</div>
-        @endif
         @if (!empty($isSubmitted) && empty($isApprovalMode))
             <div class="alert alert-warning py-2">
                 เดือนนี้ Division {{ $divisionLabels[$salesCode] ?? $salesCode }} submit แล้ว ระบบล็อกไม่ให้บันทึกทับอีก ต้องแก้ผ่านหน้า Approval
@@ -933,56 +927,64 @@
                             เพิ่ม Manual Row
                         </button>
                         <button type="submit" class="btn btn-sm btn-primary" @disabled(!empty($isSubmitted))>Save Manual Draft</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleManualForecast"
+                            data-bs-toggle="collapse" data-bs-target="#manualForecastCollapse"
+                            aria-expanded="true" aria-controls="manualForecastCollapse" title="ย่อ/ขยายตาราง Manual">
+                            <span class="js-toggle-caret">▲</span>
+                            <span class="js-toggle-label">ย่อ</span>
+                        </button>
                     </div>
                 </div>
 
-                @if (empty($manualOnlyRows) || $manualOnlyRows->isEmpty())
-                    <div class="px-3 pt-3 small text-muted">ยังไม่มีรายการตั้งต้น คุณสามารถกด "เพิ่ม Manual Row" เพื่อเพิ่ม
-                        customer และ FG เองได้</div>
-                @endif
-                <div class="excel-wrap">
-                    <table class="excel">
-                        <thead>
-                            <tr>
-                                <th>Customer</th>
-                                <th>FG Part</th>
-                                <th>RM Part</th>
-                                <th>Manual 1M</th>
-                                <th>Forecast 6M</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="manualForecastBody">
-                            @foreach ($manualOnlyRows as $r)
-                                @php
-                                    $manualMeta = [
-                                        'customer_id' => $r['customer_id'] ?? 0,
-                                        'customer_name' => $r['customer_name'] ?? '',
-                                        'fg_partnumber' => $r['fg_partnumber'] ?? '',
-                                        'fg_description' => $r['fg_description'] ?? '',
-                                        'rm_partnumber' => $r['rm_partnumber'] ?? '',
-                                    ];
-                                @endphp
-                                <tr class="js-manual-row" data-row-key="{{ $r['row_key'] }}">
-                                    <td>{{ $r['customer_name'] ?? '-' }}</td>
-                                    <td class="fw-semibold">{{ $r['fg_partnumber'] ?? '-' }}</td>
-                                    <td class="js-manual-rm-cell">{{ $r['rm_partnumber'] ?? '-' }}</td>
-                                    <td>
-                                        <input type="number" step="0.01" min="0"
-                                            class="form-control form-control-sm text-end js-manual-1m-only"
-                                            name="manual_rows[{{ $r['row_key'] }}]"
-                                            value="{{ number_format((float) ($r['manual_forecast_1m'] ?? 0), 2, '.', '') }}">
-                                    </td>
-                                    <td class="num js-manual-6m-only">
-                                        {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * 6), 2) }}
-                                    </td>
-                                    <td class="text-center text-muted">-</td>
-                                    <input type="hidden" name="manual_meta[{{ $r['row_key'] }}]"
-                                        value='@json($manualMeta)'>
+                <div id="manualForecastCollapse" class="collapse show">
+                    @if (empty($manualOnlyRows) || $manualOnlyRows->isEmpty())
+                        <div class="px-3 pt-3 small text-muted">ยังไม่มีรายการตั้งต้น คุณสามารถกด "เพิ่ม Manual Row" เพื่อเพิ่ม
+                            customer และ FG เองได้</div>
+                    @endif
+                    <div class="excel-wrap">
+                        <table class="excel">
+                            <thead>
+                                <tr>
+                                    <th>Customer</th>
+                                    <th>FG Part</th>
+                                    <th>RM Part</th>
+                                    <th>Manual 1M</th>
+                                    <th>Forecast 6M</th>
+                                    <th>Action</th>
                                 </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody id="manualForecastBody">
+                                @foreach ($manualOnlyRows as $r)
+                                    @php
+                                        $manualMeta = [
+                                            'customer_id' => $r['customer_id'] ?? 0,
+                                            'customer_name' => $r['customer_name'] ?? '',
+                                            'fg_partnumber' => $r['fg_partnumber'] ?? '',
+                                            'fg_description' => $r['fg_description'] ?? '',
+                                            'rm_partnumber' => $r['rm_partnumber'] ?? '',
+                                        ];
+                                    @endphp
+                                    <tr class="js-manual-row" data-row-key="{{ $r['row_key'] }}">
+                                        <td>{{ $r['customer_name'] ?? '-' }}</td>
+                                        <td class="fw-semibold">{{ $r['fg_partnumber'] ?? '-' }}</td>
+                                        <td class="js-manual-rm-cell">{{ $r['rm_partnumber'] ?? '-' }}</td>
+                                        <td>
+                                            <input type="number" step="0.01" min="0"
+                                                class="form-control form-control-sm text-end js-manual-1m-only"
+                                                name="manual_rows[{{ $r['row_key'] }}]"
+                                                value="{{ number_format((float) ($r['manual_forecast_1m'] ?? 0), 2, '.', '') }}">
+                                        </td>
+                                        <td class="num js-manual-6m-only">
+                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * 6), 2) }}
+                                        </td>
+                                        <td class="text-center text-muted">-</td>
+                                        <input type="hidden" name="manual_meta[{{ $r['row_key'] }}]"
+                                            value='@json($manualMeta)'>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </form>
@@ -1451,6 +1453,32 @@
             });
             tr.querySelector('.js-manual-customer-input')?.focus();
         });
+
+        // ย่อ/ขยายตาราง Manual Forecast
+        (function () {
+            const collapseEl = document.getElementById('manualForecastCollapse');
+            const toggleBtn = document.getElementById('toggleManualForecast');
+            if (!collapseEl || !toggleBtn) return;
+
+            const caretEl = toggleBtn.querySelector('.js-toggle-caret');
+            const labelEl = toggleBtn.querySelector('.js-toggle-label');
+
+            function syncState(expanded) {
+                if (caretEl) caretEl.textContent = expanded ? '▲' : '▼';
+                if (labelEl) labelEl.textContent = expanded ? 'ย่อ' : 'ขยาย';
+                toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            }
+
+            collapseEl.addEventListener('shown.bs.collapse', () => syncState(true));
+            collapseEl.addEventListener('hidden.bs.collapse', () => syncState(false));
+
+            // กดเพิ่มแถวขณะย่ออยู่ => ขยายให้อัตโนมัติ
+            addManualRowBtn?.addEventListener('click', function () {
+                if (!collapseEl.classList.contains('show') && window.bootstrap?.Collapse) {
+                    window.bootstrap.Collapse.getOrCreateInstance(collapseEl).show();
+                }
+            });
+        })();
 
         manualFormEl?.addEventListener('submit', function(e) {
             const dynamicRows = Array.from(this.querySelectorAll('tr[data-dynamic-row="1"]'));
