@@ -5,21 +5,6 @@
 
 @section('content')
     <div class="container-fluid py-3">
-        @if (session('success'))
-            <div class="alert alert-success shadow-sm">{{ session('success') }}</div>
-        @endif
-
-        @if ($errors->any())
-            <div class="alert alert-danger shadow-sm">
-                <div class="fw-bold mb-1">Save failed</div>
-                <ul class="mb-0 ps-3">
-                    @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
-                    @endforeach
-                </ul>
-            </div>
-        @endif
-
         @if (empty($tableReady))
             <div class="alert alert-warning shadow-sm">
                 Please run <code>database/sql/create_vc_account_display_accounts.sql</code> before saving this page.
