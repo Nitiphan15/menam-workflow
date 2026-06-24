@@ -22,10 +22,6 @@
             </div>
         </div>
 
-        @if (session('success'))
-            <div class="alert alert-success py-2">{{ session('success') }}</div>
-        @endif
-
         <div class="card mb-3">
             <div class="card-header fw-semibold">เพิ่ม{{ $title }}</div>
             <div class="card-body">

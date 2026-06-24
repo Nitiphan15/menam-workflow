@@ -5,12 +5,17 @@
         if (!btn || !target) return;
 
         function setExpanded() {
-            btn.setAttribute("aria-expanded", target.classList.contains("show") ? "true" : "false");
+            btn.setAttribute(
+                "aria-expanded",
+                target.classList.contains("show") ? "true" : "false",
+            );
         }
 
         btn.addEventListener("click", () => {
             if (typeof bootstrap !== "undefined" && bootstrap.Collapse) {
-                bootstrap.Collapse.getOrCreateInstance(target, { toggle: false }).toggle();
+                bootstrap.Collapse.getOrCreateInstance(target, {
+                    toggle: false,
+                }).toggle();
                 return;
             }
 
@@ -29,9 +34,14 @@
     // Autocomplete: custom dropdown (style ตาม dp.index)
     (function initAutocomplete() {
         // Source: ดึงจาก server (distinct ทั้ง DB) ก่อน, fallback เป็น rows ในหน้า
-        const fullSources = (window.DP_AC_SOURCES || {});
+        const fullSources = window.DP_AC_SOURCES || {};
         const rows = document.querySelectorAll("#inqTbody tr.data-row");
-        const fallback = { so: new Set(), customer: new Set(), shipto: new Set(), divsales: new Set() };
+        const fallback = {
+            so: new Set(),
+            customer: new Set(),
+            shipto: new Set(),
+            divsales: new Set(),
+        };
 
         rows.forEach((row) => {
             const so = (row.dataset.so || "").trim();
@@ -46,7 +56,9 @@
 
         const sourceArrays = {};
         ["so", "customer", "shipto", "divsales"].forEach((key) => {
-            const fromServer = Array.isArray(fullSources[key]) ? fullSources[key] : [];
+            const fromServer = Array.isArray(fullSources[key])
+                ? fullSources[key]
+                : [];
             const merged = new Set([...(fromServer || []), ...fallback[key]]);
             sourceArrays[key] = Array.from(merged)
                 .map((v) => String(v || "").trim())
@@ -60,7 +72,8 @@
             const input = document.getElementById(targetId);
             if (!input) return;
             const wrap = btn.closest(".dp-ac-wrap");
-            const sync = () => wrap?.classList.toggle("has-value", input.value.trim() !== "");
+            const sync = () =>
+                wrap?.classList.toggle("has-value", input.value.trim() !== "");
             sync();
             input.addEventListener("input", sync);
             input.addEventListener("change", sync);
@@ -74,9 +87,20 @@
         });
 
         const escapeHtml = (s) =>
-            String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+            String(s).replace(
+                /[&<>"']/g,
+                (c) =>
+                    ({
+                        "&": "&amp;",
+                        "<": "&lt;",
+                        ">": "&gt;",
+                        '"': "&quot;",
+                        "'": "&#39;",
+                    })[c],
+            );
 
-        const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const escapeRegex = (s) =>
+            String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
         const highlight = (text, term) => {
             if (!term) return escapeHtml(text);
@@ -87,7 +111,9 @@
         document.querySelectorAll(".dp-ac-input").forEach((input) => {
             const sourceKey = input.dataset.acSource || "";
             const list = sourceArrays[sourceKey] || [];
-            const dd = document.querySelector(`.dp-suggest[data-ac-for="${input.id}"]`);
+            const dd = document.querySelector(
+                `.dp-suggest[data-ac-for="${input.id}"]`,
+            );
             if (!dd) return;
 
             let activeIdx = -1;
@@ -95,7 +121,9 @@
             function render(term) {
                 const q = (term || "").trim().toLowerCase();
                 const matched = q
-                    ? list.filter((v) => v.toLowerCase().includes(q)).slice(0, 30)
+                    ? list
+                          .filter((v) => v.toLowerCase().includes(q))
+                          .slice(0, 30)
                     : list.slice(0, 30);
 
                 if (!matched.length) {
@@ -175,7 +203,10 @@
                 window.location.href = excelUrl;
             }
             if (pdfUrl) {
-                setTimeout(() => window.open(pdfUrl, "_blank", "noopener"), 600);
+                setTimeout(
+                    () => window.open(pdfUrl, "_blank", "noopener"),
+                    600,
+                );
             }
         });
     }
@@ -187,10 +218,15 @@
     if (!table || !tbody || !table.tHead || !table.tBodies.length) return;
 
     const headerRow = table.tHead.querySelector(".dp-inquiry-header-row");
-    if (!headerRow || table.tHead.querySelector(".dp-inquiry-filter-row")) return;
+    if (!headerRow || table.tHead.querySelector(".dp-inquiry-filter-row"))
+        return;
 
-    const hasBulkPostponeColumn = !!document.getElementById("bulkPostponeCheckAll");
+    const hasBulkTruckColumn = !!document.getElementById("bulkTruckCheckAll");
+    const hasBulkPostponeColumn = !!document.getElementById(
+        "bulkPostponeCheckAll",
+    );
     const columnKeys = [
+        ...(hasBulkTruckColumn ? ["bulk_truck"] : []),
         ...(hasBulkPostponeColumn ? ["bulk_select"] : []),
         "no",
         "ship_date",
@@ -215,8 +251,17 @@
     const groupRows = () => Array.from(tbody.querySelectorAll("tr.group-row"));
     const originalGroupRows = groupRows();
     const numericColumns = new Set(["no", "qty", "stock_fg", "revision"]);
-    const filterableColumns = new Set(columnKeys.filter((key) => !["bulk_select", "no", "action", "history"].includes(key)));
-    const protectedColumns = new Set(["bulk_select", "no"]);
+    const systemColumns = [
+        "bulk_truck",
+        "bulk_select",
+        "no",
+        "action",
+        "history",
+    ];
+    const filterableColumns = new Set(
+        columnKeys.filter((key) => !systemColumns.includes(key)),
+    );
+    const protectedColumns = new Set(["bulk_truck", "bulk_select", "no"]);
     const hiddenStorageKey = "dp.inquiry.hiddenColumns.v3";
     const orderStorageKey = "dp.inquiry.columnOrder.v3";
     const defaultOrder = columnKeys.slice();
@@ -264,7 +309,9 @@
     function normalizeOrder(order) {
         const seen = new Set();
         const valid = [];
-        const fixedLeading = columnKeys.filter((key) => ["bulk_select", "no"].includes(key));
+        const fixedLeading = columnKeys.filter((key) =>
+            ["bulk_truck", "bulk_select", "no"].includes(key),
+        );
         fixedLeading.forEach((key) => {
             seen.add(key);
             valid.push(key);
@@ -284,7 +331,9 @@
 
     function loadColumnPrefs() {
         hiddenSet = new Set(
-            readStoredArray(hiddenStorageKey).filter((key) => columnKeys.includes(key) && !protectedColumns.has(key)),
+            readStoredArray(hiddenStorageKey).filter(
+                (key) => columnKeys.includes(key) && !protectedColumns.has(key),
+            ),
         );
         columnOrder = normalizeOrder(readStoredArray(orderStorageKey));
     }
@@ -314,10 +363,14 @@
         if (col === "ship_date") return row.dataset.ship || "";
         if (col === "customer") return row.dataset.customer || "";
         if (col === "part_desc") return row.dataset.part || "";
-        if (col === "qty") return parseNum(row.dataset.qty || cellText(row, col));
+        if (col === "qty")
+            return parseNum(row.dataset.qty || cellText(row, col));
         if (col === "so") return row.dataset.so || "";
-        if (col === "revision") return parseNum(row.dataset.rev || cellText(row, col));
-        return numericColumns.has(col) ? parseNum(cellText(row, col)) : normalizeText(cellText(row, col));
+        if (col === "revision")
+            return parseNum(row.dataset.rev || cellText(row, col));
+        return numericColumns.has(col)
+            ? parseNum(cellText(row, col))
+            : normalizeText(cellText(row, col));
     }
 
     function compareFilter(cellValue, filterValue, isNumeric) {
@@ -344,7 +397,8 @@
     function activeFilters() {
         return Array.from(table.querySelectorAll(".dp-col-filter"))
             .map((input) => {
-                const col = input.dataset.filterKey || input.dataset.filterCol || "";
+                const col =
+                    input.dataset.filterKey || input.dataset.filterCol || "";
                 return {
                     col,
                     value: input.value,
@@ -355,7 +409,9 @@
     }
 
     function setKpi(visibleRows) {
-        const rows = visibleRows || dataRows().filter((row) => row.style.display !== "none");
+        const rows =
+            visibleRows ||
+            dataRows().filter((row) => row.style.display !== "none");
         const total = dataRows().length;
 
         const num = (v) => {
@@ -386,11 +442,25 @@
             // นับ line ที่ planner ขอเลื่อน — dedupe ตาม MFG (ไม่นับ revision/รอบเดิม)
             // ถ้าไม่มี MFG ใช้ SO แทน, สุดท้ายเข้า DOM id เพื่อไม่ให้สูญ
             if (status === "POSTPONED" || pcStatus === "POSTPONE") {
-                const key = mfg || so || (row.dataset.part || "") + "|" + (row.dataset.ship || "");
+                const key =
+                    mfg ||
+                    so ||
+                    (row.dataset.part || "") + "|" + (row.dataset.ship || "");
                 postponedKeys.add(key);
             }
 
-            if (!hasTruck && !["CLOSED", "VOID", "VOIDED", "CANCEL", "CANCELED", "CANCELLED", "POSTPONED"].includes(status)) {
+            if (
+                !hasTruck &&
+                ![
+                    "CLOSED",
+                    "VOID",
+                    "VOIDED",
+                    "CANCEL",
+                    "CANCELED",
+                    "CANCELLED",
+                    "POSTPONED",
+                ].includes(status)
+            ) {
                 noTruck += 1;
             }
 
@@ -417,7 +487,8 @@
         groupRows().forEach((groupRow) => {
             const group = groupRow.dataset.group || "";
             const hasVisible = dataRows().some(
-                (row) => row.dataset.group === group && row.style.display !== "none",
+                (row) =>
+                    row.dataset.group === group && row.style.display !== "none",
             );
             groupRow.style.display = hasVisible ? "" : "none";
         });
@@ -429,7 +500,11 @@
 
         dataRows().forEach((row) => {
             const ok = filters.every((filter) =>
-                compareFilter(cellText(row, filter.col), filter.value, filter.isNumeric),
+                compareFilter(
+                    cellText(row, filter.col),
+                    filter.value,
+                    filter.isNumeric,
+                ),
             );
             row.style.display = ok ? "" : "none";
             if (ok) visibleRows.push(row);
@@ -454,9 +529,11 @@
 
     function applyColumnVisibility() {
         columnKeys.forEach((key) => {
-            table.querySelectorAll(`[data-col-key="${key}"]`).forEach((cell) => {
-                cell.style.display = hiddenSet.has(key) ? "none" : "";
-            });
+            table
+                .querySelectorAll(`[data-col-key="${key}"]`)
+                .forEach((cell) => {
+                    cell.style.display = hiddenSet.has(key) ? "none" : "";
+                });
         });
 
         groupRows().forEach((row) => {
@@ -471,9 +548,11 @@
             hiddenCount.classList.toggle("bg-secondary", hiddenSet.size === 0);
         }
 
-        document.querySelectorAll("#inqColumnToggleList input[data-col-key]").forEach((input) => {
-            input.checked = !hiddenSet.has(input.dataset.colKey || "");
-        });
+        document
+            .querySelectorAll("#inqColumnToggleList input[data-col-key]")
+            .forEach((input) => {
+                input.checked = !hiddenSet.has(input.dataset.colKey || "");
+            });
 
         updateStickyColumns();
     }
@@ -489,8 +568,13 @@
     function applyColumnOrder() {
         orderedCells(headerRow).forEach((cell) => headerRow.appendChild(cell));
         const filterRow = table.tHead.querySelector(".dp-inquiry-filter-row");
-        if (filterRow) orderedCells(filterRow).forEach((cell) => filterRow.appendChild(cell));
-        dataRows().forEach((row) => orderedCells(row).forEach((cell) => row.appendChild(cell)));
+        if (filterRow)
+            orderedCells(filterRow).forEach((cell) =>
+                filterRow.appendChild(cell),
+            );
+        dataRows().forEach((row) =>
+            orderedCells(row).forEach((cell) => row.appendChild(cell)),
+        );
         applyColumnVisibility();
     }
 
@@ -499,7 +583,9 @@
         const th = headerRow.querySelector(`[data-col-key="${key}"]`);
         if (!th) return key;
         const clone = th.cloneNode(true);
-        clone.querySelectorAll("button, .sort-ind").forEach((el) => el.remove());
+        clone
+            .querySelectorAll("button, .sort-ind")
+            .forEach((el) => el.remove());
         return clone.textContent.trim().replace(/\s+/g, " ") || key;
     }
 
@@ -516,7 +602,8 @@
         const from = columnOrder.indexOf(sourceKey);
         const to = columnOrder.indexOf(targetKey);
         if (from < 0 || to < 0) return;
-        if (protectedColumns.has(sourceKey) || protectedColumns.has(targetKey)) return;
+        if (protectedColumns.has(sourceKey) || protectedColumns.has(targetKey))
+            return;
 
         const next = columnOrder.slice();
         const [moved] = next.splice(from, 1);
@@ -570,7 +657,8 @@
             });
             item.addEventListener("drop", (event) => {
                 event.preventDefault();
-                const sourceKey = event.dataTransfer.getData("text/plain") || draggedKey;
+                const sourceKey =
+                    event.dataTransfer.getData("text/plain") || draggedKey;
                 moveColumnTo(sourceKey, key);
             });
             item.addEventListener("dragend", () => {
@@ -598,9 +686,17 @@
                     event.stopPropagation();
                     const current = columnOrder.indexOf(key);
                     const next = current + Number(btn.dataset.move || 0);
-                    if (current < 0 || next < 0 || next >= columnOrder.length) return;
-                    if (protectedColumns.has(key) || protectedColumns.has(columnOrder[next])) return;
-                    [columnOrder[current], columnOrder[next]] = [columnOrder[next], columnOrder[current]];
+                    if (current < 0 || next < 0 || next >= columnOrder.length)
+                        return;
+                    if (
+                        protectedColumns.has(key) ||
+                        protectedColumns.has(columnOrder[next])
+                    )
+                        return;
+                    [columnOrder[current], columnOrder[next]] = [
+                        columnOrder[next],
+                        columnOrder[current],
+                    ];
                     saveColumnOrder();
                     applyColumnOrder();
                     renderColumnMenu();
@@ -630,14 +726,20 @@
             if (ind) ind.textContent = "";
         });
 
-        const indicator = headerRow.querySelector(`[data-col-key="${col}"] .sort-ind`);
+        const indicator = headerRow.querySelector(
+            `[data-col-key="${col}"] .sort-ind`,
+        );
         if (indicator) indicator.textContent = dir === 1 ? "▲" : "▼";
 
         const sorted = dataRows().sort((a, b) => {
             const av = sortValue(a, col);
             const bv = sortValue(b, col);
             if (numericColumns.has(col)) return (Number(av) - Number(bv)) * dir;
-            return String(av).localeCompare(String(bv), undefined, { numeric: true }) * dir;
+            return (
+                String(av).localeCompare(String(bv), undefined, {
+                    numeric: true,
+                }) * dir
+            );
         });
 
         if (originalGroupRows.length) {
@@ -646,7 +748,9 @@
 
             originalGroupRows.forEach((groupRow) => {
                 const group = groupRow.dataset.group || "";
-                const rows = sorted.filter((row) => row.dataset.group === group);
+                const rows = sorted.filter(
+                    (row) => row.dataset.group === group,
+                );
 
                 fragment.appendChild(groupRow);
                 rows.forEach((row) => {
@@ -703,16 +807,16 @@
         const key = th.dataset.colKey || "";
         const filterTh = document.createElement("th");
         filterTh.dataset.colKey = key;
-        filterTh.className = th.className
-            .replace(/\bsortable\b/g, "")
-            .trim();
+        filterTh.className = th.className.replace(/\bsortable\b/g, "").trim();
 
         if (filterableColumns.has(key)) {
             const input = document.createElement("input");
             input.type = "text";
             input.className = "form-control form-control-sm dp-col-filter";
             input.dataset.filterKey = key;
-            input.placeholder = numericColumns.has(key) ? ">= or text" : "Filter";
+            input.placeholder = numericColumns.has(key)
+                ? ">= or text"
+                : "Filter";
             input.addEventListener("input", applyFilters);
             input.addEventListener("click", (event) => event.stopPropagation());
             filterTh.appendChild(input);
@@ -818,6 +922,15 @@
 
     const tmCheckAll = byId("tmCheckAll");
     const tmUncheckAll = byId("tmUncheckAll");
+    const bulkTruckCheckAll = byId("bulkTruckCheckAll");
+    const bulkTruckChecks = Array.from(
+        document.querySelectorAll(".jsBulkTruckCheck"),
+    );
+    const bulkTruckOpenBtn = byId("bulkTruckOpenBtn");
+    const bulkTruckClearBtn = byId("bulkTruckClearBtn");
+    const bulkTruckSameCustomerBtn = byId("bulkTruckSameCustomerBtn");
+    const bulkTruckCount = byId("bulkTruckCount");
+    const bulkTruckCustomer = byId("bulkTruckCustomer");
 
     const tmDriverStaffId = byId("tmDriverStaffId");
     const tmHelper1StaffId = byId("tmHelper1StaffId");
@@ -861,6 +974,33 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
+    }
+
+    function warn(message, title = "ตรวจสอบข้อมูล") {
+        const scrollY = window.scrollY || 0;
+        const restoreScroll = () => {
+            if (scrollY > 0) {
+                window.scrollTo({ top: scrollY, left: 0, behavior: "auto" });
+            }
+        };
+
+        if (window.Swal && typeof window.Swal.fire === "function") {
+            window.Swal.fire({
+                icon: "warning",
+                title,
+                text: message,
+                confirmButtonText: "ตกลง",
+                heightAuto: false,
+                returnFocus: false,
+                scrollbarPadding: false,
+                didOpen: restoreScroll,
+                didClose: restoreScroll,
+            });
+            return;
+        }
+
+        alert(message);
+        restoreScroll();
     }
 
     function numberFormat(value, digits = 3) {
@@ -965,7 +1105,8 @@
             selectEl.name = `helper${slot}_staff_id`;
             if (wrap) wrap.classList.remove("d-none");
             if (label) label.textContent = `เด็กรถ ${slot}`;
-            if (placeholder) placeholder.textContent = `-- เลือกเด็กรถ ${slot} --`;
+            if (placeholder)
+                placeholder.textContent = `-- เลือกเด็กรถ ${slot} --`;
         });
     }
 
@@ -1096,7 +1237,8 @@
     function ensureStaffOption(selectEl, staff) {
         if (!selectEl || !staff || !staff.id) return;
         const id = String(staff.id);
-        if (Array.from(selectEl.options).some((option) => option.value === id)) return;
+        if (Array.from(selectEl.options).some((option) => option.value === id))
+            return;
 
         const option = document.createElement("option");
         option.value = id;
@@ -1128,11 +1270,7 @@
         if (tmDispatchTruckMode) tmDispatchTruckMode.checked = !specialMode;
         if (tmDispatchSpecialMode) tmDispatchSpecialMode.checked = specialMode;
 
-        [
-            tmLineSelectPanel,
-            tmTruckPickPanel,
-            tmTripControl,
-        ].forEach((el) => {
+        [tmLineSelectPanel, tmTruckPickPanel, tmTripControl].forEach((el) => {
             if (el) el.classList.toggle("d-none", specialMode);
         });
 
@@ -1140,8 +1278,10 @@
             tmSpecialDispatchPanel.classList.toggle("d-none", !specialMode);
         }
 
-        if (tmSpecialDispatchType) tmSpecialDispatchType.disabled = !specialMode;
-        if (tmSpecialDispatchRemark) tmSpecialDispatchRemark.disabled = !specialMode;
+        if (tmSpecialDispatchType)
+            tmSpecialDispatchType.disabled = !specialMode;
+        if (tmSpecialDispatchRemark)
+            tmSpecialDispatchRemark.disabled = !specialMode;
 
         if (tmFooterHelp) {
             tmFooterHelp.textContent = specialMode
@@ -1152,7 +1292,9 @@
         if (submitBtn) {
             submitBtn.classList.toggle("btn-primary", !specialMode);
             submitBtn.classList.toggle("btn-warning", specialMode);
-            submitBtn.textContent = specialMode ? "บันทึกช่องทางพิเศษ" : "บันทึก";
+            submitBtn.textContent = specialMode
+                ? "บันทึกช่องทางพิเศษ"
+                : "บันทึก";
         }
 
         if (specialMode) {
@@ -1191,7 +1333,8 @@
             if (!tr) return sum;
             const manualKgInput = tr.querySelector(".tmAssignWeightKg");
             const manualKg = Number(manualKgInput?.value || 0);
-            const qty = manualKg > 0 ? manualKg : Number(tr.dataset.qtyRemaining || 0);
+            const qty =
+                manualKg > 0 ? manualKg : Number(tr.dataset.qtyRemaining || 0);
             return sum + qty;
         }, 0);
     }
@@ -1214,7 +1357,10 @@
         const selectedPieces = selectedPieceQty();
 
         if (tmSelectedWeight) {
-            tmSelectedWeight.textContent = loadDisplayFormat(selectedWeight, selectedPieces);
+            tmSelectedWeight.textContent = loadDisplayFormat(
+                selectedWeight,
+                selectedPieces,
+            );
         }
 
         if (!tmTruckRemainAfter || !modalEl) return;
@@ -1240,7 +1386,9 @@
         const remainAfter = currentRemain - selectedWeight;
 
         tmTruckRemainAfter.textContent =
-            selectedWeight > 0 ? weightFormat(remainAfter) : weightFormat(currentRemain);
+            selectedWeight > 0
+                ? weightFormat(remainAfter)
+                : weightFormat(currentRemain);
         tmTruckRemainAfter.classList.toggle("text-danger", remainAfter < 0);
         tmTruckRemainAfter.classList.toggle("text-success", remainAfter >= 0);
     }
@@ -1356,12 +1504,13 @@
                 const remaining = Number(t.remaining_capacity || 0);
                 const current = Number(t.current_load || 0);
                 const max = Number(t.max_load || 0);
-                const capacityUnlimited =
-                    !!t.capacity_unlimited || max <= 0;
+                const capacityUnlimited = !!t.capacity_unlimited || max <= 0;
                 const rowKey = String(t.row_key || "");
                 const truckId = t.truck_id ?? "";
                 const manualPlate = t.manual_plate_no ?? "";
-                const maxText = capacityUnlimited ? "ไม่ระบุ" : weightFormat(max);
+                const maxText = capacityUnlimited
+                    ? "ไม่ระบุ"
+                    : weightFormat(max);
                 const remainingText = capacityUnlimited
                     ? "ตามน้ำหนักที่กรอก"
                     : weightFormat(remaining);
@@ -1373,7 +1522,9 @@
                     .map((x) => {
                         const customer = x.customer_name || "-";
                         const jobType = x.job_type || "-";
-                        const weight = weightFormat(Number(x.assigned_weight || 0));
+                        const weight = weightFormat(
+                            Number(x.assigned_weight || 0),
+                        );
                         return `${customer} | ${jobType} (${weight})`;
                     })
                     .join(" || ");
@@ -1486,7 +1637,10 @@
         if (!ROUTES.truckCapacity || !shipDate) return [];
 
         try {
-            const tripNo = Math.max(1, parseInt(tmTripNo?.value || "1", 10) || 1);
+            const tripNo = Math.max(
+                1,
+                parseInt(tmTripNo?.value || "1", 10) || 1,
+            );
             const url = `${ROUTES.truckCapacity}?ship_posted_at=${encodeURIComponent(shipDate)}&trip_no=${encodeURIComponent(tripNo)}`;
             const res = await fetch(url, {
                 headers: {
@@ -1521,7 +1675,9 @@
         const currentSpecialType = String(
             btn.dataset.currentSpecialType || "",
         ).trim();
-        const currentStatus = String(btn.dataset.status || "").trim().toUpperCase();
+        const currentStatus = String(btn.dataset.status || "")
+            .trim()
+            .toUpperCase();
         const lines = parseJsonSafe(btn.dataset.lines || "[]", []);
 
         state.ordId = ordId;
@@ -1543,7 +1699,8 @@
         if (tmReturnUrl) tmReturnUrl.value = window.location.href;
         if (tmTripNo) tmTripNo.value = "1";
         if (tmSpecialDispatchType) {
-            tmSpecialDispatchType.value = currentSpecialType || "CONTAINER_LOAD";
+            tmSpecialDispatchType.value =
+                currentSpecialType || "CONTAINER_LOAD";
         }
         if (tmSpecialDispatchRemark) {
             tmSpecialDispatchRemark.value = "";
@@ -1635,11 +1792,237 @@
         }
     }
 
+    function bulkTruckKey(input) {
+        const dataset = input?.dataset || {};
+        const customerId = String(dataset.customerId || "").trim();
+        const customer = String(dataset.customer || "").trim();
+        const shipDate = String(dataset.shipDate || "").trim();
+
+        return {
+            customerKey: customerId || customer,
+            customer,
+            shipDate,
+        };
+    }
+
+    function visibleBulkTruckChecks() {
+        return bulkTruckChecks.filter((input) => {
+            if (input.disabled) return false;
+            const row = input.closest("tr");
+            return !row || row.style.display !== "none";
+        });
+    }
+
+    function selectedBulkTruckChecks() {
+        return bulkTruckChecks.filter(
+            (input) => input.checked && !input.disabled,
+        );
+    }
+
+    function bulkTruckMatchesShipDate(input, seed) {
+        const key = bulkTruckKey(input);
+        return key.shipDate !== "" && key.shipDate === seed.shipDate;
+    }
+
+    function updateBulkTruckState() {
+        const selected = selectedBulkTruckChecks();
+        const visible = visibleBulkTruckChecks();
+
+        if (bulkTruckCount)
+            bulkTruckCount.textContent = String(selected.length);
+        if (bulkTruckOpenBtn) bulkTruckOpenBtn.disabled = selected.length === 0;
+        if (bulkTruckClearBtn)
+            bulkTruckClearBtn.disabled = selected.length === 0;
+        if (bulkTruckSameCustomerBtn)
+            bulkTruckSameCustomerBtn.disabled = visible.length === 0;
+
+        if (bulkTruckCustomer) {
+            if (!selected.length) {
+                bulkTruckCustomer.textContent = "ยังไม่ได้เลือกรายการ";
+            } else {
+                const first = bulkTruckKey(selected[0]);
+                const customers = new Set(
+                    selected
+                        .map((input) => bulkTruckKey(input).customer)
+                        .filter(Boolean),
+                );
+                const customerText =
+                    customers.size > 1
+                        ? `หลายลูกค้า (${customers.size})`
+                        : first.customer || "-";
+                bulkTruckCustomer.textContent = `${customerText} / ${first.shipDate || "-"}`;
+            }
+        }
+
+        if (bulkTruckCheckAll) {
+            let eligible = visible;
+            if (selected.length) {
+                const seed = bulkTruckKey(selected[0]);
+                eligible = visible.filter((input) =>
+                    bulkTruckMatchesShipDate(input, seed),
+                );
+            }
+            const selectedEligible = eligible.filter(
+                (input) => input.checked,
+            ).length;
+            bulkTruckCheckAll.checked =
+                eligible.length > 0 && selectedEligible === eligible.length;
+            bulkTruckCheckAll.indeterminate =
+                selectedEligible > 0 && selectedEligible < eligible.length;
+            bulkTruckCheckAll.disabled = eligible.length === 0;
+        }
+
+        syncGroupTruckCheckAll();
+    }
+
+    // ====== เลือกทั้งกลุ่ม (D) เพื่อจัดรถ ======
+    function groupTruckChecks(group) {
+        return bulkTruckChecks.filter((input) => {
+            if (input.disabled) return false;
+            const row = input.closest("tr");
+            return (
+                !!row &&
+                (row.dataset.group || "") === group &&
+                row.style.display !== "none"
+            );
+        });
+    }
+
+    function setGroupBulkTruck(group, checked) {
+        const groupChecks = groupTruckChecks(group);
+        if (!groupChecks.length) {
+            updateBulkTruckState();
+            return;
+        }
+
+        if (checked) {
+            const selected = selectedBulkTruckChecks();
+            const seed = selected.length
+                ? bulkTruckKey(selected[0])
+                : bulkTruckKey(groupChecks[0]);
+            let blocked = 0;
+            groupChecks.forEach((input) => {
+                if (bulkTruckMatchesShipDate(input, seed)) {
+                    input.checked = true;
+                } else {
+                    blocked += 1;
+                }
+            });
+            if (blocked > 0) {
+                warn(
+                    "เลือกได้เฉพาะวันส่งเดียวกัน — บางรายการในกลุ่มนี้เป็นคนละวันส่งจึงไม่ถูกเลือก",
+                );
+            }
+        } else {
+            groupChecks.forEach((input) => {
+                input.checked = false;
+            });
+        }
+
+        updateBulkTruckState();
+    }
+
+    function syncGroupTruckCheckAll() {
+        document.querySelectorAll(".jsGroupTruckCheckAll").forEach((cb) => {
+            const group = cb.dataset.group || "";
+            const groupChecks = groupTruckChecks(group);
+            if (!groupChecks.length) {
+                cb.checked = false;
+                cb.indeterminate = false;
+                cb.disabled = true;
+                return;
+            }
+            cb.disabled = false;
+            const checkedCount = groupChecks.filter(
+                (input) => input.checked,
+            ).length;
+            cb.checked = checkedCount === groupChecks.length;
+            cb.indeterminate =
+                checkedCount > 0 && checkedCount < groupChecks.length;
+        });
+    }
+
+    function setBulkTruckChecked(input, checked) {
+        if (!input || input.disabled) return false;
+
+        if (checked) {
+            const selected = selectedBulkTruckChecks().filter(
+                (item) => item !== input,
+            );
+            if (selected.length) {
+                const seed = bulkTruckKey(selected[0]);
+                if (!bulkTruckMatchesShipDate(input, seed)) {
+                    warn("จัดรถพร้อมกันได้เฉพาะวันส่งเดียวกัน");
+                    input.checked = false;
+                    updateBulkTruckState();
+                    return false;
+                }
+            }
+        }
+
+        input.checked = checked;
+        updateBulkTruckState();
+        return true;
+    }
+
+    function selectVisibleBulkTruckSameShipDate() {
+        const selected = selectedBulkTruckChecks();
+        const visible = visibleBulkTruckChecks();
+        if (!visible.length) {
+            warn("ไม่พบรายการที่เลือกได้ในตาราง");
+            return;
+        }
+
+        const seed = bulkTruckKey(selected[0] || visible[0]);
+        visible.forEach((input) => {
+            if (bulkTruckMatchesShipDate(input, seed)) {
+                input.checked = true;
+            }
+        });
+        updateBulkTruckState();
+    }
+
+    function openBulkTruckSummary() {
+        const selected = selectedBulkTruckChecks();
+        if (!selected.length) return;
+
+        const first = selected[0];
+        const base = ROUTES.logisticsSummary || "";
+        if (!base) return;
+
+        const ordIds = selected
+            .map((input) =>
+                String(input.dataset.ordId || input.value || "").trim(),
+            )
+            .filter(Boolean);
+        const shipDates = new Set(
+            selected
+                .map((input) => String(input.dataset.shipDate || "").trim())
+                .filter(Boolean),
+        );
+        if (shipDates.size !== 1) {
+            warn("จัดรถพร้อมกันได้เฉพาะวันส่งเดียวกัน");
+            return;
+        }
+        const url = new URL(base, window.location.origin);
+
+        url.searchParams.set(
+            "ship_date",
+            Array.from(shipDates)[0] || first.dataset.shipDate || "",
+        );
+        url.searchParams.set("selected", `ord-${ordIds[0] || ""}`);
+        url.searchParams.set("ord_ids", ordIds.join(","));
+
+        window.location.href = url.toString();
+    }
+
     function validateBeforeSubmit() {
         if (isSpecialDispatchMode()) {
-            const dispatchType = String(tmSpecialDispatchType?.value || "").trim();
+            const dispatchType = String(
+                tmSpecialDispatchType?.value || "",
+            ).trim();
             if (!dispatchType) {
-                alert("กรุณาเลือกประเภทช่องทางพิเศษ");
+                warn("กรุณาเลือกประเภทช่องทางพิเศษ");
                 return false;
             }
             setSpecialDispatchAction(state.ordId);
@@ -1649,13 +2032,16 @@
         const ordIds = selectedOrdIds();
 
         if (!ordIds.length) {
-            alert("กรุณาเลือก MFG อย่างน้อย 1 รายการ");
+            warn("กรุณาเลือก MFG อย่างน้อย 1 รายการ");
             return false;
         }
 
         const staffSelections = [
             [tmDriverStaffId, "คนขับ"],
-            ...tmHelperStaffIds.map((selectEl, index) => [selectEl, `เด็กรถ ${index + 1}`]),
+            ...tmHelperStaffIds.map((selectEl, index) => [
+                selectEl,
+                `เด็กรถ ${index + 1}`,
+            ]),
         ];
         const staffSeen = new Map();
         for (const [selectEl, label] of staffSelections) {
@@ -1663,7 +2049,9 @@
             if (!staffId) continue;
 
             if (staffSeen.has(staffId)) {
-                alert(`${label} ซ้ำกับ ${staffSeen.get(staffId)} กรุณาเลือกพนักงานคนละคน`);
+                warn(
+                    `${label} ซ้ำกับ ${staffSeen.get(staffId)} กรุณาเลือกพนักงานคนละคน`,
+                );
                 if (selectEl && typeof selectEl.focus === "function") {
                     selectEl.focus();
                 }
@@ -1680,20 +2068,20 @@
 
         if (mode === "MASTER") {
             if (!tmTruckId || !tmTruckId.value) {
-                alert("กรุณาเลือกรถในระบบ");
+                warn("กรุณาเลือกรถในระบบ");
                 return false;
             }
             clearManualHiddenFields();
         } else if (mode === "MANUAL_TEMP") {
             const plate = String(tmManualPlateHidden?.value || "").trim();
             if (!plate) {
-                alert("ไม่พบข้อมูลรถนอกที่เลือก");
+                warn("ไม่พบข้อมูลรถนอกที่เลือก");
                 return false;
             }
         } else if (mode === "MANUAL") {
             const plate = String(tmManualPlate?.value || "").trim();
             if (!plate) {
-                alert("กรุณากรอกทะเบียนรถนอก");
+                warn("กรุณากรอกทะเบียนรถนอก");
                 return false;
             }
 
@@ -1716,7 +2104,7 @@
                 tmManualRemarkHidden.value = tmManualRemark.value || "";
             }
         } else {
-            alert("กรุณาเลือกประเภทรถ");
+            warn("กรุณาเลือกประเภทรถ");
             return false;
         }
 
@@ -1731,6 +2119,67 @@
             openTruckModalFromButton(btn);
             return;
         }
+
+        const bulkBtn = e.target.closest("#bulkTruckOpenBtn");
+        if (bulkBtn) {
+            openBulkTruckSummary();
+            return;
+        }
+    });
+
+    bulkTruckChecks.forEach((input) => {
+        input.addEventListener("change", () => {
+            setBulkTruckChecked(input, input.checked);
+        });
+    });
+
+    if (bulkTruckCheckAll) {
+        bulkTruckCheckAll.addEventListener("change", () => {
+            const visible = visibleBulkTruckChecks();
+            const selected = selectedBulkTruckChecks();
+            const seed = selected.length
+                ? bulkTruckKey(selected[0])
+                : bulkTruckKey(visible[0] || {});
+            const checked = bulkTruckCheckAll.checked;
+
+            visible.forEach((input) => {
+                if (!checked) {
+                    input.checked = false;
+                    return;
+                }
+                input.checked = seed.shipDate
+                    ? bulkTruckMatchesShipDate(input, seed)
+                    : false;
+            });
+
+            updateBulkTruckState();
+        });
+    }
+
+    if (bulkTruckClearBtn) {
+        bulkTruckClearBtn.addEventListener("click", () => {
+            bulkTruckChecks.forEach((input) => {
+                input.checked = false;
+            });
+            updateBulkTruckState();
+        });
+    }
+
+    if (bulkTruckSameCustomerBtn) {
+        bulkTruckSameCustomerBtn.addEventListener("click", () => {
+            selectVisibleBulkTruckSameShipDate();
+        });
+    }
+
+    document.querySelectorAll(".jsGroupTruckCheckAll").forEach((cb) => {
+        cb.addEventListener("change", () => {
+            setGroupBulkTruck(cb.dataset.group || "", cb.checked);
+        });
+    });
+
+    // เมื่อกรอง/ค้นหาในตาราง (รายการถูกซ่อน/แสดง) ให้ checkbox "เลือกทั้งกลุ่ม" อัปเดตตาม
+    document.addEventListener("dp:inquiry-filtered", () => {
+        syncGroupTruckCheckAll();
     });
 
     modalEl.addEventListener("change", (e) => {
@@ -1782,8 +2231,13 @@
             return;
         }
 
-        if (target === tmDispatchTruckMode || target === tmDispatchSpecialMode) {
-            setDispatchMode(target === tmDispatchSpecialMode ? "SPECIAL" : "TRUCK");
+        if (
+            target === tmDispatchTruckMode ||
+            target === tmDispatchSpecialMode
+        ) {
+            setDispatchMode(
+                target === tmDispatchSpecialMode ? "SPECIAL" : "TRUCK",
+            );
             return;
         }
 
@@ -1895,13 +2349,16 @@
 
     simplifyHelperInputs();
     keepOnlyTopManualModeOption();
+    updateBulkTruckState();
 })();
 
 (function bulkPostponeModal() {
     const CONFIG = window.DP_INQUIRY || {};
     const ROUTES = CONFIG.routes || {};
     const checkAll = document.getElementById("bulkPostponeCheckAll");
-    const checks = Array.from(document.querySelectorAll(".jsBulkPostponeCheck"));
+    const checks = Array.from(
+        document.querySelectorAll(".jsBulkPostponeCheck"),
+    );
     const openBtn = document.getElementById("bulkPostponeOpenBtn");
     const clearBtn = document.getElementById("bulkPostponeClearBtn");
     const countEl = document.getElementById("bulkPostponeCount");
@@ -1920,7 +2377,17 @@
     if (ROUTES.bulkPostpone) form.action = ROUTES.bulkPostpone;
 
     const esc = (value) =>
-        String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+        String(value ?? "").replace(
+            /[&<>"']/g,
+            (c) =>
+                ({
+                    "&": "&amp;",
+                    "<": "&lt;",
+                    ">": "&gt;",
+                    '"': "&quot;",
+                    "'": "&#39;",
+                })[c],
+        );
 
     function rowVisible(input) {
         const row = input.closest("tr.data-row");
@@ -1936,7 +2403,11 @@
     }
 
     function soCount(items) {
-        return new Set(items.map((input) => String(input.dataset.so || "").trim()).filter(Boolean)).size;
+        return new Set(
+            items
+                .map((input) => String(input.dataset.so || "").trim())
+                .filter(Boolean),
+        ).size;
     }
 
     function formatThaiDate(value) {
@@ -1952,14 +2423,19 @@
         const count = selected.length;
 
         if (countEl) countEl.textContent = count.toLocaleString();
-        if (soCountEl) soCountEl.textContent = soCount(selected).toLocaleString();
+        if (soCountEl)
+            soCountEl.textContent = soCount(selected).toLocaleString();
         openBtn.disabled = count === 0;
         if (clearBtn) clearBtn.disabled = count === 0;
 
         if (checkAll) {
-            const visibleSelected = visible.filter((input) => input.checked).length;
-            checkAll.checked = visible.length > 0 && visibleSelected === visible.length;
-            checkAll.indeterminate = visibleSelected > 0 && visibleSelected < visible.length;
+            const visibleSelected = visible.filter(
+                (input) => input.checked,
+            ).length;
+            checkAll.checked =
+                visible.length > 0 && visibleSelected === visible.length;
+            checkAll.indeterminate =
+                visibleSelected > 0 && visibleSelected < visible.length;
             checkAll.disabled = visible.length === 0;
         }
     }
@@ -1970,17 +2446,27 @@
 
         if (idsEl) {
             idsEl.innerHTML = selected
-                .map((input) => `<input type="hidden" name="ord_ids[]" value="${esc(input.value)}">`)
+                .map(
+                    (input) =>
+                        `<input type="hidden" name="ord_ids[]" value="${esc(input.value)}">`,
+                )
                 .join("");
         }
 
-        if (modalCountEl) modalCountEl.textContent = selected.length.toLocaleString();
-        if (modalSoCountEl) modalSoCountEl.textContent = soCount(selected).toLocaleString();
+        if (modalCountEl)
+            modalCountEl.textContent = selected.length.toLocaleString();
+        if (modalSoCountEl)
+            modalSoCountEl.textContent = soCount(selected).toLocaleString();
 
         if (previewEl) {
             previewEl.innerHTML = selected
                 .map((input) => {
-                    const part = [input.dataset.part || "", input.dataset.partDesc || ""].filter(Boolean).join(" ");
+                    const part = [
+                        input.dataset.part || "",
+                        input.dataset.partDesc || "",
+                    ]
+                        .filter(Boolean)
+                        .join(" ");
                     return `
                         <tr>
                             <td>${esc(input.dataset.so || "-")}</td>
@@ -2030,7 +2516,8 @@
         const firstDate = selected[0]?.dataset.shipDate || "";
         const firstTime = selected[0]?.dataset.windowTime || "08:00";
         if (shipDateEl && !shipDateEl.value) shipDateEl.value = firstDate;
-        if (windowTimeEl && !windowTimeEl.value) windowTimeEl.value = firstTime || "08:00";
+        if (windowTimeEl && !windowTimeEl.value)
+            windowTimeEl.value = firstTime || "08:00";
         if (reasonEl) reasonEl.value = "";
 
         renderPreview();
@@ -2101,7 +2588,8 @@
 
         const currentShipDate = btn.dataset.shipDate || "";
         if (shipDateEl) shipDateEl.value = currentShipDate;
-        if (windowTimeEl) windowTimeEl.value = btn.dataset.windowTime || "08:00";
+        if (windowTimeEl)
+            windowTimeEl.value = btn.dataset.windowTime || "08:00";
         if (reasonEl) reasonEl.value = "";
 
         modal.show();
@@ -2136,6 +2624,7 @@
     const continueEl = byId("duplicateContinueSamePlan");
     const modeSoEl = byId("duplicateModeSo");
     const modeAcidEl = byId("duplicateModeAcid");
+    const modeSpecialEl = byId("duplicateModeSpecial");
     const soDisplayEl = byId("duplicateSoDisplay");
     const customerDisplayEl = byId("duplicateCustomerDisplay");
     const salesDisplayEl = byId("duplicateSalesDisplay");
@@ -2186,23 +2675,31 @@
     }
 
     function isSellByLine() {
-        const checked = modalEl.querySelector('input[name="duplicate_sell_by_line"]:checked');
+        const checked = modalEl.querySelector(
+            'input[name="duplicate_sell_by_line"]:checked',
+        );
         if (checked) return checked.value === "1";
         return sellByLineEl ? sellByLineEl.value === "1" : false;
     }
 
     function setSellByLine(value) {
-        const radios = modalEl.querySelectorAll('input[name="duplicate_sell_by_line"]');
-        const normalized = radios.length === 0 && sellByLineEl?.value === "1"
-            ? "1"
-            : (String(value || "0") === "1" ? "1" : "0");
+        const radios = modalEl.querySelectorAll(
+            'input[name="duplicate_sell_by_line"]',
+        );
+        const normalized =
+            radios.length === 0 && sellByLineEl?.value === "1"
+                ? "1"
+                : String(value || "0") === "1"
+                  ? "1"
+                  : "0";
         if (radios.length) {
             radios.forEach((radio) => {
                 radio.checked = radio.value === normalized;
             });
         }
         if (sellByLineEl) sellByLineEl.value = normalized;
-        if (lineQtyWrapEl) lineQtyWrapEl.classList.toggle("d-none", normalized !== "1");
+        if (lineQtyWrapEl)
+            lineQtyWrapEl.classList.toggle("d-none", normalized !== "1");
         if (qtyWrapEl) qtyWrapEl.classList.toggle("d-none", normalized === "1");
     }
 
@@ -2228,7 +2725,7 @@
                         <span class="duplicate-mfg-suggest-title">${esc(item.mfg_no || item.workordernumber || "")}</span>
                         <span class="duplicate-mfg-suggest-sub">SO: ${esc(item.ordnumber || "-")} | Qty: ${esc(item.qty ?? "")}</span>
                     </button>
-                `
+                `,
             )
             .join("");
         mfgSuggestEl.classList.remove("d-none");
@@ -2242,7 +2739,8 @@
         if (mfgEl) mfgEl.value = mfgNo;
 
         if (isSellByLine()) {
-            if (lineQtyEl && mfgQty > 0) lineQtyEl.value = String(Math.round(mfgQty));
+            if (lineQtyEl && mfgQty > 0)
+                lineQtyEl.value = String(Math.round(mfgQty));
             if (qtyEl) qtyEl.value = "0";
         } else if (qtyEl && mfgQty > 0) {
             qtyEl.value = String(mfgQty);
@@ -2292,16 +2790,24 @@
         if (partsIdEl) partsIdEl.value = btn.dataset.partsId || "";
         if (soNumberEl) soNumberEl.value = btn.dataset.so || "";
         if (customerIdEl) customerIdEl.value = btn.dataset.customerId || "";
-        const deliveryType = String(btn.dataset.deliveryType || "SO").toUpperCase();
-        if (modeSoEl) modeSoEl.checked = deliveryType !== "ACID";
+        const deliveryType = String(
+            btn.dataset.deliveryType || "SO",
+        ).toUpperCase();
+        if (modeSoEl)
+            modeSoEl.checked =
+                deliveryType !== "ACID" && deliveryType !== "SPECIAL";
         if (modeAcidEl) modeAcidEl.checked = deliveryType === "ACID";
+        if (modeSpecialEl) modeSpecialEl.checked = deliveryType === "SPECIAL";
         if (soDisplayEl) soDisplayEl.value = btn.dataset.so || "";
-        if (customerDisplayEl) customerDisplayEl.value = btn.dataset.customerName || "";
+        if (customerDisplayEl)
+            customerDisplayEl.value = btn.dataset.customerName || "";
         if (salesDisplayEl) salesDisplayEl.value = btn.dataset.salesName || "";
         if (partDisplayEl) partDisplayEl.value = btn.dataset.part || "";
-        if (partDescDisplayEl) partDescDisplayEl.value = btn.dataset.partDesc || "";
+        if (partDescDisplayEl)
+            partDescDisplayEl.value = btn.dataset.partDesc || "";
         if (shipDateEl) shipDateEl.value = btn.dataset.shipDate || "";
-        if (windowTimeEl) windowTimeEl.value = btn.dataset.windowTime || "08:00";
+        if (windowTimeEl)
+            windowTimeEl.value = btn.dataset.windowTime || "08:00";
         if (mfgEl) mfgEl.value = btn.dataset.mfg || "";
         if (qtyEl) qtyEl.value = btn.dataset.qty || "";
         setSellByLine(btn.dataset.sellByLine === "1" ? "1" : "0");
@@ -2321,14 +2827,23 @@
     function applyContinuePayload(payload) {
         if (!payload || !payload.ord_id) return;
 
-        const btn = Array.from(document.querySelectorAll(".jsDuplicateBtn"))
-            .find((item) => String(item.dataset.ordId || "") === String(payload.ord_id));
+        const btn = Array.from(
+            document.querySelectorAll(".jsDuplicateBtn"),
+        ).find(
+            (item) =>
+                String(item.dataset.ordId || "") === String(payload.ord_id),
+        );
         if (!btn) return;
 
-        btn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        btn.dispatchEvent(
+            new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
 
-        if (shipDateEl) shipDateEl.value = payload.ship_date || btn.dataset.shipDate || "";
-        if (windowTimeEl) windowTimeEl.value = payload.window_time || btn.dataset.windowTime || "08:00";
+        if (shipDateEl)
+            shipDateEl.value = payload.ship_date || btn.dataset.shipDate || "";
+        if (windowTimeEl)
+            windowTimeEl.value =
+                payload.window_time || btn.dataset.windowTime || "08:00";
         setSellByLine(String(payload.sell_by_line || "0") === "1" ? "1" : "0");
         if (mfgEl) mfgEl.value = "";
         if (qtyEl) qtyEl.value = "";
@@ -2349,27 +2864,41 @@
     if (mfgEl) {
         mfgEl.addEventListener("input", () => {
             window.clearTimeout(mfgDebounce);
-            mfgDebounce = window.setTimeout(() => lookupMfg().catch(closeMfgSuggest), 200);
+            mfgDebounce = window.setTimeout(
+                () => lookupMfg().catch(closeMfgSuggest),
+                200,
+            );
         });
-        mfgEl.addEventListener("blur", () => window.setTimeout(closeMfgSuggest, 200));
+        mfgEl.addEventListener("blur", () =>
+            window.setTimeout(closeMfgSuggest, 200),
+        );
     }
 
-    modalEl.querySelectorAll('input[name="duplicate_sell_by_line"]').forEach((radio) => {
-        radio.addEventListener("change", () => {
-            setSellByLine(radio.value);
-            if (radio.value !== "1" && lineQtyEl) lineQtyEl.value = "";
+    modalEl
+        .querySelectorAll('input[name="duplicate_sell_by_line"]')
+        .forEach((radio) => {
+            radio.addEventListener("change", () => {
+                setSellByLine(radio.value);
+                if (radio.value !== "1" && lineQtyEl) lineQtyEl.value = "";
+            });
         });
-    });
 
     document.addEventListener("click", (event) => {
         if (!(event.target instanceof Element)) return;
         if (!mfgSuggestEl || mfgSuggestEl.classList.contains("d-none")) return;
-        if (mfgSuggestEl.contains(event.target) || mfgEl?.contains(event.target)) return;
+        if (
+            mfgSuggestEl.contains(event.target) ||
+            mfgEl?.contains(event.target)
+        )
+            return;
         closeMfgSuggest();
     });
 
     if (CONFIG.duplicateContinue) {
-        window.setTimeout(() => applyContinuePayload(CONFIG.duplicateContinue), 100);
+        window.setTimeout(
+            () => applyContinuePayload(CONFIG.duplicateContinue),
+            100,
+        );
     }
 })();
 
@@ -2430,6 +2959,40 @@
     });
 })();
 
+(function editLockedNotice() {
+    // งานที่ถูกจัดรถหรือกำหนดช่องทางพิเศษแล้ว: ต้องให้ logistics ยกเลิกก่อนแก้ไข
+    document.addEventListener("click", (e) => {
+        if (!(e.target instanceof Element)) return;
+
+        const btn = e.target.closest(".jsEditLockedBtn");
+        if (!btn) return;
+
+        e.preventDefault();
+
+        const shipDate = btn.dataset.shipDate || "";
+        const soNo = (btn.dataset.so || "").trim();
+        const soText = soNo ? `Sales Order : ${soNo}` : "งานนี้";
+        const dateText = shipDate ? `วันส่ง : ${shipDate}` : "";
+        const html =
+            `${soText} มีการบันทึกรายการจัดส่งแล้ว<br>` +
+            `${dateText ? dateText + "<br>" : ""}` +
+            "กรุณาติดต่อ <b>Logistics</b> เพื่อยกเลิกการจัดส่งก่อนแก้ไข";
+
+        if (window.Swal && typeof window.Swal.fire === "function") {
+            window.Swal.fire({
+                icon: "warning",
+                title: "ไม่สามารถแก้ไขได้",
+                html: html,
+                confirmButtonText: "รับทราบ",
+                heightAuto: false,
+                scrollbarPadding: false,
+            });
+        } else {
+            alert(html.replace(/<[^>]+>/g, " "));
+        }
+    });
+})();
+
 (function unassignTruckModal() {
     const byId = (id) => document.getElementById(id);
     const CONFIG = window.DP_INQUIRY || {};
@@ -2454,11 +3017,15 @@
         const so = String(btn.dataset.so || "").trim();
         const mfg = String(btn.dataset.mfg || "").trim();
         const plate = String(btn.dataset.plate || "").trim();
-        return [
-            so ? "SO: " + so : "",
-            mfg ? "MFG: " + mfg : "",
-            plate ? "ทะเบียน: " + plate : "",
-        ].filter(Boolean).join(" | ") || "-";
+        return (
+            [
+                so ? "SO: " + so : "",
+                mfg ? "MFG: " + mfg : "",
+                plate ? "ทะเบียน: " + plate : "",
+            ]
+                .filter(Boolean)
+                .join(" | ") || "-"
+        );
     }
 
     document.addEventListener("click", (e) => {
@@ -2522,11 +3089,17 @@
     }
 
     function historyUrl(ordId) {
-        return String(ROUTES.history || "").replace("__ID__", encodeURIComponent(String(ordId || "")));
+        return String(ROUTES.history || "").replace(
+            "__ID__",
+            encodeURIComponent(String(ordId || "")),
+        );
     }
 
     function historyDbUrl(ordId) {
-        return String(ROUTES.historyDb || "").replace("__ID__", encodeURIComponent(String(ordId || "")));
+        return String(ROUTES.historyDb || "").replace(
+            "__ID__",
+            encodeURIComponent(String(ordId || "")),
+        );
     }
 
     function setButtons(mode) {
@@ -2534,7 +3107,10 @@
 
         if (currentBtn) {
             currentBtn.classList.toggle("btn-primary", mode === "current");
-            currentBtn.classList.toggle("btn-outline-primary", mode !== "current");
+            currentBtn.classList.toggle(
+                "btn-outline-primary",
+                mode !== "current",
+            );
         }
         if (stepBtn) {
             stepBtn.classList.toggle("btn-secondary", mode === "step");
@@ -2566,7 +3142,13 @@
     }
 
     function actorName(row) {
-        return row.revise_by_name || row.revise_user_name || row.created_by_name || row.revise_by || "-";
+        return (
+            row.revise_by_name ||
+            row.revise_user_name ||
+            row.created_by_name ||
+            row.revise_by ||
+            "-"
+        );
     }
 
     function renderDiffs(diffs) {
@@ -2574,7 +3156,9 @@
             return '<span class="text-muted">No field changes</span>';
         }
 
-        return `<div class="vstack gap-1">${diffs.map((d) => `
+        return `<div class="vstack gap-1">${diffs
+            .map(
+                (d) => `
             <div class="border rounded p-2 bg-light">
                 <div class="fw-semibold">${esc(d.label || d.field || "-")}</div>
                 <div class="small">
@@ -2583,36 +3167,46 @@
                     <span class="text-success">${esc(d.to || "-")}</span>
                 </div>
             </div>
-        `).join("")}</div>`;
+        `,
+            )
+            .join("")}</div>`;
     }
 
     function renderTop() {
         const payload = state.payload || {};
-        const versions = Array.isArray(payload.versions) ? payload.versions : [];
+        const versions = Array.isArray(payload.versions)
+            ? payload.versions
+            : [];
         const diffKey = state.mode === "step" ? "diff_step" : "diff_current";
 
         if (metaEl) {
             metaEl.textContent = `ord_id: ${payload.ord_id || state.ordId || "-"} | current rev: ${payload.current_revision ?? "-"}`;
         }
         if (colTitleEl) {
-            colTitleEl.textContent = state.mode === "step"
-                ? "Changed Fields (step by step)"
-                : "Changed Fields (compare with current)";
+            colTitleEl.textContent =
+                state.mode === "step"
+                    ? "Changed Fields (step by step)"
+                    : "Changed Fields (compare with current)";
         }
 
         if (versions.length === 0) {
-            tbodyEl.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No history versions found</td></tr>';
+            tbodyEl.innerHTML =
+                '<tr><td colspan="4" class="text-center text-muted py-3">No history versions found</td></tr>';
             return;
         }
 
-        tbodyEl.innerHTML = versions.map((row) => `
+        tbodyEl.innerHTML = versions
+            .map(
+                (row) => `
             <tr>
                 <td class="text-center">${esc(row.revision_number ?? "-")}</td>
                 <td>${formatPeriod(row)}</td>
                 <td>${esc(actorName(row))}</td>
                 <td>${renderDiffs(row[diffKey])}</td>
             </tr>
-        `).join("");
+        `,
+            )
+            .join("");
     }
 
     function renderDbRows(rows) {
@@ -2622,15 +3216,20 @@
 
         if (list.length === 0) {
             dbTheadEl.innerHTML = "";
-            dbTbodyEl.innerHTML = '<tr><td class="text-center text-muted py-3">No database history rows found</td></tr>';
+            dbTbodyEl.innerHTML =
+                '<tr><td class="text-center text-muted py-3">No database history rows found</td></tr>';
             return;
         }
 
         const columns = Object.keys(list[0]);
         dbTheadEl.innerHTML = columns.map((c) => `<th>${esc(c)}</th>`).join("");
-        dbTbodyEl.innerHTML = list.map((row) => `
+        dbTbodyEl.innerHTML = list
+            .map(
+                (row) => `
             <tr>${columns.map((c) => `<td>${esc(row[c] ?? "")}</td>`).join("")}</tr>
-        `).join("");
+        `,
+            )
+            .join("");
     }
 
     async function loadHistory(ordId) {
@@ -2655,7 +3254,9 @@
             state.payload = data;
             renderTop();
         } catch (err) {
-            renderError(err && err.message ? err.message : "Unable to load history");
+            renderError(
+                err && err.message ? err.message : "Unable to load history",
+            );
         }
     }
 
@@ -2669,7 +3270,8 @@
         state.loadingDb = true;
         if (dbTheadEl) dbTheadEl.innerHTML = "";
         if (dbTbodyEl) {
-            dbTbodyEl.innerHTML = '<tr><td class="text-center text-muted py-3">Loading...</td></tr>';
+            dbTbodyEl.innerHTML =
+                '<tr><td class="text-center text-muted py-3">Loading...</td></tr>';
         }
 
         try {

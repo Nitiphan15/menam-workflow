@@ -175,6 +175,15 @@ class DeliveryPlanController extends Controller
 
             $shipDate = $row->ship_posted_at ? Carbon::parse($row->ship_posted_at)->toDateString() : $day->toDateString();
             $winTime  = $row->window_at ? Carbon::parse($row->window_at)->format('H:i') : '08:00';
+
+            // งานที่ถูกจัดรถแล้ว → แก้ไขไม่ได้ (กันเข้าหน้าแก้ไขผ่าน URL ตรง ๆ)
+            if ($this->isDispatchAssignedForOrd((string) $row->ord_id)) {
+                $soText = trim((string) ($row->so_number ?? '')) !== '' ? 'SO ' . trim((string) $row->so_number) : 'งานนี้';
+                return redirect()
+                    ->route('dp.inquiry')
+                    ->with('error', "{$soText} ถูกจัดรถหรือกำหนดเป็นงานพิเศษแล้ว กรุณาติดต่อ Logistics เพื่อยกเลิกการจัดส่งก่อนแก้ไข");
+            }
+
             $editMailSentRevisions = $this->sentRevisionNumbersForShipDate($shipDate);
 
             $header = [
@@ -218,7 +227,7 @@ class DeliveryPlanController extends Controller
                 $editQtyKg = $editLineQty * $kgPerLine;
             }
 
-            if ($editQtyKg === null && strtoupper((string) ($row->delivery_type ?? 'SO')) !== 'ACID') {
+            if ($editQtyKg === null && !in_array(strtoupper((string) ($row->delivery_type ?? 'SO')), ['ACID', 'SPECIAL'], true)) {
                 $mfgNoForQty = trim((string) ($row->mfg_no ?? ''));
 
                 if ($mfgNoForQty !== '' && !str_contains($mfgNoForQty, ',')) {
@@ -254,7 +263,9 @@ class DeliveryPlanController extends Controller
                 'mode'              => (string)($row->delivery_type ?? 'SO'),
                 'so_number'         => (string)($row->so_number ?? ''),
                 'customer_id'       => (string)($row->customer_id ?? ''),
-                'customer_name'     => trim((string)($row->customernumber ?? '') . ' — ' . (string)($row->cm_name ?? '')),
+                'customer_name'     => trim((string) ($row->customer_name ?? '')) !== ''
+                    ? trim((string) $row->customer_name)
+                    : trim((string)($row->customernumber ?? '') . ' — ' . (string)($row->cm_name ?? '')),
                 'sales_id'          => (string)($row->sales_id ?? ''),
                 'sales_text'        => $salesText,
                 'parts_id'          => (int)($row->parts_id ?? 0),
@@ -330,12 +341,14 @@ class DeliveryPlanController extends Controller
             'window_text'      => ['nullable', 'string', 'max:50'],
 
             'lines'               => ['required', 'array', 'min:1'],
-            'lines.*.mode'        => ['required', 'in:SO,ACID'],
+            'lines.*.mode'        => ['required', 'in:SO,ACID,SPECIAL'],
             'lines.*.qty_kg'      => ['required', 'numeric', 'gt:0'],
             'lines.*.stock_fg'    => ['nullable', 'numeric', 'min:0'],
 
             // ตัวนี้ถ้าเป็น SO ค่อย required (เช็คใน after)
             'lines.*.sales_id'    => ['nullable'],
+            'lines.*.customer_id' => ['nullable'],
+            'lines.*.customer_name' => ['nullable', 'string', 'max:255'],
 
             'lines.*.part_no'      => ['nullable', 'string', 'max:60'],
             'lines.*.part_desc'   => ['nullable', 'string', 'max:255'],
@@ -359,7 +372,7 @@ class DeliveryPlanController extends Controller
             'window_time.date_format' => 'รูปแบบเวลาไม่ถูกต้อง (HH:MM)',
 
             'lines.required' => 'กรุณาเพิ่มรายการสินค้าอย่างน้อย 1 รายการ',
-            'lines.*.mode.required' => 'กรุณาเลือกโหมด (SO/ACID)',
+            'lines.*.mode.required' => 'กรุณาเลือกโหมด (SO/ACID/Special)',
             'lines.*.mode.in' => 'โหมดไม่ถูกต้อง',
             'lines.*.qty_kg.required' => 'กรุณากรอกจำนวน (kg) ',
             'lines.*.qty_kg.gt' => 'จำนวน (kg) ต้องมากกว่า 0',
@@ -372,7 +385,7 @@ class DeliveryPlanController extends Controller
 
         $firstLine = $request->input('lines.0', []);
         $deliveryMode = strtoupper(trim((string)($firstLine['mode'] ?? 'SO')));
-        $deliveryMode = in_array($deliveryMode, ['SO', 'ACID'], true) ? $deliveryMode : 'SO';
+        $deliveryMode = in_array($deliveryMode, ['SO', 'ACID', 'SPECIAL'], true) ? $deliveryMode : 'SO';
 
         $sellByLineInput = (string)($firstLine['sell_by_line'] ?? '0');
         $isSellByLine = ($sellByLineInput === '1' || strtolower($sellByLineInput) === 'true');
@@ -411,7 +424,10 @@ class DeliveryPlanController extends Controller
         $maxAllowed = null;
         $isManualMfg = $request->boolean('is_manual_mfg');
 
-        if ($deliveryMode !== 'ACID' && $mfgNo !== '' && !$isManualMfg) {
+        // โหมดที่ไม่ผูก Sales Order (กรอก Part เอง): ACID = ส่งกัดกรด, SPECIAL = งานพิเศษ
+        $isNonSoMode = in_array($deliveryMode, ['ACID', 'SPECIAL'], true);
+
+        if (!$isNonSoMode && $mfgNo !== '' && !$isManualMfg) {
             $mfg = $this->conn()->table('workorder')
                 ->where('workordernumber', $mfgNo)
                 ->first();
@@ -423,7 +439,7 @@ class DeliveryPlanController extends Controller
             }
 
             $maxAllowed = (float) ($mfg->qty ?? 0);
-        } elseif ($deliveryMode !== 'ACID') {
+        } elseif (!$isNonSoMode) {
             $so = $this->conn()->table('saleorder')
                 ->where('ordnumber', $ordnumber)
                 ->where('parts_id', $partsID)
@@ -460,13 +476,19 @@ class DeliveryPlanController extends Controller
             foreach ($lines as $i => $line) {
                 $mode = strtoupper((string)($line['mode'] ?? 'SO'));
 
-                if ($mode === 'ACID') {
+                // ACID (ส่งกัดกรด) และ SPECIAL (งานพิเศษ) ต้องกรอก Part เอง (ไม่ผูก SO)
+                if (in_array($mode, ['ACID', 'SPECIAL'], true)) {
+                    $modeLabel = $mode === 'SPECIAL' ? 'งานพิเศษ' : 'ACID';
                     if (blank($line['part_no'] ?? null)) {
-                        $v->errors()->add("lines.$i.part_no", 'โหมด ACID ต้องกรอก Part');
+                        $v->errors()->add("lines.$i.part_no", "โหมด {$modeLabel} ต้องกรอก Part");
                     }
                     if (blank($line['part_desc'] ?? null)) {
-                        $v->errors()->add("lines.$i.part_desc", 'โหมด ACID ต้องกรอก Part Description');
+                        $v->errors()->add("lines.$i.part_desc", "โหมด {$modeLabel} ต้องกรอก Part Description");
                     }
+                }
+
+                if ($mode === 'SPECIAL' && blank($line['customer_name'] ?? null)) {
+                    $v->errors()->add("lines.$i.customer_name", 'โหมดงานพิเศษต้องกรอกชื่อลูกค้า/หน่วยงาน');
                 }
 
                 if ($mode === 'SO') {
@@ -541,26 +563,39 @@ class DeliveryPlanController extends Controller
                 $part     = trim((string)($ln['part_no'] ?? ''));
                 $custId   = trim((string)($ln['customer_id'] ?? ''));
                 $custName = trim((string)($ln['customer_name'] ?? ''));
+                $deliveryType = strtoupper(trim((string)($ln['mode'] ?? 'SO')));
+                $deliveryType = in_array($deliveryType, ['SO', 'ACID', 'SPECIAL'], true) ? $deliveryType : 'SO';
 
                 // skip empty line (create เท่านั้น)
                 if ($ordId === '' && $qty === '' && $part === '' && $custId === '' && $custName === '') continue;
 
-                if ($custId === '') $custId = $this->findCustomerIdByName($custName);
-                if ($custId === '') throw new \RuntimeException("ไม่พบ Customer ใน master: {$custName}");
+                if ($custId === '') {
+                    $custId = $this->findCustomerIdByName($custName);
+                }
+                if ($custId === '' && $deliveryType !== 'SPECIAL') {
+                    throw new \RuntimeException("ไม่พบ Customer ใน master: {$custName}");
+                }
+
+                $manualCustomerName = $deliveryType === 'SPECIAL' && $custId === ''
+                    ? $custName
+                    : null;
 
                 $sellByLine = (string)($ln['sell_by_line'] ?? '0');
                 $sellByLine = ($sellByLine === '1' || strtolower($sellByLine) === 'true') ? 1 : 0;
 
                 // sales_id: manual ได้ / หรือไม่กรอกให้ดึงจาก customer.saleperson_id
                 $salesIdInput = trim((string)($ln['sales_id'] ?? ''));
-                if ($salesIdInput === '') {
+                if ($salesIdInput === '' && $custId !== '') {
                     $salesIdInput = (string)$this->conn()->table('customer')->where('id', $custId)->value('saleperson_id');
                 }
                 $salesIdInput = trim((string)$salesIdInput);
                 $salesId = $salesIdInput === '' ? null : (int)$salesIdInput;
 
-                $deliveryType = strtoupper(trim((string)($ln['mode'] ?? 'SO')));
-                $deliveryType = in_array($deliveryType, ['SO', 'ACID'], true) ? $deliveryType : 'SO';
+                // งานพิเศษ (Special): ผู้รับผิดชอบเป็น Export (ไม่ผูก Sales จริง)
+                // กลุ่ม EXPORT ในหน้า Inquiry มาจาก delivery_type='SPECIAL' จึงเคลียร์ sales_id
+                if ($deliveryType === 'SPECIAL') {
+                    $salesId = null;
+                }
 
                 $soNo = trim((string)($ln['so_number'] ?? ''));
 
@@ -596,7 +631,7 @@ class DeliveryPlanController extends Controller
                     $qtyKg = $calcQtyKg;
                 }
 
-                if ($deliveryType === 'ACID') $soNo = '';
+                if (in_array($deliveryType, ['ACID', 'SPECIAL'], true)) $soNo = '';
 
                 $payload = [
                     // header
@@ -614,7 +649,8 @@ class DeliveryPlanController extends Controller
                     // line
                     'delivery_type'      => $deliveryType,
                     'so_number'          => $soNo,
-                    'customer_id'        => $custId,
+                    'customer_id'        => $custId === '' ? null : $custId,
+                    'customer_name'      => $manualCustomerName,
                     'sales_id'           => $salesId,
 
                     'part_number'        => trim((string)($ln['part_no'] ?? '')),
@@ -647,6 +683,7 @@ class DeliveryPlanController extends Controller
                             'delivery_type',
                             'so_number',
                             'customer_id',
+                            'customer_name',
                             'sales_id',
                             'part_number',
                             'part_desc',
@@ -662,6 +699,14 @@ class DeliveryPlanController extends Controller
                         ->first();
 
                     if (!$row) throw new \RuntimeException("ไม่พบรายการ ord_id={$ordId}");
+
+                    // งานที่ถูกจัดรถแล้ว → ห้ามแก้ไข (กันยอดในแผนกับยอดจัดรถไม่ตรงกัน)
+                    if ($this->isDispatchAssignedForOrd($ordId)) {
+                        $soText = trim((string) ($row->so_number ?? '')) !== '' ? 'SO ' . trim((string) $row->so_number) : 'งานนี้';
+                        throw new \RuntimeException(
+                            "{$soText} ถูกจัดรถหรือกำหนดเป็นงานพิเศษแล้ว กรุณาติดต่อ Logistics เพื่อยกเลิกการจัดส่งก่อนแก้ไข"
+                        );
+                    }
 
                     $editRemark = trim((string)($ln['edit_remark'] ?? ''));
                     if ($editRemark === '') throw new \RuntimeException("กรุณากรอก Edit Remark ตอนแก้ไข");
@@ -1146,6 +1191,36 @@ class DeliveryPlanController extends Controller
             ->sort()
             ->values()
             ->all();
+    }
+
+    /**
+     * ล็อกการแก้ไขทันทีเมื่องานถูกจัดรถจริง (มี assigned_weight)
+     * หรือมีช่องทางพิเศษที่ยังเปิดอยู่ใน delivery_plan_special_dispatch
+     * เพื่อป้องกันยอดในแผนกับยอดจัดรถไม่ตรงกัน
+     */
+    private function isDispatchAssignedForOrd(string $ordId): bool
+    {
+        $ordId = trim($ordId);
+        if ($ordId === '') {
+            return false;
+        }
+
+        $hasTruckAssignment = (float) $this->conn()
+            ->table('delivery_plan_truck_assign')
+            ->where('ord_id', $ordId)
+            ->selectRaw('ISNULL(SUM(ISNULL(assigned_weight, 0)), 0) as s')
+            ->value('s') > 0;
+
+        if ($hasTruckAssignment) {
+            return true;
+        }
+
+        return $this->conn()
+            ->table('delivery_plan_special_dispatch')
+            ->where('ord_id', $ordId)
+            ->where('status', 'OPEN')
+            ->whereRaw("UPPER(ISNULL(dispatch_type, '')) <> 'POSTPONED'")
+            ->exists();
     }
 
     private function buildContinueSameSoPayload(Request $request): ?array

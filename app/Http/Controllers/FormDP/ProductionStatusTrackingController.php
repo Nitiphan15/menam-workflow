@@ -40,7 +40,7 @@ class ProductionStatusTrackingController extends Controller
             $request->query('return_url'),
             $request->query('ord_id'),
             $request->query('so_number'),
-            $request->only(['dp_qty', 'dp_sale_type', 'dp_status', 'ship_date', 'deadline'])
+            $request->only(['dp_qty', 'dp_sale_type', 'dp_status', 'delivery_type', 'ship_date', 'deadline'])
         ));
     }
 
@@ -162,6 +162,7 @@ class ProductionStatusTrackingController extends Controller
             'so' => ['nullable', 'string', 'max:80'],
             'customer' => ['nullable', 'string', 'max:160'],
             'item' => ['nullable', 'string', 'max:160'],
+            'delivery_type' => ['nullable', 'in:all,ALL,SO,ACID,SPECIAL'],
             'delivery_status' => ['nullable', 'in:NEW,ASSIGN,CLOSED,VOID,ALL'],
             'completion_filter' => ['nullable', 'in:all,open,completed'],
             'status_filter' => ['nullable', 'in:all,delayed,at_risk'],
@@ -187,6 +188,7 @@ class ProductionStatusTrackingController extends Controller
             'so' => trim((string) ($validated['so'] ?? '')),
             'customer' => trim((string) ($validated['customer'] ?? '')),
             'item' => trim((string) ($validated['item'] ?? '')),
+            'delivery_type' => strtoupper(trim((string) ($validated['delivery_type'] ?? 'all'))) ?: 'ALL',
             'delivery_status' => strtoupper(trim((string) ($validated['delivery_status'] ?? 'NEW'))) ?: 'NEW',
             'completion_filter' => $completionFilter,
             'status_filter' => $statusFilter,

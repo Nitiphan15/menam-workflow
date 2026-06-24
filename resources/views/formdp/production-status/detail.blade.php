@@ -95,6 +95,14 @@
             <div>
                 <h5 class="mb-1">{{ $mfgNo }}</h5>
                 <div class="pst-meta">{{ $site ?: '-' }} | {{ $tracking->source_note ?? '' }}</div>
+                @if (in_array($tracking->delivery_mode ?? '', ['ACID', 'SPECIAL'], true))
+                    <div class="mt-1">
+                        <span class="badge bg-{{ $tracking->delivery_mode_badge_class ?? 'warning text-dark border' }}"
+                            title="{{ $tracking->delivery_mode_note ?? 'งานส่งกัดกรด' }}">
+                            {{ $tracking->delivery_mode_label ?? 'งานกัดกรด' }}
+                        </span>
+                    </div>
+                @endif
             </div>
             <a class="btn btn-outline-secondary" href="{{ $returnUrl ?? route('dp.production-status') }}">
                 <i class="fas fa-arrow-left me-1"></i> Back
@@ -190,7 +198,16 @@
                             <td>{{ $tracking->customer ?? '-' }}</td>
                             <td>{{ $tracking->item ?? '-' }}</td>
                             <td class="num">{{ $tracking->qty_display ?? '-' }}</td>
-                            <td><span class="badge bg-light text-dark border">{{ $tracking->sale_type ?? '-' }}</span></td>
+                            <td>
+                                <span class="badge bg-light text-dark border">{{ $tracking->sale_type ?? '-' }}</span>
+                                @if (in_array($tracking->delivery_mode ?? '', ['ACID', 'SPECIAL'], true))
+                                    <div class="mt-1">
+                                        <span class="badge bg-{{ $tracking->delivery_mode_badge_class ?? 'warning text-dark border' }}">
+                                            {{ $tracking->delivery_mode_label ?? 'งานกัดกรด' }}
+                                        </span>
+                                    </div>
+                                @endif
+                            </td>
                             <td>{{ $tracking->dp_status ?? '-' }}</td>
                             <td>{{ $fmtDate($tracking->ship_date ?? ($tracking->due_date ?? null)) }}</td>
                             <td>{{ $fmtDate($tracking->dp_due_date ?? null) }}</td>
@@ -262,5 +279,6 @@
                 </table>
             </div>
         </div>
+
     </div>
 @endsection

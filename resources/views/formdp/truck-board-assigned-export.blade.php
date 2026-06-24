@@ -188,6 +188,15 @@
 
 <body>
     @php
+        // แปลงรหัส delivery_type เป็นป้ายอ่านง่าย (sync กับหน้า inquiry)
+        $deliveryTypeLabel = function ($type) {
+            return match (strtoupper(trim((string) $type))) {
+                'ACID' => 'ส่งกัดกรด',
+                'SPECIAL' => 'งานพิเศษ',
+                'SO' => 'ปกติ (SO)',
+                default => trim((string) $type) ?: '-',
+            };
+        };
         $fmtTon = fn($kg) => number_format((float) ($kg ?? 0), 0, '.', ',');
         $fmtLoad = function ($kg) {
             $kg = (float) ($kg ?? 0);
@@ -295,18 +304,40 @@
                 </thead>
                 <tbody>
                     @foreach ($truck->rows as $i => $row)
+                        @php
+                            $sellByLine = (int) ($row->sell_by_line ?? 0) === 1;
+                            $lineQtyNum = (float) ($row->line_qty ?? 0);
+                            $qtyNum     = (float) ($row->qty ?? 0);
+                            $assignedNum = (float) ($row->assigned_weight ?? 0);
+                            // sell_by_line แบบชิ้น: qty=0 + line_qty>0 (ตรงกับ logic หน้า inquiry)
+                            $isPieceQty = $sellByLine && $lineQtyNum > 0 && $qtyNum == 0.0;
+                            // หน่วย: qty=0 → ชิ้น, qty>0 → เส้น
+                            $lineUnit = $isPieceQty ? 'ชิ้น' : 'เส้น';
+                        @endphp
                         <tr>
                             <td class="center">{{ $i + 1 }}</td>
                             <td><strong>{{ $row->customer_name ?: '-' }}</strong></td>
                             <td class="center">{{ $row->package_text ?: '-' }}</td>
-                            <td class="center">{{ $row->delivery_type ?: '-' }}</td>
+                            <td class="center">{{ $deliveryTypeLabel($row->delivery_type) }}</td>
                             <td class="center"><strong>{{ $row->part_desc ?: $row->part_number ?: '-' }}</strong></td>
                             <td class="center"><strong>{{ $row->mfg_no ?: '-' }}</strong></td>
-                            <td class="right red">{{ $fmtTon($row->qty ?? 0) }}</td>
-                            <td class="right green">{{ $fmtTon($row->assigned_weight ?? 0) }}</td>
+                            <td class="right red">
+                                @if ($isPieceQty)
+                                    {{ number_format($lineQtyNum, 0) }} {{ $lineUnit }}
+                                @else
+                                    {{ $fmtTon($qtyNum) }}
+                                @endif
+                            </td>
+                            <td class="right green">
+                                @if ($isPieceQty && $assignedNum <= 0)
+                                    {{ number_format($lineQtyNum, 0) }} {{ $lineUnit }}
+                                @else
+                                    {{ $fmtTon($assignedNum) }}
+                                @endif
+                            </td>
                             <td class="center">
-                                @if ((int) ($row->sell_by_line ?? 0) === 1)
-                                    {{ number_format((float) ($row->line_qty ?? 0), 0) }}
+                                @if ($sellByLine && !$isPieceQty)
+                                    {{ number_format($lineQtyNum, 0) }} เส้น
                                 @else
                                     -
                                 @endif
@@ -334,29 +365,39 @@
             <table>
                 <colgroup>
                     <col style="width:38px">
+                    <col style="width:135px">
+                    <col style="width:95px">
+                    <col style="width:90px">
+                    <col style="width:175px">
+                    <col style="width:170px">
+                    <col style="width:80px">
+                    <col style="width:80px">
                     <col style="width:85px">
-                    <col style="width:105px">
-                    <col style="width:130px">
-                    <col style="width:260px">
-                    <col style="width:150px">
-                    <col style="width:250px">
+                    <col style="width:180px">
+                    <col style="width:165px">
+                    <col style="width:120px">
                     <col style="width:150px">
                 </colgroup>
                 <thead>
                     @if (($exportMode ?? '') === 'excel')
                         <tr>
-                            <th colspan="8" class="truck-title-row">งานพิเศษวันนี้ ({{ number_format($specialCount) }} รายการ)</th>
+                            <th colspan="13" class="truck-title-row">งานพิเศษวันนี้ ({{ number_format($specialCount) }} รายการ)</th>
                         </tr>
                     @endif
                     <tr>
                         <th>#</th>
-                        <th>เวลา</th>
-                        <th>SO</th>
-                        <th>MFG</th>
-                        <th>สินค้า</th>
-                        <th>ลูกค้า / Sales</th>
-                        <th>สถานที่ส่ง</th>
-                        <th>สถานะ / หมายเหตุ</th>
+                        <th class="yellow">CUSTOMER</th>
+                        <th>PACKAGE</th>
+                        <th>TYPE</th>
+                        <th>SIZE x LENGTH</th>
+                        <th>MFG/เลขที่</th>
+                        <th>SALES QTY</th>
+                        <th>LOGISTICS QTY</th>
+                        <th>จำนวน/เส้น</th>
+                        <th>สถานที่ส่งสินค้า</th>
+                        <th>OE / เอกสาร</th>
+                        <th>Sales</th>
+                        <th>รายงานปัญหา</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -367,30 +408,49 @@
                             $dispatchLabel = $firstSpecial->dispatch_label ?? $dispatchType;
                         @endphp
                         <tr>
-                            <td colspan="8" class="truck-title-row">{{ $dispatchLabel }} ({{ number_format($specialRows->count()) }} รายการ)</td>
+                            <td colspan="13" class="truck-title-row">{{ $dispatchLabel }} ({{ number_format($specialRows->count()) }} รายการ)</td>
                         </tr>
                         @foreach ($specialRows as $row)
+                            @php
+                                $specialNote = trim(collect([
+                                    $row->dp_status ?? '',
+                                    $row->edit_remark ?? '',
+                                    $row->dp_remark ?? '',
+                                    $row->special_remark ?? '',
+                                ])->filter()->implode(' | '));
+
+                                $sellByLineS = (int) ($row->sell_by_line ?? 0) === 1;
+                                $lineQtyNumS = (float) ($row->line_qty ?? 0);
+                                $qtyNumS     = (float) ($row->qty ?? 0);
+                                $isPieceQtyS = $sellByLineS && $lineQtyNumS > 0 && $qtyNumS == 0.0;
+                                $lineUnitS = $isPieceQtyS ? 'ชิ้น' : 'เส้น';
+                            @endphp
                             <tr>
                                 <td class="center">{{ $specialIndex++ }}</td>
-                                <td class="center">{{ !empty($row->window_at) ? \Carbon\Carbon::parse($row->window_at)->format('H:i') : '-' }}</td>
-                                <td>{{ $row->so_number ?: '-' }}</td>
-                                <td>{{ $row->mfg_no ?: '-' }}</td>
-                                <td>
-                                    <strong>{{ $row->part_number ?: '-' }}</strong><br>
-                                    {{ $row->part_desc ?: '-' }}<br>
-                                    QTY {{ $fmtLoad($row->qty ?? 0) }}
-                                </td>
-                                <td>
-                                    <strong>{{ $row->customer_name ?: '-' }}</strong><br>
-                                    {{ $row->sales_name ?: '-' }}
-                                </td>
-                                <td>{{ $row->address ?: '-' }}</td>
-                                <td>
-                                    {{ $row->dp_status ?: '-' }}
-                                    @if (!empty($row->special_remark))
-                                        <br>{{ $row->special_remark }}
+                                <td><strong>{{ $row->customer_name ?: '-' }}</strong></td>
+                                <td class="center">{{ $row->package_text ?: '-' }}</td>
+                                <td class="center">{{ $deliveryTypeLabel($row->delivery_type) }}</td>
+                                <td class="center"><strong>{{ $row->part_desc ?: $row->part_number ?: '-' }}</strong></td>
+                                <td class="center"><strong>{{ $row->mfg_no ?: '-' }}</strong></td>
+                                <td class="right red">
+                                    @if ($isPieceQtyS)
+                                        {{ number_format($lineQtyNumS, 0) }} {{ $lineUnitS }}
+                                    @else
+                                        {{ $fmtTon($qtyNumS) }}
                                     @endif
                                 </td>
+                                <td class="right green">-</td>
+                                <td class="center">
+                                    @if ($sellByLineS && !$isPieceQtyS)
+                                        {{ number_format($lineQtyNumS, 0) }} เส้น
+                                    @else
+                                        -
+                                    @endif
+                                </td>
+                                <td>{{ $row->address ?: '-' }}</td>
+                                <td class="red">{{ $row->attach_docs_text ?: '-' }}</td>
+                                <td>{{ $row->sales_name ?: '-' }}</td>
+                                <td class="red">{{ $specialNote ?: '-' }}</td>
                             </tr>
                         @endforeach
                     @endforeach

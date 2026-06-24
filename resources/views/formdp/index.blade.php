@@ -50,17 +50,6 @@
             <div class="alert alert-success py-2">{{ session('ok') }}</div>
         @endif
 
-        @if ($errors->any())
-            <div class="alert alert-danger py-2">
-                <div class="fw-bold mb-1">เกิดข้อผิดพลาด</div>
-                <ul class="mb-0">
-                    @foreach ($errors->all() as $e)
-                        <li>{{ $e }}</li>
-                    @endforeach
-                </ul>
-            </div>
-        @endif
-
         @if ($isEdit && !empty($editMailSentRevisions))
             <div class="alert alert-warning py-2">
                 <div class="fw-bold">วันที่ส่งสินค้านี้เคยส่งเมลแล้ว</div>
@@ -102,6 +91,11 @@
                                     <input type="radio" class="form-check-input me-1" name="lines[0][mode]" value="ACID"
                                         {{ old('lines.0.mode', $ln0['mode'] ?? 'SO') === 'ACID' ? 'checked' : '' }}>
                                     ส่งกัดกรด
+                                </label>
+                                <label class="dp-radio">
+                                    <input type="radio" class="form-check-input me-1" name="lines[0][mode]" value="SPECIAL"
+                                        {{ old('lines.0.mode', $ln0['mode'] ?? 'SO') === 'SPECIAL' ? 'checked' : '' }}>
+                                    งานพิเศษ (Special)
                                 </label>
                             </div>
                         </div>
@@ -167,7 +161,10 @@
                                 placeholder="พิมพ์ชื่อ/โค้ดลูกค้า" autocomplete="off">
 
                             <div id="customerSuggest" class="dp-suggest d-none"></div>
-                            <div class="form-text">พิมพ์แล้วเลือกจากรายการ</div>
+                            <div class="form-text" id="customerHelp">พิมพ์แล้วเลือกจากรายการ</div>
+                            @error('lines.0.customer_name')
+                                <div class="invalid-feedback d-block">{{ $message }}</div>
+                            @enderror
                         </div>
 
                         <div class="dp-col-4" style="position:relative;">
@@ -1075,6 +1072,9 @@
 
                 const partNo = document.getElementById('partNo');
                 const partDesc = document.getElementById('partDesc');
+                const customerId = document.getElementById('customerId');
+                const customerInput = document.getElementById('customerInput');
+                const customerHelp = document.getElementById('customerHelp');
 
                 function closeDd(dd) {
                     if (!dd) return;
@@ -1082,30 +1082,51 @@
                     dd.innerHTML = '';
                 }
 
-                function setAcidModeUI(isAcid) {
+                // โหมดที่ไม่ผูก Sales Order (กรอก Part เอง): ACID, SPECIAL
+                // ผู้รับผิดชอบ: ACID = 'วางแผน', SPECIAL = 'Export'
+                function setNonSoModeUI(mode) {
+                    const isAcid = mode === 'ACID';
+                    const isSpecial = mode === 'SPECIAL';
+                    const isNonSo = isAcid || isSpecial;
+                    const responsible = isSpecial ? 'Export' : 'วางแผน';
+
+                    if (customerInput) {
+                        customerInput.placeholder = isSpecial
+                            ? 'พิมพ์ชื่อลูกค้าหรือหน่วยงานได้อิสระ'
+                            : 'พิมพ์ชื่อ/โค้ดลูกค้า';
+                    }
+                    if (customerHelp) {
+                        customerHelp.textContent = isSpecial
+                            ? 'งานพิเศษ: พิมพ์ชื่อได้เอง ไม่จำเป็นต้องมีในระบบ'
+                            : 'พิมพ์แล้วเลือกจากรายการ';
+                    }
+                    if (isSpecial && customerId) {
+                        customerId.value = '';
+                    }
+
                     if (soInput) {
-                        soInput.disabled = !!isAcid;
-                        if (isAcid) {
+                        soInput.disabled = !!isNonSo;
+                        if (isNonSo) {
                             soInput.value = '';
                             closeDd(soDd);
                         }
                     }
 
                     if (salesInput) {
-                        if (isAcid) {
+                        if (isNonSo) {
                             if (salesIdInput) salesIdInput.value = '';
-                            salesInput.value = 'วางแผน';
+                            salesInput.value = responsible;
                             salesInput.readOnly = true;
                             salesInput.disabled = true;
                             closeDd(salesDd);
-                            if (salesTextHidden) salesTextHidden.value = 'วางแผน';
+                            if (salesTextHidden) salesTextHidden.value = responsible;
                         } else {
                             salesInput.disabled = false;
                             salesInput.readOnly = false;
                         }
                     }
 
-                    if (isAcid) {
+                    if (isNonSo) {
                         if (partNo) partNo.readOnly = false;
                         if (partDesc) partDesc.readOnly = false;
                     } else {
@@ -1117,7 +1138,7 @@
                 function sync() {
                     const checked = document.querySelector('input[name="lines[0][mode]"]:checked');
                     const mode = checked ? (checked.value || '').toUpperCase() : 'SO';
-                    setAcidModeUI(mode === 'ACID');
+                    setNonSoModeUI(mode);
                 }
 
                 modeRadios.forEach(r => r.addEventListener('change', sync));
@@ -1128,21 +1149,22 @@
                 const partNo = document.getElementById('partNo');
                 if (!partNo) return;
 
-                function isAcid() {
+                function isNonSoMode() {
                     const checked = document.querySelector('input[name="lines[0][mode]"]:checked');
-                    return (checked ? checked.value : 'SO').toUpperCase() === 'ACID';
+                    const mode = (checked ? checked.value : 'SO').toUpperCase();
+                    return mode === 'ACID' || mode === 'SPECIAL';
                 }
 
                 partNo.addEventListener('focus', () => {
-                    if (!isAcid()) partNo.readOnly = false;
+                    if (!isNonSoMode()) partNo.readOnly = false;
                 });
 
                 partNo.addEventListener('blur', () => {
-                    if (!isAcid()) partNo.readOnly = true;
+                    if (!isNonSoMode()) partNo.readOnly = true;
                 });
 
                 partNo.addEventListener('paste', (e) => {
-                    if (!isAcid()) e.preventDefault();
+                    if (!isNonSoMode()) e.preventDefault();
                 });
             })();
 
@@ -1396,6 +1418,7 @@
                 }
 
                 inp.addEventListener('input', () => {
+                    hid.value = '';
                     clearTimeout(t);
                     t = setTimeout(() => lookup().catch(closeDd), 250);
                 });

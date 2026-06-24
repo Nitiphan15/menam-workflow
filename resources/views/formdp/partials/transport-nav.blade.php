@@ -13,6 +13,9 @@
     $tn_cust = trim((string) ($tnCustomer ?? ''));
     $tn_mfg  = trim((string) ($tnMfg ?? ''));
     $tn_active = (string) ($tnActive ?? '');
+    $tn_user = auth()->user();
+    $tn_canDpa = auth()->check()
+        && (($tn_user->is_superadmin ?? 0) == 1 || (method_exists($tn_user, 'hasRoleCode') && $tn_user->hasRoleCode('DPA')));
 
     // รวม keyword สำหรับหน้า logistics / board ที่ใช้ search รวม
     $tn_search = trim(implode(' ', array_filter([$tn_so, $tn_cust, $tn_mfg], fn($v) => $v !== '')));
@@ -54,6 +57,10 @@
             'label' => 'ตารางรถขนส่ง',
         ],
     ];
+
+    if (!$tn_canDpa) {
+        unset($tn_links['logistics']);
+    }
 @endphp
 
 <div class="dp-transport-nav d-flex flex-wrap align-items-center gap-2 mb-3">

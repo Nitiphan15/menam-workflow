@@ -64,11 +64,22 @@
         $clearProcessQuery = request()->except(['page', 'process_filter']);
         $confirmationQuery = fn($value) => array_merge(request()->except(['page']), ['confirmation_filter' => $value]);
         $confirmationFilterValue = strtolower((string) ($filters['confirmation_filter'] ?? 'all'));
+        $deliveryTypeFilterValue = strtoupper((string) ($filters['delivery_type'] ?? 'ALL'));
+        $deliveryTypeQuery = function ($value) use ($deliveryTypeFilterValue) {
+            $query = request()->except(['page']);
+            if ($deliveryTypeFilterValue === strtoupper($value)) {
+                unset($query['delivery_type']);
+                return $query;
+            }
+
+            return array_merge($query, ['delivery_type' => $value]);
+        };
         $hasActiveFilters =
             !empty($filters['keyword']) ||
             !empty($filters['site']) ||
             !empty($filters['risk_status']) ||
             !empty($filters['process_filter']) ||
+            $deliveryTypeFilterValue !== 'ALL' ||
             ($filters['delivery_status'] ?? 'NEW') !== 'NEW' ||
             ($filters['completion_filter'] ?? 'all') !== 'all' ||
             ($filters['status_filter'] ?? 'all') !== 'all' ||
@@ -533,8 +544,14 @@
         }
 
         .pst-table-wrap {
-            max-height: 1150px;
+            max-height: calc(100vh - 160px);
             overflow: auto;
+        }
+
+        .pst-date-preset.is-active {
+            background: #0d6efd;
+            color: #fff;
+            border-color: #0d6efd;
         }
 
         .pst-table {
@@ -787,33 +804,33 @@
     <div class="pst-wrap">
         @if (!empty($dataError))
             <div class="alert alert-warning mb-3">
-                <div class="fw-semibold">Live data unavailable</div>
+                <div class="fw-semibold">ไม่สามารถดึงข้อมูลปัจจุบันได้</div>
                 <div class="small">{{ $dataError }}</div>
             </div>
         @endif
 
         <div class="pst-kpi-groups mb-3">
             <div class="pst-kpi-group">
-                <div class="pst-kpi-group-label">Health</div>
+                <div class="pst-kpi-group-label">สถานะรวม</div>
                 <div class="row g-2">
                     <div class="col-4">
-                        <div class="pst-kpi">
-                            <div class="label">MFG in plan</div>
+                        <div class="pst-kpi" title="จำนวน MFG ทั้งหมดในตัวกรองปัจจุบัน (รวมทั้งยังไม่เสร็จและเสร็จแล้ว) — Avg progress = ค่าเฉลี่ย % ความคืบหน้าของทุก MFG">
+                            <div class="label">MFG ในแผน</div>
                             <div class="value">{{ number_format($summary['total'] ?? 0) }}</div>
                             <div class="hint">Avg progress
                                 {{ number_format($summary['avg_progress'] ?? 0, 1) }}%</div>
                         </div>
                     </div>
                     <div class="col-4">
-                        <div class="pst-kpi">
+                        <div class="pst-kpi" title="งานที่ยังไม่ Completed — รวมงานนิ่ง + ยังไม่เริ่ม + เคลื่อนไหวอยู่">
                             <div class="label">ยังไม่เสร็จ</div>
                             <div class="value text-warning">{{ number_format($summary['open'] ?? 0) }}</div>
-                            <div class="hint">open jobs</div>
+                            <div class="hint">งานที่ยังเปิดอยู่</div>
                         </div>
                     </div>
                     <div class="col-4">
-                        <div class="pst-kpi">
-                            <div class="label">Due 1-3 days</div>
+                        <div class="pst-kpi" title="งานที่กำหนดส่งภายใน 1-3 วัน นับจากวันนี้">
+                            <div class="label">ครบกำหนดใน 1-3 วัน</div>
                             <div class="value text-primary">{{ number_format($summary['due_soon'] ?? 0) }}</div>
                             <div class="hint">ใกล้ครบกำหนด</div>
                         </div>
@@ -821,24 +838,24 @@
                 </div>
             </div>
             <div class="pst-kpi-group pst-kpi-group-alert">
-                <div class="pst-kpi-group-label">Alert</div>
+                <div class="pst-kpi-group-label">เตือน</div>
                 <div class="row g-2">
                     <div class="col-4">
-                        <div class="pst-kpi">
-                            <div class="label">Overdue</div>
+                        <div class="pst-kpi" title="งานที่เลย Due Date ไปแล้วและยังไม่ Completed">
+                            <div class="label">เลยกำหนด</div>
                             <div class="value text-danger">{{ number_format($summary['overdue'] ?? 0) }}</div>
-                            <div class="hint">not completed</div>
+                            <div class="hint">ยังไม่เสร็จ</div>
                         </div>
                     </div>
                     <div class="col-4">
-                        <div class="pst-kpi">
-                            <div class="label">Delayed</div>
+                        <div class="pst-kpi" title="งานที่สถานะผลิตเป็น Delayed (ความคืบหน้าช้ากว่าแผนเทียบกับ Due Date)">
+                            <div class="label">ล่าช้า</div>
                             <div class="value text-danger">{{ number_format($summary['delayed'] ?? 0) }}</div>
                         </div>
                     </div>
                     <div class="col-4">
-                        <div class="pst-kpi">
-                            <div class="label">At Risk</div>
+                        <div class="pst-kpi" title="งานที่ระบบประเมินว่ามีโอกาสส่งไม่ทัน (รวมงานที่ยังไม่ Completed ที่ใกล้ Due และยังไม่ถึง 100%)">
+                            <div class="label">เสี่ยงไม่ทัน</div>
                             <div class="value text-danger">{{ number_format($summary['at_risk'] ?? 0) }}</div>
                         </div>
                     </div>
@@ -846,13 +863,14 @@
             </div>
         </div>
 
-        <details class="pst-panel mb-3 pst-collapsible" data-storage-key="pst-data-quality-open" open>
+        @php
+            $noRouteCount = (int) ($dataQualitySummary->firstWhere('label', 'ไม่พบ Routing')['count'] ?? 0);
+            $unknownCount = (int) ($dataQualitySummary->firstWhere('label', 'UNKNOWN')['count'] ?? 0);
+            $dataQualityHasIssue = $noRouteCount > 0 || $unknownCount > 0;
+        @endphp
+        <details class="pst-panel mb-3 pst-collapsible" data-storage-key="pst-data-quality-open" {{ $dataQualityHasIssue ? 'open' : '' }}>
             <summary class="pst-collapsible-summary">
-                <span class="fw-semibold">Data Quality</span>
-                @php
-                    $noRouteCount = (int) ($dataQualitySummary->firstWhere('label', 'ไม่พบ Routing')['count'] ?? 0);
-                    $unknownCount = (int) ($dataQualitySummary->firstWhere('label', 'UNKNOWN')['count'] ?? 0);
-                @endphp
+                <span class="fw-semibold">คุณภาพข้อมูล</span>
                 <span class="pst-muted ms-auto small">
                     @if ($noRouteCount === 0 && $unknownCount === 0)
                         <span class="badge bg-success-subtle text-success border border-success-subtle">ข้อมูลครบ</span>
@@ -898,14 +916,21 @@
                     @endif
                 @endforeach
                 <div class="pst-quality-stat">
-                    <div class="label mb-2">Site mix</div>
+                    <div class="label mb-2">สัดส่วนโรงงาน</div>
                     <div class="pst-quality-stack">
-                        @foreach ($dataQualitySummary->whereIn('label', ['WIRE', 'PLUS']) as $quality)
+                        @php
+                            $siteChips = $dataQualitySummary
+                                ->whereIn('label', ['WIRE', 'PLUS'])
+                                ->filter(fn($q) => (int) ($q['count'] ?? 0) > 0);
+                        @endphp
+                        @forelse ($siteChips as $quality)
                             <span class="badge bg-light text-dark border">
                                 {{ $quality['label'] ?? '-' }} {{ number_format($quality['count'] ?? 0) }}
                                 <span class="text-muted">{{ number_format((float) ($quality['pct'] ?? 0), 1) }}%</span>
                             </span>
-                        @endforeach
+                        @empty
+                            <span class="pst-muted small">-</span>
+                        @endforelse
                     </div>
                 </div>
             </div>
@@ -913,8 +938,8 @@
 
         <div class="pst-panel pst-panel-filters mb-3">
             <div class="pst-head">
-                <span>Filters</span>
-                <span class="pst-muted">Delivery Plan + Barcode/ManuCost route progress</span>
+                <span>ตัวกรอง</span>
+                <span class="pst-muted">Delivery Plan + ความคืบหน้า Barcode/ManuCost</span>
             </div>
             <form method="GET" action="{{ route('dp.production-status') }}" class="p-3">
                 <input type="hidden" name="completion_filter" value="{{ $filters['completion_filter'] ?? 'all' }}">
@@ -922,6 +947,7 @@
                 <input type="hidden" name="process_filter" value="{{ $filters['process_filter'] ?? '' }}">
                 <input type="hidden" name="movement_filter" value="{{ $filters['movement_filter'] ?? 'all' }}">
                 <input type="hidden" name="confirmation_filter" value="{{ $confirmationFilterValue }}">
+                <input type="hidden" name="delivery_type" value="{{ $deliveryTypeFilterValue }}">
                 <div class="row g-3 align-items-end">
                     <div class="col-lg-3 col-md-6 position-relative">
                         <label class="form-label">MFG</label>
@@ -966,16 +992,29 @@
                         <div class="dp-suggest d-none" data-ac-for="pst_item"></div>
                     </div>
                     <div class="col-lg-2 col-md-4">
-                        <label class="form-label">Ship from</label>
-                        <input type="date" name="ship_from" class="form-control"
+                        <label class="form-label d-flex align-items-center justify-content-between">
+                            <span>Ship from</span>
+                        </label>
+                        <input type="date" name="ship_from" id="pst_ship_from" class="form-control"
                             value="{{ $filters['ship_from'] ?? '' }}">
                     </div>
                     <div class="col-lg-2 col-md-4">
                         <label class="form-label">Ship to</label>
-                        <input type="date" name="ship_to" class="form-control" value="{{ $filters['ship_to'] ?? '' }}">
+                        <input type="date" name="ship_to" id="pst_ship_to" class="form-control" value="{{ $filters['ship_to'] ?? '' }}">
+                    </div>
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap gap-1 align-items-center">
+                            <span class="pst-muted small me-1">ช่วงเร็ว:</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary pst-date-preset" data-range="today">วันนี้</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary pst-date-preset" data-range="7">7 วัน</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary pst-date-preset" data-range="14">14 วัน</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary pst-date-preset" data-range="30">30 วัน</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary pst-date-preset" data-range="month">เดือนนี้</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary pst-date-preset" data-range="clear">ล้างวันที่</button>
+                        </div>
                     </div>
                     <div class="col-lg-2 col-md-4">
-                        <label class="form-label">Site</label>
+                        <label class="form-label">โรงงาน</label>
                         <select name="site" class="form-select">
                             @foreach ($siteOptions ?? [] as $option)
                                 <option value="{{ $option['value'] }}"
@@ -985,7 +1024,7 @@
                         </select>
                     </div>
                     <div class="col-lg-2 col-md-4">
-                        <label class="form-label">Risk</label>
+                        <label class="form-label">ความเสี่ยง</label>
                         <select name="risk_status" class="form-select">
                             @foreach ($riskOptions ?? [] as $option)
                                 <option value="{{ $option['value'] }}"
@@ -995,7 +1034,7 @@
                         </select>
                     </div>
                     <div class="col-lg-2 col-md-4">
-                        <label class="form-label">DP status</label>
+                        <label class="form-label">สถานะ DP</label>
                         <select name="delivery_status" class="form-select">
                             @foreach (['NEW' => 'NEW', 'ASSIGN' => 'ASSIGN', 'CLOSED' => 'CLOSED', 'VOID' => 'VOID', 'ALL' => 'ALL'] as $value => $label)
                                 <option value="{{ $value }}"
@@ -1005,7 +1044,7 @@
                         </select>
                     </div>
                     <div class="col-lg-2 col-md-4">
-                        <label class="form-label">Rows</label>
+                        <label class="form-label">แถวต่อหน้า</label>
                         <select name="per_page" class="form-select">
                             @foreach ([50, 100, 200] as $n)
                                 <option value="{{ $n }}" {{ (int) ($perPage ?? 50) === $n ? 'selected' : '' }}>
@@ -1015,13 +1054,13 @@
                     </div>
                     <div class="col-12 d-flex gap-2 justify-content-end">
                         <a class="btn btn-outline-secondary" href="{{ route('dp.production-status') }}"
-                            title="ล้างตัวกรอง"><i class="fas fa-rotate-left me-1"></i> Reset</a>
+                            title="ล้างตัวกรอง"><i class="fas fa-rotate-left me-1"></i> ล้าง</a>
                         <a class="btn btn-outline-success"
                             href="{{ route('dp.production-status.export', request()->query()) }}">
-                            <i class="fas fa-file-export me-1"></i> Export
+                            <i class="fas fa-file-export me-1"></i> ส่งออก
                         </a>
                         <button class="btn btn-primary" type="submit">
-                            <i class="fas fa-filter me-1"></i> Apply
+                            <i class="fas fa-filter me-1"></i> ใช้ตัวกรอง
                         </button>
                     </div>
                 </div>
@@ -1030,7 +1069,7 @@
 
         <details class="pst-panel mb-3 pst-collapsible" data-storage-key="pst-movement-open" open>
             <summary class="pst-collapsible-summary">
-                <span class="fw-semibold">Movement Filter</span>
+                <span class="fw-semibold">ตัวกรองการเคลื่อนไหว</span>
                 @php
                     $movementActive = $filters['movement_filter'] ?? 'all';
                     $movementActiveLabel =
@@ -1068,6 +1107,7 @@
                 'Delayed' => 'ล่าช้า',
                 'On Track' => 'ทันกำหนด',
                 'Completed' => 'เสร็จแล้ว',
+                'At Risk' => 'เสี่ยงไม่ทัน',
                 // dueBuckets
                 'Overdue' => 'เลยกำหนด',
                 'Today' => 'วันนี้',
@@ -1087,29 +1127,8 @@
                     <span>ภาพรวมการผลิต</span>
                 </div>
                 <div class="pst-lane-body">
-                    <div class="pst-status-grid">
-                        @foreach ($statusSummary as $status)
-                            @php
-                                $label = $status['label'] ?? '-';
-                                $tone =
-                                    $label === 'Delayed' ? 'danger' : ($label === 'Completed' ? 'success' : 'primary');
-                            @endphp
-                            <div class="pst-status-tile">
-                                <div class="d-flex align-items-center justify-content-between gap-2">
-                                    <span class="badge bg-{{ $tone }}">{{ $pstTh($label) }}</span>
-                                    <span class="pst-muted">{{ number_format($status['pct'] ?? 0, 1) }}%</span>
-                                </div>
-                                <div class="count mt-2">{{ number_format($status['count'] ?? 0) }}</div>
-                                <div class="caption">งานในตัวกรองปัจจุบัน</div>
-                                <div class="pst-progress-rail">
-                                    <div class="pst-progress-fill bg-{{ $tone }}"
-                                        style="width: {{ max(0, min(100, (float) ($status['pct'] ?? 0))) }}%"></div>
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-
-                    <div class="pst-band-grid">
+                    {{-- status tiles (ล่าช้า / ทันกำหนด / เสร็จแล้ว) ซ้ำกับ HEALTH+Movement Filter จึงตัดออก --}}
+                    <div class="pst-band-grid" style="margin-top:0;">
                         @foreach ($progressBands as $band)
                             <div class="pst-band">
                                 <div class="fw-semibold">{{ $band['label'] }}</div>
@@ -1198,11 +1217,29 @@
                 </div>
             </div>
 
+            @php
+                $watchOpenItems = $watchlist->filter(function ($it) {
+                    $st = (string) ($it->delivery_status ?? '');
+                    return !in_array($st, ['Completed', 'Ready'], true);
+                });
+                $watchOpenCount = $watchOpenItems->count();
+                $statusFilterActive = strtolower((string) ($filters['status_filter'] ?? 'all'));
+                $actionQueueLabel = match ($statusFilterActive) {
+                    'delayed' => 'ล่าช้า',
+                    'at_risk' => 'เสี่ยงไม่ทัน',
+                    default => 'ต้องดำเนินการ',
+                };
+            @endphp
             <div class="pst-lane">
                 <div class="pst-lane-head">
-                    <span>Action Queue</span>
-                    <a class="btn btn-sm btn-outline-danger"
-                        href="{{ route('dp.production-status', $statusQuery('delayed')) }}">Delayed</a>
+                    <span>คิวที่ต้องดำเนินการ
+                        @if ($watchOpenCount > 0)
+                            <span class="badge bg-light text-muted border ms-1">{{ number_format($watchOpenCount) }}</span>
+                        @endif
+                    </span>
+                    <a class="btn btn-sm {{ $statusFilterActive === 'delayed' ? 'btn-danger' : 'btn-outline-danger' }}"
+                        href="{{ route('dp.production-status', $statusQuery('delayed')) }}"
+                        title="กรองเฉพาะรายการล่าช้า">{{ $actionQueueLabel }}</a>
                 </div>
                 <div class="pst-lane-body pst-watch-scroll">
                     <div class="pst-watch">
@@ -1231,28 +1268,29 @@
                                 </div>
                             </div>
                         @empty
-                            <div class="text-muted text-center py-3">No open watchlist items.</div>
+                            <div class="text-muted text-center py-3">ไม่มีรายการที่ต้องดำเนินการ</div>
                         @endforelse
                     </div>
                 </div>
             </div>
         </div>
 
+        @if ($divisionSummary->count() > 1)
         <div class="pst-lane mb-3">
             <div class="pst-lane-head">
-                <span>Division Summary</span>
+                <span>สรุปตาม Division</span>
                 <span class="pst-muted">สรุปปัญหาแยกตาม Division</span>
             </div>
             <div class="pst-lane-body">
                 <div class="pst-division-wrap">
                     <div class="pst-division-row header">
                         <div>Division</div>
-                        <div class="num">Total</div>
-                        <div class="num">Open</div>
-                        <div class="num">Delayed</div>
-                        <div class="num">No Route</div>
+                        <div class="num">ทั้งหมด</div>
+                        <div class="num">ยังเปิด</div>
+                        <div class="num">ล่าช้า</div>
+                        <div class="num">ไม่มี Routing</div>
                         <div class="num">งานนิ่ง</div>
-                        <div>Avg Progress</div>
+                        <div>ความคืบหน้าเฉลี่ย</div>
                     </div>
                     @php
                         $divisionLabelMap = [
@@ -1309,7 +1347,7 @@
                                         class="pst-muted">{{ number_format((float) ($division['avg_progress'] ?? 0), 1) }}%</span>
                                     @if (($division['at_risk'] ?? 0) > 0)
                                         <span class="badge bg-danger">{{ number_format($division['at_risk']) }}
-                                            risk</span>
+                                            เสี่ยง</span>
                                     @endif
                                 </div>
                                 <div class="pst-bar mt-1">
@@ -1319,23 +1357,24 @@
                             </div>
                         </div>
                     @empty
-                        <div class="text-muted text-center py-3">No division data.</div>
+                        <div class="text-muted text-center py-3">ไม่มีข้อมูล Division</div>
                     @endforelse
                 </div>
             </div>
         </div>
+        @endif
 
         <div class="pst-lane mb-3">
             <div class="pst-lane-head">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <span>Current Process Load</span>
+                    <span>งานในแต่ละขั้นตอน</span>
                     @if (!empty($filters['process_filter']))
                         <span class="badge bg-primary">{{ $filters['process_filter'] }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
-                            href="{{ route('dp.production-status', $clearProcessQuery) }}">Clear</a>
+                            href="{{ route('dp.production-status', $clearProcessQuery) }}">ล้าง</a>
                     @endif
                 </div>
-                <span class="pst-muted">Click station to filter</span>
+                <span class="pst-muted">กดเพื่อกรองเฉพาะขั้นตอน</span>
             </div>
             <div class="pst-lane-body">
                 @forelse ($processSummary as $process)
@@ -1360,7 +1399,7 @@
                         </div>
                     </div>
                 @empty
-                    <div class="text-muted text-center py-3">No current process data.</div>
+                    <div class="text-muted text-center py-3">ไม่มีข้อมูลขั้นตอน</div>
                 @endforelse
             </div>
         </div>
@@ -1370,9 +1409,9 @@
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span>Dashboard Summary</span>
                     @if (!empty($filters['process_filter']))
-                        <span class="badge bg-primary">Process: {{ $filters['process_filter'] }}</span>
+                        <span class="badge bg-primary">ขั้นตอน: {{ $filters['process_filter'] }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
-                            href="{{ route('dp.production-status', $clearProcessQuery) }}">Clear process</a>
+                            href="{{ route('dp.production-status', $clearProcessQuery) }}">ล้างขั้นตอน</a>
                     @endif
                     <a class="btn btn-sm {{ ($filters['site'] ?? '') === 'WIRE' ? 'btn-info' : 'btn-outline-info' }}"
                         href="{{ route('dp.production-status', $siteQuery('WIRE')) }}">
@@ -1384,10 +1423,22 @@
                         PLUS
                         <span class="ms-1">{{ number_format($siteCounts->get('PLUS')['count'] ?? 0) }}</span>
                     </a>
+                    <a class="btn btn-sm {{ $deliveryTypeFilterValue === 'ACID' ? 'btn-warning' : 'btn-outline-warning' }}"
+                        href="{{ route('dp.production-status', $deliveryTypeQuery('ACID')) }}"
+                        title="กรองเฉพาะ delivery_type = ACID">
+                        <i class="fas fa-flask me-1"></i> งานกัดกรด
+                        <span class="ms-1">{{ number_format($summary['acid'] ?? 0) }}</span>
+                    </a>
+                    <a class="btn btn-sm {{ $deliveryTypeFilterValue === 'SPECIAL' ? 'btn-info' : 'btn-outline-info' }}"
+                        href="{{ route('dp.production-status', $deliveryTypeQuery('SPECIAL')) }}"
+                        title="กรองเฉพาะ delivery_type = SPECIAL">
+                        <i class="fas fa-screwdriver-wrench me-1"></i> งานพิเศษ
+                        <span class="ms-1">{{ number_format($summary['special'] ?? 0) }}</span>
+                    </a>
                     @if (!empty($filters['site']))
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status', $clearSiteQuery) }}">
-                            <i class="fas fa-xmark me-1"></i> Clear site
+                            <i class="fas fa-xmark me-1"></i> ล้างโรงงาน
                         </a>
                     @endif
                     <a class="btn btn-sm {{ ($filters['completion_filter'] ?? 'all') === 'all' ? 'btn-primary' : 'btn-outline-primary' }}"
@@ -1421,12 +1472,12 @@
                     @if ($hasActiveFilters)
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status') }}"
-                            title="ล้าง filter ทั้งหมด">
+                            title="ล้างตัวกรองทั้งหมด">
                             <i class="fas fa-xmark me-1"></i> ยกเลิก Filter
                         </a>
                     @endif
                 </div>
-                <span class="pst-muted">{{ number_format($allRowsCount ?? 0) }} rows</span>
+                <span class="pst-muted">{{ number_format($allRowsCount ?? 0) }} รายการ</span>
             </div>
             <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom bg-light">
                 <div class="small text-muted">
@@ -1439,7 +1490,7 @@
                         <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle"
                             id="pstColumnMenuBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside"
                             aria-expanded="false">
-                            <i class="fas fa-table-columns me-1"></i> Columns
+                            <i class="fas fa-table-columns me-1"></i> คอลัมน์
                             <span class="badge bg-secondary ms-1" id="pstHiddenColumnCount">0</span>
                         </button>
                         <div class="dropdown-menu dropdown-menu-end p-2 pst-column-menu"
@@ -1447,7 +1498,7 @@
                             <div class="d-flex gap-2 mb-2">
                                 <button type="button" class="btn btn-sm btn-outline-primary flex-fill"
                                     id="pstShowAllColumnsBtn">
-                                    <i class="fas fa-eye me-1"></i> Show all
+                                    <i class="fas fa-eye me-1"></i> แสดงทั้งหมด
                                 </button>
                             </div>
                             <div id="pstColumnToggleList"></div>
@@ -1455,7 +1506,7 @@
                     </div>
                     <button type="button" class="btn btn-sm btn-success" id="pstBulkConfirmBtn">
                         <i class="fas fa-check-double me-1"></i>
-                        Confirm Delivery (ทุกรายการที่ยังไม่ยืนยัน)
+                        ยืนยันการส่ง (ทุกรายการที่ยังไม่ยืนยัน)
                         <span class="badge bg-light text-success ms-1" id="pstBulkPendingCount">0</span>
                     </button>
                 </div>
@@ -1501,7 +1552,7 @@
                             <th>สถานะ DP</th>
                             <th>สถานะผลิต</th>
                             <th>ความเสี่ยง</th>
-                            <th style="min-width:280px;">Delivery Confirmation</th>
+                            <th style="min-width:280px;">ยืนยันการส่ง</th>
                             <th class="pst-actions"></th>
                         </tr>
                     </thead>
@@ -1550,6 +1601,14 @@
                                     </div>
                                     <div class="pst-muted">{{ $row->site ?: '-' }}
                                         {{ $row->so_number ? '| SO ' . $row->so_number : '' }}</div>
+                                    @if (in_array($row->delivery_mode ?? '', ['ACID', 'SPECIAL'], true))
+                                        <div class="mt-1">
+                                            <span class="badge bg-{{ $row->delivery_mode_badge_class ?? 'warning text-dark border' }}"
+                                                title="{{ $row->delivery_mode_note ?? 'งานส่งกัดกรด' }}">
+                                                {{ $row->delivery_mode_label ?? 'งานกัดกรด' }}
+                                            </span>
+                                        </div>
+                                    @endif
                                     @if ($isGroupCont)
                                         <div class="pst-muted small fst-italic">↳ กลุ่มเดียวกัน</div>
                                     @endif
@@ -1660,9 +1719,9 @@
                                                 style="width:130px;flex:0 0 130px;">
                                                 <option value="CONFIRM"
                                                     {{ !$confStatus || $confStatus === 'CONFIRM' ? 'selected' : '' }}>
-                                                    Confirm Delivery</option>
+                                                    ยืนยันการส่ง</option>
                                                 <option value="POSTPONE"
-                                                    {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>Request Postpone
+                                                    {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>ขอเลื่อนการส่ง
                                                 </option>
                                             </select>
                                             <input type="date" class="form-control form-control-sm pst-confirm-date"
@@ -1720,6 +1779,7 @@
                                             'dp_qty' => $row->qty_display ?? null,
                                             'dp_sale_type' => $row->sale_type ?? null,
                                             'dp_status' => $row->dp_status ?? null,
+                                            'delivery_type' => $row->delivery_type ?? null,
                                             'ship_date' => $row->ship_date ?? null,
                                             'deadline' => $row->due_date ?? null,
                                             'return_url' => request()->fullUrl(),
@@ -2478,6 +2538,90 @@
                     if (!input.contains(e.target) && !dd.contains(e.target)) hide();
                 });
             });
+        })();
+
+        // Date range presets (Ship from/to)
+        (function () {
+            const from = document.getElementById('pst_ship_from');
+            const to = document.getElementById('pst_ship_to');
+            if (!from || !to) return;
+            const buttons = Array.from(document.querySelectorAll('.pst-date-preset'));
+            const fmt = (d) => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            };
+            const computeRange = (r) => {
+                const now = new Date();
+                if (r === 'clear') return { from: '', to: '' };
+                if (r === 'today') return { from: fmt(now), to: fmt(now) };
+                if (r === 'month') {
+                    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                    return { from: fmt(start), to: fmt(end) };
+                }
+                const days = parseInt(r, 10);
+                if (!Number.isNaN(days)) {
+                    const end = new Date(now);
+                    end.setDate(end.getDate() + days);
+                    return { from: fmt(now), to: fmt(end) };
+                }
+                return null;
+            };
+            const syncActive = () => {
+                const cur = { from: from.value, to: to.value };
+                let matched = null;
+                if (!cur.from && !cur.to) {
+                    matched = 'clear';
+                } else {
+                    for (const btn of buttons) {
+                        const r = btn.dataset.range;
+                        if (r === 'clear') continue;
+                        const rng = computeRange(r);
+                        if (rng && rng.from === cur.from && rng.to === cur.to) {
+                            matched = r;
+                            break;
+                        }
+                    }
+                }
+                buttons.forEach((b) => b.classList.toggle('is-active', b.dataset.range === matched));
+            };
+            buttons.forEach((btn) => {
+                btn.addEventListener('click', function () {
+                    const rng = computeRange(btn.dataset.range);
+                    if (!rng) return;
+                    from.value = rng.from;
+                    to.value = rng.to;
+                    syncActive();
+                });
+            });
+            from.addEventListener('change', syncActive);
+            to.addEventListener('change', syncActive);
+            syncActive();
+        })();
+
+        // Confirm before bulk Confirm Delivery
+        (function () {
+            const btn = document.getElementById('pstBulkConfirmBtn');
+            if (!btn) return;
+            btn.addEventListener('click', function (e) {
+                const countEl = document.getElementById('pstBulkPendingCount');
+                const n = countEl ? (parseInt(countEl.textContent, 10) || 0) : 0;
+                const msg = n > 0
+                    ? `ยืนยันการส่งทั้งหมด ${n} รายการที่ยังไม่ยืนยัน?\n\nรายการเหล่านี้จะถูกบันทึกเป็น "ยืนยัน" ทันที`
+                    : 'ไม่พบรายการที่ยังไม่ยืนยันในหน้านี้';
+                if (n === 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    alert(msg);
+                    return;
+                }
+                if (!confirm(msg)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }, true);
         })();
     </script>
 @endsection

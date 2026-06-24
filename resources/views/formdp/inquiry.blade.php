@@ -16,13 +16,31 @@
         $canDpa =
             $isLoggedIn &&
             (($u->is_superadmin ?? 0) == 1 || (method_exists($u, 'hasRoleCode') && $u->hasRoleCode('DPA')));
+        // เปิดฟังก์ชัน "จัดรถหลายงานพร้อมกัน" (bulk truck) ให้ผู้มีสิทธิ์ DPA
+        $showInquiryBulkTruck = $canDpa;
 
         $canDpMail =
             $isLoggedIn &&
             (($u->is_superadmin ?? 0) == 1 ||
                 (method_exists($u, 'hasRoleCode') && $u->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
 
-        $tableColspan = $canDp ? 19 : 18;
+        $tableColspan = 18 + ($canDp ? 1 : 0) + ($showInquiryBulkTruck ? 1 : 0);
+
+        // return URL หลัง assign truck — เก็บแค่ filter ระดับวันที่/สถานะ ไม่เก็บ SO/MFG/Customer/Ord ID
+        // เพื่อให้ user ดูรายการอื่นต่อได้ทันทีโดยไม่ต้องล้าง filter เอง
+        $cleanReturnParams = array_filter(
+            [
+                'ship_from' => request('ship_from'),
+                'ship_to' => request('ship_to'),
+                'status' => request('status'),
+                'mode' => request('mode'),
+                'order_by' => request('order_by'),
+                'order_dir' => request('order_dir'),
+                'searched' => request('ship_from') || request('ship_to') ? 1 : null,
+            ],
+            fn($v) => $v !== null && $v !== '',
+        );
+        $cleanReturnUrl = route('dp.inquiry', $cleanReturnParams);
         $fmtWeight = function ($kg) {
             $kg = (float) ($kg ?? 0);
             return number_format($kg, 0, '.', '');
@@ -32,19 +50,6 @@
     <div class="container-fluid">
 
         <div class="dp-inquiry-filter mb-2">
-            @if (session('success'))
-                <div class="alert alert-success py-2 mb-2">
-                    {{ session('success') }}
-                    @if (session('postpone_view_url'))
-                        <a href="{{ session('postpone_view_url') }}" class="btn btn-sm btn-outline-success ms-2">
-                            ดูแผนใหม่
-                        </a>
-                    @endif
-                </div>
-            @endif
-            @if (session('error'))
-                <div class="alert alert-danger py-2 mb-2">{{ session('error') }}</div>
-            @endif
             @if (session('erp_sync_output'))
                 <details class="alert alert-secondary py-2 mb-2">
                     <summary class="fw-semibold">ผลลัพธ์จาก ERP sync</summary>
@@ -56,12 +61,149 @@
                     $tnShipForNav = request('ship_from') ?: (request('ship_to') ?: now()->toDateString());
                 @endphp
                 @include('formdp.partials.transport-nav', [
-                    'tnActive'   => 'inquiry',
+                    'tnActive' => 'inquiry',
                     'tnShipDate' => $tnShipForNav,
-                    'tnSo'       => request('so', ''),
+                    'tnSo' => request('so', ''),
                     'tnCustomer' => request('customer', ''),
-                    'tnMfg'      => request('mfg', ''),
+                    'tnMfg' => request('mfg', ''),
                 ])
+            @endif
+
+            @php
+                $activeFilters = [];
+                if (request('so', '') !== '') {
+                    $activeFilters[] = ['key' => 'so', 'label' => 'SO', 'value' => request('so')];
+                }
+                if (request('mfg', '') !== '') {
+                    $activeFilters[] = ['key' => 'mfg', 'label' => 'MFG', 'value' => request('mfg')];
+                }
+                if (request('customer', '') !== '') {
+                    $activeFilters[] = ['key' => 'customer', 'label' => 'Customer', 'value' => request('customer')];
+                }
+                if (request('shipto', '') !== '') {
+                    $activeFilters[] = ['key' => 'shipto', 'label' => 'Ship To', 'value' => request('shipto')];
+                }
+                if (request('ord_id', '') !== '') {
+                    $activeFilters[] = ['key' => 'ord_id', 'label' => 'Ord ID', 'value' => request('ord_id')];
+                }
+                if (request('divsales', '') !== '') {
+                    $activeFilters[] = ['key' => 'divsales', 'label' => 'Sales', 'value' => request('divsales')];
+                }
+                if (request('revision', '') !== '') {
+                    $activeFilters[] = ['key' => 'revision', 'label' => 'Rev', 'value' => request('revision')];
+                }
+            @endphp
+
+            @if (!empty($activeFilters))
+                <div class="dp-active-filters mb-2 d-flex flex-wrap align-items-center gap-2">
+                    <span class="small text-muted"><i class="fas fa-filter me-1"></i>ตัวกรองที่ใช้อยู่:</span>
+                    @foreach ($activeFilters as $f)
+                        @php
+                            $removeUrl = request()->fullUrlWithQuery([$f['key'] => null]);
+                        @endphp
+                        <a href="{{ $removeUrl }}"
+                            class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle text-decoration-none"
+                            title="คลิกเพื่อลบตัวกรองนี้">
+                            {{ $f['label'] }}: <span class="fw-semibold">{{ $f['value'] }}</span>
+                            <i class="fas fa-times ms-1"></i>
+                        </a>
+                    @endforeach
+                    <a href="{{ route('dp.inquiry') }}" class="btn btn-sm btn-outline-danger py-0 px-2"
+                        title="ล้างทุกตัวกรอง">
+                        <i class="fas fa-eraser me-1"></i>ล้างทั้งหมด
+                    </a>
+                </div>
+            @endif
+
+            @if (!empty($mailSentLogs) && count($mailSentLogs) > 0)
+                @php
+                    $mailLogTotal = count($mailSentLogs);
+                    $mailLogPreviewLimit = 5;
+                    $mailLogHasMore = $mailLogTotal > $mailLogPreviewLimit;
+                @endphp
+                <div class="alert alert-info py-2 mb-2 dp-mail-sent-summary">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-1 mb-1">
+                        <div class="fw-semibold">
+                            <i class="fas fa-envelope-circle-check me-1"></i>
+                            ประวัติส่งเมล (แผน / ตารางจัดรถ)
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">
+                                {{ $mailLogTotal }} ครั้ง
+                            </span>
+                            @if ($mailLogHasMore)
+                                <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none collapsed"
+                                    data-bs-toggle="collapse" data-bs-target="#mailSentLogsMore"
+                                    aria-expanded="false" aria-controls="mailSentLogsMore"
+                                    id="mailSentLogsToggle">
+                                    <i class="fas fa-chevron-down me-1"></i>
+                                    <span class="dp-mail-log-toggle-text">
+                                        แสดงทั้งหมด ({{ $mailLogTotal - $mailLogPreviewLimit }} รายการ)
+                                    </span>
+                                </button>
+                            @endif
+                        </div>
+                    </div>
+                    <ul class="mb-0 small ps-3">
+                        @foreach ($mailSentLogs as $i => $log)
+                            @php
+                                try {
+                                    $logShip = !empty($log->ship_posted_at)
+                                        ? \Carbon\Carbon::parse($log->ship_posted_at)->format('d/m/Y')
+                                        : '-';
+                                } catch (\Throwable $e) { $logShip = '-'; }
+                                try {
+                                    $logSent = !empty($log->sent_at)
+                                        ? \Carbon\Carbon::parse($log->sent_at)->format('d/m H:i')
+                                        : '-';
+                                } catch (\Throwable $e) { $logSent = '-'; }
+                                $isOverflow = $i >= $mailLogPreviewLimit;
+                                $isAssignMail = strtoupper(trim((string) ($log->mail_type ?? ''))) === 'ASSIGN';
+                            @endphp
+                            @if ($isOverflow && $loop->iteration === $mailLogPreviewLimit + 1)
+                                </ul>
+                                <ul class="mb-0 small ps-3 collapse" id="mailSentLogsMore">
+                            @endif
+                            <li>
+                                <span class="fw-semibold">{{ $logShip }}</span>
+                                @if ($isAssignMail)
+                                    <span class="badge bg-success ms-1">
+                                        <i class="fas fa-truck me-1"></i>ตารางจัดรถ
+                                    </span>
+                                @else
+                                    <span class="badge bg-secondary ms-1">
+                                        <i class="fas fa-clipboard-list me-1"></i>แผนส่งมอบ
+                                    </span>
+                                    <span class="badge bg-primary ms-1">Rev {{ (int) $log->revision_number }}</span>
+                                @endif
+                                <span class="text-muted ms-1">ส่ง {{ $logSent }}</span>
+                                @if (!empty($log->sent_by_name))
+                                    <span class="text-muted">โดย {{ $log->sent_by_name }}</span>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ul>
+                </div>
+                @if ($mailLogHasMore)
+                    <script>
+                        (function() {
+                            var btn = document.getElementById('mailSentLogsToggle');
+                            var box = document.getElementById('mailSentLogsMore');
+                            if (!btn || !box) return;
+                            box.addEventListener('show.bs.collapse', function() {
+                                btn.querySelector('.dp-mail-log-toggle-text').textContent = 'ย่อ';
+                                btn.querySelector('.fas').classList.remove('fa-chevron-down');
+                                btn.querySelector('.fas').classList.add('fa-chevron-up');
+                            });
+                            box.addEventListener('hide.bs.collapse', function() {
+                                btn.querySelector('.dp-mail-log-toggle-text').textContent =
+                                    'แสดงทั้งหมด ({{ $mailLogTotal - $mailLogPreviewLimit }} รายการ)';
+                                btn.querySelector('.fas').classList.remove('fa-chevron-up');
+                                btn.querySelector('.fas').classList.add('fa-chevron-down');
+                            });
+                        })();
+                    </script>
+                @endif
             @endif
 
             <div class="d-flex align-items-center justify-content-between mb-2">
@@ -70,8 +212,7 @@
                 <div class="d-flex flex-wrap gap-2 align-items-center">
 
                     @if ($canDp)
-                        <form method="POST" action="{{ route('dp.inquiry.sync-saleorder') }}"
-                            id="erpSyncSaleOrderForm">
+                        <form method="POST" action="{{ route('dp.inquiry.sync-saleorder') }}" id="erpSyncSaleOrderForm">
                             @csrf
                             <button type="submit" class="btn btn-sm btn-warning">
                                 <i class="fa fa-rotate me-1"></i> ดึงข้อมูล ERP
@@ -97,7 +238,9 @@
                                     <i class="fa fa-file-pdf text-danger me-2"></i> Export PDF
                                 </a>
                             </li>
-                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
                             <li>
                                 <button type="button" class="dropdown-item" id="btnExportBoth"
                                     data-excel-url="{{ route('dp.inquiry.export', request()->query()) }}"
@@ -135,7 +278,8 @@
                         <i class="fa fa-list-ul text-muted"></i>
                         <div>
                             <div class="dp-kpi-chip-label">รายการ</div>
-                            <div class="dp-kpi-chip-value"><span id="kpi_visible">0</span> / <span id="kpi_total">0</span></div>
+                            <div class="dp-kpi-chip-value"><span id="kpi_visible">0</span> / <span id="kpi_total">0</span>
+                            </div>
                         </div>
                     </div>
 
@@ -190,7 +334,8 @@
                             @if ($color)
                                 <span class="dp-rev-legend-item">
                                     <span class="dp-rev-legend-dot" style="background: {{ $color }};"></span>
-                                    <span style="color: {{ $color }}; font-weight: 600;">{{ $label }}</span>
+                                    <span
+                                        style="color: {{ $color }}; font-weight: 600;">{{ $label }}</span>
                                 </span>
                             @endif
                         @endforeach
@@ -211,13 +356,14 @@
                                 <option value="" {{ request('mode') === '' ? 'selected' : '' }}>ทั้งหมด</option>
                                 <option value="SO" {{ request('mode') === 'SO' ? 'selected' : '' }}>ปกติ</option>
                                 <option value="ACID" {{ request('mode') === 'ACID' ? 'selected' : '' }}>กัดกรด</option>
+                                <option value="SPECIAL" {{ request('mode') === 'SPECIAL' ? 'selected' : '' }}>งานพิเศษ (Special)</option>
                             </select>
                         </div>
 
                         <div class="dp-fg-col">
                             <label class="form-label mb-1 small">วันที่ส่ง (เริ่ม)</label>
-                            <input id="f_ship_from" name="ship_from" type="date" value="{{ request('ship_from', '') }}"
-                                class="form-control form-control-sm">
+                            <input id="f_ship_from" name="ship_from" type="date"
+                                value="{{ request('ship_from', '') }}" class="form-control form-control-sm">
                         </div>
 
                         <div class="dp-fg-col">
@@ -232,7 +378,8 @@
                                 <input id="f_so" name="so" value="{{ request('so', '') }}" autocomplete="off"
                                     class="form-control form-control-sm dp-ac-input" data-ac-source="so"
                                     placeholder="ค้นหา SO">
-                                <button type="button" class="dp-ac-clear" data-ac-clear="f_so" title="ล้าง" aria-label="ล้าง">&times;</button>
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_so" title="ล้าง"
+                                    aria-label="ล้าง">&times;</button>
                             </div>
                             <div class="dp-suggest d-none" data-ac-for="f_so"></div>
                         </div>
@@ -243,7 +390,8 @@
                                 <input id="f_customer" name="customer" value="{{ request('customer', '') }}"
                                     autocomplete="off" class="form-control form-control-sm dp-ac-input"
                                     data-ac-source="customer" placeholder="ค้นหาลูกค้า">
-                                <button type="button" class="dp-ac-clear" data-ac-clear="f_customer" title="ล้าง" aria-label="ล้าง">&times;</button>
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_customer" title="ล้าง"
+                                    aria-label="ล้าง">&times;</button>
                             </div>
                             <div class="dp-suggest d-none" data-ac-for="f_customer"></div>
                         </div>
@@ -252,9 +400,9 @@
                             <label class="form-label mb-1 small">MFG No</label>
                             <div class="dp-ac-wrap">
                                 <input id="f_mfg" name="mfg" value="{{ request('mfg', '') }}"
-                                    autocomplete="off" class="form-control form-control-sm"
-                                    placeholder="ค้นหา MFG">
-                                <button type="button" class="dp-ac-clear" data-ac-clear="f_mfg" title="ล้าง" aria-label="ล้าง">&times;</button>
+                                    autocomplete="off" class="form-control form-control-sm" placeholder="ค้นหา MFG">
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_mfg" title="ล้าง"
+                                    aria-label="ล้าง">&times;</button>
                             </div>
                         </div>
 
@@ -264,7 +412,8 @@
                                 <input id="f_shipto" name="shipto" value="{{ request('shipto', '') }}"
                                     autocomplete="off" class="form-control form-control-sm dp-ac-input"
                                     data-ac-source="shipto" placeholder="ค้นหา Ship To">
-                                <button type="button" class="dp-ac-clear" data-ac-clear="f_shipto" title="ล้าง" aria-label="ล้าง">&times;</button>
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_shipto" title="ล้าง"
+                                    aria-label="ล้าง">&times;</button>
                             </div>
                             <div class="dp-suggest d-none" data-ac-for="f_shipto"></div>
                         </div>
@@ -275,7 +424,8 @@
                                 <input id="f_sales" name="divsales" value="{{ request('divsales', '') }}"
                                     autocomplete="off" class="form-control form-control-sm dp-ac-input"
                                     data-ac-source="divsales" placeholder="เช่น D3 / ภควดี">
-                                <button type="button" class="dp-ac-clear" data-ac-clear="f_sales" title="ล้าง" aria-label="ล้าง">&times;</button>
+                                <button type="button" class="dp-ac-clear" data-ac-clear="f_sales" title="ล้าง"
+                                    aria-label="ล้าง">&times;</button>
                             </div>
                             <div class="dp-suggest d-none" data-ac-for="f_sales"></div>
                         </div>
@@ -342,14 +492,12 @@
 
             <div class="d-flex justify-content-end mb-2">
                 <div class="dropdown">
-                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                        id="inqColumnMenuBtn" data-bs-toggle="dropdown" data-bs-auto-close="outside"
-                        aria-expanded="false">
+                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" id="inqColumnMenuBtn"
+                        data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
                         <i class="fas fa-table-columns me-1"></i> Columns
                         <span class="badge bg-secondary ms-1" id="inqHiddenColumnCount">0</span>
                     </button>
-                    <div class="dropdown-menu dropdown-menu-end p-2 inq-column-menu"
-                        aria-labelledby="inqColumnMenuBtn">
+                    <div class="dropdown-menu dropdown-menu-end p-2 inq-column-menu" aria-labelledby="inqColumnMenuBtn">
                         <div class="d-flex gap-2 mb-2">
                             <button type="button" class="btn btn-sm btn-outline-primary flex-fill"
                                 id="inqShowAllColumnsBtn">
@@ -366,13 +514,15 @@
             </div>
 
             @if ($canDp)
-                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 p-2 border rounded bg-light">
+                <div
+                    class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 p-2 border rounded bg-light">
                     <div class="fw-semibold">
                         เลือกแล้ว <span id="bulkPostponeCount">0</span> รายการ
                         <span class="text-muted small ms-1">(<span id="bulkPostponeSoCount">0</span> SO)</span>
                     </div>
                     <div class="d-flex gap-2 flex-wrap">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkPostponeClearBtn" disabled>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkPostponeClearBtn"
+                            disabled>
                             ล้างที่เลือก
                         </button>
                         <button type="button" class="btn btn-sm btn-warning" id="bulkPostponeOpenBtn" disabled>
@@ -382,10 +532,39 @@
                 </div>
             @endif
 
+            @if ($showInquiryBulkTruck)
+                <div
+                    class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 p-2 border rounded bg-light">
+                    <div class="fw-semibold">
+                        จัดรถที่เลือก <span id="bulkTruckCount">0</span> รายการ
+                        <span class="text-muted small ms-1" id="bulkTruckCustomer">ยังไม่ได้เลือกรายการ</span>
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkTruckClearBtn"
+                            disabled>
+                            ล้างที่เลือก
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="bulkTruckSameCustomerBtn"
+                            disabled>
+                            เลือกทั้งหมดที่แสดง
+                        </button>
+                        <button type="button" class="btn btn-sm btn-info" id="bulkTruckOpenBtn" disabled>
+                            <i class="fas fa-truck me-1"></i> จัดรถ
+                        </button>
+                    </div>
+                </div>
+            @endif
+
             <div class="table-responsive dp-table-wrap">
                 <table class="table table-bordered table-sm align-middle mb-0" id="inqTable">
                     <thead class="table-light">
                         <tr class="dp-inquiry-header-row">
+                            @if ($showInquiryBulkTruck)
+                                <th class="text-center" style="width:46px;">
+                                    <input type="checkbox" class="form-check-input" id="bulkTruckCheckAll"
+                                        title="เลือกจัดรถทั้งหมดที่แสดง">
+                                </th>
+                            @endif
                             @if ($canDp)
                                 <th class="text-center" style="width:46px;">
                                     <input type="checkbox" class="form-check-input" id="bulkPostponeCheckAll"
@@ -424,6 +603,16 @@
 
                             <tr class="table-secondary group-row" data-group="{{ e($groupTitle) }}">
                                 <td colspan="{{ $tableColspan }}" class="fw-semibold">
+                                    @if ($showInquiryBulkTruck)
+                                        <label class="me-2 fw-normal small text-info-emphasis"
+                                            style="cursor:pointer;"
+                                            title="เลือก/ยกเลิกทุกรายการในกลุ่มนี้เพื่อจัดรถ (วันส่งเดียวกัน)">
+                                            <input type="checkbox"
+                                                class="form-check-input align-middle me-1 jsGroupTruckCheckAll"
+                                                data-group="{{ e($groupTitle) }}">
+                                            <i class="fas fa-truck"></i> เลือกทั้งกลุ่มจัดรถ
+                                        </label>
+                                    @endif
                                     {{ $groupTitle }} <span class="text-muted">({{ $groupCount }} รายการ)</span>
                                 </td>
                             </tr>
@@ -518,16 +707,20 @@
                                         ['VOID', 'VOIDED', 'CANCEL', 'CANCELED', 'CANCELLED'],
                                         true,
                                     );
+                                    // งานขายเป็นชิ้น (sell_by_line=1, qty=0) จะไม่มีน้ำหนัก
+                                    // จึงต้องนับจาก line_qty (จำนวนชิ้น) แทน ไม่งั้น checkbox จะถูก disable
+                                    $isPieceLineUi = $sellByLine === 1 && $qty == 0.0 && $lineQty !== null && $lineQty > 0;
                                     $canAssignTruckUi =
                                         !$isVoidStatus &&
                                         !in_array($statusUpper, ['CLOSED', 'SPECIAL', 'POSTPONED'], true) &&
                                         !empty($r->can_pick_truck) &&
-                                        ($remainingQty > 0 || $assignedQty > 0);
-                                    $canSpecialDispatchUi =
-                                        $canDpa && !$isVoidStatus && $statusUpper !== 'CLOSED';
-                                    $canOpenDispatchModalUi =
-                                        $canDpa && !$isVoidStatus && $statusUpper !== 'CLOSED';
-                                    $canBulkPostpone = $canDp && !$isVoidStatus && !in_array($statusUpper, ['CLOSED', 'POSTPONED'], true);
+                                        ($remainingQty > 0 || $assignedQty > 0 || $isPieceLineUi);
+                                    $canSpecialDispatchUi = $canDpa && !$isVoidStatus && $statusUpper !== 'CLOSED';
+                                    $canOpenDispatchModalUi = $canDpa && !$isVoidStatus && $statusUpper !== 'CLOSED';
+                                    $canBulkPostpone =
+                                        $canDp &&
+                                        !$isVoidStatus &&
+                                        !in_array($statusUpper, ['CLOSED', 'POSTPONED'], true);
                                     $specialLabel = trim((string) ($r->special_dispatch_label ?? ''));
                                     $specialIsOpen =
                                         strtoupper(trim((string) ($r->special_dispatch_status ?? ''))) === 'OPEN' &&
@@ -549,12 +742,34 @@
                                     data-pc-status="{{ e(strtoupper((string) ($r->planner_confirmation_status ?? ''))) }}"
                                     data-mfg="{{ e($mfgText) }}">
 
+                                    @if ($showInquiryBulkTruck)
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input jsBulkTruckCheck"
+                                                value="{{ $r->ord_id }}" {{ $canAssignTruckUi ? '' : 'disabled' }}
+                                                data-ord-id="{{ $r->ord_id }}" data-so="{{ e($soText) }}"
+                                                data-customer-id="{{ e($r->customer_id ?? '') }}"
+                                                data-customer="{{ e($customerText) }}"
+                                                data-ship-date="{{ e($shipDateOnly) }}"
+                                                data-ship-label="{{ e($shipDateTimeText) }}"
+                                                data-shipto="{{ e($shiptoText) }}"
+                                                data-mfg="{{ e($mfgText) }}"
+                                                data-part="{{ e($r->part_number ?? '') }}"
+                                                data-part-desc="{{ e($r->part_desc ?? '') }}"
+                                                data-assigned="{{ e(number_format($assignedQty, 3, '.', '')) }}"
+                                                data-remaining="{{ e(number_format($remainingQty, 3, '.', '')) }}"
+                                                data-qty="{{ e(number_format($qty, 3, '.', '')) }}"
+                                                data-sell-by-line="{{ e($sellByLine) }}"
+                                                data-line-qty="{{ e($lineQty !== null ? number_format($lineQty, 3, '.', '') : '') }}"
+                                                data-line-text="{{ e($lineQtyText) }}"
+                                                data-status="{{ e($statusUpper) }}">
+                                        </td>
+                                    @endif
+
                                     @if ($canDp)
                                         <td class="text-center">
                                             <input type="checkbox" class="form-check-input jsBulkPostponeCheck"
                                                 value="{{ $r->ord_id }}" {{ $canBulkPostpone ? '' : 'disabled' }}
-                                                data-ord-id="{{ $r->ord_id }}"
-                                                data-so="{{ e($soText) }}"
+                                                data-ord-id="{{ $r->ord_id }}" data-so="{{ e($soText) }}"
                                                 data-part="{{ e($r->part_number ?? '') }}"
                                                 data-part-desc="{{ e($r->part_desc ?? '') }}"
                                                 data-ship-date="{{ e($shipDateOnly) }}"
@@ -676,17 +891,17 @@
                                                     $pcLabel .
                                                     ($pcNewDate ? ' → ' . $pcNewDate : '') .
                                                     ($pcAt ? "\nบันทึก " . $pcAt : '') .
-                                                    ($pcBy !== ''
-                                                        ? ' โดย ' . $pcBy
-                                                        : '');
+                                                    ($pcBy !== '' ? ' โดย ' . $pcBy : '');
                                             @endphp
                                             <div class="small mt-1 planner-confirm-wrap" title="{{ $tip }}">
                                                 <span class="badge bg-{{ $pcBadge }} planner-confirm-badge">
-                                                    <i class="fas fa-clipboard-check me-1"></i>Planner: {{ $pcLabel }}
+                                                    <i class="fas fa-clipboard-check me-1"></i>Planner:
+                                                    {{ $pcLabel }}
                                                 </span>
                                                 @if ($pcBy !== '' || $pcAt)
                                                     <div class="text-muted small mt-1 planner-confirm-meta">
-                                                        โดย {{ $pcByShort !== '' ? $pcByShort : '-' }}{{ $pcAt ? ' - ' . $pcAt : '' }}
+                                                        โดย
+                                                        {{ $pcByShort !== '' ? $pcByShort : '-' }}{{ $pcAt ? ' - ' . $pcAt : '' }}
                                                     </div>
                                                 @endif
                                                 @if ($pcStatus === 'POSTPONE' && $pcNewDate)
@@ -737,18 +952,18 @@
                                                 : 'ยกเลิกได้เฉพาะก่อนวันส่งสินค้าอย่างน้อย 3 วัน (ภายใน ' .
                                                     $cutoff->format('d/m/Y') .
                                                     ')';
-                                            $canPlanMore = !in_array($statusUpper, ['VOID', 'CLOSED', 'POSTPONED'], true);
+                                            $canPlanMore = !in_array(
+                                                $statusUpper,
+                                                ['VOID', 'CLOSED', 'POSTPONED'],
+                                                true,
+                                            );
                                             $truckPlateForAction = trim((string) ($r->truck_plate_display ?? ''));
                                             if ($truckPlateForAction === '') {
                                                 $truckPlateForAction = trim((string) ($r->truck_plate_list ?? ''));
                                             }
                                             $hasTruck = $truckPlateForAction !== '';
                                             $truckActionLabel = $hasTruck ? 'เปลี่ยนรถ' : 'จัดรถ';
-                                            $showActionMenu =
-                                                !$isVoidStatus &&
-                                                (
-                                                    $specialIsOpen
-                                                );
+                                            $showActionMenu = !$isVoidStatus && $specialIsOpen;
                                         @endphp
 
                                         @unless ($isVoidStatus)
@@ -759,10 +974,20 @@
                                                     </a>
                                                 @else
                                                     @if ($canDp)
-                                                        <a class="btn btn-sm btn-outline-primary action-primary"
-                                                            href="{{ route('dp.day', ['date' => $shipDateOnly ?: now()->toDateString()]) }}?edit={{ $r->ord_id }}">
-                                                            แก้ไข
-                                                        </a>
+                                                        @if (!empty($r->edit_locked))
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-secondary action-primary jsEditLockedBtn"
+                                                                data-ship-date="{{ e($shipDateOnly) }}"
+                                                                data-so="{{ e($soText) }}"
+                                                                title="งานนี้ถูกจัดรถหรือกำหนดเป็นงานพิเศษแล้ว">
+                                                                แก้ไข
+                                                            </button>
+                                                        @else
+                                                            <a class="btn btn-sm btn-outline-primary action-primary"
+                                                                href="{{ route('dp.day', ['date' => $shipDateOnly ?: now()->toDateString()]) }}?edit={{ $r->ord_id }}">
+                                                                แก้ไข
+                                                            </a>
+                                                        @endif
                                                         @if ($canPlanMore)
                                                             <button type="button"
                                                                 class="btn btn-sm btn-outline-warning action-icon jsPostponeBtn"
@@ -814,10 +1039,12 @@
                                                     @endif
 
                                                     @if ($canOpenDispatchModalUi && $canDpa)
-                                                        {{-- ปุ่มจัดรถ ลิงก์ไปหน้า "จัดรถส่งสินค้า" พร้อม filter SO ของแถวนี้ --}}
-                                                        <a href="{{ route('dp.dashboard.logistics-summary', ['ship_date' => $shipDateOnly, 'q' => $r->so_number ?? '']) }}"
+                                                        {{-- ปุ่มจัดรถ ลิงก์ไปหน้า "จัดรถส่งสินค้า"
+                                                             กรองด้วย MFG (unique ต่อแถว) แทน SO เพื่อให้โชว์เฉพาะ MFG ที่ผู้ใช้กด
+                                                             ไม่ให้ติด MFG อื่นของ SO เดียวกันที่จัดรถไปแล้ว --}}
+                                                        <a href="{{ route('dp.dashboard.logistics-summary', ['ship_date' => $shipDateOnly, 'q' => $mfgText !== '' ? $mfgText : ($r->so_number ?? ''), 'selected' => 'ord-' . (int) $r->ord_id]) }}"
                                                             class="btn btn-sm btn-outline-info action-primary"
-                                                            title="ไปหน้าจัดรถส่งสินค้า (filter SO อัตโนมัติ)">
+                                                            title="ไปหน้าจัดรถส่งสินค้า (filter MFG อัตโนมัติ)">
                                                             <i class="fas fa-truck me-1"></i> จัดรถ
                                                         </a>
                                                     @endif
@@ -827,7 +1054,8 @@
                                                             <button type="button"
                                                                 class="btn btn-sm btn-outline-secondary action-more"
                                                                 data-bs-toggle="dropdown" data-bs-auto-close="outside"
-                                                                aria-expanded="false" title="เพิ่มเติม" aria-label="เพิ่มเติม">
+                                                                aria-expanded="false" title="เพิ่มเติม"
+                                                                aria-label="เพิ่มเติม">
                                                                 <i class="fas fa-ellipsis-h"></i>
                                                             </button>
                                                             <div class="dropdown-menu dropdown-menu-end action-menu">
@@ -969,6 +1197,9 @@
                         <div class="alert alert-warning small mb-0 mt-3">
                             ระบบจะสร้างแผนใหม่จากข้อมูลเดิม และเก็บรายการเดิมไว้เป็น reference สถานะ POSTPONED
                         </div>
+                        <div class="alert alert-info small mb-0 mt-2">
+                            Tip: รายการเดิมจะอัปเดต Revision อัตโนมัติเมื่อยืนยันเลื่อนแผน ส่วนแผนใหม่จะเริ่ม Revision 0
+                        </div>
                     </div>
 
                     <div class="modal-footer">
@@ -991,13 +1222,17 @@
 
                         <div class="modal-header">
                             <h5 class="modal-title">ย้ายแผนที่เลือก</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                aria-label="Close"></button>
                         </div>
 
                         <div class="modal-body">
                             <div class="alert alert-warning py-2">
                                 เลือกแล้ว <strong id="bulkPostponeModalCount">0</strong> รายการ /
                                 <strong id="bulkPostponeModalSoCount">0</strong> SO
+                            </div>
+                            <div class="alert alert-info py-2 small">
+                                Tip: รายการเดิมจะอัปเดต Revision อัตโนมัติเมื่อยืนยันย้ายแผน ส่วนแผนใหม่จะเริ่ม Revision 0
                             </div>
 
                             <div class="row g-2">
@@ -1078,17 +1313,23 @@
                                     <input class="form-check-input" type="radio" id="duplicateModeAcid" disabled>
                                     <span class="form-check-label">ส่งกัดกรด</span>
                                 </label>
+                                <label class="form-check mb-0">
+                                    <input class="form-check-input" type="radio" id="duplicateModeSpecial" disabled>
+                                    <span class="form-check-label">งานพิเศษ (Special)</span>
+                                </label>
                             </div>
                         </div>
 
                         <div class="row g-3">
                             <div class="col-md-6">
-                                <label class="form-label fw-semibold">วันที่ส่งสินค้า <span class="text-danger">*</span></label>
+                                <label class="form-label fw-semibold">วันที่ส่งสินค้า <span
+                                        class="text-danger">*</span></label>
                                 <input type="date" class="form-control" name="duplicate_ship_posted_date"
                                     id="duplicateShipDate" required>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label fw-semibold">ช่วงเวลารับส่ง <span class="text-danger">*</span></label>
+                                <label class="form-label fw-semibold">ช่วงเวลารับส่ง <span
+                                        class="text-danger">*</span></label>
                                 <input type="time" class="form-control" name="duplicate_window_time"
                                     id="duplicateWindowTime" required>
                             </div>
@@ -1117,9 +1358,8 @@
                             <div class="col-md-12">
                                 <label class="form-label fw-semibold">MFG No</label>
                                 <div class="position-relative">
-                                    <input type="text" class="form-control" name="duplicate_mfg_no"
-                                        id="duplicateMfg" placeholder="พิมพ์ W26... แล้วเลือก (manual ได้)"
-                                        autocomplete="off">
+                                    <input type="text" class="form-control" name="duplicate_mfg_no" id="duplicateMfg"
+                                        placeholder="พิมพ์ W26... แล้วเลือก (manual ได้)" autocomplete="off">
                                     <div id="duplicateMfgSuggest" class="duplicate-mfg-suggest d-none"></div>
                                 </div>
                                 <div class="form-text">รองรับหลายค่า คั่นด้วย ,</div>
@@ -1151,17 +1391,20 @@
 
                         <div class="row g-3 mt-1">
                             <div class="col-md-6" id="duplicateLineQtyWrap">
-                                <label class="form-label fw-semibold">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }} <span class="text-danger">*</span></label>
+                                <label class="form-label fw-semibold">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }}
+                                    <span class="text-danger">*</span></label>
                                 <input type="number" min="1" step="1" class="form-control"
                                     name="duplicate_line_qty" id="duplicateLineQty">
                             </div>
                             <div class="col-md-6" id="duplicateQtyWrap">
-                                <label class="form-label fw-semibold">จำนวน (KG) <span class="text-danger">*</span></label>
+                                <label class="form-label fw-semibold">จำนวน (KG) <span
+                                        class="text-danger">*</span></label>
                                 <input type="number" step="0.001" min="0" class="form-control"
                                     name="duplicate_qty" id="duplicateQty" placeholder="เช่น 1000">
                             </div>
                             <div class="col-md-12">
-                                <label class="form-label fw-semibold">สถานที่ส่ง <span class="text-danger">*</span></label>
+                                <label class="form-label fw-semibold">สถานที่ส่ง <span
+                                        class="text-danger">*</span></label>
                                 <input type="text" class="form-control" name="duplicate_address"
                                     id="duplicateAddress" placeholder="สถานที่ส่ง" required>
                             </div>
@@ -1204,19 +1447,21 @@
                         </div>
 
                         <div class="alert alert-info small mb-0 mt-3">
-                            ระบบจะสร้างรายการใหม่ใน delivery plan เท่านั้น โดยไม่ copy หรือเปลี่ยน truck assignment ของรายการเดิม
+                            ระบบจะสร้างรายการใหม่ใน delivery plan เท่านั้น โดยไม่ copy หรือเปลี่ยน truck assignment
+                            ของรายการเดิม
                         </div>
 
                         <label class="form-check d-flex align-items-center gap-2 mt-3 mb-0">
-                            <input class="form-check-input mt-0" type="checkbox"
-                                name="duplicate_continue_same_plan" id="duplicateContinueSamePlan" value="1">
+                            <input class="form-check-input mt-0" type="checkbox" name="duplicate_continue_same_plan"
+                                id="duplicateContinueSamePlan" value="1">
                             <span class="form-check-label">บันทึกแล้วเพิ่มรายการจากแผนเดิมต่อ</span>
                         </label>
                     </div>
 
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
-                        <button type="submit" class="btn btn-success" id="btnConfirmDuplicate">บันทึกเป็นรายการใหม่</button>
+                        <button type="submit" class="btn btn-success"
+                            id="btnConfirmDuplicate">บันทึกเป็นรายการใหม่</button>
                     </div>
                 </form>
             </div>
@@ -1322,7 +1567,7 @@
                             <input type="hidden" name="so_number" id="tmSoHidden">
                             <input type="hidden" name="ship_posted_at" id="tmShipDateHidden">
                             <input type="hidden" name="truck_id" id="tmTruckId">
-                            <input type="hidden" name="return_url" id="tmReturnUrl" value="{{ url()->full() }}">
+                            <input type="hidden" name="return_url" id="tmReturnUrl" value="{{ $cleanReturnUrl }}">
                             <input type="hidden" name="manual_plate_no" id="tmManualPlateHidden">
                             <input type="hidden" name="manual_driver_name" id="tmManualDriverHidden">
                             <input type="hidden" name="manual_driver_phone" id="tmManualPhoneHidden">
@@ -1351,7 +1596,8 @@
                                     </div>
 
                                     <div class="dp-trip-control" id="tmTripControl">
-                                        <label class="form-label small fw-semibold mb-2" for="tmTripNo">เที่ยวที่</label>
+                                        <label class="form-label small fw-semibold mb-2"
+                                            for="tmTripNo">เที่ยวที่</label>
                                         <div class="input-group input-group-sm">
                                             <button class="btn btn-outline-secondary" type="button"
                                                 id="tmTripMinus">-</button>
@@ -1658,8 +1904,8 @@
                                         <div class="card-body tm-manual-staff-body">
                                             <div class="tm-manual-section">
                                                 <div class="form-check mb-3">
-                                                    <input class="form-check-input" type="radio" name="truck_pick_mode"
-                                                        id="tmManualMode" value="MANUAL">
+                                                    <input class="form-check-input" type="radio"
+                                                        name="truck_pick_mode" id="tmManualMode" value="MANUAL">
                                                     <label class="form-check-label" for="tmManualMode">
                                                         ใช้ข้อมูลรถนอกนี้
                                                     </label>
@@ -1699,7 +1945,8 @@
                                                     <div class="col-md-6">
                                                         <label class="form-label small mb-1">หมายเหตุ</label>
                                                         <input type="text" class="form-control form-control-sm"
-                                                            id="tmManualRemark" placeholder="เช่น รถนอก / เปิดข้าง / ตู้">
+                                                            id="tmManualRemark"
+                                                            placeholder="เช่น รถนอก / เปิดข้าง / ตู้">
                                                     </div>
                                                 </div>
 
@@ -1717,47 +1964,47 @@
                                                 <div class="row g-2 tm-staff-grid">
                                                     <div class="col-md-12 tm-staff-field tm-staff-driver">
                                                         <label class="form-label small mb-1">คนขับ</label>
-                                                        <select class="form-select form-select-sm" name="driver_staff_id"
-                                                            id="tmDriverStaffId">
+                                                        <select class="form-select form-select-sm"
+                                                            name="driver_staff_id" id="tmDriverStaffId">
                                                             <option value="">-- เลือกคนขับ --</option>
                                                         </select>
                                                     </div>
 
                                                     <div class="col-md-12 tm-staff-field">
                                                         <label class="form-label small mb-1">เด็กรถ 1</label>
-                                                        <select class="form-select form-select-sm" name="helper1_staff_id"
-                                                            id="tmHelper1StaffId">
+                                                        <select class="form-select form-select-sm"
+                                                            name="helper1_staff_id" id="tmHelper1StaffId">
                                                             <option value="">-- เลือกเด็กรถ 1 --</option>
                                                         </select>
                                                     </div>
 
                                                     <div class="col-md-12 tm-staff-field">
                                                         <label class="form-label small mb-1">เด็กรถ 2</label>
-                                                        <select class="form-select form-select-sm" name="helper2_staff_id"
-                                                            id="tmHelper2StaffId">
+                                                        <select class="form-select form-select-sm"
+                                                            name="helper2_staff_id" id="tmHelper2StaffId">
                                                             <option value="">-- เลือกเด็กรถ 2 --</option>
                                                         </select>
                                                     </div>
 
                                                     <div class="col-md-12 tm-staff-field">
                                                         <label class="form-label small mb-1">เด็กรถ 3</label>
-                                                        <select class="form-select form-select-sm" name="helper3_staff_id"
-                                                            id="tmHelper3StaffId">
+                                                        <select class="form-select form-select-sm"
+                                                            name="helper3_staff_id" id="tmHelper3StaffId">
                                                             <option value="">-- เลือกเด็กรถ 3 --</option>
                                                         </select>
                                                     </div>
                                                     <div class="col-md-12 tm-staff-field">
                                                         <label class="form-label small mb-1">เด็กรถ 4</label>
-                                                        <select class="form-select form-select-sm" name="helper4_staff_id"
-                                                            id="tmHelper4StaffId">
+                                                        <select class="form-select form-select-sm"
+                                                            name="helper4_staff_id" id="tmHelper4StaffId">
                                                             <option value="">-- เลือกเด็กรถ 4 --</option>
                                                         </select>
                                                     </div>
 
                                                     <div class="col-md-12 tm-staff-field">
                                                         <label class="form-label small mb-1">เด็กรถ 5</label>
-                                                        <select class="form-select form-select-sm" name="helper5_staff_id"
-                                                            id="tmHelper5StaffId">
+                                                        <select class="form-select form-select-sm"
+                                                            name="helper5_staff_id" id="tmHelper5StaffId">
                                                             <option value="">-- เลือกเด็กรถ 5 --</option>
                                                         </select>
                                                     </div>
@@ -1774,7 +2021,8 @@
                             <div class="me-auto small text-muted" id="tmFooterHelp">
                                 ระบบจะบันทึกตามน้ำหนักที่รถยังรับได้จริง และถ้าเต็มก่อนจะบันทึกเฉพาะบางส่วน
                             </div>
-                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+                            <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">ปิด</button>
                             <button type="submit" class="btn btn-primary" id="btnTruckAssignSubmit">บันทึก</button>
                         </div>
                     </form>
@@ -1792,7 +2040,8 @@
 
                     <div class="modal-header">
                         <h5 class="modal-title" id="sendPlanMailModalLabel">ส่งเมลแจ้งแผนส่งมอบ</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Close"></button>
                     </div>
 
                     <div class="modal-body">
@@ -1808,10 +2057,7 @@
                                 <input type="number" name="revision_number" class="form-control"
                                     value="{{ old('revision_number', request('revision_number', 0)) }}" min="0"
                                     required>
-                                <div class="form-text">
-                                    Auto: เพิ่มเติม 1 = 10:00 AM, เพิ่มเติม 2 = 13:00 PM, เพิ่มเติม 3 = 16:00 PM.
-                                    เพิ่มเติม 4-6 = Sale Co. ส่งเอง
-                                </div>
+
                             </div>
 
                             <div class="col-md-12">
@@ -1867,9 +2113,9 @@
 @push('scripts')
     <script>
         window.DP_AC_SOURCES = {
-            so: @json(($autocompleteSources['so'] ?? [])),
-            customer: @json(($autocompleteSources['customer'] ?? [])),
-            shipto: @json(($autocompleteSources['shipto'] ?? [])),
+            so: @json($autocompleteSources['so'] ?? []),
+            customer: @json($autocompleteSources['customer'] ?? []),
+            shipto: @json($autocompleteSources['shipto'] ?? []),
             divsales: @json(array_values($divLabel ?? [])),
         };
         window.DP_INQUIRY = {
@@ -1886,6 +2132,7 @@
                 specialDispatch: @json(route('dp.inquiry.special-dispatch', ['ordId' => '__ID__'])),
                 truckAssign: @json(route('dp.inquiry.truck.assign', ['ordId' => '__ID__'])),
                 truckUnassign: @json(route('dp.inquiry.truck.unassign', ['ordId' => '__ID__'])),
+                logisticsSummary: @json($showInquiryBulkTruck ? route('dp.dashboard.logistics-summary') : null),
                 base: @json(route('dp.inquiry')),
                 truckCapacity: @json(route('dp.truck.capacity')),
                 truckStaffOptions: @json(route('dp.truck.staff.options')),
@@ -1893,11 +2140,11 @@
             }
         };
 
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('erpSyncSaleOrderForm');
             if (!form) return;
 
-            form.addEventListener('submit', function (event) {
+            form.addEventListener('submit', function(event) {
                 event.preventDefault();
 
                 if (!window.Swal) {
@@ -1918,14 +2165,14 @@
                     cancelButtonColor: '#64748b',
                     reverseButtons: true,
                     focusCancel: true
-                }).then(function (result) {
+                }).then(function(result) {
                     if (result.isConfirmed) {
                         Swal.fire({
                             title: 'กำลังดึงข้อมูล',
                             text: 'กรุณารอสักครู่',
                             allowOutsideClick: false,
                             allowEscapeKey: false,
-                            didOpen: function () {
+                            didOpen: function() {
                                 Swal.showLoading();
                             }
                         });
@@ -1937,5 +2184,5 @@
         });
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260609_action_compact_v1"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260617_group_truck_select_v1"></script>
 @endpush

@@ -4,6 +4,10 @@
 
 @section('content')
     @php
+        $u = auth()->user();
+        $canDpa =
+            auth()->check() &&
+            (($u->is_superadmin ?? 0) == 1 || (method_exists($u, 'hasRoleCode') && $u->hasRoleCode('DPA')));
         $refreshUrl = route('dp.dashboard.truck-board', ['ship_date' => $shipDate]);
         $fmtWeight = function ($kg) {
             $kg = (float) ($kg ?? 0);
@@ -51,6 +55,92 @@
             border-radius: 20px;
             overflow: hidden;
             box-shadow: 0 10px 28px rgba(15, 23, 42, .10);
+            scroll-margin-top: 110px;
+        }
+
+        .board-quickbar {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 10px 14px;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
+            position: sticky;
+            top: 8px;
+            z-index: 30;
+        }
+
+        .board-jump-chips {
+            max-height: 88px;
+            overflow-y: auto;
+            padding: 2px 0;
+        }
+
+        .board-jump-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            color: #1e293b;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .15s;
+            white-space: nowrap;
+        }
+
+        .board-jump-chip:hover {
+            background: #1d4ed8;
+            color: #fff;
+            border-color: #1d4ed8;
+            transform: translateY(-1px);
+        }
+
+        .board-jump-chip .chip-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .board-jump-chip .chip-dot.status-open { background: #16a34a; }
+        .board-jump-chip .chip-dot.status-closed { background: #64748b; }
+        .board-jump-chip .chip-dot.status-unassigned { background: #f59e0b; }
+
+        .board-jump-chip .chip-pct {
+            opacity: .7;
+            font-weight: 500;
+            font-size: 11px;
+        }
+
+        .board-jump-chip.is-hidden {
+            opacity: .25;
+            text-decoration: line-through;
+        }
+
+        .board-jump-chip.is-target-flash {
+            animation: chipFlash .9s ease;
+        }
+
+        @keyframes chipFlash {
+            0%   { box-shadow: 0 0 0 0 rgba(29, 78, 216, .55); }
+            70%  { box-shadow: 0 0 0 12px rgba(29, 78, 216, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(29, 78, 216, 0); }
+        }
+
+        /* ย่อการ์ดรถ: ซ่อนทุก section ของการ์ดยกเว้น header */
+        .truck-card.is-collapsed > *:not(.truck-header) {
+            display: none !important;
+        }
+
+        .truck-card .truck-header {
+            cursor: pointer;
+        }
+
+        .truck-card.is-collapsed .truck-header {
+            padding-bottom: 12px;
         }
 
         .truck-card.unassigned .truck-header {
@@ -332,6 +422,47 @@
                     'tnMfg'      => '',
                 ])
 
+                @php
+                    $activeFilters = [];
+                    $filterLabels = [
+                        'so'       => 'SO',
+                        'mfg'      => 'MFG',
+                        'customer' => 'Customer',
+                        'shipto'   => 'Ship To',
+                        'ord_id'   => 'Ord ID',
+                        'q'        => 'ค้นหา',
+                        'status'   => 'สถานะ',
+                        'divsales' => 'Sales',
+                    ];
+                    foreach ($filterLabels as $fkey => $flabel) {
+                        $val = trim((string) request($fkey, ''));
+                        if ($val !== '') {
+                            $activeFilters[] = ['key' => $fkey, 'label' => $flabel, 'value' => $val];
+                        }
+                    }
+                @endphp
+
+                @if (!empty($activeFilters))
+                    <div class="dp-active-filters mb-2 d-flex flex-wrap align-items-center gap-2">
+                        <span class="small text-muted"><i class="fas fa-filter me-1"></i>ตัวกรองที่ใช้อยู่:</span>
+                        @foreach ($activeFilters as $f)
+                            @php
+                                $removeUrl = request()->fullUrlWithQuery([$f['key'] => null]);
+                            @endphp
+                            <a href="{{ $removeUrl }}"
+                                class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle text-decoration-none"
+                                title="คลิกเพื่อลบตัวกรองนี้">
+                                {{ $f['label'] }}: <span class="fw-semibold">{{ $f['value'] }}</span>
+                                <i class="fas fa-times ms-1"></i>
+                            </a>
+                        @endforeach
+                        <a href="{{ route('dp.dashboard.truck-board', ['ship_date' => $shipDate]) }}"
+                            class="btn btn-sm btn-outline-danger py-0 px-2" title="ล้างทุกตัวกรอง">
+                            <i class="fas fa-eraser me-1"></i>ล้างทั้งหมด
+                        </a>
+                    </div>
+                @endif
+
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                     <div class="text-muted">
                         วันที่ส่งสินค้า: <strong>{{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }}</strong>
@@ -351,7 +482,8 @@
                             <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap"
                                 id="btnBoardDateToday" title="วันนี้">วันนี้</button>
                         </form>
-                        <div class="btn-group btn-group-sm">
+                        @if ($canDpa)
+                            <div class="btn-group btn-group-sm">
                             <a href="{{ route('dp.dashboard.truck-board.export.print', ['ship_date' => $shipDate]) }}"
                                 class="btn btn-outline-primary" target="_blank">
                                 <i class="fas fa-print me-1"></i> Export จัดรถทั้งหมด
@@ -360,7 +492,19 @@
                                 class="btn btn-outline-primary">PDF</a>
                             <a href="{{ route('dp.dashboard.truck-board.export.excel', ['ship_date' => $shipDate]) }}"
                                 class="btn btn-outline-primary">Excel</a>
-                        </div>
+                            </div>
+                            <form method="POST" action="{{ route('dp.dashboard.truck-board.send-mail') }}"
+                                id="assignMailForm" class="jsAssignMailForm d-inline"
+                                data-already-sent="{{ ($assignMailAlreadySent ?? false) ? '1' : '0' }}"
+                                data-ship-text="{{ \Carbon\Carbon::parse($shipDate)->format('d-m-y') }}">
+                                @csrf
+                                <input type="hidden" name="ship_date" value="{{ $shipDate }}">
+                                <input type="hidden" name="force_send" class="jsAssignMailForce" value="0">
+                                <button type="submit" class="btn btn-success btn-sm">
+                                    <i class="fas fa-paper-plane me-1"></i> ส่งเมลจัดรถ
+                                </button>
+                            </form>
+                        @endif
                         <a href="{{ route('dp.dashboard.truck-board') }}" class="btn btn-outline-secondary btn-sm"
                             title="ล้าง filter ทั้งหมด">
                             <i class="fas fa-eraser me-1"></i> Reset
@@ -438,12 +582,55 @@
                         <button type="button" class="btn btn-outline-primary"
                             data-board-filter="special">งานพิเศษ</button>
                     </div>
-                    <div class="ms-auto" style="min-width:260px;">
-                        <input type="search" class="form-control form-control-sm" id="truckBoardSearch"
-                            placeholder="ค้นหาทะเบียน / SO / MFG / ลูกค้า / สถานที่ส่ง">
+                    <div class="ms-auto d-flex align-items-center gap-2" style="min-width:320px;">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="fas fa-search"></i></span>
+                            <input type="search" class="form-control" id="truckBoardSearch"
+                                placeholder="ค้นหาทะเบียน / SO / MFG / ลูกค้า / สถานที่ส่ง">
+                            <button type="button" class="btn btn-outline-secondary" id="truckBoardSearchClear"
+                                title="ล้าง">&times;</button>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-dark text-nowrap" id="boardQuickCollapseAll"
+                            title="ย่อ/ขยายทั้งหมด">
+                            <i class="fas fa-compress-alt me-1"></i> ย่อ/ขยาย
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {{-- Quick-jump chips (ใต้ KPI/filter, เหนืองานพิเศษ) --}}
+            @if (count($truckGroups) > 0)
+                <div class="board-quickbar mb-3 py-2">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small text-muted">
+                        <i class="fas fa-truck me-1"></i> คลิก chip เพื่อกระโดดไปการ์ดรถ
+                        <span class="ms-auto">
+                            แสดง <span id="boardQuickVisibleCount" class="fw-semibold">{{ count($truckGroups) }}</span>/{{ count($truckGroups) }} รถ
+                        </span>
+                    </div>
+                    <div class="board-jump-chips d-flex flex-wrap gap-1">
+                        @foreach ($truckGroups as $truck)
+                            @php
+                                $chipKey = 'truck-' . md5($truck->truck_label . '|' . $loop->index);
+                                $chipStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
+                                $chipQty = (float) ($truck->total_assigned ?? 0);
+                                $chipMax = (float) ($truck->max_load ?? 0);
+                                $chipPct = $chipMax > 0 ? min(100, round($chipQty / $chipMax * 100)) : null;
+                            @endphp
+                            <button type="button"
+                                class="board-jump-chip jsBoardJump"
+                                data-target="{{ $chipKey }}"
+                                data-board-status="{{ $chipStatus }}"
+                                title="{{ $truck->truck_label }} · {{ $fmtWeight($chipQty) }}{{ $chipMax > 0 ? ' / ' . $fmtWeight($chipMax) : '' }}">
+                                <span class="chip-dot status-{{ $chipStatus }}"></span>
+                                <span class="chip-plate">{{ $truck->truck_label }}</span>
+                                @if ($chipPct !== null)
+                                    <span class="chip-pct">{{ $chipPct }}%</span>
+                                @endif
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
 
             @if (($specialGroups ?? collect())->isNotEmpty())
                 @php
@@ -533,7 +720,7 @@
                                                         @endif
                                                     </td>
                                                     <td class="text-center">
-                                                        @if ($row->is_open && strtoupper((string) $row->dispatch_type) !== 'POSTPONED')
+                                                        @if ($canDpa && $row->is_open && strtoupper((string) $row->dispatch_type) !== 'POSTPONED')
                                                             <form method="POST"
                                                                 action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $row->ord_id]) }}"
                                                                 onsubmit="return confirm('ยืนยันปิดงานพิเศษนี้?');">
@@ -581,8 +768,11 @@
                         ->filter()
                         ->implode(' ');
                     $boardStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
+                    $cardKey = 'truck-' . md5($truck->truck_label . '|' . $loop->index);
                 @endphp
-                <div class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4 jsBoardTruckCard"
+                <div id="{{ $cardKey }}"
+                    class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4 jsBoardTruckCard"
+                    data-card-key="{{ $cardKey }}"
                     data-board-status="{{ $boardStatus }}"
                     data-board-search="{{ e(mb_strtolower($truckSearchText)) }}">
                     <div class="truck-header">
@@ -652,7 +842,7 @@
                                     <span class="truck-badge {{ $remainingClass }}">คงเหลือ
                                         {{ $fmtWeight($truck->remaining_load) }}</span>
                                 @endif
-                                @if (!$truck->is_unassigned && !$truck->is_closed)
+                                @if ($canDpa && !$truck->is_unassigned && !$truck->is_closed)
                                     <form method="POST" action="{{ route('dp.dashboard.truck-board.trip.close') }}"
                                         onsubmit="return confirm('ยืนยันปิดรอบรถนี้?');">
                                         @csrf
@@ -807,6 +997,98 @@
         </div>
     </div>
 
+    @if ($canDpa)
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                function askSend(sent, t) {
+                    var title = sent ? 'ยืนยันส่งซ้ำ' : 'ยืนยันส่งเมลจัดรถ';
+                    var text = sent
+                        ? ('เคยส่งเมลจัดรถของวันที่ ' + t + ' แล้ว ต้องการส่งซ้ำอีกครั้งหรือไม่?')
+                        : ('ต้องการส่งเมลจัดรถของวันที่ ' + t + ' หรือไม่?');
+                    if (!window.Swal) {
+                        return Promise.resolve(window.confirm(text));
+                    }
+                    return Swal.fire({
+                        title: title,
+                        text: text,
+                        icon: sent ? 'warning' : 'question',
+                        showCancelButton: true,
+                        confirmButtonText: sent ? 'ส่งซ้ำ' : 'ส่งเมล',
+                        cancelButtonText: 'ยกเลิก',
+                        confirmButtonColor: sent ? '#f59e0b' : '#22c55e',
+                        cancelButtonColor: '#64748b',
+                        reverseButtons: true,
+                    }).then(function (r) { return r.isConfirmed; });
+                }
+
+                function doSend(form, sent) {
+                    var force = form.querySelector('.jsAssignMailForce');
+                    if (force) force.value = sent ? '1' : '0';
+                    form.dataset.confirmed = '1';
+                    if (window.Swal) {
+                        Swal.fire({
+                            title: 'กำลังส่งเมล...',
+                            text: 'กรุณารอสักครู่',
+                            allowOutsideClick: false,
+                            allowEscapeKey: false,
+                            didOpen: function () { Swal.showLoading(); },
+                        });
+                    }
+                    form.submit();
+                }
+
+                document.querySelectorAll('.jsAssignMailForm').forEach(function (form) {
+                    form.addEventListener('submit', function (e) {
+                        if (form.dataset.confirmed === '1') return; // ผ่านการยืนยันแล้ว
+                        e.preventDefault();
+                        var sent = form.dataset.alreadySent === '1';
+                        askSend(sent, form.dataset.shipText || '').then(function (ok) {
+                            if (ok) doSend(form, sent);
+                        });
+                    });
+                });
+
+                @if (session('assign_mail_confirm'))
+                    var dupForm = document.querySelector('.jsAssignMailForm');
+                    if (dupForm) {
+                        askSend(true, @json(session('assign_mail_confirm'))).then(function (ok) {
+                            if (ok) doSend(dupForm, true);
+                        });
+                    }
+                @endif
+
+                @if (session('assign_mail_success'))
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'ส่งเมลสำเร็จ',
+                            text: @json(session('assign_mail_success')),
+                            confirmButtonColor: '#22c55e',
+                            timer: 3000,
+                            timerProgressBar: true,
+                            showConfirmButton: false,
+                        });
+                    } else {
+                        alert(@json(session('assign_mail_success')));
+                    }
+                @endif
+
+                @if (session('assign_mail_error'))
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'ส่งเมลไม่สำเร็จ',
+                            text: @json(session('assign_mail_error')),
+                            confirmButtonColor: '#ef4444',
+                        });
+                    } else {
+                        alert(@json(session('assign_mail_error')));
+                    }
+                @endif
+            });
+        </script>
+    @endif
+
     <script>
         (function truckBoardFilters() {
             const filterButtons = Array.from(document.querySelectorAll('[data-board-filter]'));
@@ -895,6 +1177,81 @@
                     }
                 });
             });
+        })();
+
+        // Quick-jump chips + collapse + sync กับ search/filter เดิม
+        (function boardQuickbar() {
+            const searchInput = document.getElementById('truckBoardSearch');
+            const searchClear = document.getElementById('truckBoardSearchClear');
+            const visibleCount = document.getElementById('boardQuickVisibleCount');
+            const collapseAllBtn = document.getElementById('boardQuickCollapseAll');
+            const cards = Array.from(document.querySelectorAll('.jsBoardTruckCard'));
+            const chips = Array.from(document.querySelectorAll('.jsBoardJump'));
+            if (cards.length === 0) return;
+
+            let allCollapsed = false;
+
+            // อัปเดต chip dim + จำนวน ตามสถานะ card.display ปัจจุบัน (ที่ filter เดิมจัดให้)
+            function syncChips() {
+                let shown = 0;
+                cards.forEach((card) => {
+                    const isHidden = card.style.display === 'none' || card.classList.contains('d-none');
+                    if (!isHidden) shown++;
+                    const key = card.getAttribute('data-card-key') || '';
+                    const chip = chips.find((c) => c.getAttribute('data-target') === key);
+                    if (chip) chip.classList.toggle('is-hidden', isHidden);
+                });
+                if (visibleCount) visibleCount.textContent = shown;
+            }
+
+            // hook กับ search/filter เดิม (input + click on status filter)
+            searchInput?.addEventListener('input', () => setTimeout(syncChips, 30));
+            document.querySelectorAll('[data-board-filter]').forEach((btn) => {
+                btn.addEventListener('click', () => setTimeout(syncChips, 30));
+            });
+
+            searchClear?.addEventListener('click', () => {
+                if (!searchInput) return;
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.focus();
+            });
+
+            // คลิก chip → scroll ไปการ์ด
+            chips.forEach((chip) => {
+                chip.addEventListener('click', () => {
+                    const key = chip.getAttribute('data-target');
+                    const target = document.getElementById(key);
+                    if (!target) return;
+                    if (target.classList.contains('is-collapsed')) {
+                        target.classList.remove('is-collapsed');
+                    }
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    chip.classList.add('is-target-flash');
+                    setTimeout(() => chip.classList.remove('is-target-flash'), 900);
+                });
+            });
+
+            // คลิก header การ์ด → toggle collapse
+            cards.forEach((card) => {
+                const header = card.querySelector('.truck-header');
+                if (!header) return;
+                header.addEventListener('click', (ev) => {
+                    if (ev.target.closest('a, button, input, select, textarea, form, label')) return;
+                    card.classList.toggle('is-collapsed');
+                });
+            });
+
+            // ย่อ/ขยายทั้งหมด
+            collapseAllBtn?.addEventListener('click', () => {
+                allCollapsed = !allCollapsed;
+                cards.forEach((c) => c.classList.toggle('is-collapsed', allCollapsed));
+                collapseAllBtn.innerHTML = allCollapsed
+                    ? '<i class="fas fa-expand-alt me-1"></i> ขยาย'
+                    : '<i class="fas fa-compress-alt me-1"></i> ย่อ/ขยาย';
+            });
+
+            syncChips();
         })();
     </script>
 @endsection
