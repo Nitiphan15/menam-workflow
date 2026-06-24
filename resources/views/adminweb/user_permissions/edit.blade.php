@@ -27,10 +27,6 @@
             <a class="btn btn-outline-secondary" href="{{ route('adminweb.user-permissions.index') }}">Back</a>
         </div>
 
-        @if (session('success'))
-            <div class="alert alert-success">{{ session('success') }}</div>
-        @endif
-
         <form method="POST" action="{{ route('adminweb.user-permissions.update', $user->id) }}">
             @csrf
             @method('PUT')

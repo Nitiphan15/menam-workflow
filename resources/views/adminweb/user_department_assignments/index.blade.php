@@ -7,9 +7,6 @@
         @if (session('ok'))
             <div class="alert alert-success">{{ session('ok') }}</div>
         @endif
-        @if ($errors->any())
-            <div class="alert alert-danger">{{ $errors->first() }}</div>
-        @endif
 
         <div class="d-flex align-items-center justify-content-between mb-3">
             <div>

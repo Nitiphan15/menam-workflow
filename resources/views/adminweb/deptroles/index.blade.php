@@ -13,9 +13,6 @@
         @if (session('ok'))
             <div class="alert alert-success">{{ session('ok') }}</div>
         @endif
-        @if ($errors->any())
-            <div class="alert alert-danger">{{ $errors->first() }}</div>
-        @endif
 
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white fw-bold">

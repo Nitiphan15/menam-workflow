@@ -95,11 +95,11 @@ class UserAdminController extends Controller
                 ]);
             }
 
-            // ✅ สิทธิ์การใช้งานเว็บ (ตาม schema ปัจจุบันคุณใช้ user_dept_roles)
+            // สิทธิ์การใช้งานเว็บ (ตาม schema ปัจจุบันคุณใช้ user_dept_roles)
             if (!empty($roleIds) && $deptId > 0) {
                 $roleIds = collect($roleIds)
-                    ->map(fn ($rid) => (int) $rid)
-                    ->filter(fn ($rid) => $rid > 0)
+                    ->map(fn($rid) => (int) $rid)
+                    ->filter(fn($rid) => $rid > 0)
                     ->unique()
                     ->values();
 
@@ -107,11 +107,11 @@ class UserAdminController extends Controller
                     ->where('user_id', $user->id)
                     ->where('department_id', $deptId)
                     ->pluck('role_id')
-                    ->map(fn ($rid) => (int) $rid);
+                    ->map(fn($rid) => (int) $rid);
 
                 $rows = $roleIds
-                    ->reject(fn ($rid) => $existingRoleIds->contains($rid))
-                    ->map(fn ($rid) => [
+                    ->reject(fn($rid) => $existingRoleIds->contains($rid))
+                    ->map(fn($rid) => [
                         'user_id' => $user->id,
                         'department_id' => $deptId,
                         'role_id' => $rid,
