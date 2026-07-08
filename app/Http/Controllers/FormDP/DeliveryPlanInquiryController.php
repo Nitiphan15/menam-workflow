@@ -2194,6 +2194,7 @@ class DeliveryPlanInquiryController extends Controller
         $originalShipDateText = !empty($row->ship_posted_at)
             ? $originalShipDate->format('d/m/Y')
             : '-';
+        $newShipDateText = $newShipDate->format('d/m/Y');
         $originalDueDate = !empty($row->due_date)
             ? Carbon::parse($row->due_date)->startOfDay()
             : $newShipDate->copy();
@@ -2224,7 +2225,7 @@ class DeliveryPlanInquiryController extends Controller
                 'status' => 'SUPERSEDED',
                 'closed_at' => now(),
                 'closed_by' => $userId,
-                'close_remark' => 'Postponed and copied to ord_id=' . $newOrdId,
+                'close_remark' => 'เลื่อนแผนและสร้างรายการใหม่ วันที่ ' . $newShipDateText,
             ]);
 
         $conn->table('delivery_plan_truck_assign')
@@ -2236,12 +2237,12 @@ class DeliveryPlanInquiryController extends Controller
                 'ord_id' => $ordId,
                 'dispatch_type' => 'POSTPONED',
                 'status' => 'CLOSED',
-                'remark' => $reason . ' | New ord_id=' . $newOrdId . ' | New ship date=' . $newShipDate->toDateString(),
+                'remark' => $reason . ' | เลื่อนไป วันที่ ' . $newShipDateText,
                 'action_by' => $userId,
                 'action_at' => now(),
                 'closed_at' => now(),
                 'closed_by' => $userId,
-                'close_remark' => 'Postponed copy created as ord_id=' . $newOrdId,
+                'close_remark' => 'สร้างรายการเลื่อนแผน วันที่ ' . $newShipDateText,
             ]);
 
         $conn->table('delivery_plan_data')
@@ -2251,7 +2252,7 @@ class DeliveryPlanInquiryController extends Controller
                 'status' => 'POSTPONED',
                 'revision_number' => $postponedRevisionNumber,
                 'revise_by' => $userId,
-                'edit_remark' => 'เลื่อนไป ord_id=' . $newOrdId . ' เหตุผล : ' . $reason,
+                'edit_remark' => 'เลื่อนไป วันที่ ' . $newShipDateText . ' เหตุผล : ' . $reason,
             ]);
 
         return [
