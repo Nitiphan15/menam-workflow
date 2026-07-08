@@ -9,56 +9,156 @@
     @endphp
 
     <style>
+        .risk-page {
+            background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 320px);
+            min-height: 100vh;
+            animation: riskFade .35s ease;
+        }
+
+        @keyframes riskFade {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        .risk-page-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .risk-page-title .title-bar {
+            width: 5px;
+            height: 28px;
+            border-radius: 4px;
+            background: linear-gradient(180deg, #ef4444, #f59e0b);
+        }
+        .risk-page-title h4 {
+            margin: 0;
+            font-weight: 700;
+            color: #0f172a;
+            letter-spacing: .2px;
+        }
+
         .risk-table-wrap {
-            max-height: calc(100vh - 300px);
+            max-height: calc(100vh - 320px);
             overflow: auto;
             position: relative;
+            border-radius: 14px;
+        }
+
+        .risk-table {
+            margin-bottom: 0;
         }
 
         .risk-table thead th {
             position: sticky;
             top: 0;
             z-index: 20;
-            background: #f8f9fa;
+            background: #f1f5f9;
+            color: #334155;
             text-align: center;
             vertical-align: middle;
             white-space: nowrap;
+            border-bottom: 2px solid #e2e8f0 !important;
+            font-weight: 600;
+            font-size: .82rem;
+            letter-spacing: .3px;
+            text-transform: uppercase;
+            padding: .65rem .75rem;
+        }
+
+        .risk-table tbody td {
+            padding: .65rem .75rem;
+            border-color: #eef2f7;
+            font-size: .92rem;
+        }
+
+        .risk-table tbody tr {
+            transition: background-color .15s ease;
+        }
+
+        .risk-table tbody tr:nth-child(even) {
+            background: #fafbfd;
+        }
+
+        .risk-table tbody tr:hover {
+            background: #eff6ff;
         }
 
         .risk-table .sticky-col {
             position: sticky;
             left: 0;
             z-index: 15;
-            background: #fff;
+            background: inherit;
             white-space: nowrap;
+        }
+
+        .risk-table tbody tr:nth-child(even) .sticky-col {
+            background: #fafbfd;
+        }
+        .risk-table tbody tr:hover .sticky-col {
+            background: #eff6ff;
+        }
+        .risk-table tbody tr:nth-child(odd) .sticky-col {
+            background: #fff;
         }
 
         .risk-table thead .sticky-col {
             z-index: 30;
-            background: #f8f9fa;
+            background: #f1f5f9;
         }
 
-        .metric-card .value {
-            font-size: 1.6rem;
+        .days-pill {
+            display: inline-block;
+            min-width: 56px;
+            padding: 4px 12px;
+            border-radius: 999px;
             font-weight: 700;
+            font-size: .9rem;
         }
-
         .days-overdue {
-            background: #7f0000 !important;
-            color: #fff !important;
-            font-weight: 700;
+            background: linear-gradient(135deg, #7f1d1d, #b91c1c);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(127, 29, 29, .25);
         }
-
         .days-critical {
-            background: #dc3545 !important;
-            color: #fff !important;
-            font-weight: 700;
+            background: linear-gradient(135deg, #dc2626, #f87171);
+            color: #fff;
+            box-shadow: 0 2px 6px rgba(220, 38, 38, .22);
+        }
+        .days-warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+        .days-normal {
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
         }
 
-        .days-warning {
-            background: #fff3cd !important;
-            color: #7a5a00 !important;
-            font-weight: 700;
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: .8rem;
+            font-weight: 600;
+        }
+        .status-badge i { font-size: .68rem; }
+        .status-overdue {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .status-critical {
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+        .status-warning {
+            background: #fef3c7;
+            color: #92400e;
         }
 
         .filter-card {
@@ -96,6 +196,147 @@
             font-size: 1.75rem;
             font-weight: 700;
             line-height: 1;
+        }
+
+        /* Metric cards */
+        .metric-card {
+            border: 1px solid #eef2f7;
+            border-radius: 16px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+            overflow: hidden;
+            position: relative;
+            transition: transform .18s ease, box-shadow .18s ease;
+        }
+        .metric-card::before {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 4px;
+            background: #cbd5e1;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, .08);
+        }
+        .metric-card .card-body {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.1rem 1rem 1.25rem;
+        }
+        .metric-card .label {
+            font-size: .82rem;
+            color: #64748b;
+            font-weight: 500;
+            letter-spacing: .2px;
+        }
+        .metric-card .value {
+            font-size: 1.7rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-top: 2px;
+            color: #0f172a;
+        }
+        .metric-card .ic {
+            width: 42px; height: 42px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.05rem;
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .metric-total::before     { background: #64748b; }
+        .metric-warning::before   { background: #f59e0b; }
+        .metric-warning .ic       { background: #fef3c7; color: #b45309; }
+        .metric-warning .value    { color: #b45309; }
+        .metric-critical::before  { background: #ef4444; }
+        .metric-critical .ic      { background: #fee2e2; color: #b91c1c; }
+        .metric-critical .value   { color: #b91c1c; }
+        .metric-overdue::before   { background: #7f1d1d; }
+        .metric-overdue .ic       { background: #fef2f2; color: #7f1d1d; }
+        .metric-overdue .value    { color: #7f1d1d; }
+        .metric-unmapped::before  { background: #6366f1; }
+        .metric-unmapped .ic      { background: #eef2ff; color: #4338ca; }
+        .metric-shown::before     { background: #0ea5e9; }
+        .metric-shown .ic         { background: #e0f2fe; color: #0369a1; }
+
+        .section-card {
+            border: 1px solid #eef2f7;
+            border-radius: 16px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+            overflow: hidden;
+        }
+
+        .step-progress {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            color: #334155;
+            font-size: .85rem;
+        }
+        .step-progress .dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: #94a3b8;
+        }
+        .step-progress.not-started { color: #6b7280; }
+        .step-progress.not-started .dot { background: #cbd5e1; }
+        .step-progress.in-progress .dot { background: #0ea5e9; }
+        .step-progress.done .dot { background: #16a34a; }
+
+        .planner-chip {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 999px;
+            background: #f1f5f9;
+            color: #334155;
+            font-size: .82rem;
+            font-weight: 500;
+        }
+
+        .station-chip {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 8px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: .82rem;
+            font-weight: 600;
+            font-family: 'Sarabun', 'Inter', monospace;
+        }
+
+        .site-chip {
+            display: inline-block;
+            min-width: 50px;
+            padding: 2px 10px;
+            border-radius: 8px;
+            font-size: .78rem;
+            font-weight: 700;
+        }
+        .site-wire { background: #ecfeff; color: #0e7490; border: 1px solid #a5f3fc; }
+        .site-plus { background: #fdf4ff; color: #86198f; border: 1px solid #f5d0fe; }
+
+        .mfg-link {
+            font-weight: 700;
+            color: #0f172a;
+            text-decoration: none;
+        }
+        .mfg-link:hover { color: #1d4ed8; }
+
+        .empty-state {
+            padding: 3rem 1rem !important;
+            color: #94a3b8;
+        }
+        .empty-state i {
+            font-size: 2.2rem;
+            display: block;
+            margin-bottom: .6rem;
+            color: #cbd5e1;
         }
 
         .filter-actions {
@@ -200,7 +441,12 @@
         }
     </style>
 
-    <div class="container-fluid py-3">
+    <div class="container-fluid py-3 risk-page">
+        <div class="risk-page-title">
+            <span class="title-bar"></span>
+            <h4><i class="fa-solid fa-triangle-exclamation me-2 text-warning"></i>งานเสี่ยงการผลิต</h4>
+        </div>
+
         <form class="card card-body mb-3 filter-card" method="GET" action="{{ route('risk.index') }}">
             <div class="row g-3">
                 <div class="col-md-6 col-xl-2">
@@ -296,56 +542,74 @@
         </form>
 
         <div class="row g-3 mb-3">
-            <div class="col-md-3 col-lg-2">
-                <div class="card metric-card">
-                    <div class="card-body text-center">
-                        <div class="text-muted">ทั้งหมด</div>
-                        <div class="value">{{ $summary['total'] }}</div>
+            <div class="col-md-4 col-lg-2">
+                <div class="metric-card metric-total">
+                    <div class="card-body">
+                        <div>
+                            <div class="label">ทั้งหมด</div>
+                            <div class="value">{{ number_format($summary['total']) }}</div>
+                        </div>
+                        <div class="ic"><i class="fa-solid fa-layer-group"></i></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3 col-lg-2">
-                <div class="card metric-card">
-                    <div class="card-body text-center">
-                        <div class="text-muted">แจ้งเตือน</div>
-                        <div class="value text-warning">{{ $summary['warning'] }}</div>
+            <div class="col-md-4 col-lg-2">
+                <div class="metric-card metric-warning">
+                    <div class="card-body">
+                        <div>
+                            <div class="label">แจ้งเตือน</div>
+                            <div class="value">{{ number_format($summary['warning']) }}</div>
+                        </div>
+                        <div class="ic"><i class="fa-solid fa-bell"></i></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3 col-lg-2">
-                <div class="card metric-card">
-                    <div class="card-body text-center">
-                        <div class="text-muted">วิกฤต</div>
-                        <div class="value text-danger">{{ $summary['critical'] }}</div>
+            <div class="col-md-4 col-lg-2">
+                <div class="metric-card metric-critical">
+                    <div class="card-body">
+                        <div>
+                            <div class="label">วิกฤต</div>
+                            <div class="value">{{ number_format($summary['critical']) }}</div>
+                        </div>
+                        <div class="ic"><i class="fa-solid fa-fire"></i></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3 col-lg-2">
-                <div class="card metric-card">
-                    <div class="card-body text-center">
-                        <div class="text-muted">เลยกำหนด</div>
-                        <div class="value text-danger-emphasis">{{ $summary['overdue'] }}</div>
+            <div class="col-md-4 col-lg-2">
+                <div class="metric-card metric-overdue">
+                    <div class="card-body">
+                        <div>
+                            <div class="label">เลยกำหนด</div>
+                            <div class="value">{{ number_format($summary['overdue']) }}</div>
+                        </div>
+                        <div class="ic"><i class="fa-solid fa-clock-rotate-left"></i></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3 col-lg-2">
-                <div class="card metric-card">
-                    <div class="card-body text-center">
-                        <div class="text-muted">ยังไม่แมพ Planner</div>
-                        <div class="value">{{ $summary['unmapped'] }}</div>
+            <div class="col-md-4 col-lg-2">
+                <div class="metric-card metric-unmapped">
+                    <div class="card-body">
+                        <div>
+                            <div class="label">ยังไม่แมพ Planner</div>
+                            <div class="value">{{ number_format($summary['unmapped']) }}</div>
+                        </div>
+                        <div class="ic"><i class="fa-solid fa-user-slash"></i></div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-3 col-lg-2">
-                <div class="card metric-card">
-                    <div class="card-body text-center">
-                        <div class="text-muted">แสดงผล</div>
-                        <div class="value">{{ $rows->count() }}</div>
+            <div class="col-md-4 col-lg-2">
+                <div class="metric-card metric-shown">
+                    <div class="card-body">
+                        <div>
+                            <div class="label">แสดงผล</div>
+                            <div class="value">{{ number_format($rows->count()) }}</div>
+                        </div>
+                        <div class="ic"><i class="fa-solid fa-eye"></i></div>
                     </div>
                 </div>
             </div>
@@ -360,12 +624,12 @@
             </div>
         </div>
 
-        <div class="card">
+        <div class="section-card">
             <div class="risk-table-wrap">
-                <table class="table table-sm table-bordered align-middle mb-0 risk-table">
+                <table class="table table-sm align-middle mb-0 risk-table">
                     <thead>
                         <tr>
-                            <th class="sticky-col">เลขที่ MFG</th>
+                            <th class="sticky-col text-start">เลขที่ MFG</th>
                             <th>โรงงาน</th>
                             <th>กำหนดส่ง</th>
                             <th>คงเหลือ (วัน)</th>
@@ -382,30 +646,71 @@
                                     'เลยกำหนด' => 'days-overdue',
                                     'วิกฤต' => 'days-critical',
                                     'แจ้งเตือน' => 'days-warning',
-                                    default => '',
+                                    default => 'days-normal',
                                 };
+                                $statusClass = match ($r->risk_label) {
+                                    'เลยกำหนด' => 'status-overdue',
+                                    'วิกฤต' => 'status-critical',
+                                    'แจ้งเตือน' => 'status-warning',
+                                    default => 'status-warning',
+                                };
+                                $statusIcon = match ($r->risk_label) {
+                                    'เลยกำหนด' => 'fa-clock-rotate-left',
+                                    'วิกฤต' => 'fa-fire',
+                                    'แจ้งเตือน' => 'fa-bell',
+                                    default => 'fa-circle-info',
+                                };
+                                $progress = (string) ($r->step_progress_display ?? '');
+                                $progressClass = 'in-progress';
+                                if (str_starts_with($progress, '0/')) {
+                                    $progressClass = 'not-started';
+                                } elseif (preg_match('#^(\d+)/(\d+)#', $progress, $m) && $m[1] === $m[2]) {
+                                    $progressClass = 'done';
+                                }
                             @endphp
                             <tr>
-                                <td class="sticky-col fw-semibold">{{ $r->workordernumber }}</td>
-                                <td class="text-center">{{ $r->site }}</td>
-                                <td class="text-center">{{ $fmtDate($r->duedate) }}</td>
-                                <td class="text-center {{ $daysClass }}">{{ $r->days_to_due }}</td>
+                                <td class="sticky-col">
+                                    <a href="#" class="mfg-link">{{ $r->workordernumber }}</a>
+                                </td>
                                 <td class="text-center">
-                                    @if ($r->risk_label === 'เลยกำหนด')
-                                        <span class="badge text-bg-danger">{{ $r->risk_label }}</span>
-                                    @elseif($r->risk_label === 'วิกฤต')
-                                        <span class="badge text-bg-danger">{{ $r->risk_label }}</span>
+                                    <span class="site-chip site-{{ strtolower($r->site) }}">{{ $r->site }}</span>
+                                </td>
+                                <td class="text-center">{{ $fmtDate($r->duedate) }}</td>
+                                <td class="text-center">
+                                    <span class="days-pill {{ $daysClass }}">{{ $r->days_to_due }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="status-badge {{ $statusClass }}">
+                                        <i class="fa-solid {{ $statusIcon }}"></i>
+                                        {{ $r->risk_label }}
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    @if ($r->notify_work_center_code)
+                                        <span class="station-chip">{{ $r->notify_work_center_code }}</span>
                                     @else
-                                        <span class="badge text-bg-warning">{{ $r->risk_label }}</span>
+                                        <span class="text-muted">-</span>
                                     @endif
                                 </td>
-                                <td class="text-center fw-semibold">{{ $r->notify_work_center_code ?: '-' }}</td>
-                                <td class="text-center">{{ $r->planner_name ?: '-' }}</td>
-                                <td class="text-center">{{ $r->step_progress_display }}</td>
+                                <td class="text-center">
+                                    @if ($r->planner_name)
+                                        <span class="planner-chip">{{ $r->planner_name }}</span>
+                                    @else
+                                        <span class="text-muted">-</span>
+                                    @endif
+                                </td>
+                                <td class="text-center">
+                                    <span class="step-progress {{ $progressClass }}">
+                                        <span class="dot"></span>{{ $r->step_progress_display }}
+                                    </span>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="text-center text-muted py-4">ไม่พบข้อมูล</td>
+                                <td colspan="8" class="text-center empty-state">
+                                    <i class="fa-regular fa-folder-open"></i>
+                                    ไม่พบข้อมูลตามเงื่อนไขที่เลือก
+                                </td>
                             </tr>
                         @endforelse
                     </tbody>
