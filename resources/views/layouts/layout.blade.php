@@ -75,28 +75,43 @@
                     </div>
 
 
-                    {{-- Flash & Validation Errors --}}
-                    @if (session('success'))
-                        <div class="alert alert-success alert-dismissible fade show" role="alert">
-                            {{ session('success') }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    @endif
-                    @if (session('error'))
-                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                            {{ session('error') }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
-                    @endif
-                    @if ($errors->any())
-                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                            <ul class="mb-0">
-                                @foreach ($errors->all() as $e)
-                                    <li>{{ $e }}</li>
-                                @endforeach
-                            </ul>
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                        </div>
+                    {{-- Flash & Validation Errors → SweetAlert toast (จุดเดียวทั้งระบบ) --}}
+                    @if (session('success') || session('error') || $errors->any())
+                        <script>
+                            document.addEventListener('DOMContentLoaded', function () {
+                                if (!window.Swal) return;
+                                var Toast = Swal.mixin({
+                                    toast: true,
+                                    position: 'top-end',
+                                    showConfirmButton: false,
+                                    timer: 4000,
+                                    timerProgressBar: true,
+                                    didOpen: function (el) {
+                                        el.addEventListener('mouseenter', Swal.stopTimer);
+                                        el.addEventListener('mouseleave', Swal.resumeTimer);
+                                    },
+                                });
+                                @if (session('success'))
+                                    Toast.fire({
+                                        icon: 'success',
+                                        @if (session('postpone_view_url'))
+                                            timer: 8000,
+                                            html: @json(session('success')) +
+                                                ' <a href="' + @json(session('postpone_view_url')) +
+                                                '" class="fw-semibold text-decoration-underline">ดูแผนใหม่</a>',
+                                        @else
+                                            title: @json(session('success')),
+                                        @endif
+                                    });
+                                @endif
+                                @if (session('error'))
+                                    Toast.fire({ icon: 'error', timer: 6000, title: @json(session('error')) });
+                                @endif
+                                @if ($errors->any())
+                                    Toast.fire({ icon: 'error', timer: 6000, title: @json(implode("\n", $errors->all())) });
+                                @endif
+                            });
+                        </script>
                     @endif
 
                     {{-- Page Content --}}

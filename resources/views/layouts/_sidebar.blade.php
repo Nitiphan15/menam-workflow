@@ -3,8 +3,89 @@
 
     $u = auth()->user();
 
+    $menuKey = function ($item) {
+        if (!empty($item['route'])) {
+            return 'route:' . $item['route'];
+        }
+
+        return 'text:' . ($item['text'] ?? '');
+    };
+
+    $appendMenus = function (array $baseMenus, array $newMenus) use ($menuKey) {
+        $seen = [];
+
+        foreach ($baseMenus as $item) {
+            $seen[$menuKey($item)] = true;
+        }
+
+        foreach ($newMenus as $item) {
+            $key = $menuKey($item);
+
+            if (!isset($seen[$key])) {
+                $baseMenus[] = $item;
+                $seen[$key] = true;
+            }
+        }
+
+        return $baseMenus;
+    };
+
+    $mergeMenuChildren = function (array $baseChildren, array $newChildren) use ($menuKey) {
+        $seen = [];
+
+        foreach ($baseChildren as $child) {
+            $seen[$menuKey($child)] = true;
+        }
+
+        foreach ($newChildren as $child) {
+            $key = $menuKey($child);
+
+            if (!isset($seen[$key])) {
+                $baseChildren[] = $child;
+                $seen[$key] = true;
+            }
+        }
+
+        return $baseChildren;
+    };
+
+    $mergeDuplicateMenus = function (array $menuItems) use ($menuKey, $mergeMenuChildren) {
+        $merged = [];
+        $indexes = [];
+
+        foreach ($menuItems as $item) {
+            $key = $menuKey($item);
+
+            if (!isset($indexes[$key])) {
+                $indexes[$key] = count($merged);
+                $merged[] = $item;
+                continue;
+            }
+
+            $index = $indexes[$key];
+
+            if (!empty($item['children'])) {
+                $merged[$index]['children'] = $mergeMenuChildren(
+                    $merged[$index]['children'] ?? [],
+                    $item['children'],
+                );
+            }
+        }
+
+        return $merged;
+    };
+
     if (auth()->check()) {
         $menus = config('menu.menu.auth', []);
+
+        if (config('menu.show_guest_menu_when_auth', false)) {
+            $hiddenGuestRoutes = config('menu.hide_guest_menu_routes_when_auth', []);
+            $guestMenus = array_filter(config('menu.menu.guest', []), function ($item) use ($hiddenGuestRoutes) {
+                return !in_array($item['route'] ?? null, $hiddenGuestRoutes, true);
+            });
+
+            $menus = $appendMenus($menus, array_values($guestMenus));
+        }
 
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PP') ? config('menu.menu.pp', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PA') ? config('menu.menu.pa', []) : []);
@@ -26,6 +107,8 @@
         $menus = array_merge($menus, auth()->user()->hasRoleCode('WR') ? config('menu.menu.wr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('EXAM') ? config('menu.menu.exam', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ISR') ? config('menu.menu.isr', []) : []);
+        $menus = array_merge($menus, auth()->user()->hasRoleCode('TDP') ? config('menu.menu.tdp', []) : []);
+        $menus = array_merge($menus, auth()->user()->hasRoleCode(['VC', 'VCA', 'VCL', 'VCPD', 'VCP', 'VCS', 'VCM', 'VCC']) ? config('menu.menu.vc', []) : []);
         $menus = array_merge(
             $menus,
             auth()
@@ -60,6 +143,8 @@
         $menus = config('menu.menu.guest', []);
     }
 
+    $menus = $mergeDuplicateMenus($menus);
+
     $menus = array_filter($menus, function ($item) {
         return empty($item['permission']) || (auth()->check() && auth()->user()->hasRoleCode($item['permission']));
     });
@@ -93,7 +178,7 @@
             return 'Accounting';
         }
 
-        if (Str::contains($text, ['Sales', 'Delivery Plan', 'Delivery Volume', 'Order Due Date'])) {
+        if (Str::contains($text, ['Sales', 'Delivery Plan', 'Delivery Volume', 'Order Due Date', 'Deadstock'])) {
             return 'Sales';
         }
 
@@ -197,7 +282,7 @@
                         <nav class="nav flex-column ms-3 submenu">
                             @foreach ($item['children'] as $child)
                                 @if (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
-                                    <a href="{{ route($child['route']) }}"
+                                    <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
                                         title="{{ $child['text'] }}">
                                         <i class="fas {{ $child['icon'] }} me-1"></i>
@@ -208,7 +293,7 @@
                         </nav>
                     </div>
                 @else
-                    <a href="{{ route($item['route']) }}"
+                    <a href="{{ route($item['route'], $item['query'] ?? []) }}"
                         class="nav-link has-tooltip {{ request()->routeIs($item['route'] . '*') ? 'active' : '' }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
@@ -279,7 +364,7 @@
                         <nav class="nav flex-column ms-3 submenu">
                             @foreach ($item['children'] as $child)
                                 @if (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
-                                    <a href="{{ route($child['route']) }}"
+                                    <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
                                         title="{{ $child['text'] }}">
                                         <i class="fas {{ $child['icon'] }} me-1"></i>
@@ -290,7 +375,7 @@
                         </nav>
                     </div>
                 @else
-                    <a href="{{ route($item['route']) }}"
+                    <a href="{{ route($item['route'], $item['query'] ?? []) }}"
                         class="nav-link has-tooltip {{ request()->routeIs($item['route'] . '*') ? 'active' : '' }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>

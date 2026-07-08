@@ -7,17 +7,6 @@
             <a href="{{ route('lis.index') }}" class="btn btn-outline-secondary">Inquiry List</a>
         </div>
 
-        @if ($errors->any())
-            <div class="alert alert-danger">
-                <div class="fw-semibold mb-1">กรอกข้อมูลไม่ครบ/ไม่ถูกต้อง</div>
-                <ul class="mb-0">
-                    @foreach ($errors->all() as $e)
-                        <li>{{ $e }}</li>
-                    @endforeach
-                </ul>
-            </div>
-        @endif
-
         <form method="POST" action="{{ route('lis.store') }}" enctype="multipart/form-data" class="card">
             @csrf
             <div class="card-body row g-3">
