@@ -132,6 +132,13 @@
                                     <div class="d-inline-flex gap-1">
                                         <a href="{{ route('adminweb.users.edit', $u->id) }}"
                                             class="btn btn-sm btn-outline-primary">แก้ไข</a>
+                                        <form method="POST" action="{{ route('adminweb.users.toggleActive', $u->id) }}">
+                                            @csrf @method('PATCH')
+                                            <button type="submit"
+                                                class="btn btn-sm btn-outline-{{ $u->is_active ? 'warning' : 'success' }}">
+                                                {{ $u->is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน' }}
+                                            </button>
+                                        </form>
                                         <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}">
                                             @csrf @method('DELETE')
                                             <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>

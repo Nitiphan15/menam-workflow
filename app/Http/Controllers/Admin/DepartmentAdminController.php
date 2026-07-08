@@ -74,6 +74,21 @@ class DepartmentAdminController extends Controller
 
     public function destroy($id)
     {
+        $hasUsers    = SqlServerDb::table('users')->where('department_id', $id)->exists();
+        $hasRoles    = SqlServerDb::table('department_roles')->where('department_id', $id)->exists();
+        $hasChildren = SqlServerDb::table('departments')->where('parent_id', $id)->exists();
+
+        if ($hasUsers || $hasRoles || $hasChildren) {
+            $reasons = [];
+            if ($hasUsers)    $reasons[] = 'มีพนักงานสังกัดแผนกนี้';
+            if ($hasRoles)    $reasons[] = 'มีตำแหน่งในแผนกนี้';
+            if ($hasChildren) $reasons[] = 'มีแผนกย่อยอยู่ใต้แผนกนี้';
+
+            return back()->withErrors([
+                'delete' => 'ลบแผนกไม่ได้: ' . implode(', ', $reasons) . ' — กรุณาย้าย/ลบข้อมูลที่เกี่ยวข้องก่อน',
+            ]);
+        }
+
         SqlServerDb::table('departments')->where('id', $id)->delete();
 
         return back()->with('ok', 'ลบแผนกแล้ว');

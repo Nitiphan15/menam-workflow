@@ -216,21 +216,9 @@ class UserAdminController extends Controller
         // ลบสำเนาในฐาน MySQL (ระบบเดิม) — id สองฐานอาจไม่ตรงกัน จึงจับคู่จาก user_code/email/ชื่อ แล้วค่อยลบตาม id
         $legacyWarning = null;
         try {
-            $mysql = DB::connection('mysql');
-            $legacyId = null;
-
-            if ($user->user_code) {
-                $legacyId = $mysql->table('users')->where('user_code', $user->user_code)->value('id');
-            }
-            if (!$legacyId && $user->email) {
-                $legacyId = $mysql->table('users')->where('email', $user->email)->value('id');
-            }
-            if (!$legacyId) {
-                $legacyId = $mysql->table('users')->where('name', $user->name)->value('id');
-            }
-
+            $legacyId = $this->findLegacyMysqlUserId($user);
             if ($legacyId) {
-                $mysql->table('users')->where('id', $legacyId)->delete();
+                DB::connection('mysql')->table('users')->where('id', $legacyId)->delete();
             }
         } catch (\Throwable $e) {
             report($e);
@@ -241,5 +229,56 @@ class UserAdminController extends Controller
             $legacyWarning ? 'error' : 'success',
             'ลบผู้ใช้ "' . $user->name . '" แล้ว' . ($legacyWarning ?? '')
         );
+    }
+
+    public function toggleActive(Request $r, User $user)
+    {
+        if ((int) $user->id === (int) $r->user()->id) {
+            return back()->with('error', 'ไม่สามารถปิดใช้งานบัญชีของตัวเองได้');
+        }
+
+        $user->is_active = $user->is_active ? 0 : 1;
+        $user->save();
+
+        // sync สถานะไปยังสำเนาในฐาน MySQL ด้วย (ระบบเมลบางตัวยังอ่าน users จากฝั่ง MySQL)
+        $legacyWarning = null;
+        try {
+            $legacyId = $this->findLegacyMysqlUserId($user);
+            if ($legacyId) {
+                DB::connection('mysql')->table('users')->where('id', $legacyId)->update([
+                    'is_active'  => $user->is_active,
+                    'updated_at' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            $legacyWarning = ' (อัปเดตฝั่ง SQL Server แล้ว แต่ sync ฐาน MySQL ไม่สำเร็จ)';
+        }
+
+        $label = $user->is_active ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
+
+        return back()->with(
+            $legacyWarning ? 'error' : 'success',
+            $label . 'ผู้ใช้ "' . $user->name . '" แล้ว' . ($legacyWarning ?? '')
+        );
+    }
+
+    /** หา id ของสำเนา user ในฐาน MySQL (ระบบเดิม) — id สองฐานอาจไม่ตรงกัน จับคู่จาก user_code/email/ชื่อ */
+    private function findLegacyMysqlUserId(User $user): ?int
+    {
+        $mysql = DB::connection('mysql');
+        $legacyId = null;
+
+        if ($user->user_code) {
+            $legacyId = $mysql->table('users')->where('user_code', $user->user_code)->value('id');
+        }
+        if (!$legacyId && $user->email) {
+            $legacyId = $mysql->table('users')->where('email', $user->email)->value('id');
+        }
+        if (!$legacyId) {
+            $legacyId = $mysql->table('users')->where('name', $user->name)->value('id');
+        }
+
+        return $legacyId ? (int) $legacyId : null;
     }
 }

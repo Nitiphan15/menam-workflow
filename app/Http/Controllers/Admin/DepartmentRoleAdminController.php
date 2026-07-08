@@ -113,6 +113,16 @@ class DepartmentRoleAdminController extends Controller
 
     public function destroy($id)
     {
+        $inUse = SqlServerDb::table('department_role_users')
+            ->where('department_role_id', $id)
+            ->exists();
+
+        if ($inUse) {
+            return back()->withErrors([
+                'delete' => 'ลบตำแหน่งไม่ได้: มีพนักงานถูกผูกกับตำแหน่งนี้ (การลบจะทำให้ประวัติการผูกหายไป) — กรุณายกเลิกการผูกในหน้า “ย้ายแผนก/ตำแหน่งพนักงาน” ก่อน',
+            ]);
+        }
+
         SqlServerDb::table('department_roles')->where('id', $id)->delete();
         return back()->with('ok', 'ลบแล้ว');
     }
