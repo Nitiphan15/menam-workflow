@@ -747,6 +747,10 @@
                                         || $hasAssignment
                                         || (int) ($row->is_piece_qty ?? 0) === 1)
                                     ->values();
+                                $unassignableRows = collect($group->rows)
+                                    ->filter(fn($row) => (int) ($row->assign_count ?? 0) > 0
+                                        || (float) ($row->assigned_weight_sum ?? 0) > 0)
+                                    ->values();
                                 $primaryRow = collect($group->rows)->first();
                                 $primaryRemaining = $primaryRow
                                     ? (float) ($primaryRow->remaining_weight ?? 0)
@@ -778,9 +782,11 @@
                                             class="btn btn-outline-primary btn-sm">
                                             <i class="fas fa-table me-1"></i> ดูตารางรถวันนี้
                                         </a>
-                                        @if ((float) ($group->assigned_weight ?? 0) > 0 && (int) ($group->ord_id ?? 0) > 0)
+                                        @if ($unassignableRows->isNotEmpty())
                                             <button type="button" class="btn btn-outline-warning btn-sm jsSummaryUnassignTruckBtn"
-                                                data-ord-id="{{ (int) $group->ord_id }}"
+                                                data-ord-id="{{ (int) ($unassignableRows->first()->ord_id ?? $group->ord_id) }}"
+                                                data-ord-ids="{{ e($unassignableRows->pluck('ord_id')->map(fn($id) => (int) $id)->implode(',')) }}"
+                                                data-count="{{ $unassignableRows->count() }}"
                                                 data-so="{{ e($group->so_number) }}"
                                                 data-mfg="{{ e($group->mfg_no) }}"
                                                 data-plate="{{ e(optional($group->assignment)->tm_plate_no ?: optional($group->assignment)->manual_plate_no ?: '') }}"
@@ -922,13 +928,19 @@
                                                 <div class="fw-semibold small">
                                                     <i class="fas fa-list-check me-1"></i> รายการที่เลือกมาจัดรถคันเดียวกัน
                                                 </div>
-                                                <span class="badge bg-info text-dark jsBatchSelectedCount">{{ $fmtCount($assignableRows->count()) }} รายการ</span>
+                                                <div class="d-flex gap-2 align-items-center flex-wrap">
+                                                    <span class="badge bg-info text-dark jsBatchSelectedCount">{{ $fmtCount($assignableRows->count()) }} รายการ</span>
+                                                    <button type="button" class="btn btn-outline-warning btn-sm jsBatchUnassignSelectedBtn" disabled>
+                                                        <i class="fas fa-times me-1"></i> ยกเลิกรถที่เลือก
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div class="table-responsive">
                                                 <table class="table table-sm table-bordered align-middle mb-0 line-table">
                                                     <thead class="table-light">
                                                         <tr>
                                                             <th style="width:42px;" class="text-center">เอาออก</th>
+                                                            <th style="width:48px;" class="text-center">ยกเลิกรถ</th>
                                                             <th>ลูกค้า</th>
                                                             <th>SO</th>
                                                             <th>MFG</th>
@@ -943,11 +955,21 @@
                                                             @php
                                                                 $rowIsPiece = (int) ($row->is_piece_qty ?? 0) === 1;
                                                                 $rowRemaining = (float) ($row->remaining_weight ?? 0);
+                                                                $rowCanUnassign = (int) ($row->assign_count ?? 0) > 0
+                                                                    || (float) ($row->assigned_weight_sum ?? 0) > 0;
                                                             @endphp
                                                             <tr data-ord-id="{{ (int) $row->ord_id }}">
                                                                 <td class="text-center">
                                                                     <input type="hidden" class="jsBatchOrdInput" name="ord_ids[]" value="{{ (int) $row->ord_id }}">
                                                                     <button type="button" class="btn btn-sm btn-outline-danger jsBatchRowRemove" title="เอาออก"><i class="fas fa-times"></i></button>
+                                                                </td>
+                                                                <td class="text-center">
+                                                                    <input type="checkbox" class="form-check-input jsBatchUnassignCheck"
+                                                                        value="{{ (int) $row->ord_id }}"
+                                                                        @disabled(!$rowCanUnassign)
+                                                                        data-so="{{ e($row->so_number ?? '') }}"
+                                                                        data-mfg="{{ e($row->mfg_no ?? '') }}"
+                                                                        data-plate="{{ e(optional($group->assignment)->tm_plate_no ?: optional($group->assignment)->manual_plate_no ?: '') }}">
                                                                 </td>
                                                                 <td>{{ $row->customer_name ?: '-' }}</td>
                                                                 <td>{{ $row->so_number ?: '-' }}</td>
@@ -1534,6 +1556,7 @@
             <form class="modal-content" method="POST" id="summaryUnassignTruckForm">
                 @csrf
                 <input type="hidden" name="return_url" id="summaryUnassignReturnUrl" value="{{ url()->full() }}">
+                <div id="summaryUnassignOrdIds"></div>
                 <div class="modal-header">
                     <h5 class="modal-title">ยกเลิกรถ</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -1567,6 +1590,7 @@
                 defaults: @json(route('dp.truck.staff.defaults')),
             };
             const UNASSIGN_ROUTE = @json(route('dp.inquiry.truck.unassign', ['ordId' => '__ID__']));
+            const BULK_UNASSIGN_ROUTE = @json(route('dp.inquiry.truck.unassign.bulk'));
             const pickers = Array.from(document.querySelectorAll('.jsSummaryPick'));
             const panels = Array.from(document.querySelectorAll('.dispatch-panel'));
             const manualModalEl = document.getElementById('manualTruckModal');
@@ -1577,6 +1601,7 @@
             const unassignInfo = document.getElementById('summaryUnassignTruckInfo');
             const unassignRemark = document.getElementById('summaryRemarkUnassign');
             const unassignReturnUrl = document.getElementById('summaryUnassignReturnUrl');
+            const unassignOrdIds = document.getElementById('summaryUnassignOrdIds');
             let activeManualForm = null;
             let staffOptionsPromise = null;
             const scrollStorageKey = 'dp.logisticsSummary.scrollY';
@@ -1680,23 +1705,64 @@
                 });
             });
 
+            function openUnassignModal(items, returnUrl) {
+                if (!unassignModal || !unassignForm) return;
+                const cleanItems = (items || []).filter((item) => item && item.ordId);
+                if (!cleanItems.length) {
+                    warn('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
+                    return;
+                }
+
+                if (unassignOrdIds) unassignOrdIds.innerHTML = '';
+                if (cleanItems.length === 1) {
+                    unassignForm.action = UNASSIGN_ROUTE.replace('__ID__', encodeURIComponent(cleanItems[0].ordId));
+                } else {
+                    unassignForm.action = BULK_UNASSIGN_ROUTE;
+                    cleanItems.forEach((item) => {
+                        const hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'ord_ids[]';
+                        hidden.value = item.ordId;
+                        unassignOrdIds?.appendChild(hidden);
+                    });
+                }
+
+                if (unassignReturnUrl) {
+                    unassignReturnUrl.value = returnUrl || window.location.href;
+                }
+                if (unassignInfo) {
+                    if (cleanItems.length === 1) {
+                        const item = cleanItems[0];
+                        unassignInfo.textContent = [
+                            item.so ? 'SO: ' + item.so : '',
+                            item.mfg ? 'MFG: ' + item.mfg : '',
+                            item.plate ? 'ทะเบียน: ' + item.plate : '',
+                        ].filter(Boolean).join(' | ') || '-';
+                    } else {
+                        const preview = cleanItems
+                            .slice(0, 4)
+                            .map((item) => item.mfg || item.so || ('ord_id=' + item.ordId))
+                            .join(', ');
+                        unassignInfo.textContent = cleanItems.length + ' รายการ' + (preview ? ' | ' + preview : '');
+                    }
+                }
+                if (unassignRemark) unassignRemark.value = '';
+                unassignModal.show();
+            }
+
             document.querySelectorAll('.jsSummaryUnassignTruckBtn').forEach((btn) => {
                 btn.addEventListener('click', function () {
-                    if (!unassignModal || !unassignForm) return;
-                    const ordId = this.dataset.ordId || '0';
-                    unassignForm.action = UNASSIGN_ROUTE.replace('__ID__', encodeURIComponent(ordId));
-                    if (unassignReturnUrl) {
-                        unassignReturnUrl.value = this.dataset.returnUrl || window.location.href;
-                    }
-                    if (unassignInfo) {
-                        unassignInfo.textContent = [
-                            this.dataset.so ? 'SO: ' + this.dataset.so : '',
-                            this.dataset.mfg ? 'MFG: ' + this.dataset.mfg : '',
-                            this.dataset.plate ? 'ทะเบียน: ' + this.dataset.plate : '',
-                        ].filter(Boolean).join(' | ') || '-';
-                    }
-                    if (unassignRemark) unassignRemark.value = '';
-                    unassignModal.show();
+                    const ordIds = String(this.dataset.ordIds || this.dataset.ordId || '')
+                        .split(',')
+                        .map((id) => id.trim())
+                        .filter(Boolean);
+                    const items = ordIds.map((ordId) => ({
+                        ordId,
+                        so: this.dataset.so || '',
+                        mfg: ordIds.length === 1 ? (this.dataset.mfg || '') : '',
+                        plate: this.dataset.plate || '',
+                    }));
+                    openUnassignModal(items, this.dataset.returnUrl || window.location.href);
                 });
             });
 
@@ -1963,9 +2029,14 @@
                 const batchTbody = form.querySelector('.jsBatchTbody');
                 if (batchTbody) {
                     const batchCountBadge = form.querySelector('.jsBatchSelectedCount');
+                    const batchUnassignBtn = form.querySelector('.jsBatchUnassignSelectedBtn');
+                    const selectedUnassignChecks = () => Array.from(batchTbody.querySelectorAll('.jsBatchUnassignCheck:checked:not(:disabled)'));
                     const syncBatch = () => {
                         const n = batchTbody.querySelectorAll('input[name="ord_ids[]"]').length;
                         if (batchCountBadge) batchCountBadge.textContent = n + ' รายการ';
+                        if (batchUnassignBtn) {
+                            batchUnassignBtn.disabled = selectedUnassignChecks().length === 0;
+                        }
                     };
                     form.__batchSync = syncBatch;
 
@@ -1978,6 +2049,18 @@
                         // เอาแถวออกแล้ว รายการจะกลับมากดเพิ่มได้อีกในลิสต์ทางซ้าย (available())
                         syncBatch();
                         document.dispatchEvent(new CustomEvent('dp:batch-changed'));
+                    });
+                    batchTbody.addEventListener('change', (e) => {
+                        if (e.target.closest('.jsBatchUnassignCheck')) syncBatch();
+                    });
+                    batchUnassignBtn?.addEventListener('click', () => {
+                        const items = selectedUnassignChecks().map((check) => ({
+                            ordId: String(check.value || '').trim(),
+                            so: check.dataset.so || '',
+                            mfg: check.dataset.mfg || '',
+                            plate: check.dataset.plate || '',
+                        })).filter((item) => item.ordId);
+                        openUnassignModal(items, window.location.href);
                     });
                     syncBatch();
                 }

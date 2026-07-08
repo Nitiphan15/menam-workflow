@@ -660,16 +660,35 @@
                         @foreach ($specialGroups as $dispatchType => $specialRows)
                             @php
                                 $firstSpecial = $specialRows->first();
+                                $specialGroupKey = 'special-' . md5((string) $dispatchType);
+                                $cancelableSpecialRows = $specialRows->filter(fn($row) => $canDpa && ($row->can_cancel_special ?? false))->values();
                             @endphp
                             <div class="mb-3">
-                                <div class="fw-semibold mb-2">
-                                    {{ $firstSpecial->dispatch_label ?? $dispatchType }}
-                                    <span class="text-muted">({{ number_format($specialRows->count()) }} รายการ)</span>
+                                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                                    <div class="fw-semibold">
+                                        {{ $firstSpecial->dispatch_label ?? $dispatchType }}
+                                        <span class="text-muted">({{ number_format($specialRows->count()) }} รายการ)</span>
+                                    </div>
+                                    @if ($cancelableSpecialRows->isNotEmpty())
+                                        <button type="button"
+                                            class="btn btn-sm btn-outline-danger fw-semibold jsBoardCancelSpecialSelectedBtn"
+                                            data-group-key="{{ $specialGroupKey }}"
+                                            data-label="{{ e($firstSpecial->dispatch_label ?? $dispatchType) }}"
+                                            disabled>
+                                            <i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก
+                                        </button>
+                                    @endif
                                 </div>
                                 <div class="table-responsive">
                                     <table class="table table-sm table-bordered align-middle mb-0">
                                         <thead class="table-light">
                                             <tr>
+                                                @if ($cancelableSpecialRows->isNotEmpty())
+                                                    <th style="width:46px;" class="text-center">
+                                                        <input type="checkbox" class="form-check-input jsBoardCancelSpecialSelectAll"
+                                                            data-group-key="{{ $specialGroupKey }}" title="เลือกรายการงานพิเศษทั้งหมดในกลุ่มนี้">
+                                                    </th>
+                                                @endif
                                                 <th style="width:70px;">#</th>
                                                 <th style="width:130px;">เวลา</th>
                                                 <th style="width:140px;">SO</th>
@@ -689,13 +708,22 @@
                                                         'ship_to' => $shipDate,
                                                         'status' => 'ALL',
                                                         'ord_id' => $row->ord_id ?? null,
-                                                        'so' => $row->so_number ?: null,
-                                                        'mfg' => $row->mfg_no ?: null,
                                                         'searched' => 1,
                                                     ]);
                                                 @endphp
                                                 <tr class="jsTruckRowLink" data-href="{{ $specialInquiryUrl }}"
                                                     title="ดูรายการนี้ใน Inquiry">
+                                                    @if ($cancelableSpecialRows->isNotEmpty())
+                                                        <td class="text-center">
+                                                            <input type="checkbox"
+                                                                class="form-check-input jsBoardCancelSpecialCheck"
+                                                                data-group-key="{{ $specialGroupKey }}"
+                                                                data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
+                                                                data-so="{{ e($row->so_number ?? '') }}"
+                                                                data-mfg="{{ e($row->mfg_no ?? '') }}"
+                                                                @disabled(!($row->can_cancel_special ?? false))>
+                                                        </td>
+                                                    @endif
                                                     <td class="text-center fw-bold">{{ $i + 1 }}</td>
                                                     <td>
                                                         {{ !empty($row->window_at) ? \Carbon\Carbon::parse($row->window_at)->format('H:i') : '-' }}
@@ -715,11 +743,24 @@
                                                     <td>{{ $row->address ?: '-' }}</td>
                                                     <td>
                                                         <div>{{ $row->dp_status ?: '-' }}</div>
+                                                        @if (strtoupper((string) ($row->dispatch_type ?? '')) === 'POSTPONED')
+                                                            <div class="small {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'text-primary' : 'text-muted' }}">
+                                                                {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'เลื่อนโดย Logistics' : 'เลื่อนโดย Sales/DP' }}
+                                                            </div>
+                                                        @endif
                                                         @if (!empty($row->special_remark))
                                                             <div class="small text-muted">{{ $row->special_remark }}</div>
                                                         @endif
                                                     </td>
                                                     <td class="text-center">
+                                                        @if ($canDpa && ($row->can_cancel_special ?? false))
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-danger mb-1 jsBoardCancelSpecialOneBtn"
+                                                                data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
+                                                                data-label="{{ e(($row->mfg_no ?: $row->so_number ?: 'ord_id=' . (int) ($row->ord_id ?? 0))) }}">
+                                                                ยกเลิก
+                                                            </button>
+                                                        @endif
                                                         @if ($canDpa && $row->is_open && strtoupper((string) $row->dispatch_type) !== 'POSTPONED')
                                                             <form method="POST"
                                                                 action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $row->ord_id]) }}"
@@ -769,6 +810,7 @@
                         ->implode(' ');
                     $boardStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
                     $cardKey = 'truck-' . md5($truck->truck_label . '|' . $loop->index);
+                    $canUnassignTruck = $canDpa && !$truck->is_unassigned && !$truck->is_closed;
                 @endphp
                 <div id="{{ $cardKey }}"
                     class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4 jsBoardTruckCard"
@@ -842,7 +884,21 @@
                                     <span class="truck-badge {{ $remainingClass }}">คงเหลือ
                                         {{ $fmtWeight($truck->remaining_load) }}</span>
                                 @endif
-                                @if ($canDpa && !$truck->is_unassigned && !$truck->is_closed)
+                                @if ($canUnassignTruck)
+                                    <button type="button"
+                                        class="btn btn-sm btn-outline-danger fw-semibold jsBoardUnassignSelectedBtn"
+                                        data-card-key="{{ $cardKey }}"
+                                        data-truck-label="{{ e($truck->truck_label) }}"
+                                        disabled>
+                                        <i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก
+                                    </button>
+                                    <button type="button"
+                                        class="btn btn-sm btn-outline-warning fw-semibold jsBoardUnassignTruckBtn"
+                                        data-truck-label="{{ e($truck->truck_label) }}"
+                                        data-item-count="{{ (int) $truck->item_count }}"
+                                        data-ord-ids="{{ e($truck->rows->pluck('ord_id')->map(fn($id) => (int) $id)->filter()->unique()->implode(',')) }}">
+                                        <i class="fas fa-times me-1"></i> ยกเลิกทั้งคัน
+                                    </button>
                                     <form method="POST" action="{{ route('dp.dashboard.truck-board.trip.close') }}"
                                         onsubmit="return confirm('ยืนยันปิดรอบรถนี้?');">
                                         @csrf
@@ -888,6 +944,12 @@
                         <table class="table table-sm table-bordered align-middle truck-table">
                             <thead>
                                 <tr>
+                                    @if ($canUnassignTruck)
+                                        <th style="width: 46px;" class="text-center">
+                                            <input type="checkbox" class="form-check-input jsBoardUnassignSelectAll"
+                                                data-card-key="{{ $cardKey }}" title="เลือกรายการทั้งหมดในรถคันนี้">
+                                        </th>
+                                    @endif
                                     <th style="width: 60px;">#</th>
                                     <th style="width: 120px;">วันที่ / เวลา</th>
                                     <th style="width: 140px;">SO</th>
@@ -918,6 +980,16 @@
                                     @endphp
                                     <tr class="jsTruckRowLink" data-href="{{ $rowInquiryUrl }}"
                                         title="ดูรายการนี้ใน Inquiry">
+                                        @if ($canUnassignTruck)
+                                            <td class="text-center">
+                                                <input type="checkbox"
+                                                    class="form-check-input jsBoardUnassignCheck"
+                                                    data-card-key="{{ $cardKey }}"
+                                                    data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
+                                                    data-so="{{ e($row->so_number ?? '') }}"
+                                                    data-mfg="{{ e($row->mfg_no ?? '') }}">
+                                            </td>
+                                        @endif
                                         <td class="text-center fw-bold">{{ $i + 1 }}</td>
 
                                         <td>
@@ -998,8 +1070,331 @@
     </div>
 
     @if ($canDpa)
+        <div class="modal fade" id="boardUnassignTruckModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" method="POST" id="boardUnassignTruckForm"
+                    action="{{ route('dp.inquiry.truck.unassign.bulk') }}">
+                    @csrf
+                    <input type="hidden" name="return_url" value="{{ url()->full() }}">
+                    <div id="boardUnassignOrdIds"></div>
+                    <div class="modal-header">
+                        <h5 class="modal-title">ยกเลิกรถ</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการที่เลือก</div>
+                            <div class="fw-semibold" id="boardUnassignTruckInfo">-</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold" for="boardRemarkUnassign">เหตุผลยกเลิกรถ</label>
+                            <textarea class="form-control" name="remark_unassign" id="boardRemarkUnassign" rows="3"
+                                maxlength="500" placeholder="กรอกเหตุผล" required></textarea>
+                            <div class="form-text">จำเป็นต้องกรอกเหตุผล และระบบจะบันทึกไว้ใน remark ของรายการ</div>
+                        </div>
+                        <div class="alert alert-warning small mb-0">
+                            ระบบจะยกเลิกการจัดรถของรายการที่เลือก และเปลี่ยนสถานะกลับเป็น NEW
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-warning btn-sm">ยืนยันยกเลิก</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($canDpa)
+        <div class="modal fade" id="boardCancelSpecialModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" method="POST" id="boardCancelSpecialForm"
+                    action="{{ route('dp.inquiry.special-dispatch.cancel.bulk') }}">
+                    @csrf
+                    <input type="hidden" name="return_url" value="{{ url()->full() }}">
+                    <div id="boardCancelSpecialOrdIds"></div>
+                    <div class="modal-header">
+                        <h5 class="modal-title">ยกเลิกงานพิเศษ</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการที่เลือก</div>
+                            <div class="fw-semibold" id="boardCancelSpecialInfo">-</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold" for="boardCancelSpecialRemark">เหตุผลยกเลิกงานพิเศษ</label>
+                            <textarea class="form-control" name="cancel_remark" id="boardCancelSpecialRemark" rows="3"
+                                maxlength="500" placeholder="กรอกเหตุผล" required></textarea>
+                        </div>
+                        <div class="alert alert-warning small mb-0">
+                            ยกเลิกได้เฉพาะงานพิเศษที่ยังเปิดอยู่ ถ้าเป็นงานเลื่อนจาก Sales/DP ที่สร้างแถวใหม่แล้ว ระบบจะไม่อนุญาตให้ยกเลิกจากหน้านี้
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-danger btn-sm">ยืนยันยกเลิกงานพิเศษ</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($canDpa)
         <script>
             document.addEventListener('DOMContentLoaded', function () {
+                var boardUnassignModalEl = document.getElementById('boardUnassignTruckModal');
+                var boardUnassignModal = boardUnassignModalEl && window.bootstrap ? new bootstrap.Modal(boardUnassignModalEl) : null;
+                var boardUnassignForm = document.getElementById('boardUnassignTruckForm');
+                var boardUnassignOrdIds = document.getElementById('boardUnassignOrdIds');
+                var boardUnassignInfo = document.getElementById('boardUnassignTruckInfo');
+                var boardRemarkUnassign = document.getElementById('boardRemarkUnassign');
+                var boardCancelSpecialModalEl = document.getElementById('boardCancelSpecialModal');
+                var boardCancelSpecialModal = boardCancelSpecialModalEl && window.bootstrap ? new bootstrap.Modal(boardCancelSpecialModalEl) : null;
+                var boardCancelSpecialForm = document.getElementById('boardCancelSpecialForm');
+                var boardCancelSpecialOrdIds = document.getElementById('boardCancelSpecialOrdIds');
+                var boardCancelSpecialInfo = document.getElementById('boardCancelSpecialInfo');
+                var boardCancelSpecialRemark = document.getElementById('boardCancelSpecialRemark');
+
+                function warnBoardUnassign(message) {
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'ตรวจสอบข้อมูล',
+                            text: message,
+                            confirmButtonText: 'ตกลง',
+                        });
+                        return;
+                    }
+                    alert(message);
+                }
+
+                document.querySelectorAll('.jsBoardUnassignTruckBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        if (!boardUnassignForm || !boardUnassignModal || !boardUnassignOrdIds) return;
+
+                        var ordIds = String(btn.dataset.ordIds || '')
+                            .split(',')
+                            .map(function (id) { return id.trim(); })
+                            .filter(Boolean);
+
+                        if (ordIds.length === 0) {
+                            warnBoardUnassign('ไม่พบรายการในรถคันนี้สำหรับยกเลิก');
+                            return;
+                        }
+
+                        boardUnassignOrdIds.innerHTML = '';
+                        ordIds.forEach(function (ordId) {
+                            var hidden = document.createElement('input');
+                            hidden.type = 'hidden';
+                            hidden.name = 'ord_ids[]';
+                            hidden.value = ordId;
+                            boardUnassignOrdIds.appendChild(hidden);
+                        });
+
+                        if (boardUnassignInfo) {
+                            var truckLabel = btn.dataset.truckLabel || '-';
+                            boardUnassignInfo.textContent = truckLabel + ' | ' + ordIds.length + ' รายการ';
+                        }
+                        if (boardRemarkUnassign) boardRemarkUnassign.value = '';
+                        boardUnassignModal.show();
+                    });
+                });
+
+                function openBoardSelectedUnassign(ordIds, label) {
+                    if (!boardUnassignForm || !boardUnassignModal || !boardUnassignOrdIds) return;
+                    var cleanOrdIds = (ordIds || [])
+                        .map(function (id) { return String(id || '').trim(); })
+                        .filter(Boolean)
+                        .filter(function (id, index, all) { return all.indexOf(id) === index; });
+
+                    if (cleanOrdIds.length === 0) {
+                        warnBoardUnassign('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
+                        return;
+                    }
+
+                    boardUnassignOrdIds.innerHTML = '';
+                    cleanOrdIds.forEach(function (ordId) {
+                        var hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'ord_ids[]';
+                        hidden.value = ordId;
+                        boardUnassignOrdIds.appendChild(hidden);
+                    });
+
+                    if (boardUnassignInfo) {
+                        boardUnassignInfo.textContent = (label || 'รายการที่เลือก') + ' | ' + cleanOrdIds.length + ' รายการ';
+                    }
+                    if (boardRemarkUnassign) boardRemarkUnassign.value = '';
+                    boardUnassignModal.show();
+                }
+
+                function syncBoardSelectedUnassign(cardKey) {
+                    var checks = Array.from(document.querySelectorAll('.jsBoardUnassignCheck'))
+                        .filter(function (check) { return check.dataset.cardKey === cardKey; });
+                    var selected = checks.filter(function (check) { return check.checked; });
+                    var selectedBtn = document.querySelector('.jsBoardUnassignSelectedBtn[data-card-key="' + cardKey + '"]');
+                    var selectAll = document.querySelector('.jsBoardUnassignSelectAll[data-card-key="' + cardKey + '"]');
+
+                    if (selectedBtn) {
+                        selectedBtn.disabled = selected.length === 0;
+                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected.length ? ' (' + selected.length + ')' : '');
+                    }
+
+                    if (selectAll) {
+                        selectAll.checked = checks.length > 0 && selected.length === checks.length;
+                        selectAll.indeterminate = selected.length > 0 && selected.length < checks.length;
+                    }
+                }
+
+                document.querySelectorAll('.jsBoardUnassignCheck').forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        syncBoardSelectedUnassign(check.dataset.cardKey || '');
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardUnassignSelectAll').forEach(function (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        var cardKey = selectAll.dataset.cardKey || '';
+                        document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]').forEach(function (check) {
+                            check.checked = selectAll.checked;
+                        });
+                        syncBoardSelectedUnassign(cardKey);
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardUnassignSelectedBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var cardKey = btn.dataset.cardKey || '';
+                        var checks = Array.from(document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]'))
+                            .filter(function (check) { return check.checked; });
+                        var ordIds = checks.map(function (check) { return check.dataset.ordId || ''; });
+                        var preview = checks
+                            .slice(0, 4)
+                            .map(function (check) { return check.dataset.mfg || check.dataset.so || check.dataset.ordId || ''; })
+                            .filter(Boolean)
+                            .join(', ');
+                        var label = btn.dataset.truckLabel || 'รายการที่เลือก';
+                        if (preview) label += ' | ' + preview;
+                        openBoardSelectedUnassign(ordIds, label);
+                    });
+                });
+
+                if (boardUnassignForm) {
+                    boardUnassignForm.addEventListener('submit', function (e) {
+                        if (!boardRemarkUnassign || boardRemarkUnassign.value.trim() === '') {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณากรอกเหตุผลยกเลิกรถ');
+                            boardRemarkUnassign?.focus();
+                            return;
+                        }
+                        if (!boardUnassignOrdIds || boardUnassignOrdIds.querySelectorAll('input[name="ord_ids[]"]').length === 0) {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
+                        }
+                    });
+                }
+
+                function openBoardCancelSpecial(ordIds, label) {
+                    if (!boardCancelSpecialForm || !boardCancelSpecialModal || !boardCancelSpecialOrdIds) return;
+                    var cleanOrdIds = (ordIds || [])
+                        .map(function (id) { return String(id || '').trim(); })
+                        .filter(Boolean)
+                        .filter(function (id, index, all) { return all.indexOf(id) === index; });
+
+                    if (cleanOrdIds.length === 0) {
+                        warnBoardUnassign('กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก');
+                        return;
+                    }
+
+                    boardCancelSpecialOrdIds.innerHTML = '';
+                    cleanOrdIds.forEach(function (ordId) {
+                        var hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'ord_ids[]';
+                        hidden.value = ordId;
+                        boardCancelSpecialOrdIds.appendChild(hidden);
+                    });
+
+                    if (boardCancelSpecialInfo) {
+                        boardCancelSpecialInfo.textContent = (label || 'งานพิเศษที่เลือก') + ' | ' + cleanOrdIds.length + ' รายการ';
+                    }
+                    if (boardCancelSpecialRemark) boardCancelSpecialRemark.value = '';
+                    boardCancelSpecialModal.show();
+                }
+
+                function syncBoardCancelSpecialSelection(groupKey) {
+                    var checks = Array.from(document.querySelectorAll('.jsBoardCancelSpecialCheck'))
+                        .filter(function (check) { return check.dataset.groupKey === groupKey && !check.disabled; });
+                    var selected = checks.filter(function (check) { return check.checked; });
+                    var selectedBtn = document.querySelector('.jsBoardCancelSpecialSelectedBtn[data-group-key="' + groupKey + '"]');
+                    var selectAll = document.querySelector('.jsBoardCancelSpecialSelectAll[data-group-key="' + groupKey + '"]');
+
+                    if (selectedBtn) {
+                        selectedBtn.disabled = selected.length === 0;
+                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected.length ? ' (' + selected.length + ')' : '');
+                    }
+
+                    if (selectAll) {
+                        selectAll.checked = checks.length > 0 && selected.length === checks.length;
+                        selectAll.indeterminate = selected.length > 0 && selected.length < checks.length;
+                    }
+                }
+
+                document.querySelectorAll('.jsBoardCancelSpecialCheck').forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        syncBoardCancelSpecialSelection(check.dataset.groupKey || '');
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardCancelSpecialSelectAll').forEach(function (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        var groupKey = selectAll.dataset.groupKey || '';
+                        document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]').forEach(function (check) {
+                            if (!check.disabled) check.checked = selectAll.checked;
+                        });
+                        syncBoardCancelSpecialSelection(groupKey);
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardCancelSpecialSelectedBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var groupKey = btn.dataset.groupKey || '';
+                        var checks = Array.from(document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]'))
+                            .filter(function (check) { return check.checked && !check.disabled; });
+                        var ordIds = checks.map(function (check) { return check.dataset.ordId || ''; });
+                        var preview = checks
+                            .slice(0, 4)
+                            .map(function (check) { return check.dataset.mfg || check.dataset.so || check.dataset.ordId || ''; })
+                            .filter(Boolean)
+                            .join(', ');
+                        var label = btn.dataset.label || 'งานพิเศษที่เลือก';
+                        if (preview) label += ' | ' + preview;
+                        openBoardCancelSpecial(ordIds, label);
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardCancelSpecialOneBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        openBoardCancelSpecial([btn.dataset.ordId || ''], btn.dataset.label || 'งานพิเศษที่เลือก');
+                    });
+                });
+
+                if (boardCancelSpecialForm) {
+                    boardCancelSpecialForm.addEventListener('submit', function (e) {
+                        if (!boardCancelSpecialRemark || boardCancelSpecialRemark.value.trim() === '') {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณากรอกเหตุผลยกเลิกงานพิเศษ');
+                            boardCancelSpecialRemark?.focus();
+                            return;
+                        }
+                        if (!boardCancelSpecialOrdIds || boardCancelSpecialOrdIds.querySelectorAll('input[name="ord_ids[]"]').length === 0) {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก');
+                        }
+                    });
+                }
+
                 function askSend(sent, t) {
                     var title = sent ? 'ยืนยันส่งซ้ำ' : 'ยืนยันส่งเมลจัดรถ';
                     var text = sent

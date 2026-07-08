@@ -129,10 +129,14 @@
                                         class="badge bg-{{ $u->is_active ? 'success' : 'secondary' }}">{{ $u->is_active ? 'Active' : 'Inactive' }}</span>
                                 </td>
                                 <td class="text-end">
-                                    <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}">
-                                        @csrf @method('DELETE')
-                                        <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>
-                                    </form>
+                                    <div class="d-inline-flex gap-1">
+                                        <a href="{{ route('adminweb.users.edit', $u->id) }}"
+                                            class="btn btn-sm btn-outline-primary">แก้ไข</a>
+                                        <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}">
+                                            @csrf @method('DELETE')
+                                            <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         @empty

@@ -76,6 +76,612 @@ class LossProvisionService
         ];
     }
 
+    public function exportRecoveryAnalysis(array $filters)
+    {
+        $data = $this->getRecoveryAnalysisData($filters);
+        $fileName = 'loss_recovery_analysis_' . str_replace('-', '', $data['filters']['invoice_from']) . '_' . str_replace('-', '', $data['filters']['invoice_to']) . '.xlsx';
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Expected Recovery');
+        $expectedHeaders = [[
+            'Expected Date',
+            'Recovery Aging',
+            'Site',
+            'Invoice',
+            'SO',
+            'Customer Code',
+            'Customer',
+            'Remaining',
+            'Payment Terms',
+            'Billing Plan',
+            'Payment Schedule',
+            'Source',
+        ]];
+        $sheet->fromArray(['Loss Recovery Analysis - Expected Recovery'], null, 'A1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $sheet->fromArray([
+            ['Invoice From', $data['filters']['invoice_from']],
+            ['Invoice To', $data['filters']['invoice_to']],
+            ['Recovery From', $data['filters']['recovery_from']],
+            ['Recovery To', $data['filters']['recovery_to']],
+            ['Site', $data['filters']['site']],
+            ['Customer', $data['filters']['customer']],
+            ['Invoice', $data['filters']['invoice']],
+        ], null, 'A3');
+        $sheet->fromArray($expectedHeaders, null, 'A12');
+        $this->styleHeader($sheet, 'A12:L12');
+
+        $expectedRows = collect($data['analysisRows'])->map(fn($row) => [
+            $row->expected_payment_date,
+            $row->recovery_aging_label,
+            $row->site,
+            $row->invnumber,
+            $row->ordnumber,
+            $row->customer_code,
+            $row->customer_name,
+            (float) $row->remaining,
+            $row->payment_term_label,
+            $row->billing_plan_label,
+            $row->payment_schedule_label,
+            $row->term_source === 'customer_payment_terms' ? 'Customer master' : 'ERP fallback',
+        ])->values()->all();
+        if ($expectedRows !== []) {
+            $sheet->fromArray($expectedRows, null, 'A13');
+            $lastRow = 12 + count($expectedRows);
+            $sheet->setAutoFilter("A12:L{$lastRow}");
+            $sheet->getStyle("H13:H{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        }
+        $sheet->freezePane('A13');
+        $this->autoSize($sheet, 12);
+
+        $historySheet = new Worksheet($spreadsheet, 'Payment Behavior');
+        $spreadsheet->addSheet($historySheet);
+        $historyHeaders = [[
+            'Actual Paid',
+            'Expected Due',
+            'Timing',
+            'Days Late',
+            'Completion',
+            'Payment Basis',
+            'Site',
+            'Invoice',
+            'SO',
+            'Customer Code',
+            'Customer',
+            'AR Amount',
+            'Paid Amount',
+            'Remaining',
+            'Paid %',
+            'Payment Terms',
+            'Billing Plan',
+            'Payment Schedule',
+            'Risk Tier',
+            'Risk Score',
+            'Source',
+        ]];
+        $historySheet->fromArray(['Loss Recovery Analysis - Payment Behavior'], null, 'A1');
+        $historySheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $historySheet->fromArray($historyHeaders, null, 'A3');
+        $this->styleHeader($historySheet, 'A3:U3');
+        $behaviorByCustomer = collect($data['customerPaymentBehavior'])
+            ->keyBy(fn($row) => strtoupper(trim((string) $row->site)) . '|' . strtoupper(trim((string) $row->customer_code)) . '|' . strtoupper(trim((string) $row->customer_name)));
+        $historyRows = collect($data['paymentHistoryRows'])->map(function ($row) use ($behaviorByCustomer) {
+            $key = strtoupper(trim((string) $row->site)) . '|' . strtoupper(trim((string) $row->customer_code)) . '|' . strtoupper(trim((string) $row->customer_name));
+            $risk = $behaviorByCustomer->get($key);
+            return [
+                $row->actual_payment_date,
+                $row->expected_payment_date,
+                $row->payment_timing === 'ON_TIME' ? 'On time' : 'Late',
+                max(0, (int) $row->days_late),
+                $row->payment_completion === 'FULL' ? 'Paid full' : 'Partial paid',
+                $row->payment_basis,
+                $row->site,
+                $row->invnumber,
+                $row->ordnumber,
+                $row->customer_code,
+                $row->customer_name,
+                (float) $row->ar_amount,
+                (float) $row->paid_amount,
+                (float) $row->remaining,
+                (float) $row->paid_ratio / 100,
+                $row->payment_term_label,
+                $row->billing_plan_label,
+                $row->payment_schedule_label,
+                $risk?->risk_label ?? '',
+                $risk?->risk_score ?? null,
+                $row->term_source === 'customer_payment_terms' ? 'Customer master' : 'ERP fallback',
+            ];
+        })->values()->all();
+        if ($historyRows !== []) {
+            $historySheet->fromArray($historyRows, null, 'A4');
+            $lastRow = 3 + count($historyRows);
+            $historySheet->setAutoFilter("A3:U{$lastRow}");
+            $historySheet->getStyle("L4:N{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+            $historySheet->getStyle("O4:O{$lastRow}")->getNumberFormat()->setFormatCode('0.0%');
+            $historySheet->getStyle("T4:T{$lastRow}")->getNumberFormat()->setFormatCode('0.0');
+        }
+        $historySheet->freezePane('A4');
+        $this->autoSize($historySheet, 21);
+
+        $summarySheet = new Worksheet($spreadsheet, 'Customer Summary');
+        $spreadsheet->addSheet($summarySheet);
+        $summaryHeaders = [[
+            'Site',
+            'Customer Code',
+            'Customer',
+            'Invoices',
+            'On-time',
+            'Late',
+            'On-time %',
+            'Avg Late Days',
+            'Max Late Days',
+            'Paid Full',
+            'Partial Paid',
+            'Risk Tier',
+            'Risk Score',
+            'Last Payment',
+        ]];
+        $summarySheet->fromArray(['Loss Recovery Analysis - Customer Summary'], null, 'A1');
+        $summarySheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+        $summarySheet->fromArray($summaryHeaders, null, 'A3');
+        $this->styleHeader($summarySheet, 'A3:N3');
+        $summaryRows = collect($data['customerPaymentBehavior'])->map(fn($row) => [
+            $row->site,
+            $row->customer_code,
+            $row->customer_name,
+            (int) $row->invoice_count,
+            (int) $row->on_time_count,
+            (int) $row->late_count,
+            (float) $row->on_time_rate / 100,
+            (float) $row->avg_days_late,
+            (int) $row->max_days_late,
+            (int) $row->full_count,
+            (int) $row->partial_count,
+            $row->risk_label,
+            (float) $row->risk_score,
+            $row->last_payment_date,
+        ])->values()->all();
+        if ($summaryRows !== []) {
+            $summarySheet->fromArray($summaryRows, null, 'A4');
+            $lastRow = 3 + count($summaryRows);
+            $summarySheet->setAutoFilter("A3:N{$lastRow}");
+            $summarySheet->getStyle("G4:G{$lastRow}")->getNumberFormat()->setFormatCode('0.0%');
+            $summarySheet->getStyle("H4:H{$lastRow}")->getNumberFormat()->setFormatCode('0.0');
+            $summarySheet->getStyle("M4:M{$lastRow}")->getNumberFormat()->setFormatCode('0.0');
+        }
+        $summarySheet->freezePane('A4');
+        $this->autoSize($summarySheet, 14);
+
+        $spreadsheet->setActiveSheetIndex(0);
+
+        return response()->streamDownload(function () use ($spreadsheet) {
+            $writer = new Xlsx($spreadsheet);
+            $writer->save('php://output');
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet);
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    public function getRecoveryAnalysisData(array $filters): array
+    {
+        $filters = $this->normalizeRecoveryAnalysisFilters($filters);
+        $rows = $this->fetchRows([
+            'date_from' => $filters['invoice_from'],
+            'date_to' => $filters['invoice_to'],
+            'site' => $filters['site'],
+            'customer' => $filters['customer'],
+            'invoice' => $filters['invoice'],
+        ]);
+        $periods = $this->buildPeriods($rows, [
+            'date_from' => $filters['invoice_from'],
+            'date_to' => $filters['invoice_to'],
+        ]);
+        $allInvoiceMap = $this->buildInvoiceMap($rows, $periods);
+        $allInvoiceMap = $this->filterRowsByTermSource($allInvoiceMap, $filters['term_source']);
+        $paymentHistoryRows = $this->buildPaymentHistoryRows($allInvoiceMap, $filters['payment_basis']);
+        $paymentHistoryRows = $this->filterPaymentHistoryRows($paymentHistoryRows, $filters);
+        $customerPaymentBehavior = $this->buildCustomerPaymentBehavior($paymentHistoryRows);
+        $customerPaymentBehavior = $this->filterCustomerPaymentBehavior($customerPaymentBehavior, $filters['risk_tier']);
+        $riskCustomerKeys = $customerPaymentBehavior
+            ->map(fn($row) => $this->customerGroupKey($row))
+            ->flip();
+        if ($filters['risk_tier'] !== 'ALL') {
+            $paymentHistoryRows = $paymentHistoryRows
+                ->filter(fn($row) => $riskCustomerKeys->has($this->customerGroupKey($row)))
+                ->values();
+        }
+
+        $invoiceMap = $allInvoiceMap
+            ->filter(fn($row) => ($row->status ?? '') !== 'PAID' && (float) ($row->remaining ?? 0) > 0.01)
+            ->values();
+
+        $recoveryFrom = Carbon::parse($filters['recovery_from'])->startOfMonth();
+        $recoveryTo = Carbon::parse($filters['recovery_to'])->endOfMonth();
+        $monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        $analysisRows = $invoiceMap
+            ->map(function ($row) use ($recoveryFrom, $recoveryTo) {
+                $dueDate = $row->aging_base_date ? Carbon::parse($row->aging_base_date)->startOfDay() : null;
+                if (!$dueDate || $dueDate->lt($recoveryFrom) || $dueDate->gt($recoveryTo)) {
+                    return null;
+                }
+
+                return (object) [
+                    'site' => $row->site,
+                    'customer_code' => $row->customer_code,
+                    'customer_name' => $row->customer_name,
+                    'invnumber' => $row->invnumber,
+                    'ordnumber' => $row->ordnumber,
+                    'transdate' => $row->transdate,
+                    'expected_payment_date' => $dueDate->toDateString(),
+                    'expected_month' => $dueDate->format('Y-m'),
+                    'remaining' => (float) $row->remaining,
+                    'status' => $row->status,
+                    'days_overdue' => (int) ($row->payment_days_overdue ?? 0),
+                    'recovery_aging_key' => $this->recoveryAgingKey((int) ($row->payment_days_overdue ?? 0)),
+                    'recovery_aging_label' => $this->recoveryAgingLabel((int) ($row->payment_days_overdue ?? 0)),
+                    'term_source' => $row->aging_base_source,
+                    'payment_term_label' => $row->payment_term_label,
+                    'billing_plan_label' => $row->billing_plan_label,
+                    'payment_schedule_label' => $row->payment_schedule_label,
+                ];
+            })
+            ->filter()
+            ->values();
+        $analysisRows = $this->filterAnalysisRows($analysisRows, $filters);
+
+        $customerKey = fn($row) => $this->customerGroupKey($row);
+        if ($filters['risk_tier'] !== 'ALL') {
+            $analysisRows = $analysisRows
+                ->filter(fn($row) => $riskCustomerKeys->has($this->customerGroupKey($row)))
+                ->values();
+        }
+
+        $monthCursor = $recoveryFrom->copy();
+        $monthlySummary = collect();
+        while ($monthCursor->lte($recoveryTo)) {
+            $key = $monthCursor->format('Y-m');
+            $monthRows = $analysisRows->where('expected_month', $key);
+            $monthlySummary->push((object) [
+                'key' => $key,
+                'label' => $monthLabels[(int) $monthCursor->format('n') - 1] . ' ' . $monthCursor->format('Y'),
+                'amount' => (float) $monthRows->sum('remaining'),
+                'invoice_count' => $monthRows->count(),
+                'customer_count' => $monthRows->map($customerKey)->filter(fn($key) => trim(str_replace('|', '', $key)) !== '')->unique()->count(),
+            ]);
+            $monthCursor->addMonthNoOverflow();
+        }
+
+        $customerSummary = $analysisRows
+            ->groupBy($customerKey)
+            ->map(function (Collection $group) {
+                $first = $group->first();
+                return (object) [
+                    'site' => $first->site,
+                    'customer_code' => $first->customer_code,
+                    'customer_name' => $first->customer_name,
+                    'amount' => (float) $group->sum('remaining'),
+                    'invoice_count' => $group->count(),
+                    'first_expected_payment_date' => $group->min('expected_payment_date'),
+                    'last_expected_payment_date' => $group->max('expected_payment_date'),
+                    'master_count' => $group->where('term_source', 'customer_payment_terms')->count(),
+                    'fallback_count' => $group->where('term_source', 'erp_terms_fallback')->count(),
+                ];
+            })
+            ->sortByDesc('amount')
+            ->values();
+
+        $customerOptions = $invoiceMap->pluck('customer_name')
+            ->filter(fn($name) => trim((string) $name) !== '')
+            ->unique()
+            ->sort(SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
+
+        return [
+            'filters' => $filters,
+            'monthlySummary' => $monthlySummary,
+            'customerSummary' => $customerSummary,
+            'analysisRows' => $analysisRows->sortBy([
+                ['expected_payment_date', 'asc'],
+                ['customer_name', 'asc'],
+                ['invnumber', 'asc'],
+            ])->values(),
+            'paymentHistoryRows' => $paymentHistoryRows,
+            'customerPaymentBehavior' => $customerPaymentBehavior,
+            'customerOptions' => $customerOptions,
+            'filterOptions' => $this->recoveryFilterOptions(),
+            'kpis' => [
+                'expected_amount' => (float) $analysisRows->sum('remaining'),
+                'invoice_count' => $analysisRows->count(),
+                'customer_count' => $analysisRows->map($customerKey)->filter(fn($key) => trim(str_replace('|', '', $key)) !== '')->unique()->count(),
+                'master_count' => $analysisRows->where('term_source', 'customer_payment_terms')->count(),
+                'fallback_count' => $analysisRows->where('term_source', 'erp_terms_fallback')->count(),
+                'history_invoice_count' => $paymentHistoryRows->count(),
+                'history_on_time_count' => $paymentHistoryRows->where('payment_timing', 'ON_TIME')->count(),
+                'history_late_count' => $paymentHistoryRows->where('payment_timing', 'LATE')->count(),
+                'history_full_count' => $paymentHistoryRows->where('payment_completion', 'FULL')->count(),
+                'history_partial_count' => $paymentHistoryRows->where('payment_completion', 'PARTIAL')->count(),
+                'history_on_time_rate' => $paymentHistoryRows->count() > 0
+                    ? round($paymentHistoryRows->where('payment_timing', 'ON_TIME')->count() / $paymentHistoryRows->count() * 100, 1)
+                    : 0.0,
+                'recovery_not_due_amount' => (float) $analysisRows->where('recovery_aging_key', 'NOT_DUE')->sum('remaining'),
+                'recovery_due_1_30_amount' => (float) $analysisRows->where('recovery_aging_key', 'DUE_1_30')->sum('remaining'),
+                'recovery_due_31_60_amount' => (float) $analysisRows->where('recovery_aging_key', 'DUE_31_60')->sum('remaining'),
+                'recovery_due_61_PLUS_amount' => (float) $analysisRows->where('recovery_aging_key', 'DUE_61_PLUS')->sum('remaining'),
+            ],
+        ];
+    }
+
+    private function buildPaymentHistoryRows(Collection $invoiceMap, string $paymentBasis): Collection
+    {
+        return $invoiceMap
+            ->filter(function ($row) {
+                return ($row->document_type ?? 'AR') === 'AR'
+                    && !empty($row->aging_base_date)
+                    && (float) ($row->total_cash ?? 0) > 0.01
+                    && ($row->vouchers ?? collect())->isNotEmpty();
+            })
+            ->map(function ($row) use ($paymentBasis) {
+                $voucherRows = collect($row->vouchers ?? [])
+                    ->filter(fn($voucher) => !empty($voucher->cashin_transdate))
+                    ->sortBy([
+                        ['cashin_transdate', 'asc'],
+                        ['vouchernumber', 'asc'],
+                    ])
+                    ->values();
+
+                $paymentDates = $voucherRows
+                    ->pluck('cashin_transdate')
+                    ->filter()
+                    ->map(fn($date) => Carbon::parse($date)->toDateString());
+                $firstPaymentDate = $paymentDates->min();
+                $latestPaymentDate = $paymentDates->max();
+                $fullPaymentDate = $this->fullPaymentDate($voucherRows, (float) $row->ar_amount);
+                $paymentCompletion = $fullPaymentDate ? 'FULL' : 'PARTIAL';
+                $actualPaymentDate = match ($paymentBasis) {
+                    'FIRST' => $firstPaymentDate,
+                    'LATEST' => $latestPaymentDate,
+                    default => $fullPaymentDate ?: $latestPaymentDate,
+                };
+
+                if (!$actualPaymentDate) {
+                    return null;
+                }
+
+                $dueDate = Carbon::parse($row->aging_base_date)->startOfDay();
+                $actualDate = Carbon::parse($actualPaymentDate)->startOfDay();
+                $daysLate = (int) $dueDate->diffInDays($actualDate, false);
+
+                return (object) [
+                    'site' => $row->site,
+                    'customer_code' => $row->customer_code,
+                    'customer_name' => $row->customer_name,
+                    'invnumber' => $row->invnumber,
+                    'ordnumber' => $row->ordnumber,
+                    'transdate' => $row->transdate,
+                    'expected_payment_date' => $dueDate->toDateString(),
+                    'actual_payment_date' => $actualDate->toDateString(),
+                    'first_payment_date' => $firstPaymentDate,
+                    'latest_payment_date' => $latestPaymentDate,
+                    'full_payment_date' => $fullPaymentDate,
+                    'ar_amount' => (float) $row->ar_amount,
+                    'paid_amount' => (float) $row->total_cash,
+                    'remaining' => (float) $row->remaining,
+                    'payment_completion' => $paymentCompletion,
+                    'paid_ratio' => (float) $row->ar_amount > 0 ? round((float) $row->total_cash / (float) $row->ar_amount * 100, 1) : 0.0,
+                    'payment_basis' => $paymentBasis,
+                    'payment_timing' => $daysLate <= 0 ? 'ON_TIME' : 'LATE',
+                    'days_late' => $daysLate,
+                    'term_source' => $row->aging_base_source,
+                    'payment_term_label' => $row->payment_term_label,
+                    'billing_plan_label' => $row->billing_plan_label,
+                    'payment_schedule_label' => $row->payment_schedule_label,
+                ];
+            })
+            ->filter()
+            ->sortBy([
+                ['actual_payment_date', 'desc'],
+                ['customer_name', 'asc'],
+                ['invnumber', 'asc'],
+            ])
+            ->values();
+    }
+
+    private function buildCustomerPaymentBehavior(Collection $paymentHistoryRows): Collection
+    {
+        return $paymentHistoryRows
+            ->groupBy(fn($row) => $this->customerGroupKey($row))
+            ->map(function (Collection $group) {
+                $first = $group->first();
+                $count = $group->count();
+                $onTime = $group->where('payment_timing', 'ON_TIME')->count();
+                $lateRows = $group->where('payment_timing', 'LATE');
+
+                return (object) [
+                    'site' => $first->site,
+                    'customer_code' => $first->customer_code,
+                    'customer_name' => $first->customer_name,
+                    'invoice_count' => $count,
+                    'on_time_count' => $onTime,
+                    'late_count' => $lateRows->count(),
+                    'on_time_rate' => $count > 0 ? round($onTime / $count * 100, 1) : 0.0,
+                    'avg_days_late' => $lateRows->count() > 0 ? round((float) $lateRows->avg('days_late'), 1) : 0.0,
+                    'max_days_late' => (int) max(0, (int) $group->max('days_late')),
+                    'last_payment_date' => $group->max('actual_payment_date'),
+                    'full_count' => $group->where('payment_completion', 'FULL')->count(),
+                    'partial_count' => $group->where('payment_completion', 'PARTIAL')->count(),
+                    'master_count' => $group->where('term_source', 'customer_payment_terms')->count(),
+                    'fallback_count' => $group->where('term_source', 'erp_terms_fallback')->count(),
+                ];
+            })
+            ->map(function ($row) {
+                $risk = $this->customerRiskTier($row);
+                $row->risk_score = $risk['score'];
+                $row->risk_tier = $risk['tier'];
+                $row->risk_label = $risk['label'];
+                return $row;
+            })
+            ->sortBy([
+                ['on_time_rate', 'asc'],
+                ['late_count', 'desc'],
+                ['invoice_count', 'desc'],
+            ])
+            ->values();
+    }
+
+    private function customerGroupKey($row): string
+    {
+        return strtoupper(trim((string) ($row->site ?? '')))
+            . '|' . strtoupper(trim((string) ($row->customer_code ?? '')))
+            . '|' . strtoupper(trim((string) ($row->customer_name ?? '')));
+    }
+
+    private function fullPaymentDate(Collection $voucherRows, float $invoiceAmount): ?string
+    {
+        if ($invoiceAmount <= 0) {
+            return null;
+        }
+
+        $paid = 0.0;
+        foreach ($voucherRows as $voucher) {
+            $paid += (float) ($voucher->cash_amount ?? 0);
+            if ($paid + 0.01 >= $invoiceAmount) {
+                return Carbon::parse($voucher->cashin_transdate)->toDateString();
+            }
+        }
+
+        return null;
+    }
+
+    private function filterRowsByTermSource(Collection $rows, string $termSource): Collection
+    {
+        if ($termSource === 'ALL') {
+            return $rows->values();
+        }
+
+        return $rows
+            ->filter(fn($row) => (string) ($row->aging_base_source ?? '') === $termSource)
+            ->values();
+    }
+
+    private function filterAnalysisRows(Collection $rows, array $filters): Collection
+    {
+        if ($filters['recovery_aging'] !== 'ALL') {
+            $rows = $rows->where('recovery_aging_key', $filters['recovery_aging']);
+        }
+
+        return $rows->values();
+    }
+
+    private function filterPaymentHistoryRows(Collection $rows, array $filters): Collection
+    {
+        if ($filters['payment_timing'] !== 'ALL') {
+            $rows = $rows->where('payment_timing', $filters['payment_timing']);
+        }
+
+        if ($filters['payment_completion'] !== 'ALL') {
+            $rows = $rows->where('payment_completion', $filters['payment_completion']);
+        }
+
+        return $rows->values();
+    }
+
+    private function filterCustomerPaymentBehavior(Collection $rows, string $riskTier): Collection
+    {
+        if ($riskTier === 'ALL') {
+            return $rows->values();
+        }
+
+        return $rows->where('risk_tier', $riskTier)->values();
+    }
+
+    private function recoveryAgingKey(int $daysOverdue): string
+    {
+        if ($daysOverdue < 0) {
+            return 'NOT_DUE';
+        }
+        if ($daysOverdue <= 30) {
+            return 'DUE_1_30';
+        }
+        if ($daysOverdue <= 60) {
+            return 'DUE_31_60';
+        }
+        return 'DUE_61_PLUS';
+    }
+
+    private function recoveryAgingLabel(int $daysOverdue): string
+    {
+        return match ($this->recoveryAgingKey($daysOverdue)) {
+            'NOT_DUE' => 'Not due',
+            'DUE_1_30' => 'Overdue 1-30',
+            'DUE_31_60' => 'Overdue 31-60',
+            default => 'Overdue 61+',
+        };
+    }
+
+    private function customerRiskTier($row): array
+    {
+        $lateRate = max(0, 100 - (float) ($row->on_time_rate ?? 0));
+        $score = min(50, $lateRate * 0.5)
+            + min(25, (float) ($row->avg_days_late ?? 0) * 0.8)
+            + min(15, (float) ($row->max_days_late ?? 0) * 0.25)
+            + ((int) ($row->fallback_count ?? 0) > 0 ? 10 : 0)
+            + ((int) ($row->partial_count ?? 0) > 0 ? 5 : 0);
+        $score = round(min(100, $score), 1);
+
+        if ($score >= 60 || (float) ($row->on_time_rate ?? 0) < 50 || (float) ($row->avg_days_late ?? 0) >= 30) {
+            return ['score' => $score, 'tier' => 'RISK', 'label' => 'Risk'];
+        }
+
+        if ($score >= 30 || (float) ($row->on_time_rate ?? 0) < 80 || (int) ($row->fallback_count ?? 0) > 0) {
+            return ['score' => $score, 'tier' => 'WATCH', 'label' => 'Watch'];
+        }
+
+        return ['score' => $score, 'tier' => 'GOOD', 'label' => 'Good'];
+    }
+
+    private function recoveryFilterOptions(): array
+    {
+        return [
+            'term_sources' => [
+                'ALL' => 'All sources',
+                'customer_payment_terms' => 'Customer master',
+                'erp_terms_fallback' => 'No master / ERP fallback',
+            ],
+            'payment_timings' => [
+                'ALL' => 'All timing',
+                'ON_TIME' => 'On time',
+                'LATE' => 'Late',
+            ],
+            'payment_completions' => [
+                'ALL' => 'Full + partial',
+                'FULL' => 'Paid full',
+                'PARTIAL' => 'Partial paid',
+            ],
+            'payment_basis' => [
+                'FULL' => 'Full-paid date',
+                'FIRST' => 'First-paid date',
+                'LATEST' => 'Latest-paid date',
+            ],
+            'recovery_agings' => [
+                'ALL' => 'All aging',
+                'NOT_DUE' => 'Not due',
+                'DUE_1_30' => 'Overdue 1-30',
+                'DUE_31_60' => 'Overdue 31-60',
+                'DUE_61_PLUS' => 'Overdue 61+',
+            ],
+            'risk_tiers' => [
+                'ALL' => 'All risk',
+                'GOOD' => 'Good',
+                'WATCH' => 'Watch',
+                'RISK' => 'Risk',
+            ],
+        ];
+    }
+
     public function export(array $filters)
     {
         $filters = $this->normalizeFilters($filters);
@@ -277,6 +883,67 @@ class LossProvisionService
             'status' => in_array(($status = strtoupper(trim((string) ($filters['status'] ?? 'ALL')))), ['ALL', 'PAID', 'PARTIAL', 'UNPAID'], true) ? $status : 'ALL',
             'aging' => $aging,
             'group_customer' => $groupCustomer,
+        ];
+    }
+
+    private function normalizeRecoveryAnalysisFilters(array $filters): array
+    {
+        $today = Carbon::today('Asia/Bangkok');
+        $invoiceTo = trim((string) ($filters['invoice_to'] ?? '')) ?: $today->toDateString();
+        $defaultInvoiceMonths = max(1, min(24, (int) ($filters['_default_invoice_months'] ?? 12)));
+        $invoiceFrom = trim((string) ($filters['invoice_from'] ?? '')) ?: Carbon::parse($invoiceTo)->copy()->subMonthsNoOverflow($defaultInvoiceMonths)->toDateString();
+        $recoveryFrom = trim((string) ($filters['recovery_from'] ?? '')) ?: $today->copy()->startOfMonth()->toDateString();
+        $recoveryTo = trim((string) ($filters['recovery_to'] ?? '')) ?: $today->copy()->addMonthsNoOverflow(11)->endOfMonth()->toDateString();
+        $site = strtoupper(trim((string) ($filters['site'] ?? 'ALL')));
+
+        if (!isset(self::SITES[$site]) && $site !== 'ALL') {
+            $site = 'ALL';
+        }
+
+        $termSource = (string) ($filters['term_source'] ?? 'ALL');
+        if (!in_array($termSource, ['ALL', 'customer_payment_terms', 'erp_terms_fallback'], true)) {
+            $termSource = 'ALL';
+        }
+
+        $paymentTiming = strtoupper((string) ($filters['payment_timing'] ?? 'ALL'));
+        if (!in_array($paymentTiming, ['ALL', 'ON_TIME', 'LATE'], true)) {
+            $paymentTiming = 'ALL';
+        }
+
+        $paymentCompletion = strtoupper((string) ($filters['payment_completion'] ?? 'ALL'));
+        if (!in_array($paymentCompletion, ['ALL', 'FULL', 'PARTIAL'], true)) {
+            $paymentCompletion = 'ALL';
+        }
+
+        $recoveryAging = strtoupper((string) ($filters['recovery_aging'] ?? 'ALL'));
+        if (!in_array($recoveryAging, ['ALL', 'NOT_DUE', 'DUE_1_30', 'DUE_31_60', 'DUE_61_PLUS'], true)) {
+            $recoveryAging = 'ALL';
+        }
+
+        $riskTier = strtoupper((string) ($filters['risk_tier'] ?? 'ALL'));
+        if (!in_array($riskTier, ['ALL', 'GOOD', 'WATCH', 'RISK'], true)) {
+            $riskTier = 'ALL';
+        }
+
+        $paymentBasis = strtoupper((string) ($filters['payment_basis'] ?? 'FULL'));
+        if (!in_array($paymentBasis, ['FULL', 'FIRST', 'LATEST'], true)) {
+            $paymentBasis = 'FULL';
+        }
+
+        return [
+            'invoice_from' => Carbon::parse($invoiceFrom)->toDateString(),
+            'invoice_to' => Carbon::parse($invoiceTo)->toDateString(),
+            'recovery_from' => Carbon::parse($recoveryFrom)->toDateString(),
+            'recovery_to' => Carbon::parse($recoveryTo)->toDateString(),
+            'site' => $site,
+            'customer' => trim((string) ($filters['customer'] ?? '')),
+            'invoice' => trim((string) ($filters['invoice'] ?? '')),
+            'term_source' => $termSource,
+            'payment_timing' => $paymentTiming,
+            'payment_completion' => $paymentCompletion,
+            'recovery_aging' => $recoveryAging,
+            'risk_tier' => $riskTier,
+            'payment_basis' => $paymentBasis,
         ];
     }
 

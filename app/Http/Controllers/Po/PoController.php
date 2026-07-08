@@ -160,6 +160,7 @@ class PoController extends Controller
             && $canPurchaseOperate;
         $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
             && $canPurchaseOperate;
+        $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
         $canApprove = $po->workflow_id
             ? SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
@@ -230,6 +231,7 @@ class PoController extends Controller
             'signatures',
             'canSubmit',
             'canEditAttachment',
+            'canEditPdfOverride',
             'canApprove',
             'pendingApprovers',
             'workflowHistories',
@@ -243,12 +245,37 @@ class PoController extends Controller
         return redirect()->route('po.show', $id);
     }
 
+    public function attachment($id, $attachmentId)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
+        $path = (string) $attachment->file_path;
+
+        abort_if($path === '' || !Storage::disk('public')->exists($path), 404);
+
+        $fileName = $attachment->file_name ?: basename($path);
+        $headers = [];
+        if (!blank($attachment->mime_type)) {
+            $headers['Content-Type'] = (string) $attachment->mime_type;
+        }
+
+        return Storage::disk('public')->response($path, $fileName, $headers, 'inline');
+    }
+
     public function update(Request $request, $id)
     {
         $po = PoHeader::query()->findOrFail($id);
+        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
+            && Gate::allows('POPUR');
+        $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
 
         $request->validate([
             'notes' => 'nullable|string',
+            'pdf_description_overrides' => 'nullable|array',
+            'pdf_description_overrides.*' => 'nullable|string|max:2000',
+            'pdf_description_override_pages' => ['nullable', 'string', 'max:100', 'regex:/^\s*(all|ทุกหน้า|[0-9]+(\s*[-,]\s*[0-9]+)*)\s*$/iu'],
+            'pdf_comments_override' => 'nullable|string|max:2000',
+            'pdf_comments_override_pages' => ['nullable', 'string', 'max:100', 'regex:/^\s*(all|ทุกหน้า|[0-9]+(\s*[-,]\s*[0-9]+)*)\s*$/iu'],
             'files' => 'nullable|array',
             'files.*' => 'file|max:20480',
             'file_remark' => 'nullable|array',
@@ -256,6 +283,27 @@ class PoController extends Controller
         ]);
 
         $po->notes = $request->input('notes', $po->notes);
+        if ($canEditPdfOverride && $request->has('pdf_description_overrides')) {
+            $descriptionOverrides = collect($request->input('pdf_description_overrides', []))
+                ->map(fn ($value) => trim((string) $value))
+                ->all();
+
+            $po->pdf_description_overrides = collect($descriptionOverrides)->filter()->isNotEmpty()
+                ? $descriptionOverrides
+                : null;
+        }
+        if ($canEditPdfOverride && $request->has('pdf_comments_override')) {
+            $commentsOverride = trim((string) $request->input('pdf_comments_override', ''));
+            $po->pdf_comments_override = $commentsOverride !== '' ? $commentsOverride : null;
+        }
+        if ($canEditPdfOverride && $request->has('pdf_description_override_pages')) {
+            $pages = trim((string) $request->input('pdf_description_override_pages', ''));
+            $po->pdf_description_override_pages = $pages !== '' ? $pages : null;
+        }
+        if ($canEditPdfOverride && $request->has('pdf_comments_override_pages')) {
+            $pages = trim((string) $request->input('pdf_comments_override_pages', ''));
+            $po->pdf_comments_override_pages = $pages !== '' ? $pages : null;
+        }
         $po->updated_at = now();
         $po->updated_by = auth()->id();
         $po->save();
@@ -300,6 +348,76 @@ class PoController extends Controller
 
         return redirect()->route('po.show', $po->id)->with('ok', 'บันทึกข้อมูล PO เรียบร้อยแล้ว');
     }
+    private function canEditPdfOverrideForCurrentUser(): bool
+    {
+        $user = auth()->user();
+
+        return $this->isPurchaseUser($user) || $this->isNitiphanUser($user);
+    }
+
+    private function isPurchaseUser($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $directText = strtolower(trim(implode(' ', array_filter([
+            $this->valueToText($user->department ?? ''),
+            $this->valueToText($user->department_name ?? ''),
+            $this->valueToText($user->position ?? ''),
+        ]))));
+
+        if ($this->looksLikePurchaseText($directText)) {
+            return true;
+        }
+
+        $departmentId = (int) ($user->department_id ?? 0);
+        if ($departmentId <= 0) {
+            return false;
+        }
+
+        $department = SqlServerDb::table('departments')
+            ->where('id', $departmentId)
+            ->first(['name', 'code']);
+
+        if (!$department) {
+            return false;
+        }
+
+        $departmentText = strtolower(trim((string) ($department->name ?? '') . ' ' . (string) ($department->code ?? '')));
+        $departmentCode = strtolower(trim((string) ($department->code ?? '')));
+
+        return $this->looksLikePurchaseText($departmentText)
+            || in_array($departmentCode, ['pur', 'purch', 'purchase'], true)
+            || str_starts_with($departmentCode, 'pur');
+    }
+
+    private function looksLikePurchaseText(string $value): bool
+    {
+        return str_contains($value, 'purchase')
+            || str_contains($value, 'purchasing')
+            || str_contains($value, 'จัดซื้อ');
+    }
+
+    private function isNitiphanUser($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $userText = strtolower(trim(implode(' ', array_filter([
+            $this->valueToText($user->name ?? ''),
+            $this->valueToText($user->email ?? ''),
+        ]))));
+
+        return str_contains($userText, 'nitiphan');
+    }
+
+    private function valueToText($value): string
+    {
+        return is_scalar($value) ? (string) $value : '';
+    }
+
     private function statusOptions(): array
     {
         return [

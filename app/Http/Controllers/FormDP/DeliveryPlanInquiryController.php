@@ -1736,36 +1736,48 @@ class DeliveryPlanInquiryController extends Controller
 
             $docMap = $this->docMap();
 
-            $all = $conn->table(DB::raw('dbo.delivery_plan_data AS x'))
-                ->leftJoin('dbo.customer as c', 'c.id', '=', 'x.customer_id')
-                ->leftJoin('dbo.employees as e', 'e.id', '=', 'x.sales_id')
-                ->leftJoin('dbo.users as u_rev', 'u_rev.id', '=', 'x.revise_by')
-                ->leftJoin('dbo.users as u_create', 'u_create.id', '=', 'x.created_by')
-                ->leftJoin('dbo.revision_master as rv', 'rv.revision_number', '=', 'x.revision_number')
-                ->where('x.ord_id', $ordId)
-                ->orderByDesc(DB::raw('x.SysStartTime'))
-                ->select(array_merge([
-                    'x.ord_id',
-                    'x.revision_number',
-                    'x.revise_by',
-                    DB::raw("x.created_at as sys_start"),
-                    DB::raw("CAST('9999-12-31 23:59:59' AS datetime) as sys_end"),
+            $loadRows = function ($source, bool $useTemporalPeriod) use ($conn, $ordId, $fields) {
+                return $conn->table($source)
+                    ->leftJoin('dbo.customer as c', 'c.id', '=', 'x.customer_id')
+                    ->leftJoin('dbo.employees as e', 'e.id', '=', 'x.sales_id')
+                    ->leftJoin('dbo.users as u_rev', 'u_rev.id', '=', 'x.revise_by')
+                    ->leftJoin('dbo.users as u_create', 'u_create.id', '=', 'x.created_by')
+                    ->leftJoin('dbo.revision_master as rv', 'rv.revision_number', '=', 'x.revision_number')
+                    ->where('x.ord_id', $ordId)
+                    ->orderByDesc(DB::raw($useTemporalPeriod ? 'x.SysStartTime' : 'x.created_at'))
+                    ->select(array_merge([
+                        'x.ord_id',
+                        'x.revision_number',
+                        'x.revise_by',
+                        DB::raw(($useTemporalPeriod ? 'x.SysStartTime' : 'x.created_at') . ' as sys_start'),
+                        DB::raw($useTemporalPeriod ? 'x.SysEndTime as sys_end' : "CAST('9999-12-31 23:59:59' AS datetime) as sys_end"),
 
-                    DB::raw("COALESCE(NULLIF(LTRIM(RTRIM(x.customer_name COLLATE DATABASE_DEFAULT)), ''), c.name COLLATE DATABASE_DEFAULT) as customer_name"),
-                    'c.customernumber',
+                        DB::raw("COALESCE(NULLIF(LTRIM(RTRIM(x.customer_name COLLATE DATABASE_DEFAULT)), ''), c.name COLLATE DATABASE_DEFAULT) as customer_name"),
+                        'c.customernumber',
 
-                    'e.login as sales_user_code',
-                    'e.name  as sales_user_name',
+                        'e.login as sales_user_code',
+                        'e.name  as sales_user_name',
 
-                    'u_rev.name as revise_by_name',
-                    'u_create.name as created_by_name',
+                        'u_rev.name as revise_by_name',
+                        'u_create.name as created_by_name',
 
-                    'rv.color_code',
-                ], array_map(fn($f) => "x.$f", $fields)))
-                ->get()
-                ->map(fn($x) => (array) $x)
-                ->values()
-                ->all();
+                        'rv.color_code',
+                    ], array_map(fn($f) => "x.$f", $fields)))
+                    ->get()
+                    ->map(fn($x) => (array) $x)
+                    ->values()
+                    ->all();
+            };
+
+            try {
+                $all = $loadRows(DB::raw('dbo.delivery_plan_data FOR SYSTEM_TIME ALL AS x'), true);
+            } catch (\Throwable $temporalError) {
+                Log::warning('DeliveryPlanInquiryController@history temporal read failed; falling back to current row', [
+                    'ord_id' => $ordId,
+                    'error' => $temporalError->getMessage(),
+                ]);
+                $all = $loadRows(DB::raw('dbo.delivery_plan_data AS x'), false);
+            }
 
             if (!$all) {
                 return response()->json(['ok' => false, 'message' => 'ไม่พบข้อมูล ord_id นี้']);
@@ -2497,71 +2509,141 @@ class DeliveryPlanInquiryController extends Controller
 
         $conn = $this->conn();
         $ordId = (int) $ordId;
-        $successSoNumber = '';
+        $result = $this->unassignTruckOrdIds($conn, [$ordId], trim((string) $request->input('remark_unassign')));
+        $successSoText = $result['so_numbers']->first() ?: 'รายการนี้';
+        return back()->with('success', 'ยกเลิกรถของ Sales Order ' . $successSoText . ' เรียบร้อย');
+    }
 
-        $conn->transaction(function () use ($conn, $request, $ordId, &$successSoNumber) {
-            $row = $conn->table('delivery_plan_data')
-                ->where('ord_id', $ordId)
+    public function bulkUnassignTruck(Request $request)
+    {
+        $data = $request->validate([
+            'ord_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ord_ids.*' => ['integer', 'distinct'],
+            'remark_unassign' => ['required', 'string', 'max:500'],
+            'return_url' => ['nullable', 'string'],
+        ], [
+            'ord_ids.required' => 'กรุณาเลือกรายการที่ต้องการยกเลิกรถ',
+            'ord_ids.min' => 'กรุณาเลือกรายการที่ต้องการยกเลิกรถ',
+            'remark_unassign.required' => 'กรุณากรอกเหตุผลยกเลิกรถ',
+        ]);
+
+        $ordIds = collect($data['ord_ids'])
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ordIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'ord_ids' => ['กรุณาเลือกรายการที่ต้องการยกเลิกรถ'],
+            ]);
+        }
+
+        $result = $this->unassignTruckOrdIds(
+            $this->conn(),
+            $ordIds->all(),
+            trim((string) $data['remark_unassign'])
+        );
+
+        $message = 'ยกเลิกรถ ' . number_format((int) $result['count']) . ' รายการเรียบร้อย';
+        $returnUrl = trim((string) ($data['return_url'] ?? ''));
+
+        return $returnUrl !== ''
+            ? redirect()->to($this->resolveReturnUrl($request))->with('success', $message)
+            : back()->with('success', $message);
+    }
+
+    private function unassignTruckOrdIds($conn, array $ordIds, string $reason): array
+    {
+        $ordIds = collect($ordIds)
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ordIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'ord_ids' => ['กรุณาเลือกรายการที่ต้องการยกเลิกรถ'],
+            ]);
+        }
+
+        $soNumbers = collect();
+
+        $conn->transaction(function () use ($conn, $ordIds, $reason, &$soNumbers) {
+            $rows = $conn->table('delivery_plan_data')
+                ->whereIn('ord_id', $ordIds->all())
                 ->select(['ord_id', 'status', 'so_number'])
-                ->first();
+                ->get();
 
-            if (!$row) {
+            if ($rows->count() !== $ordIds->count()) {
                 throw ValidationException::withMessages([
-                    'ord_id' => ["ไม่พบรายการ ord_id={$ordId}"],
+                    'ord_ids' => ['พบรายการไม่ครบตามที่เลือก'],
                 ]);
             }
 
-            $statusUpper = strtoupper((string) ($row->status ?? ''));
+            $blockedStatus = $rows->first(function ($row) {
+                $statusUpper = strtoupper((string) ($row->status ?? ''));
+                return in_array($statusUpper, ['VOID', 'VOIDED', 'CANCEL', 'CANCELED', 'CANCELLED', 'CLOSED'], true);
+            });
 
-            if (in_array($statusUpper, ['VOID', 'CLOSED'], true)) {
+            if ($blockedStatus) {
+                $statusUpper = strtoupper((string) ($blockedStatus->status ?? ''));
                 throw ValidationException::withMessages([
-                    'ord_id' => ["รายการ ord_id={$ordId} ไม่สามารถยกเลิกรถได้ (สถานะ {$statusUpper})"],
+                    'ord_ids' => ["รายการ ord_id={$blockedStatus->ord_id} ไม่สามารถยกเลิกรถได้ (สถานะ {$statusUpper})"],
                 ]);
             }
 
-            $successSoNumber = trim((string) ($row->so_number ?? ''));
+            $assignedOrdIds = $conn->table('delivery_plan_truck_assign')
+                ->whereIn('ord_id', $ordIds->all())
+                ->distinct()
+                ->pluck('ord_id')
+                ->map(fn($id) => (int) $id)
+                ->values();
 
-            $hasAssign = $conn->table('delivery_plan_truck_assign')
-                ->where('ord_id', $ordId)
-                ->exists();
-
-            if (!$hasAssign) {
+            $missingAssign = $ordIds->diff($assignedOrdIds)->first();
+            if ($missingAssign) {
                 throw ValidationException::withMessages([
-                    'ord_id' => ["รายการ ord_id={$ordId} ยังไม่ได้เลือกรถ"],
+                    'ord_ids' => ["รายการ ord_id={$missingAssign} ยังไม่ได้เลือกรถ"],
                 ]);
             }
 
-            $hasClosedTrip = $conn->table('delivery_plan_truck_assign')
-                ->where('ord_id', $ordId)
+            $closedTrip = $conn->table('delivery_plan_truck_assign')
+                ->whereIn('ord_id', $ordIds->all())
                 ->whereNotNull('closed_at')
-                ->exists();
+                ->value('ord_id');
 
-            if ($hasClosedTrip) {
+            if ($closedTrip) {
                 throw ValidationException::withMessages([
-                    'ord_id' => ["รายการ ord_id={$ordId} ปิดเที่ยวรถแล้ว ไม่สามารถยกเลิกรถได้"],
+                    'ord_ids' => ["รายการ ord_id={$closedTrip} ปิดเที่ยวรถแล้ว ไม่สามารถยกเลิกรถได้"],
                 ]);
             }
 
-            $reason = trim((string) $request->input('remark_unassign'));
             $userId = auth()->check() ? (int) auth()->id() : null;
+            $soNumbers = $rows
+                ->pluck('so_number')
+                ->map(fn($value) => trim((string) $value))
+                ->filter()
+                ->unique()
+                ->values();
 
             $conn->table('delivery_plan_truck_assign')
-                ->where('ord_id', $ordId)
+                ->whereIn('ord_id', $ordIds->all())
                 ->delete();
 
             $conn->table('delivery_plan_data')
-                ->where('ord_id', $ordId)
-                ->whereNotIn('status', ['VOID', 'CLOSED'])
+                ->whereIn('ord_id', $ordIds->all())
+                ->whereNotIn('status', ['VOID', 'VOIDED', 'CANCEL', 'CANCELED', 'CANCELLED', 'CLOSED'])
                 ->update([
                     'status'          => 'NEW',
                     'revise_by'       => $userId,
                     'edit_remark'     => 'UNASSIGN: ' . $reason,
-                    'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
                 ]);
         });
 
-        $successSoText = $successSoNumber !== '' ? $successSoNumber : 'รายการนี้';
-        return back()->with('success', 'ยกเลิกรถของ Sales Order ' . $successSoText . ' เรียบร้อย');
+        return [
+            'count' => $ordIds->count(),
+            'so_numbers' => $soNumbers,
+        ];
     }
 
     public function historyDb(int $ord_id)
@@ -4450,19 +4532,16 @@ class DeliveryPlanInquiryController extends Controller
         $plateHistory = $this->conn()
             ->table('delivery_plan_truck_assign')
             ->selectRaw("
+                id,
                 LTRIM(RTRIM(manual_plate_no)) AS plate,
                 LTRIM(RTRIM(ISNULL(COALESCE(NULLIF(driver_name, ''), manual_driver_name), ''))) AS driver,
                 LTRIM(RTRIM(ISNULL(COALESCE(NULLIF(driver_phone, ''), manual_driver_phone), ''))) AS phone,
                 ISNULL(manual_max_load, 0) AS max_load,
                 ISNULL(manual_car_length, 0) AS car_length
             ")
-            ->whereRaw("id IN (
-                SELECT MAX(id) FROM delivery_plan_truck_assign
-                WHERE LTRIM(RTRIM(ISNULL(manual_plate_no, ''))) <> ''
-                GROUP BY LOWER(LTRIM(RTRIM(manual_plate_no)))
-            )")
+            ->whereRaw("LTRIM(RTRIM(ISNULL(manual_plate_no, ''))) <> ''")
             ->orderByDesc('id')
-            ->limit(100)
+            ->limit(500)
             ->get()
             ->map(fn($r) => [
                 'plate' => trim((string) ($r->plate ?? '')),
@@ -4472,21 +4551,20 @@ class DeliveryPlanInquiryController extends Controller
                 'car_length' => (float) ($r->car_length ?? 0),
             ])
             ->filter(fn($p) => $p['plate'] !== '')
+            ->unique(fn($p) => mb_strtolower($p['plate']))
+            ->take(100)
             ->values();
 
         $driverHistory = $this->conn()
             ->table('delivery_plan_truck_assign')
             ->selectRaw("
+                id,
                 LTRIM(RTRIM(COALESCE(NULLIF(driver_name, ''), manual_driver_name))) AS name,
                 LTRIM(RTRIM(COALESCE(NULLIF(driver_phone, ''), manual_driver_phone))) AS phone
             ")
-            ->whereRaw("id IN (
-                SELECT MAX(id) FROM delivery_plan_truck_assign
-                WHERE LTRIM(RTRIM(COALESCE(NULLIF(driver_name, ''), NULLIF(manual_driver_name, '')))) <> ''
-                GROUP BY LOWER(LTRIM(RTRIM(COALESCE(NULLIF(driver_name, ''), manual_driver_name))))
-            )")
+            ->whereRaw("LTRIM(RTRIM(COALESCE(NULLIF(driver_name, ''), NULLIF(manual_driver_name, '')))) <> ''")
             ->orderByDesc('id')
-            ->limit(100)
+            ->limit(500)
             ->get()
             ->map(function ($r) use ($masterDriverKeys) {
                 $name = trim((string) ($r->name ?? ''));
@@ -4498,6 +4576,8 @@ class DeliveryPlanInquiryController extends Controller
                 ];
             })
             ->filter(fn($d) => $d['name'] !== '')
+            ->unique(fn($d) => mb_strtolower($d['name']))
+            ->take(100)
             ->values();
 
         $summary = [
@@ -4909,6 +4989,7 @@ class DeliveryPlanInquiryController extends Controller
                 sd.dispatch_type,
                 sd.status as special_status,
                 sd.remark as special_remark,
+                sd.action_by,
                 sd.action_at,
                 sd.closed_at,
                 sd.closed_by,
@@ -4963,6 +5044,16 @@ class DeliveryPlanInquiryController extends Controller
             $type = strtoupper(trim((string) ($r->dispatch_type ?? '')));
             $r->dispatch_label = self::SPECIAL_DISPATCH_TYPES[$type] ?? $type;
             $r->is_open = strtoupper((string) ($r->special_status ?? '')) === 'OPEN';
+            $r->line_qty_display = ((int) ($r->sell_by_line ?? 0) === 1)
+                ? (float) ($r->line_qty ?? 0)
+                : null;
+            $r->line_qty_unit = ((int) ($r->sell_by_line ?? 0) === 1 && (float) ($r->qty ?? 0) == 0.0)
+                ? 'ชิ้น'
+                : 'เส้น';
+            $r->special_origin = $type === 'POSTPONED'
+                ? ($r->is_open ? 'LOGISTICS' : 'SALES')
+                : 'LOGISTICS';
+            $r->can_cancel_special = $r->is_open;
 
             // package_text — รวม f1/f2/f3 เหมือนตารางหลัก
             $r->package_text = collect([$r->part_f1 ?? null, $r->part_f2 ?? null, $r->part_f3 ?? null])
@@ -6317,6 +6408,152 @@ class DeliveryPlanInquiryController extends Controller
         });
 
         return redirect($data['return_url'] ?? url()->previous())->with('success', 'ปิดงานพิเศษแล้ว');
+    }
+
+    public function cancelSpecialDispatch(Request $request, int $ordId)
+    {
+        $data = $request->validate([
+            'cancel_remark' => ['required', 'string', 'max:500'],
+            'return_url' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'cancel_remark.required' => 'กรุณากรอกเหตุผลยกเลิกงานพิเศษ',
+        ]);
+
+        $userId = auth()->check() ? (int) auth()->id() : null;
+        $remark = trim((string) $data['cancel_remark']);
+
+        $this->conn()->transaction(function () use ($ordId, $userId, $remark) {
+            $special = $this->conn()
+                ->table('delivery_plan_special_dispatch')
+                ->where('ord_id', $ordId)
+                ->whereIn('status', ['OPEN', 'CLOSED'])
+                ->orderByDesc('id')
+                ->first();
+
+            if (!$special) {
+                throw ValidationException::withMessages(['ord_id' => ['ไม่พบงานพิเศษที่ต้องการยกเลิก']]);
+            }
+
+            $dispatchType = strtoupper((string) ($special->dispatch_type ?? ''));
+            $specialStatus = strtoupper((string) ($special->status ?? ''));
+
+            if ($specialStatus !== 'OPEN') {
+                $message = $dispatchType === 'POSTPONED'
+                    ? 'งานเลื่อนรายการนี้มาจาก Sales/DP และสร้างแถวใหม่แล้ว ต้องจัดการจาก flow เลื่อนแผน'
+                    : 'งานพิเศษรายการนี้ปิดงานแล้ว ไม่สามารถยกเลิกกลับเป็น NEW ได้';
+                throw ValidationException::withMessages(['ord_id' => [$message]]);
+            }
+
+            $this->conn()
+                ->table('delivery_plan_special_dispatch')
+                ->where('id', $special->id)
+                ->update([
+                    'status' => 'SUPERSEDED',
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'close_remark' => 'Canceled: ' . $remark,
+                ]);
+
+            $this->conn()
+                ->table('delivery_plan_data')
+                ->where('ord_id', $ordId)
+                ->whereRaw("UPPER(ISNULL(status,'')) NOT IN ('VOID','VOIDED','CANCEL','CANCELED','CANCELLED','CLOSED')")
+                ->update([
+                    'status' => 'NEW',
+                    'revise_by' => $userId,
+                    'edit_remark' => 'CANCEL SPECIAL: ' . $remark,
+                    'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
+                ]);
+        });
+
+        return redirect($data['return_url'] ?? url()->previous())->with('success', 'ยกเลิกงานพิเศษเรียบร้อย');
+    }
+
+    public function bulkCancelSpecialDispatch(Request $request)
+    {
+        $data = $request->validate([
+            'ord_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ord_ids.*' => ['integer', 'distinct'],
+            'cancel_remark' => ['required', 'string', 'max:500'],
+            'return_url' => ['nullable', 'string', 'max:1000'],
+        ], [
+            'ord_ids.required' => 'กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก',
+            'ord_ids.min' => 'กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก',
+            'cancel_remark.required' => 'กรุณากรอกเหตุผลยกเลิกงานพิเศษ',
+        ]);
+
+        $ordIds = collect($data['ord_ids'])
+            ->map(fn($id) => (int) $id)
+            ->filter(fn($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ordIds->isEmpty()) {
+            throw ValidationException::withMessages([
+                'ord_ids' => ['กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก'],
+            ]);
+        }
+
+        $userId = auth()->check() ? (int) auth()->id() : null;
+        $remark = trim((string) $data['cancel_remark']);
+
+        $this->conn()->transaction(function () use ($ordIds, $userId, $remark) {
+            $latestIds = $this->conn()
+                ->table('delivery_plan_special_dispatch')
+                ->selectRaw('MAX(id) as id, ord_id')
+                ->whereIn('ord_id', $ordIds->all())
+                ->whereIn('status', ['OPEN', 'CLOSED'])
+                ->groupBy('ord_id')
+                ->pluck('id', 'ord_id');
+
+            if ($latestIds->count() !== $ordIds->count()) {
+                throw ValidationException::withMessages([
+                    'ord_ids' => ['พบรายการงานพิเศษไม่ครบตามที่เลือก'],
+                ]);
+            }
+
+            $specialRows = $this->conn()
+                ->table('delivery_plan_special_dispatch')
+                ->whereIn('id', $latestIds->values()->all())
+                ->get()
+                ->keyBy('ord_id');
+
+            $blocked = $specialRows->first(function ($special) {
+                return strtoupper((string) ($special->status ?? '')) !== 'OPEN';
+            });
+
+            if ($blocked) {
+                $dispatchType = strtoupper((string) ($blocked->dispatch_type ?? ''));
+                $message = $dispatchType === 'POSTPONED'
+                    ? "ord_id={$blocked->ord_id} เป็นงานเลื่อนจาก Sales/DP ที่สร้างแถวใหม่แล้ว ต้องจัดการจาก flow เลื่อนแผน"
+                    : "ord_id={$blocked->ord_id} ปิดงานแล้ว ไม่สามารถยกเลิกกลับเป็น NEW ได้";
+                throw ValidationException::withMessages(['ord_ids' => [$message]]);
+            }
+
+            $this->conn()
+                ->table('delivery_plan_special_dispatch')
+                ->whereIn('id', $specialRows->pluck('id')->all())
+                ->update([
+                    'status' => 'SUPERSEDED',
+                    'closed_at' => now(),
+                    'closed_by' => $userId,
+                    'close_remark' => 'Canceled: ' . $remark,
+                ]);
+
+            $this->conn()
+                ->table('delivery_plan_data')
+                ->whereIn('ord_id', $ordIds->all())
+                ->whereRaw("UPPER(ISNULL(status,'')) NOT IN ('VOID','VOIDED','CANCEL','CANCELED','CANCELLED','CLOSED')")
+                ->update([
+                    'status' => 'NEW',
+                    'revise_by' => $userId,
+                    'edit_remark' => 'CANCEL SPECIAL: ' . $remark,
+                    'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
+                ]);
+        });
+
+        $message = 'ยกเลิกงานพิเศษ ' . number_format($ordIds->count()) . ' รายการเรียบร้อย';
+        return redirect($data['return_url'] ?? url()->previous())->with('success', $message);
     }
 
     public function reopenSpecialDispatch(Request $request, int $ordId)

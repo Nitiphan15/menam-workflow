@@ -73,6 +73,7 @@ class VariableCostService
 
     private string $fcConn = 'sqlsrv_menam';
     private string $accountDisplayTable = 'vc_account_display_accounts';
+    private string $truckWeightLogTable = 'vc_truck_weight_logs';
 
     private ?array $classInfoBySite = null;
 
@@ -146,6 +147,15 @@ class VariableCostService
         $kpis = $this->buildKpis($combined['overall']);
         $kpis['account_count'] = $accountSummary->count();
         $extraSummary = $this->getProductionSalesSummary($filters);
+        $truckWeightLog = $this->latestTruckWeightLog($filters);
+        if ($truckWeightLog) {
+            $extraSummary['truck'] = [
+                'qty' => (float) $truckWeightLog->weight_kg,
+                'source' => 'manual_log',
+                'log' => $truckWeightLog,
+            ];
+        }
+        $extraSummary['truck']['logs'] = $this->truckWeightLogs($filters);
         $extraSummary['transport'] = [
             'amount' => $this->transportExpenseFromMatrix($combined['matrix'], $filters['site']),
             'department_code' => 'WH01',
@@ -173,6 +183,89 @@ class VariableCostService
             'kpis' => $kpis,
             'extraSummary' => $extraSummary,
         ];
+    }
+
+    public function storeTruckWeightLog(array $filters, float $weightKg, ?string $notes, $user): void
+    {
+        $filters = $this->normalizeFilters($filters);
+
+        DB::connection($this->fcConn)
+            ->table($this->truckWeightLogTable)
+            ->insert([
+                'period_date_from' => $filters['date_from'],
+                'period_date_to' => $filters['date_to'],
+                'site' => $filters['site'],
+                'weight_kg' => $weightKg,
+                'notes' => trim((string) $notes) !== '' ? trim((string) $notes) : null,
+                'created_by' => $user?->id,
+                'created_by_name' => $user?->name,
+                'created_by_email' => $user?->email,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+    }
+
+    public function latestTruckWeightLog(array $filters): ?object
+    {
+        $filters = $this->normalizeFilters($filters);
+
+        try {
+            return DB::connection($this->fcConn)
+                ->table($this->truckWeightLogTable)
+                ->where('period_date_from', $filters['date_from'])
+                ->where('period_date_to', $filters['date_to'])
+                ->where('site', $filters['site'])
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->first();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * รายการบันทึกน้ำหนักรถบรรทุกทั้งหมดของช่วงวันที่ + site ปัจจุบัน (ใหม่สุดก่อน) — ใช้แสดงให้แก้ไข/ลบ.
+     */
+    public function truckWeightLogs(array $filters): Collection
+    {
+        $filters = $this->normalizeFilters($filters);
+
+        try {
+            return collect(DB::connection($this->fcConn)
+                ->table($this->truckWeightLogTable)
+                ->where('period_date_from', $filters['date_from'])
+                ->where('period_date_to', $filters['date_to'])
+                ->where('site', $filters['site'])
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get());
+        } catch (\Throwable $e) {
+            return collect();
+        }
+    }
+
+    public function updateTruckWeightLog(int $id, float $weightKg, ?string $notes, $user): bool
+    {
+        $affected = DB::connection($this->fcConn)
+            ->table($this->truckWeightLogTable)
+            ->where('id', $id)
+            ->update([
+                'weight_kg' => $weightKg,
+                'notes' => trim((string) $notes) !== '' ? trim((string) $notes) : null,
+                'updated_at' => now(),
+            ]);
+
+        return $affected > 0;
+    }
+
+    public function deleteTruckWeightLog(int $id): bool
+    {
+        $affected = DB::connection($this->fcConn)
+            ->table($this->truckWeightLogTable)
+            ->where('id', $id)
+            ->delete();
+
+        return $affected > 0;
     }
 
     private function applyDepartmentProductionCosts(Collection $rows, array $extraSummary): Collection
@@ -621,6 +714,10 @@ class VariableCostService
 
         $baseFilters = [
             'site' => $yearlyFilters['site'],
+            'division_group' => $filters['division_group'] ?? [],
+            'division_department_mode' => $filters['division_department_mode'] ?? 'AND',
+            'division_scope' => $filters['division_scope'] ?? null,
+            'division_allowed_groups' => $filters['division_allowed_groups'] ?? [],
             'department' => [],
             'account' => $accountArray,
             'invoice' => '',
@@ -714,6 +811,8 @@ class VariableCostService
                 'date_from' => "{$year}-01-01",
                 'date_to' => "{$year}-12-31",
                 'site' => $yearlyFilters['site'],
+                'division_group' => $twoYearFilters['division_group'],
+                'division_department_mode' => $twoYearFilters['division_department_mode'],
                 'department' => $selectedClasses->isNotEmpty()
                     ? $selectedClasses->pluck('label')->implode(', ')
                     : '',
@@ -1433,6 +1532,9 @@ class VariableCostService
             'site' => $site,
             'division_group' => $this->normalizeFilterArray($filters['division_group'] ?? []),
             'division_department_mode' => Str::upper(trim((string) ($filters['division_department_mode'] ?? 'AND'))) === 'OR' ? 'OR' : 'AND',
+            // Permission scope for the VC role: 'exclude' = ทุกแผนกที่ไม่อยู่ในกลุ่มที่ระบุ (ungrouped + กลุ่มที่ได้รับสิทธิ์)
+            'division_scope' => ($filters['division_scope'] ?? null) === 'exclude' ? 'exclude' : null,
+            'division_allowed_groups' => $this->normalizeFilterArray($filters['division_allowed_groups'] ?? []),
             'department' => $this->normalizeFilterArray($filters['department'] ?? []),
             'account' => $this->normalizeFilterArray($filters['account'] ?? []),
             'invoice' => trim((string) ($filters['invoice'] ?? '')),
@@ -1517,6 +1619,89 @@ class VariableCostService
                 return ['__NO_MATCH__'];
             }
         }) ?: ['__NO_MATCH__'];
+    }
+
+    /**
+     * รหัสแผนก (classnumber) ที่ต้อง "ตัดออก" สำหรับ permission scope แบบ exclude (role VC).
+     * VC จะเห็นทุกแผนกที่ไม่อยู่ในกลุ่ม ยกเว้นกลุ่มที่ได้รับสิทธิ์เพิ่ม (division_allowed_groups).
+     * คืน [] เมื่อไม่ได้อยู่ใน exclude scope หรือไม่มีรหัสที่ต้องตัด.
+     */
+    private function divisionScopeExcludeCodes(array $filters, string $site): array
+    {
+        if (($filters['division_scope'] ?? null) !== 'exclude') {
+            return [];
+        }
+
+        $allGroups = $this->divisionGroupOptions()->all();
+        $allowedGroups = $this->normalizeFilterArray($filters['division_allowed_groups'] ?? []);
+        $excludeGroups = array_values(array_diff($allGroups, $allowedGroups));
+        if (empty($excludeGroups)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $this->departmentCodesForDivisionGroups($excludeGroups, $site),
+            fn($code) => $code !== '__NO_MATCH__' && trim((string) $code) !== ''
+        ));
+    }
+
+    private function divisionScopeSqlClause(array $filters, string $site, string $column): array
+    {
+        $codes = $this->divisionScopeExcludeCodes($filters, $site);
+        if (empty($codes)) {
+            return ['TRUE', []];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($codes), '?'));
+
+        return ["COALESCE({$column}, '') NOT IN ({$placeholders})", $codes];
+    }
+
+    private function applyDivisionScopeToRows(Collection $rows, array $filters): Collection
+    {
+        $codes = $this->divisionScopeExcludeCodes($filters, (string) ($filters['site'] ?? 'ALL'));
+        if (empty($codes)) {
+            return $rows->values();
+        }
+
+        $excludeLookup = array_flip(array_map(fn($code) => trim((string) $code), $codes));
+
+        return $rows
+            ->filter(fn($row) => !isset($excludeLookup[trim((string) ($row->department_code ?? ''))]))
+            ->values();
+    }
+
+    /**
+     * ป้ายชื่อแผนก (ที่ใช้เป็น option ใน dropdown filter) ที่อยู่ในกลุ่มที่ระบุ — ใช้ปรับ option ตาม permission.
+     */
+    public function departmentLabelsForGroupsPublic(array $groups, string $site): array
+    {
+        $codes = array_values(array_filter(
+            $this->departmentCodesForDivisionGroups($groups, $site),
+            fn($code) => $code !== '__NO_MATCH__' && trim((string) $code) !== ''
+        ));
+        if (empty($codes)) {
+            return [];
+        }
+
+        $codeSet = array_flip(array_map(fn($code) => trim((string) $code), $codes));
+        $classInfo = $this->getClassInfoBySite();
+        $sites = Str::upper(trim($site)) === 'ALL' ? array_keys(self::SITES) : [Str::upper(trim($site))];
+
+        $labels = [];
+        foreach ($sites as $s) {
+            foreach (($classInfo[$s] ?? []) as $classnumber => $description) {
+                if (!isset($codeSet[trim((string) $classnumber)])) {
+                    continue;
+                }
+                $label = $this->stripSiteSuffix($this->cleanText($description));
+                if ($label !== '') {
+                    $labels[$label] = true;
+                }
+            }
+        }
+
+        return array_keys($labels);
     }
 
     private function applyDivisionGroupDepartmentFilter($query, array $filters, string $site, string $columnExpression): void
@@ -1791,6 +1976,8 @@ class VariableCostService
         foreach ($sites as $site => $connection) {
             $rows = $rows->concat($this->fetchCostCenterRowsForConnection($connection, $site, $filters));
         }
+
+        $rows = $this->applyDivisionScopeToRows($rows, $filters);
 
         return $rows
             ->filter(fn($row) => !in_array(trim((string) ($row->account_code ?? '')), self::EXCLUDED_ACCOUNT_CODES, true))
@@ -2533,6 +2720,8 @@ class VariableCostService
             $divisionGroupBindings = $divisionGroupDepartmentCodes;
         }
 
+        [$divisionScopeSql, $divisionScopeBindings] = $this->divisionScopeSqlClause($filters, $site, 'classnumber');
+
         $invoice = (string) ($filters['invoice'] ?? '');
         $invoiceSql = "(? = '' OR invnumber ILIKE '%' || ? || '%' OR apnumber ILIKE '%' || ? || '%' OR COALESCE(ordnumber, '') ILIKE '%' || ? || '%')";
         $invoiceBindings = [$invoice, $invoice, $invoice, $invoice];
@@ -2584,8 +2773,8 @@ class VariableCostService
             $departmentDivisionBindings = array_merge($divisionGroupBindings, $deptBindings);
         }
 
-        $where = "{$excludeSql} AND {$wireChargeSql} AND {$displayAccountSql} AND {$departmentDivisionSql} AND {$accountSql} AND {$invoiceSql} AND {$notesSql}";
-        $bindings = array_merge($wireChargeBindings, $displayAccountBindings, $departmentDivisionBindings, $accountBindings, $invoiceBindings, $notesBindings);
+        $where = "{$excludeSql} AND {$wireChargeSql} AND {$displayAccountSql} AND {$departmentDivisionSql} AND {$divisionScopeSql} AND {$accountSql} AND {$invoiceSql} AND {$notesSql}";
+        $bindings = array_merge($wireChargeBindings, $displayAccountBindings, $departmentDivisionBindings, $divisionScopeBindings, $accountBindings, $invoiceBindings, $notesBindings);
 
         return [$where, $bindings];
     }

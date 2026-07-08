@@ -37,8 +37,13 @@
                                             <strong style="color:#35485c;">Source:</strong> {{ $poItem['source_label'] ?? '-' }}<br>
                                             <strong style="color:#35485c;">Vendor:</strong> {{ $poItem['vendor_name'] ?? '-' }}<br>
                                             <strong style="color:#35485c;">Department:</strong> {{ $poItem['department'] ?? '-' }}<br>
-                                            <strong style="color:#35485c;">Status:</strong> CLOSED
+                                            <strong style="color:#35485c;">Status:</strong> CLOSED<br>
+                                            <strong style="color:#35485c;">Current Step:</strong> {{ $poItem['step_label'] ?? 'Closed' }}
                                         </div>
+                                        @include('emails.po.partials.flow', [
+                                            'flowSteps' => $poItem['flow_steps'] ?? [],
+                                            'currentStepNo' => $poItem['step_no'] ?? 999,
+                                        ])
                                         <div style="margin-top:18px;">
                                             <a href="{{ $poItem['show_url'] ?? '#' }}" style="display:inline-block; background:#2f855a; color:#ffffff; text-decoration:none; padding:11px 18px; border-radius:999px; font-size:14px; font-weight:700;">
                                                 เปิดเอกสาร

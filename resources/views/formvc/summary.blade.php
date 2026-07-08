@@ -10,6 +10,8 @@
         $grandTotal = max((float) $departmentSummary->sum('total_amount'), 1);
         $extra = $extraSummary ?? ['fg' => null, 'grating' => null, 'sales' => null, 'transport' => null];
         $fgQty = data_get($extra, 'fg.qty');
+        $truckWeightLog = data_get($extra, 'truck.log');
+        $canManageTruckWeight = auth()->check() && auth()->user()->hasRoleCode('VCM');
         $rowsByCode = $departmentSummary->keyBy(fn($row) => strtoupper(trim((string) ($row->department_code ?? ''))));
         $summaryGroups = [
             [
@@ -209,17 +211,125 @@
                             <div class="vc-basis-value">{{ data_get($extra, 'sales.qty') !== null ? $fmt(data_get($extra, 'sales.qty'), 2) : '-' }}</div>
                         </div>
                     </div>
-                    <div class="vc-basis-card vc-basis-truck">
+                    <div class="vc-basis-card vc-basis-truck {{ $canManageTruckWeight ? 'vc-basis-action' : '' }}"
+                        @if ($canManageTruckWeight) role="button" tabindex="0" data-bs-toggle="modal" data-bs-target="#vcTruckWeightModal" @endif>
                         <span class="vc-basis-icon"><i class="fas fa-truck-loading"></i></span>
                         <div>
                             <div class="vc-basis-label">น้ำหนักรถบรรทุก</div>
                             <div class="vc-basis-value">{{ $fmt(data_get($extra, 'truck.qty', 0), 2) }}</div>
+                            @if ($truckWeightLog)
+                                <div class="vc-basis-meta">ล่าสุด {{ optional($truckWeightLog->created_at ? \Carbon\Carbon::parse($truckWeightLog->created_at) : null)->format('d/m/Y H:i') }}</div>
+                            @endif
                         </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
+    @if ($canManageTruckWeight)
+        @php
+            $truckLogs = collect(data_get($extra, 'truck.logs', []));
+            $truckWeightVal = fn($w) => rtrim(rtrim(number_format((float) $w, 3, '.', ''), '0'), '.');
+        @endphp
+        <div class="modal fade" id="vcTruckWeightModal" tabindex="-1" aria-labelledby="vcTruckWeightModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="vcTruckWeightModalLabel">น้ำหนักรถบรรทุก</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="vc-truck-period">
+                            <span>{{ $filters['date_from'] ?? '-' }} ถึง {{ $filters['date_to'] ?? '-' }}</span>
+                            <span>Site: {{ $filters['site'] ?? 'ALL' }}</span>
+                        </div>
+
+                        {{-- เพิ่มบันทึกใหม่ --}}
+                        <form method="POST" action="{{ route('variable-cost.truck-weight-log.store') }}">
+                            @csrf
+                            <input type="hidden" name="date_from" value="{{ $filters['date_from'] ?? '' }}">
+                            <input type="hidden" name="date_to" value="{{ $filters['date_to'] ?? '' }}">
+                            <input type="hidden" name="site" value="{{ $filters['site'] ?? 'ALL' }}">
+                            <div class="mb-3">
+                                <label class="form-label">น้ำหนักรวม (KG)</label>
+                                <input type="number" name="weight_kg" class="form-control form-control-lg"
+                                    min="0" step="0.001" required value="{{ old('weight_kg') }}">
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">หมายเหตุ</label>
+                                <textarea name="notes" class="form-control" rows="2" maxlength="1000">{{ old('notes') }}</textarea>
+                            </div>
+                            <div class="text-end">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-plus me-1"></i> เพิ่มบันทึก
+                                </button>
+                            </div>
+                        </form>
+
+                        {{-- รายการที่บันทึกไว้ (แก้ไข / ลบ) --}}
+                        <hr>
+                        <div class="fw-semibold mb-2">รายการที่บันทึกไว้ ({{ $truckLogs->count() }})</div>
+                        @forelse ($truckLogs as $log)
+                            <div class="vc-truck-log-item border rounded p-2 mb-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <div class="fw-semibold">{{ $fmt($log->weight_kg, 3) }} KG</div>
+                                        @if (trim((string) ($log->notes ?? '')) !== '')
+                                            <div class="small text-muted">{{ $log->notes }}</div>
+                                        @endif
+                                        <div class="small text-muted">
+                                            โดย {{ $log->created_by_name ?? '-' }}
+                                            @if (!empty($log->created_at))
+                                                • {{ \Carbon\Carbon::parse($log->created_at)->format('d/m/Y H:i') }}
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <div class="d-flex gap-1 flex-shrink-0">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                            data-bs-toggle="collapse" data-bs-target="#vcTruckEdit{{ $log->id }}">
+                                            <i class="fas fa-pen"></i>
+                                        </button>
+                                        <form method="POST" action="{{ route('variable-cost.truck-weight-log.destroy', $log->id) }}"
+                                            onsubmit="return confirm('ลบบันทึกน้ำหนักนี้?');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="collapse mt-2" id="vcTruckEdit{{ $log->id }}">
+                                    <form method="POST" action="{{ route('variable-cost.truck-weight-log.update', $log->id) }}">
+                                        @csrf
+                                        @method('PUT')
+                                        <div class="mb-2">
+                                            <label class="form-label mb-1">น้ำหนักรวม (KG)</label>
+                                            <input type="number" name="weight_kg" class="form-control" min="0" step="0.001"
+                                                required value="{{ $truckWeightVal($log->weight_kg) }}">
+                                        </div>
+                                        <div class="mb-2">
+                                            <label class="form-label mb-1">หมายเหตุ</label>
+                                            <textarea name="notes" class="form-control" rows="2" maxlength="1000">{{ $log->notes }}</textarea>
+                                        </div>
+                                        <div class="text-end">
+                                            <button type="submit" class="btn btn-sm btn-primary">บันทึกการแก้ไข</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        @empty
+                            <div class="text-muted small">ยังไม่มีบันทึกน้ำหนักสำหรับช่วงนี้</div>
+                        @endforelse
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 @endsection
 
 @push('scripts')

@@ -929,6 +929,7 @@
     const bulkTruckOpenBtn = byId("bulkTruckOpenBtn");
     const bulkTruckClearBtn = byId("bulkTruckClearBtn");
     const bulkTruckSameCustomerBtn = byId("bulkTruckSameCustomerBtn");
+    const bulkTruckUnassignOpenBtn = byId("bulkTruckUnassignOpenBtn");
     const bulkTruckCount = byId("bulkTruckCount");
     const bulkTruckCustomer = byId("bulkTruckCustomer");
 
@@ -1819,6 +1820,12 @@
         );
     }
 
+    function selectedBulkTruckUnassignChecks() {
+        return selectedBulkTruckChecks().filter(
+            (input) => String(input.dataset.hasTruck || "0") === "1",
+        );
+    }
+
     function bulkTruckMatchesShipDate(input, seed) {
         const key = bulkTruckKey(input);
         return key.shipDate !== "" && key.shipDate === seed.shipDate;
@@ -1835,6 +1842,10 @@
             bulkTruckClearBtn.disabled = selected.length === 0;
         if (bulkTruckSameCustomerBtn)
             bulkTruckSameCustomerBtn.disabled = visible.length === 0;
+        if (bulkTruckUnassignOpenBtn) {
+            bulkTruckUnassignOpenBtn.disabled =
+                selectedBulkTruckUnassignChecks().length === 0;
+        }
 
         if (bulkTruckCustomer) {
             if (!selected.length) {
@@ -2016,6 +2027,28 @@
         window.location.href = url.toString();
     }
 
+    function openBulkTruckUnassign() {
+        const selected = selectedBulkTruckUnassignChecks();
+        if (!selected.length) {
+            warn("กรุณาเลือกรายการที่มีรถแล้ว");
+            return;
+        }
+
+        document.dispatchEvent(
+            new CustomEvent("dp:open-unassign-truck", {
+                detail: {
+                    returnUrl: window.location.href,
+                    items: selected.map((input) => ({
+                        ordId: String(input.dataset.ordId || input.value || ""),
+                        so: String(input.dataset.so || ""),
+                        mfg: String(input.dataset.mfg || ""),
+                        plate: String(input.dataset.plate || ""),
+                    })),
+                },
+            }),
+        );
+    }
+
     function validateBeforeSubmit() {
         if (isSpecialDispatchMode()) {
             const dispatchType = String(
@@ -2123,6 +2156,12 @@
         const bulkBtn = e.target.closest("#bulkTruckOpenBtn");
         if (bulkBtn) {
             openBulkTruckSummary();
+            return;
+        }
+
+        const bulkUnassignBtn = e.target.closest("#bulkTruckUnassignOpenBtn");
+        if (bulkUnassignBtn) {
+            openBulkTruckUnassign();
             return;
         }
     });
@@ -3002,30 +3041,65 @@
     const form = byId("unassignTruckForm");
     const infoEl = byId("unassignTruckInfo");
     const remarkEl = byId("remarkUnassign");
+    const returnUrlEl = byId("unassignReturnUrl");
+    const ordIdsEl = byId("unassignTruckOrdIds");
 
     if (!modalEl || !form) return;
     if (typeof bootstrap === "undefined" || !bootstrap.Modal) return;
 
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
 
-    function setAction(ordId) {
+    function setAction(ordId, items) {
+        if (ordIdsEl) ordIdsEl.innerHTML = "";
+        const cleanItems = (items || []).filter((item) => item && item.ordId);
+
+        if (cleanItems.length > 1) {
+            form.action = String(ROUTES.truckUnassignBulk || "");
+            cleanItems.forEach((item) => {
+                const hidden = document.createElement("input");
+                hidden.type = "hidden";
+                hidden.name = "ord_ids[]";
+                hidden.value = item.ordId;
+                ordIdsEl?.appendChild(hidden);
+            });
+            return;
+        }
+
         const base = ROUTES.truckUnassign || "";
         form.action = String(base).replace("__ID__", String(ordId || 0));
     }
 
-    function buildInfo(btn) {
-        const so = String(btn.dataset.so || "").trim();
-        const mfg = String(btn.dataset.mfg || "").trim();
-        const plate = String(btn.dataset.plate || "").trim();
-        return (
-            [
-                so ? "SO: " + so : "",
-                mfg ? "MFG: " + mfg : "",
-                plate ? "ทะเบียน: " + plate : "",
-            ]
-                .filter(Boolean)
-                .join(" | ") || "-"
-        );
+    function buildItemsInfo(items) {
+        const cleanItems = (items || []).filter((item) => item && item.ordId);
+        if (cleanItems.length === 1) {
+            return (
+                [
+                    cleanItems[0].so ? "SO: " + cleanItems[0].so : "",
+                    cleanItems[0].mfg ? "MFG: " + cleanItems[0].mfg : "",
+                    cleanItems[0].plate ? "ทะเบียน: " + cleanItems[0].plate : "",
+                ]
+                    .filter(Boolean)
+                    .join(" | ") || "-"
+            );
+        }
+
+        const preview = cleanItems
+            .slice(0, 4)
+            .map((item) => item.mfg || item.so || "ord_id=" + item.ordId)
+            .join(", ");
+
+        return `${cleanItems.length} รายการ${preview ? " | " + preview : ""}`;
+    }
+
+    function openUnassignModal(items, returnUrl) {
+        const cleanItems = (items || []).filter((item) => item && item.ordId);
+        if (!cleanItems.length) return;
+
+        setAction(cleanItems[0].ordId, cleanItems);
+        if (returnUrlEl) returnUrlEl.value = returnUrl || window.location.href;
+        if (infoEl) infoEl.textContent = buildItemsInfo(cleanItems);
+        if (remarkEl) remarkEl.value = "";
+        modal.show();
     }
 
     document.addEventListener("click", (e) => {
@@ -3034,21 +3108,30 @@
         const btn = e.target.closest(".jsUnassignTruckBtn");
         if (!btn || btn.hasAttribute("disabled")) return;
 
-        setAction(btn.dataset.ordId || "");
+        openUnassignModal(
+            [
+                {
+                    ordId: String(btn.dataset.ordId || ""),
+                    so: String(btn.dataset.so || ""),
+                    mfg: String(btn.dataset.mfg || ""),
+                    plate: String(btn.dataset.plate || ""),
+                },
+            ],
+            btn.dataset.returnUrl || window.location.href,
+        );
+    });
 
-        if (infoEl) {
-            infoEl.textContent = buildInfo(btn);
-        }
-        if (remarkEl) {
-            remarkEl.value = "";
-        }
-
-        modal.show();
+    document.addEventListener("dp:open-unassign-truck", (event) => {
+        openUnassignModal(
+            event.detail?.items || [],
+            event.detail?.returnUrl || window.location.href,
+        );
     });
 
     modalEl.addEventListener("hidden.bs.modal", () => {
         if (infoEl) infoEl.textContent = "-";
         if (remarkEl) remarkEl.value = "";
+        if (ordIdsEl) ordIdsEl.innerHTML = "";
     });
 })();
 

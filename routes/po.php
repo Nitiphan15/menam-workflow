@@ -39,6 +39,7 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
             Route::get('/print/department', [PoExportController::class, 'printDepartment'])->name('print.department');
         });
 
+        Route::get('/{id}/attachments/{attachmentId}', [PoController::class, 'attachment'])->name('attachments.show');
         Route::post('/{id}/approve', [PoApprovalController::class, 'approve'])->name('approve');
         Route::post('/{id}/reject', [PoApprovalController::class, 'reject'])->name('reject');
         Route::post('/{id}/send-back', [PoApprovalController::class, 'sendBack'])->name('sendBack');

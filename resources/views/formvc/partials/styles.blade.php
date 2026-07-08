@@ -137,6 +137,34 @@
     }
     .vc-basis-label { color:#64748b; font-size:.76rem; font-weight:700; }
     .vc-basis-value { margin-top:3px; color:#1f2937; font-size:1.08rem; font-weight:900; font-variant-numeric:tabular-nums; }
+    .vc-basis-meta { margin-top:3px; color:#64748b; font-size:.68rem; font-weight:600; }
+    .vc-basis-action {
+        width:100%;
+        color:inherit;
+        text-align:left;
+        cursor:pointer;
+        transition:border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+    }
+    .vc-basis-action:hover {
+        border-color:#e2a064;
+        box-shadow:0 8px 18px rgba(150, 80, 29, .14);
+        transform:translateY(-1px);
+    }
+    .vc-truck-period {
+        display:flex;
+        justify-content:space-between;
+        gap:10px;
+        flex-wrap:wrap;
+        padding:10px 12px;
+        margin-bottom:14px;
+        border:1px solid #e7edf3;
+        border-radius:8px;
+        background:#f8fafc;
+        color:#475569;
+        font-size:.84rem;
+        font-weight:700;
+    }
+    .vc-truck-last { margin-top:12px; color:#64748b; font-size:.82rem; }
     .vc-basis-fg .vc-basis-icon { background:#dcecf8; color:#24658e; }
     .vc-basis-grating .vc-basis-icon { background:#f1dff1; color:#83477d; }
     .vc-basis-sales .vc-basis-icon { background:#dcefe5; color:#34704e; }

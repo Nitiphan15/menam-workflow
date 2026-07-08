@@ -63,20 +63,6 @@
 
 @section('content')
     <div class="ds-config-shell">
-        @if (session('success'))
-            <div class="alert alert-success mb-0">{{ session('success') }}</div>
-        @endif
-        @if (session('error'))
-            <div class="alert alert-danger mb-0">{{ session('error') }}</div>
-        @endif
-        @if ($errors->any())
-            <div class="alert alert-danger mb-0">
-                @foreach ($errors->all() as $error)
-                    <div>{{ $error }}</div>
-                @endforeach
-            </div>
-        @endif
-
         <section class="ds-config-card">
             <div class="d-flex flex-wrap align-items-start justify-content-between gap-3">
                 <div>

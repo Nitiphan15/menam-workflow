@@ -217,8 +217,9 @@ class PoExportController extends Controller
 
         try {
             $this->downloadErpPdf($po, $sourcePdfPath);
+            $sourceFonts = $this->inspectPdfFonts($sourcePdfPath, $po);
             $this->writeSignedPdf($signedPdfPath, [
-                ['pdf_path' => $sourcePdfPath, 'signatures' => $signatures],
+                ['pdf_path' => $sourcePdfPath, 'po' => $po, 'signatures' => $signatures, 'source_fonts' => $sourceFonts],
             ]);
         } finally {
             File::delete($sourcePdfPath);
@@ -241,11 +242,13 @@ class PoExportController extends Controller
         try {
             foreach ($documents as $index => $document) {
                 $sourcePdfPath = "{$tempDir}/{$token}-erp-{$index}.pdf";
+                $this->downloadErpPdf($document['po'], $sourcePdfPath);
                 $pdfs[] = [
                     'pdf_path' => $sourcePdfPath,
+                    'po' => $document['po'],
                     'signatures' => $document['signatures'],
+                    'source_fonts' => $this->inspectPdfFonts($sourcePdfPath, $document['po']),
                 ];
-                $this->downloadErpPdf($document['po'], $sourcePdfPath);
             }
 
             $this->writeSignedPdf($signedPdfPath, $pdfs);
@@ -312,6 +315,33 @@ class PoExportController extends Controller
         ]);
     }
 
+    private function inspectPdfFonts(string $pdfPath, PoHeader $po): array
+    {
+        $contents = @file_get_contents($pdfPath);
+        if ($contents === false || $contents === '') {
+            return [];
+        }
+
+        preg_match_all('/\/BaseFont\s*\/([A-Za-z0-9\+\-_,\.]+)/', $contents, $matches);
+        $fonts = collect($matches[1] ?? [])
+            ->map(fn ($font) => preg_replace('/^[A-Z]{6}\+/', '', (string) $font))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        Log::info('CPA PO PDF fonts inspected', [
+            'po_id' => $po->id,
+            'ordnumber' => $po->ordnumber,
+            'site' => $po->site,
+            'fonts' => $fonts,
+            'thai_overlay_font' => $this->preferredThaiOverlayFont($fonts),
+            'font_match_note' => $this->pdfFontMatchNote($fonts),
+        ]);
+
+        return $fonts;
+    }
+
     private function erpSessionId(): ?string
     {
         $sessionId = trim((string) session('po_erp_phpsessid', ''));
@@ -376,14 +406,27 @@ class PoExportController extends Controller
 
     private function writeSignedPdf(string $targetPath, array $documents): void
     {
-        $pdf = new Fpdi();
+        $pdf = new class extends Fpdi {
+            public function useFontPath(string $path): void
+            {
+                $this->fontpath = rtrim($path, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            }
+        };
         $pdf->SetAutoPageBreak(false);
+        $pdf->useFontPath(public_path('fonts/fpdf'));
+        $pdf->AddFont('THSarabunNew', '', 'THSarabunNew.php');
+        $pdf->AddFont('PoTahomaThai', '', 'PoTahomaThai.php');
+        $pdf->AddFont('PoAngsanaThai', '', 'PoAngsanaThai.php');
         $tempImages = [];
 
         try {
             foreach ($documents as $document) {
                 $pageCount = $pdf->setSourceFile($document['pdf_path']);
                 $pagesToImport = $this->pagesToImportFromErpPdf($document['pdf_path'], $pageCount);
+                $po = $document['po'] ?? null;
+                $descriptionPages = $this->resolveOverridePages($po->pdf_description_override_pages ?? null, $pagesToImport);
+                $commentsPages = $this->resolveOverridePages($po->pdf_comments_override_pages ?? null, $pagesToImport);
+
                 for ($pageNo = 1; $pageNo <= $pagesToImport; $pageNo++) {
                     $templateId = $pdf->importPage($pageNo);
                     $size = $pdf->getTemplateSize($templateId);
@@ -392,9 +435,18 @@ class PoExportController extends Controller
                     $pdf->AddPage($orientation, [$size['width'], $size['height']]);
                     $pdf->useTemplate($templateId);
 
-                    if ($pageNo === $pagesToImport) {
-                        $this->overlaySignatures($pdf, $document['signatures'], $size['width'], $size['height'], $tempImages);
-                    }
+                    $this->overlayPoTextOverrides(
+                        $pdf,
+                        $po,
+                        $size['width'],
+                        $size['height'],
+                        $document['source_fonts'] ?? [],
+                        $document['pdf_path'],
+                        in_array($pageNo, $descriptionPages, true),
+                        in_array($pageNo, $commentsPages, true),
+                        $pageNo
+                    );
+                    $this->overlaySignatures($pdf, $document['signatures'], $size['width'], $size['height'], $tempImages);
                 }
             }
 
@@ -426,6 +478,457 @@ class PoExportController extends Controller
         return $pageCount;
     }
 
+    /**
+     * Parse a page selection string ("2", "1,3", "1-3", "all"/"ทุกหน้า") into a
+     * list of page numbers clamped to the document. Blank selects the last page.
+     */
+    private function resolveOverridePages($selection, int $pagesToImport): array
+    {
+        $selection = trim((string) ($selection ?? ''));
+
+        if ($selection === '') {
+            return [$pagesToImport];
+        }
+
+        if (in_array(mb_strtolower($selection), ['all', 'ทุกหน้า'], true)) {
+            return range(1, $pagesToImport);
+        }
+
+        $pages = [];
+        foreach (preg_split('/\s*,\s*/', $selection) ?: [] as $token) {
+            if ($token === '') {
+                continue;
+            }
+
+            if (preg_match('/^(\d+)\s*-\s*(\d+)$/', $token, $range)) {
+                $from = max(1, min((int) $range[1], (int) $range[2]));
+                $to = min($pagesToImport, max((int) $range[1], (int) $range[2]));
+                for ($page = $from; $page <= $to; $page++) {
+                    $pages[] = $page;
+                }
+            } elseif (preg_match('/^\d+$/', $token)) {
+                $pages[] = min(max(1, (int) $token), $pagesToImport);
+            }
+        }
+
+        $pages = array_values(array_unique($pages));
+        sort($pages);
+
+        return $pages !== [] ? $pages : [$pagesToImport];
+    }
+
+    private function overlayPoTextOverrides(
+        Fpdi $pdf,
+        ?PoHeader $po,
+        float $pageWidth,
+        float $pageHeight,
+        array $sourceFonts = [],
+        ?string $sourcePdfPath = null,
+        bool $renderDescriptions = true,
+        bool $renderComments = true,
+        ?int $pageNo = null
+    ): void {
+        if (!$po || (!$renderDescriptions && !$renderComments)) {
+            return;
+        }
+
+        $descriptionOverrides = $renderDescriptions
+            ? collect($po->pdf_description_overrides ?? [])
+                ->map(fn ($value) => trim((string) $value))
+                ->values()
+            : collect();
+        $commentsOverride = $renderComments ? trim((string) ($po->pdf_comments_override ?? '')) : '';
+
+        if ($descriptionOverrides->filter()->isEmpty() && $commentsOverride === '') {
+            return;
+        }
+
+        $pdf->SetFillColor(255, 255, 255);
+        $pdf->SetTextColor(0, 0, 0);
+        $baselines = $sourcePdfPath
+            ? $this->extractPdfTextBaselines($sourcePdfPath, $pageHeight, $pageNo)
+            : [];
+
+        $descriptionText = $descriptionOverrides->filter()->implode("\n");
+
+        if ($descriptionText !== '') {
+            $x = 0.123 * $pageWidth;
+            $tableTop = 0.386 * $pageHeight;
+            $w = 0.356 * $pageWidth;
+
+            // Append below the last text line in the description column of this
+            // page (read from the source PDF) so existing lines never overlap.
+            $lastLineY = $this->lowestTextBaseline($baselines, 0.115 * $pageWidth, 0.485 * $pageWidth, $tableTop - 3.0, 0.63 * $pageHeight);
+
+            if ($lastLineY !== null) {
+                $appendY = $lastLineY + 2.0;
+            } else {
+                $detailRows = $this->erpService->getDetailRows((string) $po->ordnumber, $po->site)
+                    ->take(5)
+                    ->values();
+                $totalLines = $detailRows->sum(
+                    fn ($row) => max(1, min(4, count($this->wrapPdfText((string) ($row->description ?? ''), $w - 2.0, 4))))
+                );
+                $appendY = $tableTop + (max(1, $totalLines - 1) * 4.9);
+            }
+
+            $this->writePoTextBox($pdf, $descriptionText, $x, $appendY, $w - 2.0, max(14.5, (0.645 * $pageHeight) - $appendY), 10.8, 4.8, 8, $sourceFonts, 'description');
+        }
+
+        if ($commentsOverride !== '') {
+            $x = 0.169 * $pageWidth;
+            $baseY = 0.674 * $pageHeight;
+            $w = 0.457 * $pageWidth;
+            $h = 0.067 * $pageHeight;
+
+            // Comments area spans from the label row down to just above the
+            // grand-amount baht text; append below the last existing line.
+            $lastLineY = $this->lowestTextBaseline($baselines, 0.08 * $pageWidth, 0.64 * $pageWidth, $baseY - 3.0, 0.758 * $pageHeight);
+
+            if ($lastLineY !== null) {
+                $appendY = $lastLineY + 4.0;
+            } else {
+                $existingComments = trim((string) ($po->notes ?? ''));
+                $existingLineCount = $existingComments !== ''
+                    ? max(1, min(3, count($this->wrapPdfText($existingComments, $w - 2.0, 3))))
+                    : 0;
+                $appendY = $baseY + max(10.0, $existingLineCount * 9.0);
+            }
+
+            $this->writePoTextBox($pdf, $commentsOverride, $x + 1.0, $appendY, $w - 2.0, max(12.0, $h - ($appendY - $baseY)), 12, 5.8, 3, $sourceFonts, 'comments');
+        }
+    }
+
+    /**
+     * Extract the baseline positions (mm, top-left origin) of every text draw
+     * in the PDF's content streams, so overrides can be placed on empty lines.
+     */
+    private function extractPdfTextBaselines(string $pdfPath, float $pageHeightMm, ?int $pageNo = null): array
+    {
+        $raw = @file_get_contents($pdfPath);
+        if ($raw === false || $raw === '') {
+            return [];
+        }
+
+        $ptPerMm = 72 / 25.4;
+        $pageHeightPt = $pageHeightMm * $ptPerMm;
+        $baselines = [];
+
+        $contents = [];
+        if ($pageNo !== null) {
+            $pageContent = $this->pdfPageContentStream($raw, $pageNo);
+            if ($pageContent !== null && str_contains($pageContent, 'BT')) {
+                $contents[] = $pageContent;
+            }
+        }
+
+        if ($contents === []) {
+            // Fallback: scan every stream in the file (single-page PDFs and
+            // documents whose page tree could not be mapped).
+            if (!preg_match_all('/<<(.*?)>>\s*stream\r?\n(.*?)endstream/s', $raw, $matches, PREG_SET_ORDER)) {
+                return [];
+            }
+
+            foreach ($matches as $match) {
+                $content = $match[2];
+                if (str_contains($match[1], 'FlateDecode')) {
+                    $content = @gzuncompress(rtrim($content, "\r\n"));
+                    if ($content === false) {
+                        continue;
+                    }
+                }
+                $contents[] = $content;
+            }
+        }
+
+        foreach ($contents as $content) {
+            if (!str_contains($content, 'BT')) {
+                continue;
+            }
+
+            foreach ($this->parsePdfTextBaselines($content) as [$xPt, $yPt]) {
+                $baselines[] = [
+                    'x' => $xPt / $ptPerMm,
+                    'y' => ($pageHeightPt - $yPt) / $ptPerMm,
+                ];
+            }
+        }
+
+        return $baselines;
+    }
+
+    private function pdfPageContentStream(string $raw, int $pageNo): ?string
+    {
+        if (!preg_match_all('/\/Type\s*\/Page(?!s)[^>]{0,600}?\/Contents\s+(?:\[\s*)?(\d+)\s+0\s+R/s', $raw, $matches)) {
+            return null;
+        }
+
+        $contentObjectId = $matches[1][$pageNo - 1] ?? null;
+        if ($contentObjectId === null) {
+            return null;
+        }
+
+        if (!preg_match('/(?<!\d)' . $contentObjectId . '\s+0\s+obj\b(.*?)endobj/s', $raw, $object)) {
+            return null;
+        }
+
+        if (!preg_match('/<<(.*?)>>\s*stream\r?\n(.*?)endstream/s', $object[1], $stream)) {
+            return null;
+        }
+
+        $content = $stream[2];
+        if (str_contains($stream[1], 'FlateDecode')) {
+            $content = @gzuncompress(rtrim($content, "\r\n"));
+            if ($content === false) {
+                return null;
+            }
+        }
+
+        return $content;
+    }
+
+    private function parsePdfTextBaselines(string $content): array
+    {
+        $num = '[-+]?[0-9]*\.?[0-9]+';
+        $str = '(?:\((?:\\\\.|[^\\\\()])*\)|<[0-9A-Fa-f\s]*>)';
+        // String-show ops come first so string bytes are never parsed as operators.
+        $pattern = '/(?<show>' . $str . '\s*(?:Tj|\'|"))'
+            . '|(?<tjarr>\[[^\]]*\]\s*TJ)'
+            . '|(?<cm>' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+cm)'
+            . '|(?<tm>' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+' . $num . '\s+Tm)'
+            . '|(?<td>' . $num . '\s+' . $num . '\s+T[dD])'
+            . '|(?<tl>' . $num . '\s+TL)'
+            . '|(?<tstar>T\*)'
+            . '|(?<bt>\bBT\b)'
+            . '|(?<qpush>\bq\b)'
+            . '|(?<qpop>\bQ\b)/s';
+
+        if (!preg_match_all($pattern, $content, $matches, PREG_SET_ORDER)) {
+            return [];
+        }
+
+        $identity = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+        $multiply = fn (array $a, array $b): array => [
+            $a[0] * $b[0] + $a[1] * $b[2],
+            $a[0] * $b[1] + $a[1] * $b[3],
+            $a[2] * $b[0] + $a[3] * $b[2],
+            $a[2] * $b[1] + $a[3] * $b[3],
+            $a[4] * $b[0] + $a[5] * $b[2] + $b[4],
+            $a[4] * $b[1] + $a[5] * $b[3] + $b[5],
+        ];
+        $numbers = function (string $op) use ($num): array {
+            preg_match_all('/' . $num . '/', $op, $found);
+            return array_map('floatval', $found[0]);
+        };
+
+        $ctm = $identity;
+        $ctmStack = [];
+        $textLineMatrix = $identity;
+        $leading = 0.0;
+        $baselines = [];
+
+        foreach ($matches as $match) {
+            $op = $match[0];
+
+            if (($match['show'] ?? '') !== '' || ($match['tjarr'] ?? '') !== '') {
+                // The ' and " operators move to the next line before showing text.
+                if (str_ends_with(rtrim($op), "'") || str_ends_with(rtrim($op), '"')) {
+                    $textLineMatrix = $multiply([1.0, 0.0, 0.0, 1.0, 0.0, -$leading], $textLineMatrix);
+                }
+                if (preg_match('/\(.*[^\s].*\)|<[0-9A-Fa-f]/s', $op)) {
+                    $device = $multiply($textLineMatrix, $ctm);
+                    $baselines[] = [$device[4], $device[5]];
+                }
+            } elseif (($match['cm'] ?? '') !== '') {
+                $ctm = $multiply($numbers($op), $ctm);
+            } elseif (($match['tm'] ?? '') !== '') {
+                $textLineMatrix = $numbers($op);
+            } elseif (($match['td'] ?? '') !== '') {
+                $n = $numbers($op);
+                if (str_contains($op, 'TD')) {
+                    $leading = -$n[1];
+                }
+                $textLineMatrix = $multiply([1.0, 0.0, 0.0, 1.0, $n[0], $n[1]], $textLineMatrix);
+            } elseif (($match['tl'] ?? '') !== '') {
+                $leading = $numbers($op)[0];
+            } elseif (($match['tstar'] ?? '') !== '') {
+                $textLineMatrix = $multiply([1.0, 0.0, 0.0, 1.0, 0.0, -$leading], $textLineMatrix);
+            } elseif (($match['bt'] ?? '') !== '') {
+                $textLineMatrix = $identity;
+            } elseif (($match['qpush'] ?? '') !== '') {
+                $ctmStack[] = $ctm;
+            } elseif (($match['qpop'] ?? '') !== '') {
+                $ctm = array_pop($ctmStack) ?? $identity;
+            }
+        }
+
+        return $baselines;
+    }
+
+    private function lowestTextBaseline(array $baselines, float $x0, float $x1, float $y0, float $y1): ?float
+    {
+        $lowest = null;
+
+        foreach ($baselines as $baseline) {
+            if ($baseline['x'] < $x0 || $baseline['x'] > $x1 || $baseline['y'] < $y0 || $baseline['y'] > $y1) {
+                continue;
+            }
+
+            $lowest = $lowest === null ? $baseline['y'] : max($lowest, $baseline['y']);
+        }
+
+        return $lowest;
+    }
+
+    private function writePoTextBox(
+        Fpdi $pdf,
+        string $text,
+        float $x,
+        float $y,
+        float $width,
+        float $height,
+        float $fontSize,
+        float $lineHeight,
+        int $maxLines,
+        array $sourceFonts = [],
+        string $field = 'default'
+    ): void {
+        $fontFamily = $this->overlayFontForText($text, $field, $sourceFonts);
+        $fontSize = $this->overlayFontSizeForText($text, $fontFamily, $fontSize);
+        $pdf->SetFont($fontFamily, '', $fontSize);
+        $lines = $this->wrapPdfText($text, $width, $maxLines);
+
+        foreach ($lines as $index => $line) {
+            $lineY = $y + ($index * $lineHeight);
+            if ($lineY > ($y + $height - $lineHeight)) {
+                break;
+            }
+
+            $pdf->SetXY($x, $lineY);
+            $pdf->Cell($width, $lineHeight, $this->pdfText($line), 0, 0, 'L');
+        }
+    }
+
+    private function wrapPdfText(string $text, float $width, int $maxLines): array
+    {
+        $segments = preg_split('/\r\n|\r|\n/', trim($text)) ?: [];
+        $lines = [];
+
+        foreach ($segments as $segment) {
+            $segment = trim((string) $segment);
+            if ($segment === '') {
+                continue;
+            }
+
+            $words = preg_split('/(\s+)/u', $segment, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [$segment];
+            $line = '';
+
+            foreach ($words as $word) {
+                $candidate = $line . $word;
+                if ($line !== '' && mb_strlen($candidate) > $this->pdfTextCharacterLimit($width)) {
+                    $lines[] = trim($line);
+                    $line = ltrim($word);
+                } else {
+                    $line = $candidate;
+                }
+
+                if (count($lines) >= $maxLines) {
+                    return $lines;
+                }
+            }
+
+            if (trim($line) !== '') {
+                $lines[] = trim($line);
+            }
+
+            if (count($lines) >= $maxLines) {
+                return array_slice($lines, 0, $maxLines);
+            }
+        }
+
+        return array_slice($lines, 0, $maxLines);
+    }
+
+    private function pdfTextCharacterLimit(float $width): int
+    {
+        return max(12, (int) floor($width / 2.35));
+    }
+
+    private function pdfText(string $text): string
+    {
+        if ($this->isAsciiText($text)) {
+            return $text;
+        }
+
+        $converted = iconv('UTF-8', 'CP874//IGNORE', $text);
+
+        return $converted !== false ? $converted : $text;
+    }
+
+    private function isAsciiText(string $text): bool
+    {
+        return !preg_match('/[^\x00-\x7F]/', $text);
+    }
+
+    private function overlayFontForText(string $text, string $field, array $sourceFonts): string
+    {
+        if ($this->isAsciiText($text)) {
+            return 'times';
+        }
+
+        if ($field === 'description') {
+            return $this->preferredThaiOverlayFont($sourceFonts);
+        }
+
+        return $this->preferredThaiOverlayFont($sourceFonts);
+    }
+
+    private function overlayFontSizeForText(string $text, string $fontFamily, float $fontSize): float
+    {
+        if ($this->isAsciiText($text)) {
+            return max(9, $fontSize - 2);
+        }
+
+        // Angsana glyphs are drawn much smaller than sans fonts at the same point
+        // size; the CPA PDF body text is ~16pt Angsana New, so match that.
+        if ($fontFamily === 'PoAngsanaThai') {
+            return 16.0;
+        }
+
+        return $fontSize;
+    }
+
+    private function preferredThaiOverlayFont(array $sourceFonts): string
+    {
+        $fontText = strtolower(implode(' ', $sourceFonts));
+
+        if (str_contains($fontText, 'sarabun')) {
+            return 'THSarabunNew';
+        }
+
+        if (str_contains($fontText, 'tahoma')) {
+            return 'PoTahomaThai';
+        }
+
+        // Exact reuse of embedded CPA subset fonts is not available in FPDF.
+        // CPA PO PDFs use Angsana New for the body text, so the Angsana-based
+        // Thai font keeps appended text matching the source typeface.
+        return 'PoAngsanaThai';
+    }
+
+    private function pdfFontMatchNote(array $sourceFonts): string
+    {
+        $fontText = strtolower(implode(' ', $sourceFonts));
+
+        foreach (['angsana', 'cordia', 'browallia', 'times', 'tahoma', 'sarabun'] as $needle) {
+            if (str_contains($fontText, $needle)) {
+                return "CPA PDF appears to use {$needle}; overlay can match only if the local TTF exists and supports CP874.";
+            }
+        }
+
+        return 'CPA PDF font appears embedded/subset or unavailable by name; overlay uses the configured Thai fallback.';
+    }
+
     private function overlaySignatures(Fpdi $pdf, array $signatures, float $pageWidth, float $pageHeight, array &$tempImages): void
     {
         $orderedBy = collect($signatures['ordered_by'] ?? [])->first();
@@ -447,14 +950,39 @@ class PoExportController extends Controller
         }
 
         $tempImages[] = $imagePath;
-        $pdf->Image($imagePath, $x, $y, $width, $height, 'PNG');
+        [$imageX, $imageY, $imageWidth, $imageHeight] = $this->signatureImageBox($imagePath, $x, $y, $width, $height);
+        $pdf->Image($imagePath, $imageX, $imageY, $imageWidth, $imageHeight, 'PNG');
 
         if (!empty($signature->created_at)) {
             $pdf->SetFont('Arial', '', 7);
             $pdf->SetTextColor(0, 0, 0);
-            $pdf->SetXY($x + (0.20 * $width), $dateY - 0.2);
-            $pdf->Cell(0.56 * $width, 4, date('d-M-Y', strtotime((string) $signature->created_at)), 0, 0, 'C');
+            $pdf->SetXY($x, $dateY - 0.2);
+            $pdf->Cell($width, 4, date('d-M-Y', strtotime((string) $signature->created_at)), 0, 0, 'C');
         }
+    }
+
+    private function signatureImageBox(string $imagePath, float $x, float $y, float $width, float $height): array
+    {
+        $size = @getimagesize($imagePath);
+        $imageWidthPx = (float) ($size[0] ?? 0);
+        $imageHeightPx = (float) ($size[1] ?? 0);
+
+        if ($imageWidthPx <= 0 || $imageHeightPx <= 0) {
+            return [$x, $y, $width, $height];
+        }
+
+        $maxWidth = $width * 0.82;
+        $maxHeight = $height * 0.78;
+        $scale = min($maxWidth / $imageWidthPx, $maxHeight / $imageHeightPx);
+        $drawWidth = $imageWidthPx * $scale;
+        $drawHeight = $imageHeightPx * $scale;
+
+        return [
+            $x + (($width - $drawWidth) / 2),
+            $y + (($height - $drawHeight) / 2),
+            $drawWidth,
+            $drawHeight,
+        ];
     }
 
     private function signatureTempImage(string $dataUri): ?string

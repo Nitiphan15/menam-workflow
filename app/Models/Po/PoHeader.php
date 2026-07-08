@@ -24,6 +24,10 @@ class PoHeader extends Model
         'curr',
         'terms',
         'notes',
+        'pdf_description_overrides',
+        'pdf_description_override_pages',
+        'pdf_comments_override',
+        'pdf_comments_override_pages',
         'f1',
         'f3',
         'vendor_name',
@@ -42,6 +46,7 @@ class PoHeader extends Model
         'netamount' => 'decimal:2',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'pdf_description_overrides' => 'array',
     ];
 
     public function getSiteAttribute($value): string

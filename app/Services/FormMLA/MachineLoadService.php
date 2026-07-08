@@ -52,6 +52,9 @@ class MachineLoadService
         $machines = $this->summarizeMachines($rows, $filters);
         $workCenterGroups = $this->summarizeWorkCenters($machines);
         $buckets = $this->bucketSummary($rows, $filters);
+        $capacityPlanRows = !empty($filters['machine_ids'])
+            ? $machines->sortByDesc(fn($row) => (float) $row->balance_qty)->take(25)
+            : $workCenterGroups->sortByDesc(fn($row) => (float) $row->balance_qty)->take(25);
 
         return [
             'filters' => $filters,
@@ -71,21 +74,43 @@ class MachineLoadService
             'workCenterGroups' => $workCenterGroups,
             'buckets' => $buckets,
             'charts' => [
-                'machineLoad' => $machines
-                    ->sortByDesc(fn($row) => (float) $row->balance_qty)
-                    ->take(25)
+                'capacityPlanMode' => !empty($filters['machine_ids']) ? 'machine' : 'workcenter',
+                'machineLoad' => $capacityPlanRows
                     ->map(fn($row) => [
-                        'label' => $this->shortMachineLabel($row->machine_label),
-                        'full_label' => $row->machine_label,
+                        'label' => $this->shortMachineLabel(!empty($filters['machine_ids']) ? $row->machine_label : $row->workcenter_label),
+                        'full_label' => !empty($filters['machine_ids']) ? $row->machine_label : $row->workcenter_label,
                         'site' => $row->source_site,
                         'workcenter' => $row->workcenter_label,
                         'workcenter_id' => $row->workcenter_id,
-                        'workmachine_id' => $row->workmachine_id,
+                        'workmachine_id' => !empty($filters['machine_ids']) ? $row->workmachine_id : null,
                         'balance_qty' => round((float) $row->balance_qty, 2),
                         'capacity_qty' => round((float) ($row->capacity_qty ?? 0), 2),
+                        'load_hours' => round((float) ($row->load_hours ?? 0), 2),
+                        'capacity_hours' => round((float) ($row->capacity_hours ?? 0), 2),
                         'load_pct' => round((float) $row->load_pct, 2),
                         'next_available_at' => $row->next_available_at,
                     ])
+                    ->values(),
+                'availableCapacity' => $workCenterGroups
+                    ->sortByDesc(fn($row) => (float) $row->capacity_hours)
+                    ->take(12)
+                    ->map(function ($row) {
+                        $capacityHours = (float) ($row->capacity_hours ?? 0);
+                        $usedHours = min((float) ($row->load_hours ?? 0), $capacityHours);
+                        $remainingHours = max(0, $capacityHours - $usedHours);
+
+                        return [
+                            'label' => $this->shortMachineLabel($row->workcenter_label),
+                            'full_label' => $row->workcenter_label,
+                            'site' => $row->source_site,
+                            'workcenter_id' => $row->workcenter_id,
+                            'used_hours' => round($usedHours, 2),
+                            'remaining_hours' => round($remainingHours, 2),
+                            'capacity_hours' => round($capacityHours, 2),
+                            'used_pct' => $capacityHours > 0 ? round(($usedHours / $capacityHours) * 100, 2) : 0,
+                            'remaining_pct' => $capacityHours > 0 ? round(($remainingHours / $capacityHours) * 100, 2) : 0,
+                        ];
+                    })
                     ->values(),
                 'bucketLoad' => $buckets->map(fn($row) => [
                     'label' => $row->label,

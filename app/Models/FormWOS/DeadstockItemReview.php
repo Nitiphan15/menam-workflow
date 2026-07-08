@@ -2,8 +2,8 @@
 
 namespace App\Models\FormWOS;
 
-use App\Models\User;
 use App\Models\Concerns\UsesWorkflowConnection;
+use App\Models\Users\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 

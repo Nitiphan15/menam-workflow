@@ -53,20 +53,31 @@
         }
 
         .po-group-card {
-            border: 0;
-            border-radius: 18px;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
             overflow: hidden;
-            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+            background: #fff;
         }
 
         .po-group-header {
             background: linear-gradient(135deg, #f8fbff 0%, #eef5ff 100%);
             border-bottom: 1px solid #e6edf7;
-            padding: 16px 18px;
+            padding: 10px 14px;
+            cursor: pointer;
+            list-style: none;
+        }
+
+        details:not([open]) .po-group-header {
+            border-bottom: 0;
+        }
+
+        .po-group-header::-webkit-details-marker {
+            display: none;
         }
 
         .po-group-name {
-            font-size: 1.1rem;
+            font-size: 0.98rem;
             font-weight: 700;
             color: #0f172a;
         }
@@ -75,8 +86,8 @@
             display: inline-flex;
             align-items: center;
             border-radius: 999px;
-            padding: 0.22rem 0.7rem;
-            font-size: 0.78rem;
+            padding: 0.18rem 0.58rem;
+            font-size: 0.74rem;
             font-weight: 700;
         }
 
@@ -97,9 +108,46 @@
 
         .po-group-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
             justify-content: flex-end;
+        }
+
+        .po-group-toggle {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #e2e8f0;
+            color: #334155;
+            font-weight: 800;
+            flex: 0 0 auto;
+        }
+
+        .po-group-toggle::before {
+            content: "+";
+        }
+
+        details[open] .po-group-toggle {
+            background: #2563eb;
+            color: #fff;
+        }
+
+        details[open] .po-group-toggle::before {
+            content: "-";
+        }
+
+        .po-table-wrap {
+            max-height: 560px;
+            overflow: auto;
+        }
+
+        .po-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 2;
         }
 
         .po-table thead th {
@@ -142,6 +190,75 @@
             font-weight: 700;
             letter-spacing: 0.02em;
         }
+
+        .po-bulk-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: rgba(248, 250, 252, 0.94);
+            backdrop-filter: blur(8px);
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 10px;
+        }
+
+        .po-dept-nav {
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            background: #fff;
+            padding: 12px;
+        }
+
+        .po-dept-nav-list {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 2px;
+            scrollbar-width: thin;
+        }
+
+        .po-dept-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            border: 1px solid #dbe4f0;
+            border-radius: 999px;
+            padding: 0.45rem 0.8rem;
+            color: #334155;
+            text-decoration: none;
+            background: #f8fafc;
+            font-weight: 700;
+            font-size: 0.82rem;
+        }
+
+        .po-dept-chip:hover {
+            color: #0f172a;
+            background: #eef5ff;
+            border-color: #bfdbfe;
+        }
+
+        .po-dept-count {
+            border-radius: 999px;
+            background: #2563eb;
+            color: #fff;
+            padding: 0.05rem 0.45rem;
+            font-size: 0.72rem;
+        }
+
+        .po-help-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #dbeafe;
+            color: #1d4ed8;
+            font-size: 0.72rem;
+            font-weight: 800;
+            cursor: help;
+        }
     </style>
 
     <div class="container-fluid py-3 px-0 po-page-wide">
@@ -158,12 +275,16 @@
                 <form method="POST" action="{{ route('po.erp.connect') }}" class="d-flex flex-wrap align-items-end gap-2">
                     @csrf
                     <div>
-                        <label class="form-label small text-muted mb-1">ERP Username</label>
+                        <label class="form-label small text-muted mb-1">
+                            CPA Username
+                            <span class="po-help-dot" data-bs-toggle="tooltip" data-bs-placement="top"
+                                title="ใช้บัญชี CPA เพื่อสร้าง session สำหรับดึง PDF ต้นฉบับจาก CPA ก่อนระบบจะแปะลายเซ็นและข้อมูล workflow เพิ่ม">?</span>
+                        </label>
                         <input type="text" name="erp_username" class="form-control form-control-sm" style="min-width: 150px;"
                             autocomplete="username">
                     </div>
                     <div>
-                        <label class="form-label small text-muted mb-1">ERP Password</label>
+                        <label class="form-label small text-muted mb-1">CPA Password</label>
                         <input type="password" name="erp_password" class="form-control form-control-sm" style="min-width: 150px;"
                             autocomplete="current-password">
                     </div>
@@ -174,22 +295,26 @@
                             <option value="mswplus">Menam Plus</option>
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-sm btn-primary">Connect ERP</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Login CPA</button>
                 </form>
                 <form method="POST" action="{{ route('po.erpSession.save') }}" class="d-flex flex-wrap align-items-end gap-2">
                     @csrf
                     <div>
-                        <label class="form-label small text-muted mb-1">ERP PHPSESSID</label>
+                        <label class="form-label small text-muted mb-1">
+                            CPA PHPSESSID
+                            <span class="po-help-dot" data-bs-toggle="tooltip" data-bs-placement="top"
+                                title="กรณี login CPA ผ่านหน้าเว็บหลักไว้แล้ว สามารถนำค่า PHPSESSID มาใส่เพื่อให้ระบบดาวน์โหลด PDF ได้">?</span>
+                        </label>
                         <input type="text" name="erp_phpsessid" value="{{ session('po_erp_phpsessid') }}"
                             class="form-control form-control-sm" style="min-width: 280px;"
-                            placeholder="Paste your ERP PHPSESSID">
+                            placeholder="Paste your CPA PHPSESSID">
                     </div>
-                    <button type="submit" class="btn btn-sm btn-outline-primary">Save Session</button>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Save CPA Session</button>
                 </form>
                 <form method="POST" action="{{ route('po.erpSession.clear') }}">
                     @csrf
                     @method('DELETE')
-                    <button type="submit" class="btn btn-sm btn-outline-secondary">Clear</button>
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Clear CPA Session</button>
                 </form>
             </div>
         </div>
@@ -248,7 +373,7 @@
                     <div class="col-md-3">
                         <label class="form-label small text-muted">คำค้นหา</label>
                         <input type="text" name="search" value="{{ request('search') }}" class="form-control"
-                            placeholder="PO / Invoice / Vendor / แผนก">
+                            placeholder="PO / Vendor / แผนก">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label small text-muted">กลุ่มแผนก</label>
@@ -302,8 +427,29 @@
             @csrf
         </form>
 
-        <div class="mb-3">
+        <div class="po-dept-nav mb-3">
+            <div class="d-flex justify-content-between align-items-center gap-3 mb-2">
+                <div class="fw-semibold">Department quick jump</div>
+                <div class="small text-muted">Open a department, then scroll inside that table</div>
+            </div>
+            <div class="po-dept-nav-list">
+                @foreach ($grouped as $group)
+                    <a class="po-dept-chip" href="#po-group-{{ \Illuminate\Support\Str::slug((string) $group->name) ?: $loop->index }}">
+                        {{ $group->name }}
+                        <span class="po-dept-count">{{ $group->items->count() }}</span>
+                    </a>
+                @endforeach
+            </div>
+        </div>
+
+        <div class="po-bulk-toolbar mb-3">
             <div class="d-flex flex-wrap justify-content-end gap-2">
+                <button type="button" class="btn btn-outline-secondary" id="po-expand-groups">
+                    เปิดทุกแผนก
+                </button>
+                <button type="button" class="btn btn-outline-secondary" id="po-collapse-groups">
+                    ปิดทุกแผนก
+                </button>
                 <button type="button" class="btn btn-outline-secondary" id="po-select-all-pdf">
                     เลือก PDF ทั้งหมด
                 </button>
@@ -327,17 +473,20 @@
         </div>
 
         @forelse ($grouped as $group)
-            <div class="card po-group-card mb-4">
-                <div class="po-group-header">
+            <details class="po-group-card mb-3" id="po-group-{{ \Illuminate\Support\Str::slug((string) $group->name) ?: $loop->index }}" @if (request('department') === $group->name || $loop->first) open @endif>
+                <summary class="po-group-header">
                     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-                        <div>
-                            <div class="po-group-name mb-2">{{ $group->name }}</div>
-                            <div class="d-flex flex-wrap gap-2">
-                                <span class="po-pill po-pill-muted">{{ $group->items->count() }} PO</span>
-                                <span class="po-pill po-pill-warning">พร้อมส่งอนุมัติ {{ $group->pending_submit_count }}</span>
-                                <span class="po-pill po-pill-soft">รอหัวหน้าแผนก {{ $group->dept_manager_pending_count }}</span>
-                                <span class="po-pill po-pill-soft">Attached {{ $group->attached_count }}</span>
-                                <span class="po-pill po-pill-soft">Draft {{ $group->draft_count }}</span>
+                        <div class="d-flex align-items-start gap-3">
+                            <span class="po-group-toggle" aria-hidden="true"></span>
+                            <div>
+                                <div class="po-group-name mb-2">{{ $group->name }}</div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <span class="po-pill po-pill-muted">{{ $group->items->count() }} PO</span>
+                                    <span class="po-pill po-pill-warning">พร้อมส่งอนุมัติ {{ $group->pending_submit_count }}</span>
+                                    <span class="po-pill po-pill-soft">รอหัวหน้าแผนก {{ $group->dept_manager_pending_count }}</span>
+                                    <span class="po-pill po-pill-soft">Attached {{ $group->attached_count }}</span>
+                                    <span class="po-pill po-pill-soft">Draft {{ $group->draft_count }}</span>
+                                </div>
                             </div>
                         </div>
 
@@ -357,9 +506,9 @@
                             @endif
                         </div>
                     </div>
-                </div>
+                </summary>
 
-                <div class="table-responsive">
+                <div class="table-responsive po-table-wrap">
                     <table class="table po-table align-middle mb-0">
                         <thead>
                             <tr>
@@ -367,9 +516,9 @@
                                 <th style="width: 70px;">Mail</th>
                                 <th>Source</th>
                                 <th>PO No.</th>
-                                <th>Invoice</th>
                                 <th>แผนกต้นทาง</th>
-                                <th>Date</th>
+                                <th>วันที่สั่ง</th>
+                                <th>วันที่ส่ง</th>
                                 <th class="text-end">Qty/Amount</th>
                                 <th>Status</th>
                                 <th>Attached</th>
@@ -408,9 +557,9 @@
                                         <div class="po-po-number">{{ $row->ordnumber }}</div>
                                         <div class="po-subtext">PO document</div>
                                     </td>
-                                    <td>{{ $row->invnumber ?: '-' }}</td>
                                     <td>{{ $row->department }}</td>
                                     <td>{{ \Illuminate\Support\Carbon::parse($row->transdate)->format('d-M-Y') }}</td>
+                                    <td>{{ $row->reqdate ? \Illuminate\Support\Carbon::parse($row->reqdate)->format('d-M-Y') : '-' }}</td>
                                     <td class="text-end">{{ number_format($row->qty, 2) }}</td>
                                     <td>
                                         <span class="po-status-badge {{ $statusMeta['class'] }}">{{ $statusMeta['label'] }}</span>
@@ -437,7 +586,7 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </details>
         @empty
             <div class="card border-0 shadow-sm">
                 <div class="card-body py-5 text-center">
@@ -458,10 +607,39 @@
                 });
             };
 
+            if (window.bootstrap?.Tooltip) {
+                document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+                    bootstrap.Tooltip.getOrCreateInstance(el);
+                });
+            }
+
             document.getElementById('po-select-all-pdf')?.addEventListener('click', () => setChecked('.js-po-pdf-check', true));
             document.getElementById('po-clear-all-pdf')?.addEventListener('click', () => setChecked('.js-po-pdf-check', false));
             document.getElementById('po-select-all-mail')?.addEventListener('click', () => setChecked('.js-po-mail-check', true));
             document.getElementById('po-clear-all-mail')?.addEventListener('click', () => setChecked('.js-po-mail-check', false));
+            document.getElementById('po-expand-groups')?.addEventListener('click', () => {
+                document.querySelectorAll('.po-group-card').forEach((group) => {
+                    group.open = true;
+                });
+            });
+            document.getElementById('po-collapse-groups')?.addEventListener('click', () => {
+                document.querySelectorAll('.po-group-card').forEach((group) => {
+                    group.open = false;
+                });
+            });
+
+            document.querySelectorAll('.po-group-actions').forEach((actions) => {
+                actions.addEventListener('click', (event) => event.stopPropagation());
+            });
+
+            document.querySelectorAll('.po-dept-chip[href^="#"]').forEach((chip) => {
+                chip.addEventListener('click', () => {
+                    const target = document.querySelector(chip.getAttribute('href'));
+                    if (target && target.tagName === 'DETAILS') {
+                        target.open = true;
+                    }
+                });
+            });
         })();
     </script>
 @endsection

@@ -28,7 +28,7 @@ class DeadstockReviewService
         ];
 
         foreach ($items as $item) {
-            $live = $liveRows->get($this->liveKey($item->company, $item->serialnumber));
+            $live = $liveRows->get($this->liveKey($this->siteKey($item->company), $item->serialnumber));
             $status = 'cleared';
             $matchedQty = null;
             $matchedDueDate = null;
@@ -80,10 +80,10 @@ class DeadstockReviewService
 
         $groups = $items
             ->filter(fn(DeadstockSnapshotItem $item) => trim((string) $item->serialnumber) !== '')
-            ->groupBy(fn(DeadstockSnapshotItem $item) => strtoupper(trim((string) $item->company)));
+            ->groupBy(fn(DeadstockSnapshotItem $item) => $this->siteKey($item->company));
 
-        foreach ($groups as $company => $companyItems) {
-            $connection = $company === 'MENAM PLUS' ? 'pgsqlp' : 'pgsqlw';
+        foreach ($groups as $site => $companyItems) {
+            $connection = $this->siteConnection($site);
             $serials = $companyItems
                 ->pluck('serialnumber')
                 ->filter()
@@ -107,7 +107,7 @@ class DeadstockReviewService
                     ')
                     ->get();
                 foreach ($queryRows as $row) {
-                    $rows->put($this->liveKey($company, (string) $row->serialnumber), $row);
+                    $rows->put($this->liveKey($site, (string) $row->serialnumber), $row);
                 }
             }
         }
@@ -133,9 +133,21 @@ class DeadstockReviewService
             ->all();
     }
 
-    private function liveKey(?string $company, ?string $serialnumber): string
+    private function siteKey(?string $company): string
     {
-        return strtoupper(trim((string) $company)) . '|' . strtoupper(trim((string) $serialnumber));
+        $company = strtoupper(trim((string) $company));
+
+        return str_contains($company, 'PLUS') ? 'PLUS' : 'WIRE';
+    }
+
+    private function siteConnection(string $site): string
+    {
+        return $site === 'PLUS' ? 'pgsqlp' : 'pgsqlw';
+    }
+
+    private function liveKey(?string $site, ?string $serialnumber): string
+    {
+        return strtoupper(trim((string) $site)) . '|' . strtoupper(trim((string) $serialnumber));
     }
 
     private function compareNote(string $status): string

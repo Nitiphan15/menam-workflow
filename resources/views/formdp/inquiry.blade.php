@@ -551,6 +551,10 @@
                         <button type="button" class="btn btn-sm btn-info" id="bulkTruckOpenBtn" disabled>
                             <i class="fas fa-truck me-1"></i> จัดรถ
                         </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning" id="bulkTruckUnassignOpenBtn"
+                            disabled>
+                            <i class="fas fa-times me-1"></i> ยกเลิกรถที่เลือก
+                        </button>
                     </div>
                 </div>
             @endif
@@ -758,6 +762,8 @@
                                                 data-assigned="{{ e(number_format($assignedQty, 3, '.', '')) }}"
                                                 data-remaining="{{ e(number_format($remainingQty, 3, '.', '')) }}"
                                                 data-qty="{{ e(number_format($qty, 3, '.', '')) }}"
+                                                data-has-truck="{{ trim((string) ($r->truck_plate_list ?? '')) !== '' ? '1' : '0' }}"
+                                                data-plate="{{ e($r->truck_plate_display ?? $r->truck_plate_list ?? '') }}"
                                                 data-sell-by-line="{{ e($sellByLine) }}"
                                                 data-line-qty="{{ e($lineQty !== null ? number_format($lineQty, 3, '.', '') : '') }}"
                                                 data-line-text="{{ e($lineQtyText) }}"
@@ -1047,6 +1053,18 @@
                                                             title="ไปหน้าจัดรถส่งสินค้า (filter MFG อัตโนมัติ)">
                                                             <i class="fas fa-truck me-1"></i> จัดรถ
                                                         </a>
+                                                        @if ($hasTruck)
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-warning action-icon jsUnassignTruckBtn"
+                                                                data-ord-id="{{ $r->ord_id }}"
+                                                                data-so="{{ e($soText) }}"
+                                                                data-mfg="{{ e($mfgText) }}"
+                                                                data-plate="{{ e($truckPlateForAction) }}"
+                                                                data-return-url="{{ e(url()->full()) }}"
+                                                                title="ยกเลิกรถ" aria-label="ยกเลิกรถ">
+                                                                <i class="fas fa-times"></i>
+                                                            </button>
+                                                        @endif
                                                     @endif
 
                                                     @if ($showActionMenu)
@@ -1507,6 +1525,8 @@
             <div class="modal-dialog modal-dialog-centered">
                 <form class="modal-content" method="POST" id="unassignTruckForm">
                     @csrf
+                    <input type="hidden" name="return_url" id="unassignReturnUrl" value="{{ url()->full() }}">
+                    <div id="unassignTruckOrdIds"></div>
 
                     <div class="modal-header">
                         <h5 class="modal-title">ยกเลิกรถ</h5>
@@ -2132,6 +2152,7 @@
                 specialDispatch: @json(route('dp.inquiry.special-dispatch', ['ordId' => '__ID__'])),
                 truckAssign: @json(route('dp.inquiry.truck.assign', ['ordId' => '__ID__'])),
                 truckUnassign: @json(route('dp.inquiry.truck.unassign', ['ordId' => '__ID__'])),
+                truckUnassignBulk: @json(route('dp.inquiry.truck.unassign.bulk')),
                 logisticsSummary: @json($showInquiryBulkTruck ? route('dp.dashboard.logistics-summary') : null),
                 base: @json(route('dp.inquiry')),
                 truckCapacity: @json(route('dp.truck.capacity')),
@@ -2184,5 +2205,5 @@
         });
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260617_group_truck_select_v1"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260629_bulk_unassign_v1"></script>
 @endpush

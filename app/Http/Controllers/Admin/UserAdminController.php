@@ -128,9 +128,118 @@ class UserAdminController extends Controller
         });
     }
 
-    public function destroy(User $user)
+    public function edit(User $user)
     {
-        $user->delete();
-        return back()->with('ok', 'ลบผู้ใช้แล้ว');
+        return view('adminweb.users.edit', compact('user'));
+    }
+
+    public function update(Request $r, User $user)
+    {
+        $data = $r->validate([
+            'user_code' => 'nullable|string|max:50|unique:sqlsrv_menam.users,user_code,' . $user->id,
+            'name'      => 'required|string|max:200',
+            'email'     => 'required|email|max:255|unique:sqlsrv_menam.users,email,' . $user->id,
+            'phone'     => 'nullable|string|max:50',
+            'is_active' => 'required|boolean',
+            'password'  => 'nullable|string|min:6|confirmed',
+        ]);
+
+        $update = [
+            'user_code' => $data['user_code'] ?? null,
+            'name'      => $data['name'],
+            'email'     => $data['email'],
+            'phone'     => $data['phone'] ?? null,
+            'is_active' => $data['is_active'],
+        ];
+
+        if (!empty($data['password'])) {
+            $update['password'] = Hash::make($data['password']);
+        }
+
+        $user->update($update);
+
+        return redirect()
+            ->route('adminweb.users.register')
+            ->with('ok', 'แก้ไขข้อมูลผู้ใช้แล้ว');
+    }
+
+    public function destroy(Request $r, User $user)
+    {
+        if ((int) $user->id === (int) $r->user()->id) {
+            return back()->with('error', 'ไม่สามารถลบบัญชีของตัวเองได้');
+        }
+
+        // ตารางที่ FK อ้างถึง users และ "ห้ามลบทิ้ง" — ถ้ามีข้อมูลผูกอยู่ให้ปิดใช้งานแทน
+        $blockers = [
+            ['wf_forms',             'request_by_user_id',  'เอกสาร workflow'],
+            ['wf_form_authorizes',   'approver_user_id',    'สิทธิ์อนุมัติ workflow'],
+            ['wf_action_histories',  'actor_user_id',       'ประวัติการอนุมัติ'],
+            ['ev360_subjects',       'user_id',             'ข้อมูลผู้ถูกประเมิน 360'],
+            ['ev360_subjects',       'created_by',          'ข้อมูลประเมิน 360'],
+            ['ev360_evaluators',     'user_id',             'ข้อมูลผู้ประเมิน 360'],
+            ['ev360_evaluators',     'created_by',          'ข้อมูลประเมิน 360'],
+            ['ev360_action_history', 'performed_by',        'ประวัติการประเมิน 360'],
+            ['ev360_cycles',         'created_by',          'รอบประเมิน 360'],
+            ['ev360_cycles',         'closed_by',           'รอบประเมิน 360'],
+            ['ev360_cycles',         'result_released_by',  'รอบประเมิน 360'],
+            ['ev360_forms',          'created_by',          'ฟอร์มประเมิน 360'],
+        ];
+
+        foreach ($blockers as [$table, $col, $label]) {
+            if (SqlServerDb::table($table)->where($col, $user->id)->exists()) {
+                return back()->with(
+                    'error',
+                    "ลบไม่ได้: ผู้ใช้ \"{$user->name}\" มี{$label}อยู่ในระบบ ให้ปิดสถานะใช้งาน (Inactive) แทน"
+                );
+            }
+        }
+
+        try {
+            SqlServerDb::transaction(function () use ($user) {
+                // เคลียร์ข้อมูลผูกที่ลบได้ปลอดภัยก่อน กัน FK violation
+                SqlServerDb::table('department_role_users')->where('user_id', $user->id)->delete();
+                SqlServerDb::table('user_dept_roles')->where('user_id', $user->id)->delete();
+                SqlServerDb::table('users')
+                    ->where('supervisor_user_id', $user->id)
+                    ->update(['supervisor_user_id' => null]);
+                SqlServerDb::table('departments')
+                    ->where('manager_user_id', $user->id)
+                    ->update(['manager_user_id' => null]);
+
+                $user->delete();
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+            return back()->with('error', 'ลบผู้ใช้ไม่สำเร็จ: มีข้อมูลอื่นผูกกับผู้ใช้นี้อยู่ ให้ปิดสถานะใช้งาน (Inactive) แทน');
+        }
+
+        // ลบสำเนาในฐาน MySQL (ระบบเดิม) — id สองฐานอาจไม่ตรงกัน จึงจับคู่จาก user_code/email/ชื่อ แล้วค่อยลบตาม id
+        $legacyWarning = null;
+        try {
+            $mysql = DB::connection('mysql');
+            $legacyId = null;
+
+            if ($user->user_code) {
+                $legacyId = $mysql->table('users')->where('user_code', $user->user_code)->value('id');
+            }
+            if (!$legacyId && $user->email) {
+                $legacyId = $mysql->table('users')->where('email', $user->email)->value('id');
+            }
+            if (!$legacyId) {
+                $legacyId = $mysql->table('users')->where('name', $user->name)->value('id');
+            }
+
+            if ($legacyId) {
+                $mysql->table('users')->where('id', $legacyId)->delete();
+            }
+        } catch (\Throwable $e) {
+            report($e);
+            $legacyWarning = ' (ลบฝั่ง SQL Server แล้ว แต่ลบสำเนาในฐาน MySQL ไม่สำเร็จ)';
+        }
+
+        return back()->with(
+            $legacyWarning ? 'error' : 'success',
+            'ลบผู้ใช้ "' . $user->name . '" แล้ว' . ($legacyWarning ?? '')
+        );
     }
 }

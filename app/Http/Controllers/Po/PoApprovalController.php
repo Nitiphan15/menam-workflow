@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Po;
 use App\Http\Controllers\Controller;
 use App\Mail\PoClosedNotificationMail;
 use App\Mail\PoNeedsApprovalMail;
+use App\Mail\PoSubmittedNotificationMail;
 use App\Models\Po\PoHeader;
 use App\Models\WF\WfForm;
 use App\Services\Po\PoErpService;
@@ -16,6 +17,8 @@ use Illuminate\Support\Facades\Mail;
 
 class PoApprovalController extends Controller
 {
+    private const PO_MAIL_BCC = 'itprogramming@menamstainless.co.th';
+
     public function __construct(private readonly PoErpService $erpService) {}
 
     public function submit(Request $request, $id)
@@ -53,6 +56,7 @@ class PoApprovalController extends Controller
         $po->save();
 
         $this->notifyPendingApprovers(collect([$po]));
+        $this->notifySubmittersOnSubmitted(collect([$po]));
 
         return redirect()->route('po.show', $po->id)->with('ok', 'ส่ง PO เข้า workflow และแจ้งผู้อนุมัติเรียบร้อยแล้ว');
     }
@@ -125,6 +129,7 @@ class PoApprovalController extends Controller
         abort_if($submitted->isEmpty(), 422, 'No PO submitted');
 
         $this->notifyPendingApprovers($submitted);
+        $this->notifySubmittersOnSubmitted($submitted);
 
         $group = $data['department_group'];
         $count = $submitted->count();
@@ -217,6 +222,7 @@ class PoApprovalController extends Controller
         WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
 
         $wf = WfForm::query()->find($po->workflow_id);
+        $stepAfterApprove = (int) ($wf?->current_step_no ?? 0);
         $po->status_code = $this->resolveStatusFromWorkflow($wf);
         $po->updated_at = now();
         $po->updated_by = auth()->id();
@@ -224,7 +230,7 @@ class PoApprovalController extends Controller
 
         if ($po->status_code === 'CLOSED') {
             $this->notifyPurchaseDepartmentOnClosed($po);
-        } elseif ($stepBeforeApprove !== 2) {
+        } elseif ($stepAfterApprove !== $stepBeforeApprove) {
             $this->notifyPendingApprovers(collect([$po]));
         }
 
@@ -331,6 +337,9 @@ class PoApprovalController extends Controller
                             'department' => $po->f1,
                             'vendor_name' => $po->vendor_name,
                             'status_code' => $po->status_code,
+                            'step_no' => (int) ($po->workflow?->current_step_no ?? 0),
+                            'step_label' => $this->workflowStepLabel((int) ($po->workflow?->current_step_no ?? 0)),
+                            'flow_steps' => $this->poFlowSteps(),
                             'approve_url' => route('po.show', $po->id),
                             'print_url' => route('po.print', $po->id),
                         ];
@@ -348,30 +357,103 @@ class PoApprovalController extends Controller
             ->filter(fn ($data) => !empty($data['items']));
 
         foreach ($groupedByEmail as $email => $data) {
-            Mail::to($email)->send(new PoNeedsApprovalMail(
+            Mail::to($email)->bcc(self::PO_MAIL_BCC)->send(new PoNeedsApprovalMail(
                 approverName: (string) $data['name'],
                 poItems: $data['items'],
             ));
         }
     }
 
+    private function notifySubmittersOnSubmitted(Collection $poHeaders): void
+    {
+        $poHeaders = $poHeaders
+            ->filter(fn ($po) => !blank($po?->workflow_id))
+            ->values();
+
+        foreach ($poHeaders as $po) {
+            $po->loadMissing('workflow');
+            $stepNo = (int) ($po->workflow?->current_step_no ?? 0);
+
+            foreach ($this->workflowSubmitterRecipients($po) as $recipient) {
+                Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoSubmittedNotificationMail(
+                    recipientName: (string) ($recipient->name ?: 'Submitter'),
+                    poItem: [
+                        'ordnumber' => $po->ordnumber,
+                        'source_label' => PoErpService::sourceLabel($po->site),
+                        'department' => $po->f1,
+                        'vendor_name' => $po->vendor_name,
+                        'status_code' => $po->status_code,
+                        'step_no' => $stepNo,
+                        'step_label' => $this->workflowStepLabel($stepNo),
+                        'flow_steps' => $this->poFlowSteps(),
+                        'show_url' => route('po.show', $po->id),
+                        'print_url' => route('po.print', $po->id),
+                    ],
+                ));
+            }
+        }
+    }
+
     private function notifyPurchaseDepartmentOnClosed(PoHeader $po): void
     {
-        $recipients = $this->purchaseDepartmentRecipients($po);
+        $recipients = $this->workflowSubmitterRecipients($po)
+            ->merge($this->purchaseDepartmentRecipients($po))
+            ->filter(fn ($recipient) => !blank($recipient?->email ?? null))
+            ->unique(fn ($recipient) => strtolower((string) $recipient->email))
+            ->values();
 
         foreach ($recipients as $recipient) {
-            Mail::to($recipient->email)->send(new PoClosedNotificationMail(
+            Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
                 recipientName: (string) ($recipient->name ?: 'Purchase'),
                 poItem: [
                     'ordnumber' => $po->ordnumber,
                     'source_label' => PoErpService::sourceLabel($po->site),
                     'department' => $po->f1,
                     'vendor_name' => $po->vendor_name,
+                    'step_no' => 999,
+                    'step_label' => $this->workflowStepLabel(999),
+                    'flow_steps' => $this->poFlowSteps(),
                     'show_url' => route('po.show', $po->id),
                     'print_url' => route('po.print', $po->id),
                 ],
             ));
         }
+    }
+
+    private function workflowSubmitterRecipients(PoHeader $po): Collection
+    {
+        if (blank($po->workflow_id)) {
+            return collect();
+        }
+
+        $workflow = SqlServerDb::table('wf_forms')
+            ->where('id', $po->workflow_id)
+            ->first(['request_by_user_id']);
+
+        $submitterIds = collect([(int) ($workflow->request_by_user_id ?? 0)])
+            ->merge(
+                SqlServerDb::table('wf_action_histories')
+                    ->where('wf_form_id', $po->workflow_id)
+                    ->where('action_type', 'SUBMIT')
+                    ->pluck('actor_user_id')
+            )
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($submitterIds->isEmpty()) {
+            return collect();
+        }
+
+        return SqlServerDb::table('users as u')
+            ->whereIn('u.id', $submitterIds->all())
+            ->where('u.is_active', 1)
+            ->whereNotNull('u.email')
+            ->orderBy('u.name')
+            ->get(['u.name', 'u.email'])
+            ->unique(fn ($recipient) => strtolower((string) $recipient->email))
+            ->values();
     }
 
     private function purchaseDepartmentRecipients(PoHeader $po): Collection
@@ -416,5 +498,26 @@ class PoApprovalController extends Controller
             ->get(['u.name', 'u.email'])
             ->unique('email')
             ->values();
+    }
+
+    private function workflowStepLabel(int $stepNo): string
+    {
+        return match ($stepNo) {
+            1 => 'Purchase Submit',
+            2 => 'Purchase Approval',
+            3 => 'Department Manager Approval',
+            999 => 'Closed',
+            default => 'In Approval',
+        };
+    }
+
+    private function poFlowSteps(): array
+    {
+        return [
+            ['step_no' => 1, 'label' => 'Submit'],
+            ['step_no' => 2, 'label' => 'Purchase Approval'],
+            ['step_no' => 3, 'label' => 'Department Manager'],
+            ['step_no' => 999, 'label' => 'Closed'],
+        ];
     }
 }
