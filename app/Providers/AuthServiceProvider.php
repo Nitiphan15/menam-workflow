@@ -47,6 +47,15 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('DP',      fn(User $u) => $u->hasRoleCode(['DP']));
         Gate::define('DPA',      fn(User $u) => $u->hasRoleCode(['DPA']));
         Gate::define('DPEMAIL',      fn(User $u) => $u->hasRoleCode(['DPEMAIL', 'DPMAIL']));
+        Gate::define('TDP',      fn(User $u) => $u->hasRoleCode(['TDP']));
+        Gate::define('VC',      fn(User $u) => $u->hasRoleCode(['VC']));
+        Gate::define('VCA',      fn(User $u) => $u->hasRoleCode(['VCA']));
+        Gate::define('VCL',      fn(User $u) => $u->hasRoleCode(['VCL']));
+        Gate::define('VCPD',      fn(User $u) => $u->hasRoleCode(['VCPD']));
+        Gate::define('VCP',      fn(User $u) => $u->hasRoleCode(['VCP']));
+        Gate::define('VCS',      fn(User $u) => $u->hasRoleCode(['VCS']));
+        Gate::define('VCM',      fn(User $u) => $u->hasRoleCode(['VCM']));
+        Gate::define('VCC',      fn(User $u) => $u->hasRoleCode(['VCC']));
         Gate::define('ISR',      fn(User $u) => $u->hasRoleCode(['ISR']));
         Gate::define('D1',      fn(User $u) => $u->hasRoleCode(['D1']));
         Gate::define('D2',      fn(User $u) => $u->hasRoleCode(['D2']));

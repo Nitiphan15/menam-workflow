@@ -37,8 +37,13 @@ class AuthController extends Controller
             $request->session()->regenerate();
             auth()->user()->load('deptRoles');
 
-            $to = $request->input('redirect_to');
-            return $to ? redirect($to) : redirect()->intended('/');
+            // อนุญาต redirect เฉพาะ path ภายในระบบ กัน open redirect ไปโดเมนอื่น
+            // (ปฏิเสธ "//..." และ "/\..." ที่ browser ตีความเป็นลิงก์ข้ามโดเมน)
+            $to = (string) $request->input('redirect_to', '');
+            if ($to !== '' && $to[0] === '/' && !preg_match('#^/[/\\\\]#', $to)) {
+                return redirect($to);
+            }
+            return redirect()->intended('/');
         }
         return back()->withErrors([
             'email' => 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง.',
