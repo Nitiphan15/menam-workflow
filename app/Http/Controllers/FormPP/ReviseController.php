@@ -84,7 +84,7 @@ class ReviseController extends Controller
         }
 
         /** ───────────────────────────── Cache key ───────────────────────────── */
-        $cacheKey = 'pp:v2:' . md5(json_encode([
+        $cacheKey = 'pp:v3:' . md5(json_encode([
             'sku' => $sku,
             'src' => $selectedSrc,
             'cus' => $selectedCustomer,
@@ -398,12 +398,22 @@ class ReviseController extends Controller
             $saleOrder = collect();
             if ($useWire) {
                 $conn = DB::connection('pgsqlw');
+
+                $dmShipped = $conn->table('oe')
+                    ->join('oedm', 'oe.id', '=', 'oedm.ord_id')
+                    ->join('dm', 'oedm.dm_id', '=', 'dm.id')
+                    ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+                    ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
+                    ->whereNotNull('oe.ordnumber')
+                    ->groupBy(['oe.ordnumber', 'dmi.parts_id'])
+                    ->selectRaw("
+                        oe.ordnumber AS ordnumber,
+                        dmi.parts_id AS parts_id,
+                        SUM(dmi.qty) AS shipped_qty
+                    ");
+
                 $ob = $conn->table('orderitems as oi')
                     ->join('oe', 'oi.trans_id', '=', 'oe.id')
-                    ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
-                    ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
-                    ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-                    ->leftJoin('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
                     ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
                     ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
                     ->whereNotNull('oe.ordnumber')
@@ -429,8 +439,7 @@ class ReviseController extends Controller
                         MAX(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
                         AVG(oi.sellprice) AS unit_price,
                         oe.shipped_or_received,
-                        oe.invoiced,
-	                    SUM(dmi.qty) AS shipped_qty
+                        oe.invoiced
                     ");
 
                 $sb = $conn->table('invoice as inv')
@@ -462,6 +471,10 @@ class ReviseController extends Controller
 
                 $saleOrder = $conn->query()
                     ->fromSub($ob, 'ob')
+                    ->leftJoinSub($dmShipped, 'dmshipped', function ($j) {
+                        $j->on('dmshipped.ordnumber', '=', 'ob.ordnumber')
+                            ->on('dmshipped.parts_id', '=', 'ob.parts_id');
+                    })
                     ->leftJoinSub($sb, 'sb', function ($j) {
                         $j->on('sb.ordnumber', '=', 'ob.ordnumber')
                             ->on('sb.parts_id', '=', 'ob.parts_id');
@@ -482,7 +495,7 @@ class ReviseController extends Controller
                     ])
                     ->where('ob.shipped_or_received', false)
                     ->where('ob.invoiced', false)
-                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty, dmshipped.shipped_qty, 0) - COALESCE(rb.return_qty,0)) > 0")
                     ->orderBy('ob.order_date')
                     ->selectRaw("
                         ob.po,
@@ -492,10 +505,10 @@ class ReviseController extends Controller
                         p.partnumber AS part_code,
                         p.description AS part_name,
                         ob.ordered_qty,
-                        COALESCE(sb.shipped_qty, ob.shipped_qty , 0) AS shipped_qty,
+                        COALESCE(sb.shipped_qty, dmshipped.shipped_qty, 0) AS shipped_qty,
                         COALESCE(rb.return_qty,0) AS return_qty,
-                        (COALESCE(sb.shipped_qty,0) - COALESCE(rb.return_qty,0)) AS shipped_qty_net,
-                        (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
+                        (COALESCE(sb.shipped_qty, dmshipped.shipped_qty, 0) - COALESCE(rb.return_qty,0)) AS shipped_qty_net,
+                        (ob.ordered_qty - (COALESCE(sb.shipped_qty, dmshipped.shipped_qty, 0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
                         ob.order_date,
                         ob.due_date,
                         sb.last_invoice_date,
