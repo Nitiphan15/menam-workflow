@@ -15,10 +15,19 @@ class ApproverResolver
     {
         $type = strtoupper((string) $rule->source_type);
         $json = self::json($rule->condition_expr);
-        $deptId = self::resolveDepartmentContext($rule, $wfForm, $context, $json);
         $originatorId = (int) ($context['originator_id'] ?? $wfForm->request_by_user_id);
-        $excludeOriginator = (bool) ($json['exclude_originator'] ?? false);
         $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+        $deptId = self::resolveDepartmentContext($rule, $wfForm, $context, $json);
+        $excludeOriginator = (bool) ($json['exclude_originator'] ?? ($appCode === 'po' && $stepNo >= 2));
+
+        if ($appCode === 'po'
+            && $stepNo === 2
+            && $type === 'SUPERVISOR'
+            && self::isPurchaseDepartment($deptId, $appCode)
+        ) {
+            $excludeOriginator = (bool) ($json['exclude_originator'] ?? false);
+        }
 
         switch ($type) {
             case 'ORIGINATOR':
@@ -172,6 +181,33 @@ class ApproverResolver
             && (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0) === 2;
     }
 
+    private static function isPurchaseDepartment(int $deptId, ?string $appCode = null): bool
+    {
+        foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
+            $department = WorkflowDb::table($appCode, 'departments')
+                ->where('id', $candidateDeptId)
+                ->first(['name', 'code']);
+
+            if (!$department) {
+                continue;
+            }
+
+            $text = strtolower(trim((string) ($department->name ?? '') . ' ' . (string) ($department->code ?? '')));
+            $code = strtolower(trim((string) ($department->code ?? '')));
+
+            if (str_contains($text, 'purchase')
+                || str_contains($text, 'purchasing')
+                || str_contains($text, 'จัดซื้อ')
+                || in_array($code, ['pur', 'purch', 'purchase'], true)
+                || str_starts_with($code, 'pur')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static function resolveDepartmentContext(object $rule, object $wfForm, array $context, array $json): int
     {
         if (!(int) ($rule->department_scoped ?? 0)) {
@@ -192,7 +228,7 @@ class ApproverResolver
         }
 
         if ($appCode === 'po' && $stepNo === 3) {
-            return (int) ($context['submitter_department_id'] ?? $context['purchase_department_id'] ?? $context['department_id'] ?? 0);
+            return (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
         }
 
         if ($sourceType === 'ROLE' && isset($json['role_in']) && (int) ($rule->source_ref_id ?? 0) > 0) {
