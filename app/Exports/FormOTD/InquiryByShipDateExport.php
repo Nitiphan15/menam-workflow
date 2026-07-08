@@ -60,6 +60,8 @@ class InquiryByShipDateExport implements WithMultipleSheets
             $q->where('d.delivery_type', 'SO');
         } elseif ($mode === 'ACID') {
             $q->where('d.delivery_type', 'ACID');
+        } elseif ($mode === 'SPECIAL') {
+            $q->where('d.delivery_type', 'SPECIAL');
         }
 
         if ($so !== '') {
@@ -69,7 +71,8 @@ class InquiryByShipDateExport implements WithMultipleSheets
         if ($customer !== '') {
             $q->where(function ($w) use ($customer) {
                 $w->where('c.name', 'like', "%{$customer}%")
-                    ->orWhere('c.customernumber', 'like', "%{$customer}%");
+                    ->orWhere('c.customernumber', 'like', "%{$customer}%")
+                    ->orWhereRaw('d.customer_name COLLATE DATABASE_DEFAULT LIKE ?', ["%{$customer}%"]);
             });
         }
 
@@ -138,6 +141,40 @@ class InquiryByShipDateExport implements WithMultipleSheets
             return;
         }
 
+        // เคส domain ตาม delivery_type (sync กับ controller):
+        //   PLN (วางแผน) = 'ACID', EXPORT (งานพิเศษ) = 'SPECIAL' — ไม่ match sales_name
+        $matchesGroupKeywords = function (string $divKey) use ($groups): bool {
+            $keywords = collect($this->divisionSearchMap()[$divKey] ?? [])
+                ->map(fn($v) => mb_strtolower(trim((string) $v)))
+                ->filter()
+                ->all();
+
+            return collect($groups)->contains(function ($group) use ($keywords) {
+                foreach ($group as $keyword) {
+                    if (in_array(mb_strtolower(trim((string) $keyword)), $keywords, true)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        };
+
+        if ($matchesGroupKeywords('PLN')) {
+            $q->where('d.delivery_type', 'ACID');
+            return;
+        }
+
+        if ($matchesGroupKeywords('EXPORT')) {
+            $q->where('d.delivery_type', 'SPECIAL');
+            return;
+        }
+
+        // เมื่อ filter เป็นชื่อ Division ปกติ — ตัด delivery_type domain อื่น (ACID/SPECIAL) ออก
+        $q->where(function ($w) {
+            $w->whereNotIn('d.delivery_type', ['ACID', 'SPECIAL'])
+                ->orWhereNull('d.delivery_type');
+        });
+
         $q->where(function ($outer) use ($groups) {
             foreach ($groups as $group) {
                 $outer->where(function ($w) use ($group) {
@@ -166,6 +203,13 @@ class InquiryByShipDateExport implements WithMultipleSheets
                 continue;
             }
 
+            // ข้าม token ที่เป็นตัวเชื่อมล้วนๆ เช่น "-", "+", "/" ที่มาจาก label
+            // เช่น "D3 - ภควดี + ธนัชชา" — ไม่งั้นจะถูก AND บังคับให้ sales_name
+            // ต้องมี "-" และ "+" อยู่ในชื่อด้วย ทำให้ไม่เจอข้อมูล
+            if (!preg_match('/[\p{L}\p{N}]/u', $token)) {
+                continue;
+            }
+
             $matched = false;
 
             foreach ($map as $groupKeywords) {
@@ -189,16 +233,21 @@ class InquiryByShipDateExport implements WithMultipleSheets
         return $expanded;
     }
 
+    // sync กับ DeliveryPlanInquiryController::divisionSearchMap()
+    // ต้องตรงกันเพราะ export ต้อง filter ผลลัพธ์ให้เหมือนหน้า inquiry ทุกประการ
     private function divisionSearchMap(): array
     {
         return [
-            ['D1', 'DIV1', 'DIVISION1'],
-            ['D2', 'DIV2', 'DIVISION2'],
-            ['D3', 'DIV3', 'DIVISION3'],
-            ['D4', 'DIV4', 'DIVISION4'],
-            ['D5', 'DIV5', 'DIVISION5'],
-            ['D6', 'DIV6', 'DIVISION6'],
-            ['PLN', 'PLAN', 'PLANNER'],
+            'D1'  => ['D1', 'ดิลก', 'ขวัญเรือน'],
+            'D2'  => ['D2', 'ปรียาพรรณ', 'นิตยา'],
+            'D3'  => ['D3', 'ภควดี', 'ธนัชชา'],
+            'D5'  => ['D5', 'ธัธลิญา', 'เฌอร์ลิญา'],
+            'D6'  => ['D6', 'สุรศักดิ์', 'คณัญญ์นิชา'],
+            'D7'  => ['D7', 'ศิรินภา', 'มนพัทธ์'],
+            'D8'  => ['D8', 'สาธิต', 'สุธาสินี'],
+            'D9'  => ['D9', 'วรเดชา', 'ลัดดาวัลย์'],
+            'PLN' => ['PLN', 'วางแผน', 'กันยกร'],
+            'EXPORT' => ['EXPORT', 'Export', 'งานพิเศษ', 'ส่งซ่อม', 'ส่งคืน'],
         ];
     }
 }

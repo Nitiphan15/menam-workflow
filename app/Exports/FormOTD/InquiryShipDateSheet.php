@@ -156,7 +156,11 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                     NULLIF(LTRIM(RTRIM(e.login COLLATE DATABASE_DEFAULT)), ''),
                     CONCAT('Sales#', CAST(d.sales_id AS nvarchar(20)))
                 ) as sales_name,
-                COALESCE(NULLIF(LTRIM(RTRIM(c.name)), ''), CONCAT('#', d.customer_id)) as customer_name,
+                COALESCE(
+                    NULLIF(LTRIM(RTRIM(d.customer_name COLLATE DATABASE_DEFAULT)), ''),
+                    NULLIF(LTRIM(RTRIM(c.name COLLATE DATABASE_DEFAULT)), ''),
+                    CONCAT('#', d.customer_id)
+                ) as customer_name,
                 d.part_number,
                 d.part_desc,
                 d.mfg_no,
@@ -344,7 +348,11 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
         foreach ($rows as $row) {
             $mode = strtoupper(trim((string) ($row->delivery_type ?? '')));
-            $key = $mode === 'ACID' ? 'PLN' : $this->detectDivision((string) ($row->sales_name ?? ''));
+            $key = match ($mode) {
+                'ACID' => 'PLN',
+                'SPECIAL' => 'EXPORT',
+                default => $this->detectDivision((string) ($row->sales_name ?? '')),
+            };
             $groups[$key] = $groups[$key] ?? [];
             $groups[$key][] = $row;
         }
@@ -395,12 +403,13 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
             'D8'  => 'D8 - สาธิต + สุธาสินี',
             'D9'  => 'D9 - วรเดชา + ลัดดาวัลย์',
             'PLN' => 'วางแผน - กันยกร',
+            'EXPORT' => 'Export - งานพิเศษ',
         ];
     }
 
     private function divisionOrder(): array
     {
-        return ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D8', 'D9', 'PLN'];
+        return ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D8', 'D9', 'PLN', 'EXPORT'];
     }
 
     private function detectDivision(string $salesName): string
@@ -512,7 +521,8 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         if ($customer !== '') {
             $q->where(function ($w) use ($customer) {
                 $w->where('c.name', 'like', "%{$customer}%")
-                    ->orWhere('c.customernumber', 'like', "%{$customer}%");
+                    ->orWhere('c.customernumber', 'like', "%{$customer}%")
+                    ->orWhereRaw('d.customer_name COLLATE DATABASE_DEFAULT LIKE ?', ["%{$customer}%"]);
             });
         }
 
@@ -586,6 +596,40 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
             return;
         }
 
+        // เคส domain ตาม delivery_type (sync กับ controller):
+        //   PLN (วางแผน) = 'ACID', EXPORT (งานพิเศษ) = 'SPECIAL' — ไม่ match sales_name
+        $matchesGroupKeywords = function (string $divKey) use ($groups): bool {
+            $keywords = collect($this->divisionSearchMap()[$divKey] ?? [])
+                ->map(fn($v) => mb_strtolower(trim((string) $v)))
+                ->filter()
+                ->all();
+
+            return collect($groups)->contains(function ($group) use ($keywords) {
+                foreach ($group as $keyword) {
+                    if (in_array(mb_strtolower(trim((string) $keyword)), $keywords, true)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        };
+
+        if ($matchesGroupKeywords('PLN')) {
+            $q->where('d.delivery_type', 'ACID');
+            return;
+        }
+
+        if ($matchesGroupKeywords('EXPORT')) {
+            $q->where('d.delivery_type', 'SPECIAL');
+            return;
+        }
+
+        // เมื่อ filter เป็นชื่อ Division ปกติ — ตัด delivery_type domain อื่น (ACID/SPECIAL) ออก
+        $q->where(function ($w) {
+            $w->whereNotIn('d.delivery_type', ['ACID', 'SPECIAL'])
+                ->orWhereNull('d.delivery_type');
+        });
+
         $q->where(function ($outer) use ($groups) {
             foreach ($groups as $group) {
                 $outer->where(function ($w) use ($group) {
@@ -614,6 +658,13 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                 continue;
             }
 
+            // ข้าม token ที่เป็นตัวเชื่อมล้วนๆ เช่น "-", "+", "/" ที่มาจาก label
+            // เช่น "D3 - ภควดี + ธนัชชา" — ไม่งั้นจะถูก AND บังคับให้ sales_name
+            // ต้องมี "-" และ "+" อยู่ในชื่อด้วย ทำให้ไม่เจอข้อมูล
+            if (!preg_match('/[\p{L}\p{N}]/u', $token)) {
+                continue;
+            }
+
             $matched = false;
 
             foreach ($map as $groupKeywords) {
@@ -637,16 +688,21 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         return $expanded;
     }
 
+    // sync กับ DeliveryPlanInquiryController::divisionSearchMap()
+    // ต้องตรงกันเพราะ export ต้อง filter ผลลัพธ์ให้เหมือนหน้า inquiry ทุกประการ
     private function divisionSearchMap(): array
     {
         return [
-            ['D1', 'DIV1', 'DIVISION1'],
-            ['D2', 'DIV2', 'DIVISION2'],
-            ['D3', 'DIV3', 'DIVISION3'],
-            ['D4', 'DIV4', 'DIVISION4'],
-            ['D5', 'DIV5', 'DIVISION5'],
-            ['D6', 'DIV6', 'DIVISION6'],
-            ['PLN', 'PLAN', 'PLANNER'],
+            'D1'  => ['D1', 'ดิลก', 'ขวัญเรือน'],
+            'D2'  => ['D2', 'ปรียาพรรณ', 'นิตยา'],
+            'D3'  => ['D3', 'ภควดี', 'ธนัชชา'],
+            'D5'  => ['D5', 'ธัธลิญา', 'เฌอร์ลิญา'],
+            'D6'  => ['D6', 'สุรศักดิ์', 'คณัญญ์นิชา'],
+            'D7'  => ['D7', 'ศิรินภา', 'มนพัทธ์'],
+            'D8'  => ['D8', 'สาธิต', 'สุธาสินี'],
+            'D9'  => ['D9', 'วรเดชา', 'ลัดดาวัลย์'],
+            'PLN' => ['PLN', 'วางแผน', 'กันยกร'],
+            'EXPORT' => ['EXPORT', 'Export', 'งานพิเศษ', 'ส่งซ่อม', 'ส่งคืน'],
         ];
     }
 }
