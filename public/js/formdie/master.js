@@ -456,7 +456,7 @@
 
         const hHead = `<thead><tr>
             <th>Trans#</th><th>Date</th><th>WO#</th><th>Block</th>
-            <th>From → To</th><th>Qty</th><th>Meter</th>
+            <th>From → To</th><th>Qty</th><th>kg ผลิต (WO)</th>
         </tr></thead>`;
         const hBody = hist.map(h => {
             const wo = h.prod_wo || h.workordernumber;   // โชว์ WO ผลิตจริง (แถวคืนใช้ WO ของแถวเบิก)
@@ -468,7 +468,7 @@
                 <td>${h.block_desc ?? ''}</td>
                 <td>${esc(transferClass(h.from_class, h.from_class_id))} → ${esc(transferClass(h.to_class, h.to_class_id))}</td>
                 <td style="text-align:right;">${h.qty ?? ''}</td>
-                <td style="text-align:right;">${h.meter != null ? Number(h.meter).toLocaleString() : ''}</td>
+                <td style="text-align:right;">${h.wo_fg_kg != null ? Number(h.wo_fg_kg).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' kg' : ''}</td>
             </tr>
         `;
         }).join('');

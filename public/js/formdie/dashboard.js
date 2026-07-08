@@ -209,9 +209,11 @@
     }
 
     function renderTable(rows) {
+        // โชว์เฉพาะแถวที่ผู้ขอเบิกเป็นแผนก Drawing (ซ่อนแผนกอื่นไว้ก่อน)
+        rows = (rows || []).filter(r => /^Drawing/i.test(r.requester_name || ''));
         const meta = document.getElementById('dieResultMeta');
-        if (meta) meta.textContent = rows?.length ? `${rows.length.toLocaleString()} rows` : '-';
-        if (!rows || rows.length === 0) { setEmpty('ไม่พบข้อมูล'); return; }
+        if (meta) meta.textContent = rows.length ? `${rows.length.toLocaleString()} rows` : '-';
+        if (rows.length === 0) { setEmpty('ไม่พบข้อมูล'); return; }
         const headers = [
             'Site','Trans#','Date','WO#','Block (WO Detail)','Workseq','Workcenter','Die#','Description','Category',
             'Machine','Issued By','Requested By','Ordered Size','Present Dia.','Reduction / Angle','Bearing','FG kg','Qty','แผนกที่ใช้','สถานะตอนเบิก'

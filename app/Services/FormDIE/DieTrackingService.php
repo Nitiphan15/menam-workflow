@@ -306,6 +306,12 @@ class DieTrackingService
         $kgByWo  = $this->woDetailService->fgKgByWorkorders(array_keys($uniqueWO), $woConn);
         $totalKg = array_sum($kgByWo);
 
+        // เติม kg (FG ของ WO ที่รอบนั้นผลิต) ต่อแถวประวัติ เพื่อโชว์แทน meter ในตาราง
+        foreach ($history as $h) {
+            $rowWo = $h->prod_wo ?? ($h->workordernumber ?? null);
+            $h->wo_fg_kg = $rowWo ? ($kgByWo[strtoupper((string) $rowWo)] ?? null) : null;
+        }
+
         $health = $this->buildKgUsage($info, $totalKg, count($uniqueWO));
         $maintenance = $this->buildMaintenanceKg($info, $totalKg);
 

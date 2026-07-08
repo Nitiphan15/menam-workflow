@@ -245,9 +245,9 @@
         `;
 
         return `
-            <div class="de-card">
+            <div class="de-card wd-routing-card">
                 <div class="de-card-header">
-                    <span><i class="fa fa-route me-2 text-primary"></i>รูตติ้ง (${steps.length} ขั้นตอน)</span>
+                    <span><i class="fa fa-route me-2 text-primary"></i>Routing (${steps.length} ขั้นตอน)</span>
                     <span class="small text-muted">เสร็จ ${done} · กำลังทำ ${inProgress} · รอ ${pending}</span>
                 </div>
                 <div class="de-card-body">
@@ -349,8 +349,8 @@
         const parts = [];
         if (setting.powder) parts.push(`ผงรีด ${esc(setting.powder)}`);
         if (setting.oil) parts.push(`น้ำมัน ${esc(setting.oil)}`);
-        if (setting.outSize != null)
-            parts.push(`ขนาดออก ${num(setting.outSize, 3)} mm`);
+        /*if (setting.outSize != null)
+            parts.push(`ขนาดออก ${num(setting.outSize, 3)} mm`);*/
         const title = [
             setting.speed != null ? `สปีด ${num(setting.speed, 2)}` : "",
             setting.resin != null ? `Resin ${num(setting.resin, 1)}%` : "",

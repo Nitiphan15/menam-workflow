@@ -24,6 +24,8 @@
         .wd-q-table td.pass { background:#dcfce7; color:#166534; }
         .wd-q-table td.fail { background:#fee2e2; color:#991b1b; }
         .wd-route-actions { display:flex; flex-wrap:wrap; gap:6px; }
+        /* การ์ด Routing เกาะบนสุดตอนเลื่อน เพื่อกดข้าม step ได้ตลอด */
+        .wd-routing-card { position:sticky; top:0; z-index:30; box-shadow:0 3px 10px rgba(15,23,42,.07); }
         .wd-route-btn {
             border:1px solid #cbd5e1; background:#fff; color:#1f2937; border-radius:6px;
             padding:5px 9px; font-size:12px; font-weight:800;

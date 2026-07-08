@@ -182,7 +182,7 @@ class DieTrackingController extends Controller
     public function dieProfile(Request $request, string $equipnumber)
     {
         $conn = $this->resolveConn($request);
-        $data = Cache::remember("die_track:profile:v2:{$equipnumber}:{$conn}", 300,
+        $data = Cache::remember("die_track:profile:v3:{$equipnumber}:{$conn}", 300,
             fn() => $this->service->dieProfile($equipnumber, $conn));
         return response()->json($data);
     }
