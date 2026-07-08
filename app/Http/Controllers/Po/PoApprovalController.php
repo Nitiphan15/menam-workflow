@@ -313,6 +313,7 @@ class PoApprovalController extends Controller
             ->whereIn('wa.wf_form_id', $workflowIds)
             ->where('wa.status', 'PENDING')
             ->whereColumn('wa.step_no', 'wf.current_step_no')
+            ->where('u.is_active', 1)
             ->whereNotNull('u.email')
             ->select([
                 'wa.wf_form_id',
