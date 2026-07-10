@@ -31,6 +31,7 @@
                             <label for="password" class="form-label">รหัสผ่านใหม่ <span class="text-danger">*</span></label>
                             <input type="password" class="form-control @error('password') is-invalid @enderror"
                                 id="password" name="password" required>
+                            <div class="form-text">รหัสผ่านใหม่ต้องมีอย่างน้อย 4 ตัวอักษร</div>
                             @error('password')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
