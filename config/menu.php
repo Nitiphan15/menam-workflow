@@ -47,17 +47,6 @@ return [
             ],
 
             [
-                'icon' => 'fa-solid fa-industry',
-                'text' => 'Grating Performance (ทดลอง)',
-                'children' => [
-                    ['icon' => 'fa-solid fa-chart-line', 'text' => 'Dashboard', 'route' => 'dp.grating-performance.index'],
-                    ['icon' => 'fa-solid fa-plus', 'text' => 'Input รายวัน', 'route' => 'dp.grating-performance.entries.create'],
-                    ['icon' => 'fa-solid fa-table', 'text' => 'Inquiry', 'route' => 'dp.grating-performance.inquiry'],
-                    ['icon' => 'fa-solid fa-sliders', 'text' => 'Masters', 'route' => 'dp.grating-performance.masters'],
-                ],
-            ],
-
-            [
                 'icon' => 'fa-chart-line',
                 'text' => 'Sales Report',
                 'children' => [
@@ -266,15 +255,19 @@ return [
                 'permission' => 'TDP',
 
             ],
+        ],
+
+
+        'gp' => [
             [
                 'icon' => 'fa-solid fa-industry',
                 'text' => 'Grating Performance',
-                'permission' => 'TDP',
+                'permission' => ['GP', 'GPM'],
                 'children' => [
-                    ['icon' => 'fa-solid fa-chart-line', 'text' => 'Dashboard', 'route' => 'dp.grating-performance.index', 'permission' => 'TDP'],
-                    ['icon' => 'fa-solid fa-plus', 'text' => 'Input รายวัน', 'route' => 'dp.grating-performance.entries.create', 'permission' => 'TDP'],
-                    ['icon' => 'fa-solid fa-table', 'text' => 'Inquiry', 'route' => 'dp.grating-performance.inquiry', 'permission' => 'TDP'],
-                    ['icon' => 'fa-solid fa-sliders', 'text' => 'Masters', 'route' => 'dp.grating-performance.masters', 'permission' => 'TDP'],
+                    ['icon' => 'fa-solid fa-chart-line', 'text' => 'Dashboard', 'route' => 'grating-performance.index', 'permission' => 'GP'],
+                    ['icon' => 'fa-solid fa-plus', 'text' => 'Input รายวัน', 'route' => 'grating-performance.entries.create', 'permission' => 'GP'],
+                    ['icon' => 'fa-solid fa-table', 'text' => 'Inquiry', 'route' => 'grating-performance.inquiry', 'permission' => 'GP'],
+                    ['icon' => 'fa-solid fa-sliders', 'text' => 'Masters', 'route' => 'grating-performance.masters', 'permission' => 'GPM'],
                 ],
             ],
         ],

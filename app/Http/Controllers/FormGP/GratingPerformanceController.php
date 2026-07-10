@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\FormDP;
+namespace App\Http\Controllers\FormGP;
 
 use App\Http\Controllers\Controller;
 use App\Support\SqlServerDb;
@@ -35,7 +35,7 @@ class GratingPerformanceController extends Controller
     public function index(Request $request)
     {
         if (!$this->hasRequiredTables()) {
-            return view('formdp.grating-performance.index', [
+            return view('formGP.grating-performance.index', [
                 'setupMissing' => true,
                 'filters' => $this->filters($request),
                 'employees' => collect(),
@@ -97,7 +97,7 @@ class GratingPerformanceController extends Controller
             'finished' => (clone $entries)->where('e.is_finished', true)->count(),
         ];
 
-        return view('formdp.grating-performance.index', [
+        return view('formGP.grating-performance.index', [
             'setupMissing' => false,
             'filters' => $filters,
             'employees' => $this->employeeOptions(),
@@ -144,44 +144,59 @@ class GratingPerformanceController extends Controller
     public function inquiry(Request $request)
     {
         if (!$this->hasRequiredTables()) {
-            return view('formdp.grating-performance.inquiry', [
+            return view('formGP.grating-performance.inquiry', [
                 'setupMissing' => true,
                 'filters' => $this->filters($request),
                 'rows' => collect(),
+                'employeeDailyRows' => collect(),
+                'mfgFlowRows' => collect(),
                 'steps' => collect(),
                 'employees' => collect(),
             ]);
         }
 
         $filters = $this->filters($request);
-        $employeeRollup = $this->employeeRollupSubquery();
-        $stepRollup = $this->stepRollupSubquery();
-        $fieldMfgRollup = $this->fieldMfgRollupSubquery();
-        $targetPcsExpr = $this->hasStepColumn('target_pcs_per_hour') ? 's.target_pcs_per_hour' : 'CAST(NULL AS decimal(12, 3))';
-        $rows = $this->entryBase($filters)
-            ->select([
-                'e.*',
-                DB::raw("COALESCE(sr.step_codes, s.step_code) as step_code"),
-                DB::raw("COALESCE(sr.step_names, s.step_name) as step_name"),
-                's.target_kg_per_hour',
-                DB::raw($targetPcsExpr . ' as target_pcs_per_hour'),
-                DB::raw("COALESCE(er.employee_names, '') as employee_names"),
-                DB::raw('COALESCE(er.team_size, 0) as team_size'),
-                DB::raw("COALESCE(fmr.field_mfgs, '') as field_mfgs"),
-            ])
-            ->leftJoinSub($employeeRollup, 'er', 'er.entry_id', '=', 'e.id')
-            ->leftJoinSub($stepRollup, 'sr', 'sr.entry_id', '=', 'e.id')
-            ->leftJoinSub($fieldMfgRollup, 'fmr', 'fmr.entry_id', '=', 'e.id')
-            ->orderByDesc('e.work_date')
-            ->orderByDesc('e.started_at')
-            ->paginate(50)
-            ->withQueryString();
+        $viewMode = $filters['view_mode'] ?? 'transactions';
+        $rows = collect();
+        $employeeDailyRows = collect();
+        $mfgFlowRows = collect();
 
-        return view('formdp.grating-performance.inquiry', [
+        if ($viewMode === 'transactions') {
+            $employeeRollup = $this->employeeRollupSubquery();
+            $stepRollup = $this->stepRollupSubquery();
+            $fieldMfgRollup = $this->fieldMfgRollupSubquery();
+            $targetPcsExpr = $this->hasStepColumn('target_pcs_per_hour') ? 's.target_pcs_per_hour' : 'CAST(NULL AS decimal(12, 3))';
+            $rows = $this->entryBase($filters)
+                ->select([
+                    'e.*',
+                    DB::raw("COALESCE(sr.step_codes, s.step_code) as step_code"),
+                    DB::raw("COALESCE(sr.step_names, s.step_name) as step_name"),
+                    's.target_kg_per_hour',
+                    DB::raw($targetPcsExpr . ' as target_pcs_per_hour'),
+                    DB::raw("COALESCE(er.employee_names, '') as employee_names"),
+                    DB::raw('COALESCE(er.team_size, 0) as team_size'),
+                    DB::raw("COALESCE(fmr.field_mfgs, '') as field_mfgs"),
+                ])
+                ->leftJoinSub($employeeRollup, 'er', 'er.entry_id', '=', 'e.id')
+                ->leftJoinSub($stepRollup, 'sr', 'sr.entry_id', '=', 'e.id')
+                ->leftJoinSub($fieldMfgRollup, 'fmr', 'fmr.entry_id', '=', 'e.id')
+                ->orderByDesc('e.work_date')
+                ->orderByDesc('e.started_at')
+                ->paginate(50)
+                ->withQueryString();
+        } elseif ($viewMode === 'employee') {
+            $employeeDailyRows = $this->employeeDailyInquiry($filters);
+        } elseif ($viewMode === 'mfg') {
+            $mfgFlowRows = $this->mfgFlowInquiry($filters);
+        }
+
+        return view('formGP.grating-performance.inquiry', [
             'setupMissing' => false,
             'filters' => $filters,
             'rows' => $rows,
             'summary' => $this->inquirySummary($filters),
+            'employeeDailyRows' => $employeeDailyRows,
+            'mfgFlowRows' => $mfgFlowRows,
             'steps' => $this->stepOptions(false),
             'employees' => $this->employeeOptions(false),
         ]);
@@ -190,7 +205,7 @@ class GratingPerformanceController extends Controller
     public function create()
     {
         if (!$this->hasRequiredTables()) {
-            return view('formdp.grating-performance.create', [
+            return view('formGP.grating-performance.create', [
                 'setupMissing' => true,
                 'employees' => collect(),
                 'steps' => collect(),
@@ -198,7 +213,7 @@ class GratingPerformanceController extends Controller
             ]);
         }
 
-        return view('formdp.grating-performance.create', [
+        return view('formGP.grating-performance.create', [
             'setupMissing' => false,
             'employees' => $this->employeeOptions(),
             'steps' => $this->stepOptions(),
@@ -209,7 +224,7 @@ class GratingPerformanceController extends Controller
     public function masters()
     {
         if (!$this->hasRequiredTables()) {
-            return view('formdp.grating-performance.masters', [
+            return view('formGP.grating-performance.masters', [
                 'setupMissing' => true,
                 'employees' => collect(),
                 'steps' => collect(),
@@ -219,7 +234,7 @@ class GratingPerformanceController extends Controller
             ]);
         }
 
-        return view('formdp.grating-performance.masters', [
+        return view('formGP.grating-performance.masters', [
             'setupMissing' => false,
             'employees' => $this->employeeOptions(false),
             'steps' => $this->stepOptions(false),
@@ -832,6 +847,9 @@ class GratingPerformanceController extends Controller
         $period = in_array($request->query('period'), ['day', 'week', 'month'], true)
             ? $request->query('period')
             : 'day';
+        $viewMode = in_array($request->query('view_mode'), ['transactions', 'employee', 'mfg'], true)
+            ? $request->query('view_mode')
+            : 'transactions';
         $today = now('Asia/Bangkok');
         $defaultFrom = match ($period) {
             'week' => $today->copy()->startOfWeek()->toDateString(),
@@ -853,6 +871,7 @@ class GratingPerformanceController extends Controller
             'step_id' => $request->query('step_id'),
             'employee_id' => $request->query('employee_id'),
             'period' => $period,
+            'view_mode' => $viewMode,
         ];
     }
 
@@ -1032,6 +1051,75 @@ class GratingPerformanceController extends Controller
                 $row->hours = round(((float) $row->minutes) / 60, 1);
                 return $row;
             });
+    }
+
+    private function employeeDailyInquiry(array $filters)
+    {
+        $teamSize = $this->teamSizeSubquery();
+        $stepRollup = $this->stepRollupSubquery();
+        $projectExpr = $this->hasEntryColumn('project') ? 'e.project' : 'CAST(NULL AS NVARCHAR(MAX))';
+
+        return $this->entryBase($filters)
+            ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
+            ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
+            ->leftJoinSub($teamSize, 'ts', 'ts.entry_id', '=', 'e.id')
+            ->leftJoinSub($stepRollup, 'sr_daily', 'sr_daily.entry_id', '=', 'e.id')
+            ->select([
+                'ge.id as employee_id',
+                'ge.name as employee_name',
+                DB::raw('CONVERT(varchar(10), e.work_date, 120) as work_day'),
+                DB::raw('COUNT(DISTINCT e.id) as entry_count'),
+                DB::raw("STRING_AGG(CAST(CONCAT(CASE WHEN e.is_field_work = 1 THEN COALESCE(NULLIF($projectExpr, ''), N'FIELD') ELSE e.mfg_no END, N' / ', COALESCE(sr_daily.step_names, s.step_name), CASE WHEN e.is_field_work = 1 AND e.field_activity IS NOT NULL THEN CONCAT(N' / ', e.field_activity) ELSE N'' END) AS NVARCHAR(MAX)), N' | ') as work_summary"),
+                DB::raw('SUM(COALESCE(e.duration_minutes, 0)) as minutes'),
+                DB::raw('SUM(COALESCE(e.good_qty_pcs, 0) / NULLIF(COALESCE(ts.team_size, 1), 0)) as allocated_good_pcs'),
+                DB::raw('SUM(COALESCE(e.bad_qty_pcs, 0) / NULLIF(COALESCE(ts.team_size, 1), 0)) as allocated_bad_pcs'),
+                DB::raw('SUM(COALESCE(e.good_qty_kg, 0) / NULLIF(COALESCE(ts.team_size, 1), 0)) as allocated_good_kg'),
+            ])
+            ->groupBy('ge.id', 'ge.name', DB::raw('CONVERT(varchar(10), e.work_date, 120)'))
+            ->orderBy('ge.name')
+            ->orderBy('work_day')
+            ->limit(120)
+            ->get();
+    }
+
+    private function mfgFlowInquiry(array $filters)
+    {
+        $teamSize = $this->teamSizeSubquery();
+        $projectExpr = $this->hasEntryColumn('project') ? 'MAX(e.project)' : 'CAST(NULL AS NVARCHAR(MAX))';
+        $salesorderExpr = $this->hasEntryColumn('salesorder') ? 'MAX(e.salesorder)' : 'CAST(NULL AS NVARCHAR(MAX))';
+
+        return $this->entryBase($filters)
+            ->leftJoin('grating_entry_steps as ges_flow', 'ges_flow.entry_id', '=', 'e.id')
+            ->join('grating_steps as flow_step', 'flow_step.id', '=', DB::raw('COALESCE(ges_flow.step_id, e.step_id)'))
+            ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
+            ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
+            ->leftJoinSub($teamSize, 'ts', 'ts.entry_id', '=', 'e.id')
+            ->where('e.mfg_no', '<>', 'FIELD')
+            ->select([
+                'e.mfg_no',
+                DB::raw($projectExpr . ' as project'),
+                DB::raw($salesorderExpr . ' as salesorder'),
+                'flow_step.id as step_id',
+                'flow_step.step_code',
+                'flow_step.step_name',
+                'flow_step.sort_order',
+                'ge.id as employee_id',
+                'ge.name as employee_name',
+                DB::raw('COUNT(DISTINCT e.id) as entry_count'),
+                DB::raw('SUM(COALESCE(e.duration_minutes, 0)) as minutes'),
+                DB::raw('SUM(COALESCE(e.good_qty_pcs, 0) / NULLIF(COALESCE(ts.team_size, 1), 0)) as allocated_good_pcs'),
+                DB::raw('SUM(COALESCE(e.bad_qty_pcs, 0) / NULLIF(COALESCE(ts.team_size, 1), 0)) as allocated_bad_pcs'),
+                DB::raw('SUM(COALESCE(e.good_qty_kg, 0) / NULLIF(COALESCE(ts.team_size, 1), 0)) as allocated_good_kg'),
+                DB::raw('MAX(CAST(e.is_finished AS int)) as finished'),
+                DB::raw('MAX(e.work_date) as last_work_date'),
+            ])
+            ->groupBy('e.mfg_no', 'flow_step.id', 'flow_step.step_code', 'flow_step.step_name', 'flow_step.sort_order', 'ge.id', 'ge.name')
+            ->orderBy('e.mfg_no')
+            ->orderBy('flow_step.sort_order')
+            ->orderBy('flow_step.step_code')
+            ->orderBy('ge.name')
+            ->limit(240)
+            ->get();
     }
 
     private function mfgOutputTotals(array $filters): array
@@ -1503,6 +1591,16 @@ class GratingPerformanceController extends Controller
                 DB::raw('COUNT(gee.employee_id) as team_size'),
             ])
             ->groupBy('gee.entry_id');
+    }
+
+    private function teamSizeSubquery()
+    {
+        return SqlServerDb::table('grating_entry_employees as team_gee')
+            ->select([
+                'team_gee.entry_id',
+                DB::raw('COUNT(team_gee.employee_id) as team_size'),
+            ])
+            ->groupBy('team_gee.entry_id');
     }
 
     private function stepRollupSubquery()

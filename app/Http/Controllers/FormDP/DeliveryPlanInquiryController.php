@@ -6463,7 +6463,6 @@ class DeliveryPlanInquiryController extends Controller
                     'status' => 'NEW',
                     'revise_by' => $userId,
                     'edit_remark' => 'CANCEL SPECIAL: ' . $remark,
-                    'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
                 ]);
         });
 
@@ -6549,7 +6548,6 @@ class DeliveryPlanInquiryController extends Controller
                     'status' => 'NEW',
                     'revise_by' => $userId,
                     'edit_remark' => 'CANCEL SPECIAL: ' . $remark,
-                    'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
                 ]);
         });
 

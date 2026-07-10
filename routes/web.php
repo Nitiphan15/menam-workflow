@@ -71,7 +71,7 @@ use App\Http\Controllers\FormDIE\DieTrackingController;
 //DP
 use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
-use App\Http\Controllers\FormDP\GratingPerformanceController;
+use App\Http\Controllers\FormGP\GratingPerformanceController;
 use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
 use App\Http\Controllers\FormDP\TruckMasterController;
 //Forecast
@@ -131,7 +131,9 @@ Route::get('/api/department-roles/by-dept/{dept}', [DepartmentRoleLookupControll
 Route::get('/api/users/search', [UserLookupController::class, 'search'])->name('api.users.search');
 Route::get('/api/parts/search', [PartnumberLookupController::class, 'byPartnumber'])->name('api.parts.search');
 Route::get('/api/mfgs/search', [MfgLookupController::class, 'byMFG'])->name('api.mfgs.search');
-Route::get('/api/grating-projects/search', [MfgLookupController::class, 'gratingProjects'])->name('api.grating-projects.search');
+Route::get('/api/grating-projects/search', [MfgLookupController::class, 'gratingProjects'])
+  ->middleware(['auth', 'permission.any:GP'])
+  ->name('api.grating-projects.search');
 Route::get('/api/wr/items', [IncomeController::class, 'itemsSuggest'])->name('wr.autocomplete.items');
 Route::get('/api/wr/po',    [IncomeController::class, 'poSuggest'])->name('wr.autocomplete.po');
 
@@ -145,27 +147,33 @@ Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::get('/dp/production-status/confirm/history', [ProductionStatusTrackingController::class, 'confirmHistory'])->name('dp.production-status.confirm.history');
 });
 
-Route::prefix('dp/grating-performance')
-  ->name('dp.grating-performance.')
+Route::prefix('grating-performance')
+  ->name('grating-performance.')
+  ->middleware('auth')
   ->group(function () {
-    Route::get('/', [GratingPerformanceController::class, 'index'])->name('index');
-    Route::get('/entries/create', [GratingPerformanceController::class, 'create'])->name('entries.create');
-    Route::get('/step-balance', [GratingPerformanceController::class, 'stepBalance'])->name('step-balance');
-    Route::post('/entries', [GratingPerformanceController::class, 'storeEntry'])->name('entries.store');
-    Route::put('/entries/{entry}', [GratingPerformanceController::class, 'updateEntry'])->name('entries.update');
-    Route::delete('/entries/{entry}', [GratingPerformanceController::class, 'destroyEntry'])->name('entries.destroy');
-    Route::get('/inquiry', [GratingPerformanceController::class, 'inquiry'])->name('inquiry');
-    Route::get('/masters', [GratingPerformanceController::class, 'masters'])->name('masters');
-    Route::post('/masters/employees', [GratingPerformanceController::class, 'storeEmployee'])->name('employees.store');
-    Route::put('/masters/employees/{employee}', [GratingPerformanceController::class, 'updateEmployee'])->name('employees.update');
-    Route::delete('/masters/employees/{employee}', [GratingPerformanceController::class, 'destroyEmployee'])->name('employees.destroy');
-    Route::post('/masters/steps/defaults', [GratingPerformanceController::class, 'seedDefaultSteps'])->name('steps.defaults');
-    Route::post('/masters/steps', [GratingPerformanceController::class, 'storeStep'])->name('steps.store');
-    Route::put('/masters/steps/{step}', [GratingPerformanceController::class, 'updateStep'])->name('steps.update');
-    Route::post('/masters/field-activities', [GratingPerformanceController::class, 'storeFieldActivity'])->name('field-activities.store');
-    Route::put('/masters/field-activities/{activity}', [GratingPerformanceController::class, 'updateFieldActivity'])->name('field-activities.update');
-    Route::post('/masters/projects', [GratingPerformanceController::class, 'storeProject'])->name('projects.store');
-    Route::put('/masters/projects/{project}', [GratingPerformanceController::class, 'updateProject'])->name('projects.update');
+    Route::middleware('permission.any:GP')->group(function () {
+      Route::get('/', [GratingPerformanceController::class, 'index'])->name('index');
+      Route::get('/entries/create', [GratingPerformanceController::class, 'create'])->name('entries.create');
+      Route::get('/step-balance', [GratingPerformanceController::class, 'stepBalance'])->name('step-balance');
+      Route::post('/entries', [GratingPerformanceController::class, 'storeEntry'])->name('entries.store');
+      Route::put('/entries/{entry}', [GratingPerformanceController::class, 'updateEntry'])->name('entries.update');
+      Route::delete('/entries/{entry}', [GratingPerformanceController::class, 'destroyEntry'])->name('entries.destroy');
+      Route::get('/inquiry', [GratingPerformanceController::class, 'inquiry'])->name('inquiry');
+    });
+
+    Route::middleware('permission.any:GPM')->group(function () {
+      Route::get('/masters', [GratingPerformanceController::class, 'masters'])->name('masters');
+      Route::post('/masters/employees', [GratingPerformanceController::class, 'storeEmployee'])->name('employees.store');
+      Route::put('/masters/employees/{employee}', [GratingPerformanceController::class, 'updateEmployee'])->name('employees.update');
+      Route::delete('/masters/employees/{employee}', [GratingPerformanceController::class, 'destroyEmployee'])->name('employees.destroy');
+      Route::post('/masters/steps/defaults', [GratingPerformanceController::class, 'seedDefaultSteps'])->name('steps.defaults');
+      Route::post('/masters/steps', [GratingPerformanceController::class, 'storeStep'])->name('steps.store');
+      Route::put('/masters/steps/{step}', [GratingPerformanceController::class, 'updateStep'])->name('steps.update');
+      Route::post('/masters/field-activities', [GratingPerformanceController::class, 'storeFieldActivity'])->name('field-activities.store');
+      Route::put('/masters/field-activities/{activity}', [GratingPerformanceController::class, 'updateFieldActivity'])->name('field-activities.update');
+      Route::post('/masters/projects', [GratingPerformanceController::class, 'storeProject'])->name('projects.store');
+      Route::put('/masters/projects/{project}', [GratingPerformanceController::class, 'updateProject'])->name('projects.update');
+    });
   });
 //Inquiry
 

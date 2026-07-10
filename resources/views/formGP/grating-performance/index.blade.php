@@ -163,9 +163,11 @@
             <div class="gp-head">
                 <span>Dashboard</span>
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="{{ route('dp.grating-performance.entries.create') }}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> Input</a>
-                    <a href="{{ route('dp.grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
-                    <a href="{{ route('dp.grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
+                    <a href="{{ route('grating-performance.entries.create') }}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> Input</a>
+                    <a href="{{ route('grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
+                    @can('GPM')
+                    <a href="{{ route('grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
+                    @endcan
                 </div>
             </div>
         </div>

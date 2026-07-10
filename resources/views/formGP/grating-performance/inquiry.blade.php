@@ -30,6 +30,22 @@
         .gp-summary-card .label { color:#6b7280; font-size:.78rem; }
         .gp-summary-card .value { font-weight:800; font-size:1.15rem; line-height:1.2; }
         .gp-subline { display:block; color:#6b7280; font-size:.78rem; line-height:1.35; }
+        .gp-mini-table-wrap { max-height:360px; overflow:auto; }
+        .gp-mini-table th { position:sticky; top:0; z-index:2; background:#f8fbff; white-space:nowrap; }
+        .gp-mini-table td { vertical-align:top; }
+        .gp-mfg-group { background:#f6f8fb; font-weight:800; }
+        .gp-step-cell { min-width:180px; }
+        .gp-work-summary { min-width:320px; max-width:620px; white-space:normal; }
+        .gp-mode-layout { display:grid; grid-template-columns:minmax(0, 1fr) 280px; gap:12px; align-items:start; }
+        .gp-total-panel { background:#fff; border:1px solid #dfe5ec; border-radius:8px; overflow:hidden; position:sticky; top:12px; }
+        .gp-total-panel .gp-total-head { padding:10px 12px; background:#f8fbff; border-bottom:1px solid #e8edf2; font-weight:800; }
+        .gp-total-body { padding:10px 12px; }
+        .gp-total-row { display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px dashed #e5e7eb; }
+        .gp-total-row:last-child { border-bottom:0; }
+        .gp-total-label { color:#6b7280; }
+        .gp-total-value { font-weight:800; text-align:right; font-variant-numeric:tabular-nums; }
+        .gp-subtotal-list { max-height:300px; overflow:auto; margin-top:8px; border-top:1px solid #e5e7eb; padding-top:8px; }
+        @media (max-width:1199px) { .gp-mode-layout { grid-template-columns:1fr; } .gp-total-panel { position:static; } }
         .gp-project-wrap { position:relative; }
         .gp-mfg-list { position:absolute; z-index:20; background:#fff; border:1px solid #ced4da; border-radius:6px; width:100%; max-height:240px; overflow:auto; display:none; }
         .gp-mfg-list button { display:block; width:100%; border:0; background:#fff; padding:8px 10px; text-align:left; }
@@ -49,9 +65,11 @@
             <div class="gp-head">
                 <span>รายการ Grating Performance</span>
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="{{ route('dp.grating-performance.entries.create') }}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> Input</a>
-                    <a href="{{ route('dp.grating-performance.index') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-chart-line me-1"></i> Dashboard</a>
-                    <a href="{{ route('dp.grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
+                    <a href="{{ route('grating-performance.entries.create') }}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> Input</a>
+                    <a href="{{ route('grating-performance.index') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-chart-line me-1"></i> Dashboard</a>
+                    @can('GPM')
+                    <a href="{{ route('grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
+                    @endcan
                 </div>
             </div>
             <form method="GET" class="p-3">
@@ -95,6 +113,14 @@
                             @endforeach
                         </select>
                     </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Mode</label>
+                        <select name="view_mode" class="form-select">
+                            <option value="transactions" @selected(($filters['view_mode'] ?? 'transactions') === 'transactions')>Transaction</option>
+                            <option value="employee" @selected(($filters['view_mode'] ?? 'transactions') === 'employee')>By employee / day</option>
+                            <option value="mfg" @selected(($filters['view_mode'] ?? 'transactions') === 'mfg')>By MFG / flow</option>
+                        </select>
+                    </div>
                     <div class="col-md-2 d-grid">
                         <button class="btn btn-outline-primary"><i class="fas fa-filter me-1"></i> Filter</button>
                     </div>
@@ -125,7 +151,176 @@
             </div>
         </div>
 
-        <div class="gp-panel">
+        @php
+            $viewMode = $filters['view_mode'] ?? 'transactions';
+            $employeeDailyRows = $employeeDailyRows ?? collect();
+            $mfgFlowRows = $mfgFlowRows ?? collect();
+            $employeeTotals = [
+                'rows' => $employeeDailyRows->count(),
+                'employees' => $employeeDailyRows->pluck('employee_id')->unique()->count(),
+                'hours' => $employeeDailyRows->sum('minutes') / 60,
+                'good_pcs' => $employeeDailyRows->sum('allocated_good_pcs'),
+                'bad_pcs' => $employeeDailyRows->sum('allocated_bad_pcs'),
+            ];
+            $employeeSubtotals = $employeeDailyRows->groupBy('employee_name')->map(function ($items) {
+                return [
+                    'hours' => $items->sum('minutes') / 60,
+                    'good_pcs' => $items->sum('allocated_good_pcs'),
+                    'bad_pcs' => $items->sum('allocated_bad_pcs'),
+                ];
+            });
+            $mfgTotals = [
+                'rows' => $mfgFlowRows->count(),
+                'mfgs' => $mfgFlowRows->pluck('mfg_no')->unique()->count(),
+                'hours' => $mfgFlowRows->sum('minutes') / 60,
+                'good_pcs' => $mfgFlowRows->sum('allocated_good_pcs'),
+                'bad_pcs' => $mfgFlowRows->sum('allocated_bad_pcs'),
+            ];
+            $mfgSubtotals = $mfgFlowRows->groupBy('mfg_no')->map(function ($items) {
+                return [
+                    'hours' => $items->sum('minutes') / 60,
+                    'good_pcs' => $items->sum('allocated_good_pcs'),
+                    'bad_pcs' => $items->sum('allocated_bad_pcs'),
+                ];
+            });
+        @endphp
+
+        @if ($viewMode === 'employee')
+        <div class="gp-mode-layout mb-3">
+            <div class="gp-panel">
+                <div class="gp-head">
+                    <span>By employee / day</span>
+                    <small class="text-muted">{{ number_format($employeeDailyRows->count()) }} rows</small>
+                </div>
+                <div class="gp-mini-table-wrap">
+                    <table class="table table-sm table-bordered gp-mini-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Employee</th>
+                                <th>Date</th>
+                                <th class="gp-work-summary">Work</th>
+                                <th class="num">Hrs</th>
+                                <th class="num">Good pcs</th>
+                                <th class="num">Bad pcs</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($employeeDailyRows as $dailyRow)
+                                <tr>
+                                    <td>{{ $dailyRow->employee_name }}</td>
+                                    <td>{{ \Carbon\Carbon::parse($dailyRow->work_day)->format('d/m/Y') }}</td>
+                                    <td class="gp-work-summary">
+                                        {{ $dailyRow->work_summary }}
+                                        <span class="gp-subline">{{ number_format($dailyRow->entry_count) }} transactions</span>
+                                    </td>
+                                    <td class="num">{{ $hours($dailyRow->minutes) }}</td>
+                                    <td class="num">{{ $fmt($dailyRow->allocated_good_pcs, 0) }}</td>
+                                    <td class="num">{{ $fmt($dailyRow->allocated_bad_pcs, 0) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="6" class="text-center text-muted py-3">No employee daily data</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <aside class="gp-total-panel">
+                <div class="gp-total-head">Subtotal / Total</div>
+                <div class="gp-total-body">
+                    <div class="gp-total-row"><span class="gp-total-label">Employees</span><span class="gp-total-value">{{ number_format($employeeTotals['employees']) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Rows</span><span class="gp-total-value">{{ number_format($employeeTotals['rows']) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Hours</span><span class="gp-total-value">{{ $fmt($employeeTotals['hours'], 1) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Good pcs</span><span class="gp-total-value">{{ $fmt($employeeTotals['good_pcs'], 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Bad pcs</span><span class="gp-total-value">{{ $fmt($employeeTotals['bad_pcs'], 0) }}</span></div>
+                    <div class="gp-subtotal-list">
+                        @foreach ($employeeSubtotals as $name => $subtotal)
+                            <div class="gp-total-row">
+                                <span class="gp-total-label">{{ $name }}</span>
+                                <span class="gp-total-value">{{ $fmt($subtotal['good_pcs'], 0) }} pcs<br><small>{{ $fmt($subtotal['hours'], 1) }} hrs</small></span>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            </aside>
+        </div>
+        @endif
+
+        @if ($viewMode === 'mfg')
+        <div class="gp-mode-layout mb-3">
+            <div class="gp-panel">
+                <div class="gp-head">
+                    <span>By MFG / master flow</span>
+                    <small class="text-muted">{{ number_format($mfgFlowRows->count()) }} rows</small>
+                </div>
+                <div class="gp-mini-table-wrap">
+                    <table class="table table-sm table-bordered gp-mini-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>MFG / SO</th>
+                                <th class="gp-step-cell">Step</th>
+                                <th>Employee</th>
+                                <th class="num">Hrs</th>
+                                <th class="num">Good pcs</th>
+                                <th class="num">Bad pcs</th>
+                                <th>Last</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($mfgFlowRows->groupBy('mfg_no') as $mfgNo => $flowRows)
+                                @php $firstFlow = $flowRows->first(); @endphp
+                                <tr class="gp-mfg-group">
+                                    <td colspan="7">
+                                        {{ $mfgNo }}
+                                        @if($firstFlow->project ?? null)
+                                            <span class="text-muted">/ {{ $firstFlow->project }}</span>
+                                        @endif
+                                        @if($firstFlow->salesorder ?? null)
+                                            <span class="text-muted">/ SO: {{ $firstFlow->salesorder }}</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                                @foreach ($flowRows as $flowRow)
+                                    <tr>
+                                        <td></td>
+                                        <td class="gp-step-cell">{{ $flowRow->step_name }}<span class="gp-subline">{{ $flowRow->step_code }}</span></td>
+                                        <td>{{ $flowRow->employee_name }}<span class="gp-subline">{{ number_format($flowRow->entry_count) }} transactions</span></td>
+                                        <td class="num">{{ $hours($flowRow->minutes) }}</td>
+                                        <td class="num">{{ $fmt($flowRow->allocated_good_pcs, 0) }}</td>
+                                        <td class="num">{{ $fmt($flowRow->allocated_bad_pcs, 0) }}</td>
+                                        <td>{{ $flowRow->last_work_date ? \Carbon\Carbon::parse($flowRow->last_work_date)->format('d/m/Y') : '-' }}</td>
+                                    </tr>
+                                @endforeach
+                            @empty
+                                <tr><td colspan="7" class="text-center text-muted py-3">No MFG flow data</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <aside class="gp-total-panel">
+                <div class="gp-total-head">Subtotal / Total</div>
+                <div class="gp-total-body">
+                    <div class="gp-total-row"><span class="gp-total-label">MFG</span><span class="gp-total-value">{{ number_format($mfgTotals['mfgs']) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Rows</span><span class="gp-total-value">{{ number_format($mfgTotals['rows']) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Hours</span><span class="gp-total-value">{{ $fmt($mfgTotals['hours'], 1) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Good pcs</span><span class="gp-total-value">{{ $fmt($mfgTotals['good_pcs'], 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Bad pcs</span><span class="gp-total-value">{{ $fmt($mfgTotals['bad_pcs'], 0) }}</span></div>
+                    <div class="gp-subtotal-list">
+                        @foreach ($mfgSubtotals as $mfgNo => $subtotal)
+                            <div class="gp-total-row">
+                                <span class="gp-total-label">{{ $mfgNo }}</span>
+                                <span class="gp-total-value">{{ $fmt($subtotal['good_pcs'], 0) }} pcs<br><small>{{ $fmt($subtotal['hours'], 1) }} hrs</small></span>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            </aside>
+        </div>
+        @endif
+
+        @if ($viewMode === 'transactions')
+        <div class="gp-mode-layout mb-3">
+            <div class="gp-panel">
             <div class="gp-head"><span>รายการที่บันทึก</span><small class="text-muted">{{ method_exists($rows, 'total') ? number_format($rows->total()) : 0 }} records</small></div>
             <div class="gp-table-wrap">
                 <table class="table table-sm table-bordered gp-table mb-0">
@@ -203,7 +398,7 @@
                                 <td class="text-nowrap gp-sticky-action">
                                     <div class="d-grid gap-1">
                                     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#edit-entry-{{ $row->id }}">แก้ไข</button>
-                                    <form method="POST" action="{{ route('dp.grating-performance.entries.destroy', $row->id) }}" class="gp-delete-entry-form" data-entry-label="{{ $row->is_field_work ? ($row->project ?? 'Field work') : $row->mfg_no }}">
+                                    <form method="POST" action="{{ route('grating-performance.entries.destroy', $row->id) }}" class="gp-delete-entry-form" data-entry-label="{{ $row->is_field_work ? ($row->project ?? 'Field work') : $row->mfg_no }}">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-outline-danger w-100">ยกเลิก</button>
@@ -227,7 +422,7 @@
                 @endphp
                 <div class="modal fade" id="edit-entry-{{ $row->id }}" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-xl modal-dialog-scrollable">
-                        <form method="POST" action="{{ route('dp.grating-performance.entries.update', $row->id) }}" class="modal-content gp-edit-form" data-entry-id="{{ $row->id }}" data-mfg-no="{{ $row->mfg_no }}" data-field-work="{{ $row->is_field_work ? '1' : '0' }}">
+                        <form method="POST" action="{{ route('grating-performance.entries.update', $row->id) }}" class="modal-content gp-edit-form" data-entry-id="{{ $row->id }}" data-mfg-no="{{ $row->mfg_no }}" data-field-work="{{ $row->is_field_work ? '1' : '0' }}">
                             @csrf
                             @method('PUT')
                             @if ($row->is_field_work && ($row->field_mfgs ?? ''))
@@ -332,14 +527,29 @@
             @if (method_exists($rows, 'links'))
                 <div class="p-3">{{ $rows->links() }}</div>
             @endif
+            </div>
+            <aside class="gp-total-panel">
+                <div class="gp-total-head">Subtotal / Total</div>
+                <div class="gp-total-body">
+                    <div class="gp-total-row"><span class="gp-total-label">Records</span><span class="gp-total-value">{{ number_format($summary['entry_count'] ?? 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">MFG</span><span class="gp-total-value">{{ number_format($summary['mfg_count'] ?? 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Good pcs</span><span class="gp-total-value">{{ $fmt($summary['good_pcs'] ?? 0, 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Good kg</span><span class="gp-total-value">{{ $fmt($summary['good_kg'] ?? 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Bad pcs</span><span class="gp-total-value">{{ $fmt($summary['bad_pcs'] ?? 0, 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Bad kg</span><span class="gp-total-value">{{ $fmt($summary['bad_kg'] ?? 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Finished</span><span class="gp-total-value">{{ number_format($summary['finished_count'] ?? 0) }}</span></div>
+                    <div class="gp-total-row"><span class="gp-total-label">Open</span><span class="gp-total-value">{{ number_format($summary['open_count'] ?? 0) }}</span></div>
+                </div>
+            </aside>
         </div>
+        @endif
     </div>
 @endsection
 
 @push('scripts')
     <script>
         (function () {
-            const gpStepBalanceUrl = @json(route('dp.grating-performance.step-balance'));
+            const gpStepBalanceUrl = @json(route('grating-performance.step-balance'));
 
             function numberValue(value) {
                 const parsed = parseFloat(String(value ?? '').replace(/,/g, ''));

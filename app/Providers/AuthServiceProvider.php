@@ -48,6 +48,8 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('DPA',      fn(User $u) => $u->hasRoleCode(['DPA']));
         Gate::define('DPEMAIL',      fn(User $u) => $u->hasRoleCode(['DPEMAIL', 'DPMAIL']));
         Gate::define('TDP',      fn(User $u) => $u->hasRoleCode(['TDP']));
+        Gate::define('GP',      fn(User $u) => $u->hasRoleCode(['GP']));
+        Gate::define('GPM',      fn(User $u) => $u->hasRoleCode(['GPM']));
         Gate::define('VC',      fn(User $u) => $u->hasRoleCode(['VC']));
         Gate::define('VCA',      fn(User $u) => $u->hasRoleCode(['VCA']));
         Gate::define('VCL',      fn(User $u) => $u->hasRoleCode(['VCL']));

@@ -101,13 +101,15 @@
             <div class="gp-head">
                 <span>Input รายวัน</span>
                 <div class="d-flex flex-wrap gap-2">
-                    <a href="{{ route('dp.grating-performance.index') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-chart-line me-1"></i> Dashboard</a>
-                    <a href="{{ route('dp.grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
-                    <a href="{{ route('dp.grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
+                    <a href="{{ route('grating-performance.index') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-chart-line me-1"></i> Dashboard</a>
+                    <a href="{{ route('grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
+                    @can('GPM')
+                    <a href="{{ route('grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
+                    @endcan
                 </div>
             </div>
 
-            <form method="POST" action="{{ route('dp.grating-performance.entries.store') }}">
+            <form method="POST" action="{{ route('grating-performance.entries.store') }}">
                 @csrf
                 <div class="gp-form-section">
                     <div class="gp-section-title">
@@ -339,7 +341,7 @@
                     </div>
 
                     <div class="col-12 d-flex justify-content-end gap-2">
-                        <a href="{{ route('dp.grating-performance.index') }}" class="btn btn-outline-secondary">ยกเลิก</a>
+                        <a href="{{ route('grating-performance.index') }}" class="btn btn-outline-secondary">ยกเลิก</a>
                         <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i> บันทึก</button>
                     </div>
                     </div>
@@ -354,10 +356,10 @@
             const gpSteps = @json($stepPayload);
             const gpHasStepOld = @json((bool) old('step_id'));
             const gpEntrySaved = @json((bool) session('grating_entry_saved'));
-            const gpStepBalanceUrl = @json(route('dp.grating-performance.step-balance'));
+            const gpStepBalanceUrl = @json(route('grating-performance.step-balance'));
 
             document.addEventListener('DOMContentLoaded', function () {
-                const form = document.querySelector('form[action="{{ route('dp.grating-performance.entries.store') }}"]');
+                const form = document.querySelector('form[action="{{ route('grating-performance.entries.store') }}"]');
                 const employeeSelect = document.getElementById('gp-employee');
                 const stepCheckboxes = Array.from(document.querySelectorAll('.gp-step-checkbox'));
                 const stepHint = document.getElementById('gp-step-hint');

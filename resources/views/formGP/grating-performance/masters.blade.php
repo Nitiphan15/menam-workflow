@@ -40,13 +40,15 @@
         @endif
 
         <div class="d-flex justify-content-end gap-2 mb-3">
-            <a href="{{ route('dp.grating-performance.index') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-chart-line me-1"></i> Dashboard</a>
-            <a href="{{ route('dp.grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
+            @can('GP')
+            <a href="{{ route('grating-performance.index') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-chart-line me-1"></i> Dashboard</a>
+            <a href="{{ route('grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
+            @endcan
         </div>
 
         <div class="gp-panel mb-3">
             <div class="gp-head"><span>Master พนักงาน</span><small class="text-muted">ข้อมูลและงานที่รับผิดชอบ</small></div>
-            <form method="POST" action="{{ route('dp.grating-performance.employees.store') }}" class="p-3">
+            <form method="POST" action="{{ route('grating-performance.employees.store') }}" class="p-3">
                 @csrf
                 <div class="row g-3 align-items-end">
                     <div class="col-lg-2 col-md-3">
@@ -124,7 +126,7 @@
                                 $studentCustom = $studentMonths && !in_array($studentMonths, [3, 6, 12], true) ? $studentMonths : '';
                             @endphp
                             <tr>
-                                <td><form id="employee-{{ $employee->id }}" method="POST" action="{{ route('dp.grating-performance.employees.update', $employee->id) }}">@csrf @method('PUT')<input name="employee_code" class="form-control form-control-sm" value="{{ $employee->employee_code }}"></form></td>
+                                <td><form id="employee-{{ $employee->id }}" method="POST" action="{{ route('grating-performance.employees.update', $employee->id) }}">@csrf @method('PUT')<input name="employee_code" class="form-control form-control-sm" value="{{ $employee->employee_code }}"></form></td>
                                 <td><input form="employee-{{ $employee->id }}" name="name" class="form-control form-control-sm" value="{{ $employee->name }}" required></td>
                                 <td><input form="employee-{{ $employee->id }}" name="nickname" class="form-control form-control-sm" value="{{ $employee->nickname }}"></td>
                                 <td>
@@ -180,7 +182,7 @@
                                 <td>
                                     <div class="d-flex gap-1">
                                         <button form="employee-{{ $employee->id }}" class="btn btn-sm btn-primary" title="บันทึก"><i class="fas fa-save"></i></button>
-                                        <form method="POST" action="{{ route('dp.grating-performance.employees.destroy', $employee->id) }}" class="gp-delete-employee-form" data-employee-name="{{ $employee->name }}">
+                                        <form method="POST" action="{{ route('grating-performance.employees.destroy', $employee->id) }}" class="gp-delete-employee-form" data-employee-name="{{ $employee->name }}">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="btn btn-sm btn-outline-danger" title="ลบ"><i class="fas fa-trash"></i></button>
@@ -204,7 +206,7 @@
                         <div class="fw-semibold">ขั้นตอนตามฟอร์ม Checklist</div>
                         <div class="text-muted small">ใช้เป็น master step สำหรับให้หน้า Input ติ๊กอัตโนมัติตามหน้าที่พนักงาน</div>
                     </div>
-                    <form method="POST" action="{{ route('dp.grating-performance.steps.defaults') }}">
+                    <form method="POST" action="{{ route('grating-performance.steps.defaults') }}">
                         @csrf
                         <button class="btn btn-outline-primary">
                             <i class="fas fa-list-check me-1"></i> เติมชุดขั้นตอนมาตรฐาน
@@ -220,7 +222,7 @@
                     @endforeach
                 </div>
             </div>
-            <form method="POST" action="{{ route('dp.grating-performance.steps.store') }}" class="p-3">
+            <form method="POST" action="{{ route('grating-performance.steps.store') }}" class="p-3">
                 @csrf
                 <div class="row g-3 align-items-end">
                     <div class="col-lg-2 col-md-3">
@@ -262,7 +264,7 @@
                     <tbody>
                         @forelse ($steps as $step)
                             <tr>
-                                <td><form id="step-{{ $step->id }}" method="POST" action="{{ route('dp.grating-performance.steps.update', $step->id) }}">@csrf @method('PUT')<input name="step_name" class="form-control form-control-sm" value="{{ $step->step_name }}" required></form></td>
+                                <td><form id="step-{{ $step->id }}" method="POST" action="{{ route('grating-performance.steps.update', $step->id) }}">@csrf @method('PUT')<input name="step_name" class="form-control form-control-sm" value="{{ $step->step_name }}" required></form></td>
                                 <td><input form="step-{{ $step->id }}" name="step_code" class="form-control form-control-sm" value="{{ $step->step_code }}" pattern="[A-Za-z0-9_\-]+" title="ใช้ได้เฉพาะ A-Z 0-9 _ - ห้ามเว้นวรรค" required></td>
                                 <td><input form="step-{{ $step->id }}" type="number" step="0.001" min="0" name="target_pcs_per_hour" class="form-control form-control-sm num" value="{{ $step->target_pcs_per_hour ?? '' }}"></td>
                                 <td><input form="step-{{ $step->id }}" type="number" step="0.001" min="0" name="target_kg_per_hour" class="form-control form-control-sm num" value="{{ $step->target_kg_per_hour }}"></td>
@@ -291,7 +293,7 @@
 
         <div class="gp-panel mb-3">
             <div class="gp-head"><span>Master Project</span><small class="text-muted">ใช้ร่วมกับ Project ที่ดึงจาก workorder.notes</small></div>
-            <form method="POST" action="{{ route('dp.grating-performance.projects.store') }}" class="p-3">
+            <form method="POST" action="{{ route('grating-performance.projects.store') }}" class="p-3">
                 @csrf
                 <div class="row g-3 align-items-end">
                     <div class="col-lg-5 col-md-5">
@@ -321,7 +323,7 @@
                     <tbody>
                         @forelse ($projects as $project)
                             <tr>
-                                <td><form id="project-{{ $project->id }}" method="POST" action="{{ route('dp.grating-performance.projects.update', $project->id) }}">@csrf @method('PUT')<input name="project_name" class="form-control form-control-sm" value="{{ $project->project_name }}" required></form></td>
+                                <td><form id="project-{{ $project->id }}" method="POST" action="{{ route('grating-performance.projects.update', $project->id) }}">@csrf @method('PUT')<input name="project_name" class="form-control form-control-sm" value="{{ $project->project_name }}" required></form></td>
                                 <td><input form="project-{{ $project->id }}" name="salesorder" class="form-control form-control-sm" value="{{ $project->salesorder }}"></td>
                                 <td><input form="project-{{ $project->id }}" type="number" min="0" max="999" name="sort_order" class="form-control form-control-sm num" value="{{ $project->sort_order }}"></td>
                                 <td>
@@ -342,7 +344,7 @@
 
         <div class="gp-panel">
             <div class="gp-head"><span>Master กิจกรรมหน้างาน</span><small class="text-muted">อ่านจากตาราง grating_field_activities</small></div>
-            <form method="POST" action="{{ route('dp.grating-performance.field-activities.store') }}" class="p-3">
+            <form method="POST" action="{{ route('grating-performance.field-activities.store') }}" class="p-3">
                 @csrf
                 <div class="row g-3 align-items-end">
                     <div class="col-lg-2 col-md-3">
@@ -372,7 +374,7 @@
                     <tbody>
                         @forelse ($fieldActivities as $activity)
                             <tr>
-                                <td><form id="activity-{{ $activity->id }}" method="POST" action="{{ route('dp.grating-performance.field-activities.update', $activity->id) }}">@csrf @method('PUT')<input name="activity_code" class="form-control form-control-sm" value="{{ $activity->activity_code }}" pattern="[A-Za-z0-9_\-]+" title="ใช้ได้เฉพาะ A-Z 0-9 _ - ห้ามเว้นวรรค" required></form></td>
+                                <td><form id="activity-{{ $activity->id }}" method="POST" action="{{ route('grating-performance.field-activities.update', $activity->id) }}">@csrf @method('PUT')<input name="activity_code" class="form-control form-control-sm" value="{{ $activity->activity_code }}" pattern="[A-Za-z0-9_\-]+" title="ใช้ได้เฉพาะ A-Z 0-9 _ - ห้ามเว้นวรรค" required></form></td>
                                 <td><input form="activity-{{ $activity->id }}" name="activity_name" class="form-control form-control-sm" value="{{ $activity->activity_name }}" required></td>
                                 <td><input form="activity-{{ $activity->id }}" type="number" min="0" max="999" name="sort_order" class="form-control form-control-sm num" value="{{ $activity->sort_order }}"></td>
                                 <td>
