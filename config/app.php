@@ -17,6 +17,8 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    'version' => env('APP_VERSION', '1.2.0'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment
@@ -29,6 +31,9 @@ return [
     */
 
     'env' => env('APP_ENV', 'production'),
+
+    // เปิด/ปิดการบันทึก activity log (null = ใช้ค่าเริ่มต้น: บันทึกเฉพาะเมื่อไม่ใช่ environment local)
+    'activity_log_enabled' => env('ACTIVITY_LOG_ENABLED', null),
 
     /*
     |--------------------------------------------------------------------------
