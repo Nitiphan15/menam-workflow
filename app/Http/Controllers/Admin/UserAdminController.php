@@ -27,6 +27,7 @@ class UserAdminController extends Controller
         $users = User::query()
             ->when($q, fn($w) => $w->where(function ($x) use ($q) {
                 $x->where('name', 'like', "%$q%")
+                    ->orWhere('username', 'like', "%$q%")
                     ->orWhere('email', 'like', "%$q%")
                     ->orWhere('user_code', 'like', "%$q%");
             }))
@@ -43,7 +44,7 @@ class UserAdminController extends Controller
             'name'                  => 'required|string|max:200',
             'email'                 => 'required|email|max:255|unique:sqlsrv_menam.users,email',
             'phone'                 => 'nullable|string|max:50',
-            'password'              => 'required|string|min:6|confirmed',
+            'password'              => 'required|string|min:4|confirmed',
             'department_id'         => 'nullable|exists:sqlsrv_menam.departments,id',
             'department_role_id'    => 'nullable|exists:sqlsrv_menam.department_roles,id',
             'web_roles'             => 'array',
@@ -66,6 +67,7 @@ class UserAdminController extends Controller
 
             $user = User::create([
                 'user_code'             => $data['user_code'] ?? null,
+                'username'              => User::uniqueUsernameForName($data['name']),
                 'name'                  => $data['name'],
                 'email'                 => $data['email'],
                 'phone'                 => $data['phone'] ?? null,
@@ -141,11 +143,12 @@ class UserAdminController extends Controller
             'email'     => 'required|email|max:255|unique:sqlsrv_menam.users,email,' . $user->id,
             'phone'     => 'nullable|string|max:50',
             'is_active' => 'required|boolean',
-            'password'  => 'nullable|string|min:6|confirmed',
+            'password'  => 'nullable|string|min:4|confirmed',
         ]);
 
         $update = [
             'user_code' => $data['user_code'] ?? null,
+            'username'  => User::uniqueUsernameForName($data['name'], (int) $user->id),
             'name'      => $data['name'],
             'email'     => $data['email'],
             'phone'     => $data['phone'] ?? null,

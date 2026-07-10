@@ -25,9 +25,15 @@
                         <input name="user_code" class="form-control" value="{{ old('user_code', $user->user_code) }}">
                     </div>
 
+                    <div class="col-md-3">
+                        <label class="form-label">Username</label>
+                        <input class="form-control" value="{{ $user->username }}" readonly>
+                    </div>
+
                     <div class="col-md-5">
                         <label class="form-label">ชื่อ-นามสกุล</label>
                         <input name="name" class="form-control" value="{{ old('name', $user->name) }}" required>
+                        <div class="form-text">หลังบันทึก ระบบจะสร้าง username ใหม่จากชื่อ-นามสกุลนี้</div>
                     </div>
 
                     <div class="col-md-4">

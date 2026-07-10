@@ -22,6 +22,7 @@
                     <div class="col-md-4">
                         <label class="form-label">ชื่อ-นามสกุล</label>
                         <input name="name" class="form-control" value="{{ old('name') }}" required>
+                        <div class="form-text">ระบบจะสร้าง username ให้อัตโนมัติ เช่น Somchai Jaidee = somchai_j</div>
                     </div>
 
                     <div class="col-md-5">
@@ -108,6 +109,7 @@
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
+                            <th>Username</th>
                             <th>รหัส</th>
                             <th>ชื่อ</th>
                             <th>อีเมล</th>
@@ -122,6 +124,7 @@
                         @forelse($users as $u)
                             <tr>
                                 <td>{{ $num += 1 }}</td>
+                                <td>{{ $u->username }}</td>
                                 <td>{{ $u->user_code }}</td>
                                 <td>{{ $u->name }}</td>
                                 <td>{{ $u->email }}</td>
@@ -148,7 +151,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center text-muted">ไม่พบข้อมูล</td>
+                                <td colspan="7" class="text-center text-muted">ไม่พบข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>

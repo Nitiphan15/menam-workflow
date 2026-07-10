@@ -27,7 +27,11 @@ class DepartmentAdminController extends Controller
             'parent_id'   => 'nullable|exists:sqlsrv_menam.departments,id',
         ]);
 
-        Department::create($data);
+        SqlServerDb::table('departments')->insert($data + [
+            'is_active' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         return back()->with('ok', 'เพิ่มแผนกแล้ว');
     }

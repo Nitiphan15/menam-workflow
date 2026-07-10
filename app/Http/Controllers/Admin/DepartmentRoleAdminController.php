@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Users\Department;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 
@@ -15,7 +14,8 @@ class DepartmentRoleAdminController extends Controller
         $q = trim((string)$r->query('q', ''));
         $deptId = (int)($r->query('dept_id') ?? 0);
 
-        $departments = Department::where('is_active', '=', 1)
+        $departments = SqlServerDb::table('departments')
+            ->where('is_active', '=', 1)
             ->orderBy('code')
             ->get(['id', 'code', 'name']);
 
@@ -81,7 +81,10 @@ class DepartmentRoleAdminController extends Controller
             ->select('dr.*', 'd.code as dept_code', 'd.name as dept_name')
             ->paginate(12)->withQueryString();
 
-        $departments = Department::orderBy('code')->get(['id', 'code', 'name']);
+        $departments = SqlServerDb::table('departments')
+            ->where('is_active', '=', 1)
+            ->orderBy('code')
+            ->get(['id', 'code', 'name']);
         return view('adminweb.deptroles.index', compact('row', 'departments', 'items', 'deptId', 'q'));
     }
 
