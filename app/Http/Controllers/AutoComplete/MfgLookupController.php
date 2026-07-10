@@ -28,7 +28,7 @@ class MfgLookupController extends Controller
             DB::raw('p.id AS part_id'),
             'p.partnumber',
             'p.unit',
-            DB::raw('p.ref_unit_qty AS ref_unit_qty'),
+            DB::raw('NULL AS ref_unit_qty'),
             DB::raw('p.description AS part_desc'),
             DB::raw('p.f1 AS size'),
             DB::raw('p.f2 AS length'),
@@ -42,7 +42,7 @@ class MfgLookupController extends Controller
         ];
 
         $rows = $base->select($select)
-            ->where('p.partnumber', 'ilike', 'FG%')
+            ->where('wo.workordernumber', 'ilike', 'G%')
             ->when($term !== '', function ($q) use ($term) {
                 // PostgreSQL: ใช้ ILIKE ให้ค้นแบบ case-insensitive + prefix match
                     $q->where(function ($sub) use ($term) {
@@ -104,7 +104,7 @@ class MfgLookupController extends Controller
             DB::raw('p.id AS part_id'),
             'p.partnumber',
             'p.unit',
-            DB::raw('p.ref_unit_qty AS ref_unit_qty'),
+            DB::raw('NULL AS ref_unit_qty'),
             DB::raw('p.description AS part_desc'),
             DB::raw('p.f1 AS size'),
             DB::raw('p.f2 AS length'),
@@ -124,7 +124,7 @@ class MfgLookupController extends Controller
                 ->select($select)
                 ->addSelect(DB::raw('NULL AS plan_description'))
                 ->selectRaw('? as site', [$siteLabel])        // เพิ่มคอลัมน์ site ให้รู้ว่าแหล่งไหน
-                ->where('p.partnumber', 'ilike', 'FG%')
+                ->where('wo.workordernumber', 'ilike', 'G%')
                 ->when($term !== '', function ($q) use ($term) {
                     $q->where(function ($sub) use ($term) {
                         $sub->where('wo.workordernumber', 'ilike', $term . '%')
@@ -147,8 +147,8 @@ class MfgLookupController extends Controller
         };
 
         // ยิงทั้งสองแหล่ง โดยใช้ชื่อ connection ใหม่ก่อน และ fallback ชื่อเดิมใน dev
-        $rowsW = $safeFetchFrom(['pgsqlw', 'pgmfgsqlw', 'pgmgfsqlw', 'pgsqlmfgw'], 'Wire');
-        $rowsP = $safeFetchFrom(['pgsqlp', 'pgmgfsqlp', 'pgmfgsqlp', 'pgsqlmfgp'], 'Plus');
+        $rowsW = $safeFetchFrom(['pgsqlmfgw', 'pgmfgsqlw', 'pgmgfsqlw', 'pgsqlw'], 'Wire');
+        $rowsP = $safeFetchFrom(['pgsqlmfgp', 'pgmgfsqlp', 'pgmfgsqlp', 'pgsqlp'], 'Plus');
 
         // รวมผล, จัดเรียงโดย workordernumber อีกรอบ แล้วคัด limit อีกครั้งหลังรวม
         $rows = $rowsW
@@ -162,8 +162,8 @@ class MfgLookupController extends Controller
         // map เป็น payload สำหรับ autocomplete (เช่น Select2)
         $results = $rows->map(function ($r) use ($planDescriptions) {
             $dimension = $this->parseAreaDimension($r->part_desc);
-            $notesMeta = $this->parseWorkorderNotes($r->wo_notes);
             $planDescription = $planDescriptions[$this->planLookupKey($r->site, $r->workorder_id)] ?? ($r->plan_description ?? null);
+            $notesMeta = $this->parseWorkorderNotes(trim((string) $r->wo_notes . "\n" . (string) $planDescription));
             $planQtyPcs = $this->parsePlanQtyPcs($planDescription);
             $label = sprintf(
                 '[%s] %s | %s | Qty %s | %s',
@@ -220,8 +220,8 @@ class MfgLookupController extends Controller
         $masterRows = $this->fetchMasterProjects($term, $limit);
 
         $rows = collect()
-            ->concat($this->fetchProjectRows(['pgsqlw', 'pgmfgsqlw', 'pgmgfsqlw', 'pgsqlmfgw'], 'Wire', $term, $limit))
-            ->concat($this->fetchProjectRows(['pgsqlp', 'pgmgfsqlp', 'pgmfgsqlp', 'pgsqlmfgp'], 'Plus', $term, $limit));
+            ->concat($this->fetchProjectRows(['pgsqlmfgw', 'pgmfgsqlw', 'pgmgfsqlw', 'pgsqlw'], 'Wire', $term, $limit))
+            ->concat($this->fetchProjectRows(['pgsqlmfgp', 'pgmgfsqlp', 'pgmfgsqlp', 'pgsqlp'], 'Plus', $term, $limit));
 
         $noteResults = $rows
             ->map(function ($row) {
@@ -336,6 +336,10 @@ class MfgLookupController extends Controller
         $salesorder = null;
         if (preg_match('/Sale\s*Order\s*:\s*([A-Z0-9\-]+)/iu', $notes, $matches)) {
             $salesorder = trim($matches[1]);
+        } elseif (preg_match('/\b(SOD[A-Z0-9\-]+)\b/iu', $notes, $matches)) {
+            $salesorder = trim($matches[1]);
+        } elseif (preg_match('/\bSOD\b\s*[:=]?\s*([A-Z0-9\-]+)/iu', $notes, $matches)) {
+            $salesorder = trim($matches[1]);
         }
 
         $project = null;
@@ -374,8 +378,8 @@ class MfgLookupController extends Controller
 
         foreach ($groups as $site => $siteRows) {
             $connectionNames = $site === 'Plus'
-                ? ['pgsqlp', 'pgmgfsqlp', 'pgmfgsqlp', 'pgsqlmfgp']
-                : ['pgsqlw', 'pgmfgsqlw', 'pgmgfsqlw', 'pgsqlmfgw'];
+                ? ['pgsqlmfgp', 'pgmgfsqlp', 'pgmfgsqlp', 'pgsqlp']
+                : ['pgsqlmfgw', 'pgmfgsqlw', 'pgmgfsqlw', 'pgsqlw'];
 
             $ids = $siteRows->pluck('workorder_id')->filter()->unique()->values()->all();
             if (!$ids) {

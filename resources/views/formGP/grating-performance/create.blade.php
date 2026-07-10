@@ -237,11 +237,11 @@
                     </div>
                     <div class="col-6 col-lg-3">
                         <label class="form-label">เริ่ม</label>
-                        <input type="text" name="entries[0][start_time]" class="form-control gp-time-input" value="{{ old('entries.0.start_time', old('start_time')) }}" inputmode="numeric" maxlength="5" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" placeholder="08:50" required>
+                        <input type="text" name="entries[0][start_time]" class="form-control gp-time-input" value="{{ old('entries.0.start_time', old('start_time', '08:00')) }}" inputmode="numeric" maxlength="5" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" placeholder="08:00" required>
                     </div>
                     <div class="col-6 col-lg-3">
                         <label class="form-label">จบ</label>
-                        <input type="text" name="entries[0][finish_time]" class="form-control gp-time-input" value="{{ old('entries.0.finish_time', old('finish_time')) }}" inputmode="numeric" maxlength="5" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" placeholder="17:30">
+                        <input type="text" name="entries[0][finish_time]" class="form-control gp-time-input" value="{{ old('entries.0.finish_time', old('finish_time', '17:00')) }}" inputmode="numeric" maxlength="5" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$" placeholder="17:00">
                     </div>
 
                     {{-- แถว 2: ยอดดี/เสีย จับคู่ตามหน่วย ชิ้น → กก. → ตร.ม. --}}
@@ -606,6 +606,10 @@
                         autoGrow(area);
                     });
                     row.dataset.fieldMfgs = '[]';
+                    const startInput = row.querySelector('input[name$="[start_time]"]');
+                    const finishInput = row.querySelector('input[name$="[finish_time]"]');
+                    if (startInput) startInput.value = '08:00';
+                    if (finishInput) finishInput.value = '17:00';
                     renderFieldMfgs(row);
                     row.querySelector('.gp-entry-coworkers')?.classList.add('d-none');
                 }
