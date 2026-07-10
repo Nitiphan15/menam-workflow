@@ -34,6 +34,7 @@ use App\Http\Controllers\Admin\DepartmentRoleAdminController;
 use App\Http\Controllers\Admin\UserDeptRoleAdminController;
 use App\Http\Controllers\Admin\UserDepartmentAssignmentController;
 use App\Http\Controllers\Admin\UserPermissionController;
+use App\Http\Controllers\Admin\ActivityLogController;
 //WR
 use App\Http\Controllers\FormWR\IncomeController;
 //Profile
@@ -65,9 +66,12 @@ use App\Http\Controllers\FormExam\ExamImportController;
 use App\Http\Controllers\FormLIS\InquiryController;
 //Rick
 use App\Http\Controllers\FormRisk\ProductionRiskController;
+//DIE
+use App\Http\Controllers\FormDIE\DieTrackingController;
 //DP
 use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
+use App\Http\Controllers\FormGP\GratingPerformanceController;
 use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
 use App\Http\Controllers\FormDP\TruckMasterController;
 //Forecast
@@ -89,6 +93,7 @@ use App\Http\Controllers\AutoComplete\MfgLookupController;
 //Weekly Order
 use App\Http\Controllers\FormWOS\SalesInquiryController;
 use App\Http\Controllers\FormWOS\SalesUnitSummaryController;
+use App\Http\Controllers\FormWOS\CustomerOrderInvoiceComparisonController;
 use App\Http\Controllers\FormWOS\DeadstockReportController;
 use App\Http\Controllers\FormWOS\OrderDueDateController;
 use Illuminate\Support\Facades\Gate;
@@ -114,6 +119,8 @@ Route::get('/', function () {
   return redirect('/home');
 });
 
+// Lookup / autocomplete endpoints — ต้อง login, จำกัด IP และ rate กัน scrape ข้อมูล
+
 Route::get('/fc/history-detail', [ForecastRmController::class, 'historyDetail'])->name('fc.historyDetail');
 Route::get('/fc/sku-autocomplete', [ForecastRmController::class, 'skuAutocomplete'])->name('fc.skuAutocomplete');
 Route::get('/fc/division/customer-lookup', [ForecastRmDivisionController::class, 'customerLookup'])
@@ -124,8 +131,12 @@ Route::get('/api/department-roles/by-dept/{dept}', [DepartmentRoleLookupControll
 Route::get('/api/users/search', [UserLookupController::class, 'search'])->name('api.users.search');
 Route::get('/api/parts/search', [PartnumberLookupController::class, 'byPartnumber'])->name('api.parts.search');
 Route::get('/api/mfgs/search', [MfgLookupController::class, 'byMFG'])->name('api.mfgs.search');
+Route::get('/api/grating-projects/search', [MfgLookupController::class, 'gratingProjects'])
+  ->middleware(['auth', 'permission.any:GP'])
+  ->name('api.grating-projects.search');
 Route::get('/api/wr/items', [IncomeController::class, 'itemsSuggest'])->name('wr.autocomplete.items');
 Route::get('/api/wr/po',    [IncomeController::class, 'poSuggest'])->name('wr.autocomplete.po');
+
 
 Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::get('/dp/production-status', [ProductionStatusTrackingController::class, 'index'])->name('dp.production-status');
@@ -135,12 +146,83 @@ Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::post('/dp/production-status/confirm-bulk', [ProductionStatusTrackingController::class, 'confirmBulk'])->name('dp.production-status.confirm.bulk');
   Route::get('/dp/production-status/confirm/history', [ProductionStatusTrackingController::class, 'confirmHistory'])->name('dp.production-status.confirm.history');
 });
+
+Route::prefix('grating-performance')
+  ->name('grating-performance.')
+  ->middleware('auth')
+  ->group(function () {
+    Route::middleware('permission.any:GP')->group(function () {
+      Route::get('/', [GratingPerformanceController::class, 'index'])->name('index');
+      Route::get('/entries/create', [GratingPerformanceController::class, 'create'])->name('entries.create');
+      Route::get('/step-balance', [GratingPerformanceController::class, 'stepBalance'])->name('step-balance');
+      Route::post('/entries', [GratingPerformanceController::class, 'storeEntry'])->name('entries.store');
+      Route::put('/entries/{entry}', [GratingPerformanceController::class, 'updateEntry'])->name('entries.update');
+      Route::delete('/entries/{entry}', [GratingPerformanceController::class, 'destroyEntry'])->name('entries.destroy');
+      Route::get('/inquiry', [GratingPerformanceController::class, 'inquiry'])->name('inquiry');
+    });
+
+    Route::middleware('permission.any:GPM')->group(function () {
+      Route::get('/masters', [GratingPerformanceController::class, 'masters'])->name('masters');
+      Route::post('/masters/employees', [GratingPerformanceController::class, 'storeEmployee'])->name('employees.store');
+      Route::put('/masters/employees/{employee}', [GratingPerformanceController::class, 'updateEmployee'])->name('employees.update');
+      Route::delete('/masters/employees/{employee}', [GratingPerformanceController::class, 'destroyEmployee'])->name('employees.destroy');
+      Route::post('/masters/steps/defaults', [GratingPerformanceController::class, 'seedDefaultSteps'])->name('steps.defaults');
+      Route::post('/masters/steps', [GratingPerformanceController::class, 'storeStep'])->name('steps.store');
+      Route::put('/masters/steps/{step}', [GratingPerformanceController::class, 'updateStep'])->name('steps.update');
+      Route::post('/masters/field-activities', [GratingPerformanceController::class, 'storeFieldActivity'])->name('field-activities.store');
+      Route::put('/masters/field-activities/{activity}', [GratingPerformanceController::class, 'updateFieldActivity'])->name('field-activities.update');
+      Route::post('/masters/projects', [GratingPerformanceController::class, 'storeProject'])->name('projects.store');
+      Route::put('/masters/projects/{project}', [GratingPerformanceController::class, 'updateProject'])->name('projects.update');
+    });
+  });
 //Inquiry
 
 Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
   ->name('dp.history');
 
 Route::view('/home', 'home')->name('home');
+
+Route::prefix('/die-tracking')
+  ->name('die.')
+  ->group(function () {
+    Route::get('/',              [DieTrackingController::class, 'index'])->name('index');
+    Route::get('/by-workorder',  [DieTrackingController::class, 'byWorkorder'])->name('by-workorder');
+    Route::get('/by-date',       [DieTrackingController::class, 'byDate'])->name('by-date');
+    Route::get('/by-week',       [DieTrackingController::class, 'byWeek'])->name('by-week');
+    Route::get('/compare',       [DieTrackingController::class, 'compare'])->name('compare');
+    Route::get('/export',        [DieTrackingController::class, 'export'])->name('export');
+
+    // Master / Profile / Location
+    Route::get('/master',                    [DieTrackingController::class, 'master'])->name('master');
+    Route::get('/api/master',                [DieTrackingController::class, 'dieMaster'])->name('api.master');
+    Route::get('/api/categories',            [DieTrackingController::class, 'categories'])->name('api.categories');
+    Route::get('/api/suppliers',             [DieTrackingController::class, 'suppliers'])->name('api.suppliers');
+    Route::get('/api/equiptypes',            [DieTrackingController::class, 'equipTypes'])->name('api.equiptypes');
+    Route::get('/api/statuses',              [DieTrackingController::class, 'statuses'])->name('api.statuses');
+    Route::get('/api/profile/{equipnumber}', [DieTrackingController::class, 'dieProfile'])->name('api.profile');
+    Route::get('/api/location',              [DieTrackingController::class, 'currentLocation'])->name('api.location');
+    Route::get('/api/material',              [DieTrackingController::class, 'materialTrace'])->name('api.material');
+
+    // Autocomplete suggest endpoints: type ∈ wo|die|heat|coil
+    Route::get('/api/suggest/{type}',        [DieTrackingController::class, 'suggest'])
+      ->whereIn('type', ['wo', 'die', 'heat', 'coil', 'desc'])
+      ->name('api.suggest');
+
+    // WO Detail Sheet
+    Route::get('/wo-detail',                 [DieTrackingController::class, 'woDetailPage'])->name('wo-detail');
+    Route::get('/api/wo-detail',             [DieTrackingController::class, 'woDetailApi'])->name('api.wo-detail');
+
+    // Customer Claim ในรอบ 1 เดือน (dashboard widget)
+    Route::get('/recent-claims',             [DieTrackingController::class, 'recentClaims'])->name('recent-claims');
+
+    // ไดร์ที่อยู่บนเครื่องไหน ณ ปัจจุบัน (dashboard widget)
+    Route::get('/current-machines',          [DieTrackingController::class, 'currentMachines'])->name('current-machines');
+
+    // Insights widgets
+    Route::get('/top-consumers', [DieTrackingController::class, 'topConsumers'])->name('top-consumers');
+    Route::get('/top-output',    [DieTrackingController::class, 'topOutputDies'])->name('top-output');
+    Route::get('/idle-dies',     [DieTrackingController::class, 'idleDies'])->name('idle-dies');
+  });
 
 Route::prefix('/risk')
   ->name('risk.')
@@ -186,22 +268,33 @@ Route::prefix('/wos')
       ->name('sales_unit_summary.detail');
     Route::get('/sales-unit-summary/detail/group', [SalesUnitSummaryController::class, 'detailByGroup'])
       ->name('sales_unit_summary.detail_group');
+
+    Route::get('/customer-order-invoice', [CustomerOrderInvoiceComparisonController::class, 'index'])
+      ->name('customer_order_invoice.index');
+    Route::get('/customer-order-invoice/{customerId}', [CustomerOrderInvoiceComparisonController::class, 'detail'])
+      ->whereNumber('customerId')
+      ->name('customer_order_invoice.detail');
   });
 
 Route::prefix('/deadstock')
   ->name('deadstock.')
   ->group(function () {
+    // เปิดให้ guest ดูได้ (อ่านอย่างเดียว)
     Route::get('/dashboard', [DeadstockReportController::class, 'dashboard'])->name('dashboard');
     Route::get('/review', [DeadstockReportController::class, 'review'])->name('review');
     Route::get('/review/export', [DeadstockReportController::class, 'exportReview'])->name('review.export');
-    Route::post('/review/{item}/save', [DeadstockReportController::class, 'saveReview'])->name('review.save');
-    Route::post('/review/{month}/compare', [DeadstockReportController::class, 'compareMonth'])->name('review.compare');
-    Route::get('/manual', [DeadstockReportController::class, 'manual'])->name('manual');
-    Route::post('/manual/send', [DeadstockReportController::class, 'send'])->name('send');
+
+    // ต้อง login ก่อนจึงจะทำ action ที่เปลี่ยนข้อมูล/ส่งเมลได้
+    Route::middleware('auth')->group(function () {
+      Route::post('/review/{item}/save', [DeadstockReportController::class, 'saveReview'])->name('review.save');
+      Route::post('/review/{month}/compare', [DeadstockReportController::class, 'compareMonth'])->name('review.compare');
+      Route::get('/manual', [DeadstockReportController::class, 'manual'])->name('manual');
+      Route::post('/manual/send', [DeadstockReportController::class, 'send'])->name('send');
+    });
   });
 
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 
@@ -279,6 +372,7 @@ Route::prefix('machine-load')
   ->name('machine-load.')
   ->group(function () {
     Route::get('/dashboard', [MachineLoadController::class, 'dashboard'])->name('dashboard');
+    Route::get('/plan-dashboard', [MachineLoadController::class, 'planDashboard'])->name('plan-dashboard');
     Route::get('/inquiry', [MachineLoadController::class, 'inquiry'])->name('inquiry');
     Route::get('/export', [MachineLoadController::class, 'export'])->name('export');
     Route::get('/settings', [MachineLoadController::class, 'settings'])->name('settings');
@@ -304,6 +398,17 @@ Route::get('/packaging/analysis', [PackagingUsageController::class, 'analysis'])
 Route::get('/packaging/analysis/export', [PackagingUsageController::class, 'analysisExport'])
   ->name('pkg.packaging.analysis.export');
 
+
+Route::prefix('dp')
+  ->name('dp.')
+  ->group(function () {
+    Route::get('/inquiry', [DeliveryPlanInquiryController::class, 'inquiry'])->name('inquiry');
+    Route::get('/inquiry/{ordId}/history', [DeliveryPlanInquiryController::class, 'history'])
+      ->whereNumber('ordId')
+      ->name('inquiry.history');
+    Route::get('/history/db/{ord_id}', [DeliveryPlanInquiryController::class, 'historyDb'])->name('history.db');
+    Route::get('/dashboard/truck-board', [DeliveryPlanInquiryController::class, 'truckBoard'])->name('dashboard.truck-board');
+  });
 
 Route::middleware(['auth'])
   ->prefix('dp')
@@ -346,11 +451,6 @@ Route::middleware(['auth'])
 
     // ใช้ได้ทั้ง DP และ DPA
     Route::middleware(['permission.any:DP,DPA'])->group(function () {
-      Route::get('/inquiry', [DeliveryPlanInquiryController::class, 'inquiry'])->name('inquiry');
-      Route::get('/inquiry/{ordId}/history', [DeliveryPlanInquiryController::class, 'history'])
-        ->whereNumber('ordId')
-        ->name('inquiry.history');
-      Route::get('/history/db/{ord_id}', [DeliveryPlanInquiryController::class, 'historyDb'])->name('history.db');
       Route::get('/inquiry/export', [DeliveryPlanInquiryController::class, 'export'])->name('inquiry.export');
       Route::get('/inquiry/export-pdf', [DeliveryPlanInquiryController::class, 'exportPdf'])->name('inquiry.export-pdf');
 
@@ -373,6 +473,8 @@ Route::middleware(['auth'])
     Route::middleware(['can:DPA'])->group(function () {
       Route::post('/inquiry/truck-assign/{ordId}', [DeliveryPlanInquiryController::class, 'assignTruck'])
         ->name('inquiry.truck.assign');
+      Route::post('/inquiry/truck-unassign-bulk', [DeliveryPlanInquiryController::class, 'bulkUnassignTruck'])
+        ->name('inquiry.truck.unassign.bulk');
       Route::post('/inquiry/truck-unassign/{ordId}', [DeliveryPlanInquiryController::class, 'unassignTruck'])
         ->whereNumber('ordId')
         ->name('inquiry.truck.unassign');
@@ -382,11 +484,15 @@ Route::middleware(['auth'])
       Route::post('/inquiry/special-dispatch/{ordId}/close', [DeliveryPlanInquiryController::class, 'closeSpecialDispatch'])
         ->whereNumber('ordId')
         ->name('inquiry.special-dispatch.close');
+      Route::post('/inquiry/special-dispatch/{ordId}/cancel', [DeliveryPlanInquiryController::class, 'cancelSpecialDispatch'])
+        ->whereNumber('ordId')
+        ->name('inquiry.special-dispatch.cancel');
+      Route::post('/inquiry/special-dispatch-cancel-bulk', [DeliveryPlanInquiryController::class, 'bulkCancelSpecialDispatch'])
+        ->name('inquiry.special-dispatch.cancel.bulk');
       Route::post('/inquiry/special-dispatch/{ordId}/reopen', [DeliveryPlanInquiryController::class, 'reopenSpecialDispatch'])
         ->whereNumber('ordId')
         ->name('inquiry.special-dispatch.reopen');
 
-      Route::get('/dashboard/truck-board', [DeliveryPlanInquiryController::class, 'truckBoard'])->name('dashboard.truck-board');
       Route::get('/dashboard/logistics-summary', [DeliveryPlanInquiryController::class, 'logisticsSummary'])
         ->name('dashboard.logistics-summary');
       Route::get('/dashboard/truck-board/export/print', [DeliveryPlanInquiryController::class, 'printAssignedTruckBoard'])
@@ -403,6 +509,8 @@ Route::middleware(['auth'])
         ->name('dashboard.truck-board.trip.excel');
       Route::post('/dashboard/truck-board/trip/close', [DeliveryPlanInquiryController::class, 'closeTruckTrip'])
         ->name('dashboard.truck-board.trip.close');
+      Route::post('/dashboard/truck-board/send-mail', [DeliveryPlanInquiryController::class, 'sendAssignedTruckBoardMail'])
+        ->name('dashboard.truck-board.send-mail');
 
       Route::get('/master/trucks', [TruckMasterController::class, 'trucks'])->name('master.trucks');
       Route::post('/master/trucks', [TruckMasterController::class, 'saveTruck'])->name('master.trucks.store');
@@ -538,6 +646,7 @@ Route::prefix('isr')
   ->name('isr.')
   ->group(function () {
     Route::get('/', [InspectionController::class, 'index'])->name('index');
+    Route::get('/workcenter-tests', [InspectionController::class, 'workcenterTests'])->name('workcenter-tests');
 
     Route::post('/manual-decision', [InspectionDecisionController::class, 'store'])
       ->middleware('auth')
@@ -566,17 +675,28 @@ Route::prefix('mp')
 
 Route::prefix('variable-cost')
   ->name('variable-cost.')
+  ->middleware(['auth', 'permission.any:VC,VCA,VCL,VCPD,VCP,VCS,VCM'])
   ->group(function () {
     Route::get('/', [VariableCostController::class, 'index'])->name('index');
     Route::get('/summary', [VariableCostController::class, 'summary'])->name('summary');
     Route::get('/monthly', [VariableCostController::class, 'monthly'])->name('monthly');
     Route::get('/matrix', [VariableCostController::class, 'matrix'])->name('matrix');
     Route::get('/accounts', [VariableCostController::class, 'accounts'])->name('accounts');
-    Route::get('/account-master', [VariableCostAccountMasterController::class, 'index'])->name('account-master');
-    Route::post('/account-master', [VariableCostAccountMasterController::class, 'update'])->name('account-master.update');
     Route::get('/yearly', [VariableCostController::class, 'yearly'])->name('yearly');
     Route::get('/details', [VariableCostController::class, 'details'])->name('details');
     Route::get('/export', [VariableCostController::class, 'export'])->name('export');
+    Route::post('/truck-weight-log', [VariableCostController::class, 'storeTruckWeightLog'])->middleware('permission.any:VCM')->name('truck-weight-log.store');
+    Route::put('/truck-weight-log/{id}', [VariableCostController::class, 'updateTruckWeightLog'])->whereNumber('id')->middleware('permission.any:VCM')->name('truck-weight-log.update');
+    Route::delete('/truck-weight-log/{id}', [VariableCostController::class, 'destroyTruckWeightLog'])->whereNumber('id')->middleware('permission.any:VCM')->name('truck-weight-log.destroy');
+  });
+
+// VC Account Master — เฉพาะ role VC / VCC (VCA ดูได้แค่ข้อมูล group Admin ไม่เห็น master)
+Route::prefix('variable-cost')
+  ->name('variable-cost.')
+  ->middleware(['auth', 'permission.any:VC,VCC'])
+  ->group(function () {
+    Route::get('/account-master', [VariableCostAccountMasterController::class, 'index'])->name('account-master');
+    Route::post('/account-master', [VariableCostAccountMasterController::class, 'update'])->name('account-master.update');
   });
 
 Route::prefix('cost-center')
@@ -593,13 +713,17 @@ Route::prefix('accounting')
     Route::get('/loss-provision', [LossProvisionController::class, 'index'])->name('loss-provision.index');
     Route::get('/loss-provision/yearly', [LossProvisionController::class, 'yearly'])->name('loss-provision.yearly');
     Route::get('/loss-provision/yearly/export', [LossProvisionController::class, 'exportYearly'])->name('loss-provision.yearly.export');
+    Route::get('/loss-provision/recovery-analysis', [LossProvisionController::class, 'recoveryAnalysis'])->name('loss-provision.recovery-analysis');
+    Route::get('/loss-provision/recovery-dashboard', [LossProvisionController::class, 'recoveryDashboard'])->name('loss-provision.recovery-dashboard');
+    Route::get('/loss-provision/recovery-inquiry', [LossProvisionController::class, 'recoveryInquiry'])->name('loss-provision.recovery-inquiry');
+    Route::get('/loss-provision/recovery-export', [LossProvisionController::class, 'exportRecovery'])->name('loss-provision.recovery-export');
     Route::get('/loss-provision/export', [LossProvisionController::class, 'export'])->name('loss-provision.export');
     Route::get('/customer-payment-terms/erp-customer-lookup', [CustomerPaymentTermController::class, 'customerLookup'])->name('cpt.customerLookup');
     Route::get('/customer-payment-terms/masters', [CustomerPaymentTermController::class, 'masters'])->name('cpt.masters');
-    Route::get('/division-group-master', [DivisionGroupMasterController::class, 'index'])->name('divisionGroup.master');
-    Route::post('/division-group-master', [DivisionGroupMasterController::class, 'store'])->name('divisionGroup.master.store');
-    Route::put('/division-group-master/{id}', [DivisionGroupMasterController::class, 'update'])->name('divisionGroup.master.update');
-    Route::delete('/division-group-master/{id}', [DivisionGroupMasterController::class, 'destroy'])->name('divisionGroup.master.destroy');
+    Route::get('/division-group-master', [DivisionGroupMasterController::class, 'index'])->middleware(['auth', 'permission.any:VC,VCC'])->name('divisionGroup.master');
+    Route::post('/division-group-master', [DivisionGroupMasterController::class, 'store'])->middleware(['auth', 'permission.any:VC,VCC'])->name('divisionGroup.master.store');
+    Route::put('/division-group-master/{id}', [DivisionGroupMasterController::class, 'update'])->middleware(['auth', 'permission.any:VC,VCC'])->name('divisionGroup.master.update');
+    Route::delete('/division-group-master/{id}', [DivisionGroupMasterController::class, 'destroy'])->middleware(['auth', 'permission.any:VC,VCC'])->name('divisionGroup.master.destroy');
     Route::post('/customer-payment-terms/billing-plans', [CustomerPaymentTermController::class, 'storeBillingPlan'])->name('cpt.billing-plans.store');
     Route::put('/customer-payment-terms/billing-plans/{billingPlan}', [CustomerPaymentTermController::class, 'updateBillingPlan'])->name('cpt.billing-plans.update');
     Route::delete('/customer-payment-terms/billing-plans/{billingPlan}', [CustomerPaymentTermController::class, 'destroyBillingPlan'])->name('cpt.billing-plans.destroy');
@@ -763,6 +887,90 @@ Route::middleware(['auth', 'can:ADMINWEB'])
   ->name('adminweb.')
   ->group(function () {
 
+    // Clear cache ผ่านเว็บ (ไม่ต้อง SSH) — เฉพาะ ADMINWEB
+    Route::get('/cache/clear', function () {
+        $ok = [];
+        $failed = [];
+
+        foreach (['config:clear', 'route:clear', 'view:clear', 'cache:clear'] as $command) {
+            try {
+                \Illuminate\Support\Facades\Artisan::call($command);
+                $ok[] = $command;
+            } catch (\Throwable $e) {
+                // เช่น file cache ไม่มีโฟลเดอร์ storage/framework/cache/data — ไม่ให้ล้มทั้ง request
+                $failed[] = $command . ' (' . $e->getMessage() . ')';
+            }
+        }
+
+        $message = 'ล้าง cache สำเร็จ: ' . (implode(', ', $ok) ?: '-');
+        if ($failed) {
+            return back()
+                ->with('success', $message)
+                ->with('error', 'มีคำสั่งที่ข้ามไป: ' . implode(' | ', $failed));
+        }
+
+        return back()->with('success', $message);
+    })->name('cache.clear');
+
+    // Composer dump-autoload ผ่านเว็บ (ไม่ต้อง SSH) — เฉพาะ ADMINWEB
+    Route::get('/autoload/dump', function () {
+        $process = \Symfony\Component\Process\Process::fromShellCommandline(
+            'composer dump-autoload -o --no-interaction',
+            base_path(),
+            // กัน composer ล้มกรณี web user ไม่มี HOME
+            ['COMPOSER_HOME' => storage_path('app/composer-home')],
+            null,
+            300
+        );
+
+        try {
+            $process->run();
+        } catch (\Throwable $e) {
+            return back()->with('error', 'รัน composer ไม่สำเร็จ: ' . $e->getMessage());
+        }
+
+        // composer พิมพ์สรุปผลทาง stderr และแถม ANSI color codes มาด้วย ต้อง strip ก่อนแสดง
+        $output = preg_replace('/\e\[[0-9;]*m/', '', $process->getErrorOutput() . "\n" . $process->getOutput());
+        $lines  = array_values(array_filter(array_map('trim', explode("\n", $output))));
+        $tail   = implode(' | ', array_slice($lines, -2)) ?: '-';
+
+        if (!$process->isSuccessful()) {
+            return back()->with('error', 'dump-autoload ล้มเหลว: ' . $tail);
+        }
+
+        return back()->with('success', 'dump-autoload สำเร็จ: ' . $tail);
+    })->name('autoload.dump');
+
+    // วินิจฉัย path ของ Deadstock snapshot ที่ฝั่งเซิร์ฟเวอร์มองเห็นจริง — เฉพาะ ADMINWEB
+    Route::get('/deadstock/diag', function () {
+        $base = rtrim((string) env('DEADSTOCK_MAIL_DAILY_PATH', 'M:\\htdocs\\mail-daily'), '\\/');
+        $dir = $base . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'app'
+            . DIRECTORY_SEPARATOR . 'private' . DIRECTORY_SEPARATOR . 'reports'
+            . DIRECTORY_SEPARATOR . 'snapshots';
+
+        $summaryFiles = is_dir($dir) ? (glob($dir . DIRECTORY_SEPARATOR . 'deadstock_*.json') ?: []) : [];
+        $itemFiles = is_dir($dir) ? (glob($dir . DIRECTORY_SEPARATOR . 'deadstock_items_*.json') ?: []) : [];
+        // นับเฉพาะไฟล์สรุป (ตัด items ออก) แบบเดียวกับที่ dashboard ใช้
+        $summaryOnly = array_values(array_filter($summaryFiles, fn($p) => !str_contains(basename($p), 'deadstock_items_')));
+
+        return response()->json([
+            'env_DEADSTOCK_MAIL_DAILY_PATH' => env('DEADSTOCK_MAIL_DAILY_PATH'),
+            'resolved_base' => $base,
+            'snapshot_dir' => $dir,
+            'is_dir' => is_dir($dir),
+            'is_readable' => is_readable($dir),
+            'open_basedir' => ini_get('open_basedir') ?: '(not set)',
+            'php_user' => function_exists('get_current_user') ? get_current_user() : null,
+            'count_summary_json' => count($summaryOnly),
+            'count_items_json' => count($itemFiles),
+            'newest_files' => collect(array_merge($summaryOnly, $itemFiles))
+                ->sortByDesc(fn($p) => @filemtime($p) ?: 0)
+                ->take(8)
+                ->map(fn($p) => basename($p) . ' (' . date('Y-m-d H:i', @filemtime($p) ?: 0) . ')')
+                ->values(),
+        ], 200, [], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    })->name('deadstock.diag');
+
     // เพิ่มสมาชิก
     Route::get('/deadstock/config', [DeadstockReportController::class, 'config'])->name('deadstock.config');
     Route::post('/deadstock/config/create-baseline', [DeadstockReportController::class, 'createBaselineSnapshot'])->name('deadstock.create_baseline');
@@ -770,6 +978,9 @@ Route::middleware(['auth', 'can:ADMINWEB'])
 
     Route::get('/users/register',  [UserAdminController::class, 'index'])->name('users.register');
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');
+    Route::get('/users/{user}/edit', [UserAdminController::class, 'edit'])->whereNumber('user')->name('users.edit');
+    Route::put('/users/{user}',     [UserAdminController::class, 'update'])->whereNumber('user')->name('users.update');
+    Route::patch('/users/{user}/toggle-active', [UserAdminController::class, 'toggleActive'])->whereNumber('user')->name('users.toggleActive');
     Route::delete('/users/{user}',  [UserAdminController::class, 'destroy'])->name('users.destroy');
 
     // เพิ่มแผนก
@@ -817,6 +1028,9 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::get('user-permissions', [UserPermissionController::class, 'index'])->name('user-permissions.index');
     Route::get('user-permissions/{user}/edit', [UserPermissionController::class, 'edit'])->name('user-permissions.edit');
     Route::put('user-permissions/{user}', [UserPermissionController::class, 'update'])->name('user-permissions.update');
+
+    // ประวัติการใช้งาน (Activity Log)
+    Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
   });
 
 
