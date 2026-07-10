@@ -8,9 +8,6 @@
         @if (session('ok'))
             <div class="alert alert-success">{{ session('ok') }}</div>
         @endif
-        @if ($errors->any())
-            <div class="alert alert-danger">{{ $errors->first() }}</div>
-        @endif
 
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white fw-bold">สมัครสมาชิก</div>
@@ -25,6 +22,7 @@
                     <div class="col-md-4">
                         <label class="form-label">ชื่อ-นามสกุล</label>
                         <input name="name" class="form-control" value="{{ old('name') }}" required>
+                        <div class="form-text">ระบบจะสร้าง username ให้อัตโนมัติ เช่น Somchai Jaidee = somchai_j</div>
                     </div>
 
                     <div class="col-md-5">
@@ -111,6 +109,7 @@
                     <thead class="table-light">
                         <tr>
                             <th>#</th>
+                            <th>Username</th>
                             <th>รหัส</th>
                             <th>ชื่อ</th>
                             <th>อีเมล</th>
@@ -125,6 +124,7 @@
                         @forelse($users as $u)
                             <tr>
                                 <td>{{ $num += 1 }}</td>
+                                <td>{{ $u->username }}</td>
                                 <td>{{ $u->user_code }}</td>
                                 <td>{{ $u->name }}</td>
                                 <td>{{ $u->email }}</td>
@@ -132,15 +132,26 @@
                                         class="badge bg-{{ $u->is_active ? 'success' : 'secondary' }}">{{ $u->is_active ? 'Active' : 'Inactive' }}</span>
                                 </td>
                                 <td class="text-end">
-                                    <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}">
-                                        @csrf @method('DELETE')
-                                        <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>
-                                    </form>
+                                    <div class="d-inline-flex gap-1">
+                                        <a href="{{ route('adminweb.users.edit', $u->id) }}"
+                                            class="btn btn-sm btn-outline-primary">แก้ไข</a>
+                                        <form method="POST" action="{{ route('adminweb.users.toggleActive', $u->id) }}">
+                                            @csrf @method('PATCH')
+                                            <button type="submit"
+                                                class="btn btn-sm btn-outline-{{ $u->is_active ? 'warning' : 'success' }}">
+                                                {{ $u->is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน' }}
+                                            </button>
+                                        </form>
+                                        <form method="POST" action="{{ route('adminweb.users.destroy', $u->id) }}">
+                                            @csrf @method('DELETE')
+                                            <button type="button" class="btn btn-sm btn-danger btn-delete">ลบ</button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="text-center text-muted">ไม่พบข้อมูล</td>
+                                <td colspan="7" class="text-center text-muted">ไม่พบข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>
