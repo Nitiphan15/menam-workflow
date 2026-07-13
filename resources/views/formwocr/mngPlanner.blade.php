@@ -6,7 +6,7 @@
     @php
         $action = $action ?? '#';
 
-        $form = $form ?? ($WorcData->wfForm ?? null);
+        $form = $form ?? null;
         $readonly = ($readonly ?? false) === true;
         $currentStep = (int) data_get($form, 'current_step_no', 1);
         //dd($form);
@@ -56,7 +56,7 @@
         </div> --}}
 
 
-        <form method="POST" id="requestForm" action="{{ route('wocr.planner_action', ['id' => $WocrData->form_id]) }}">
+        <form method="POST" id="requestForm" action="{{ route('wocr.planner_action', ['id' => $form->id ?? $WocrData->form_id]) }}">
             @csrf
             <div class="head-bar mb-3">
                 <div class="form-title">{{ $form->title ?? 'แบบฟอร์มขอแก้ไข / เปิดใหม่ / ยกเลิกใบคำสั่งผลิต' }} </div>

@@ -6,7 +6,7 @@
     @php
         $action = $action ?? '#';
 
-        $form = $form ?? ($WorcData->wfForm ?? null);
+        $form = $form ?? null;
         $readonly = ($readonly ?? false) === true;
         $currentStep = (int) data_get($form, 'current_step_no', 1);
         //dd($form);
@@ -18,8 +18,17 @@
         //dd($history);
 
     @endphp
+    @php
+        $urgency = (int) data_get($WocrData, 'urgency', 0);
+        $urgencyLabel = \App\Models\FormWOCR\WocrData::urgencyText($urgency);
+        $urgencyClass = [1 => 'text-bg-secondary', 2 => 'text-bg-warning', 3 => 'text-bg-danger'][$urgency] ?? 'text-bg-light';
+    @endphp
     <div class="alert alert-info">
         <div><strong>Document Number:</strong> {{ data_get($WocrData, 'docu_no', '-') }}</div>
+        <div>
+            <strong>ความเร่งด่วน:</strong>
+            <span class="badge {{ $urgencyClass }}">{{ $urgencyLabel }}</span>
+        </div>
         <div><strong>Requested By:</strong> {{ data_get($form, 'requester.name', '-') }}</div>
         <div><strong>Requested At:</strong> {{ optional(data_get($form, 'request_dt'))->format('d/m/Y H:i') }}</div>
         <div>
@@ -56,7 +65,7 @@
         </div> --}}
 
 
-        <form method="POST" id="requestForm" action="{{ route('wocr.planner_action', ['id' => $WocrData->form_id]) }}">
+        <form method="POST" id="requestForm" action="{{ route('wocr.planner_action', ['id' => $form->id ?? $WocrData->form_id]) }}">
             @csrf
             <div class="head-bar mb-3">
                 <div class="form-title">{{ $form->title ?? 'แบบฟอร์มขอแก้ไข / เปิดใหม่ / ยกเลิกใบคำสั่งผลิต' }} </div>

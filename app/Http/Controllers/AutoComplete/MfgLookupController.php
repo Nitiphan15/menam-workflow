@@ -93,6 +93,16 @@ class MfgLookupController extends Controller
 
     public function byMFG(Request $r)
     {
+        return $this->searchMfg($r, ['G']);
+    }
+
+    public function byWocrMFG(Request $r)
+    {
+        return $this->searchMfg($r, ['W']);
+    }
+
+    private function searchMfg(Request $r, array $prefixes)
+    {
 
         $term  = trim((string) $r->query('q', ''));   // เช่น "W2501"
         $limit = (int) $r->query('limit', 15);
@@ -118,13 +128,17 @@ class MfgLookupController extends Controller
         ];
 
         // ฟังก์ชันช่วยยิง query ต่อ DB ใด ๆ แล้วผนวกคอลัมน์ site
-        $fetchFrom = function (\Illuminate\Database\ConnectionInterface $conn, string $siteLabel) use ($select, $term, $limit) {
+        $fetchFrom = function (\Illuminate\Database\ConnectionInterface $conn, string $siteLabel) use ($select, $term, $limit, $prefixes) {
             return $conn->table('workorder as wo')
                 ->join('parts as p', 'wo.parts_id', '=', 'p.id')
                 ->select($select)
                 ->addSelect(DB::raw('NULL AS plan_description'))
                 ->selectRaw('? as site', [$siteLabel])        // เพิ่มคอลัมน์ site ให้รู้ว่าแหล่งไหน
-                ->where('wo.workordernumber', 'ilike', 'G%')
+                ->where(function ($q) use ($prefixes) {
+                    foreach ($prefixes as $prefix) {
+                        $q->orWhere('wo.workordernumber', 'ilike', $prefix . '%');
+                    }
+                })
                 ->when($term !== '', function ($q) use ($term) {
                     $q->where(function ($sub) use ($term) {
                         $sub->where('wo.workordernumber', 'ilike', $term . '%')

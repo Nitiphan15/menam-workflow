@@ -131,6 +131,7 @@ Route::get('/api/department-roles/by-dept/{dept}', [DepartmentRoleLookupControll
 Route::get('/api/users/search', [UserLookupController::class, 'search'])->name('api.users.search');
 Route::get('/api/parts/search', [PartnumberLookupController::class, 'byPartnumber'])->name('api.parts.search');
 Route::get('/api/mfgs/search', [MfgLookupController::class, 'byMFG'])->name('api.mfgs.search');
+Route::get('/api/wocr/mfgs/search', [MfgLookupController::class, 'byWocrMFG'])->name('api.wocr.mfgs.search');
 Route::get('/api/grating-projects/search', [MfgLookupController::class, 'gratingProjects'])
   ->middleware(['auth', 'permission.any:GP'])
   ->name('api.grating-projects.search');

@@ -60,6 +60,9 @@ class OriginatorController extends Controller
 
             // ประเภทคำขอ: 1=เปิดใหม่, 2=แก้ไข, 3=ยกเลิก
             'req_type'      => 'required|integer|in:1,2,3',
+
+            // ระดับความเร่งด่วน: 1=น้อย, 2=ปานกลาง, 3=มาก
+            'urgency'       => 'required|integer|in:1,2,3',
             'mfg_no'        => 'nullable|string|max:50',
             'mfg_no_id'     => 'nullable|string|max:50',
             'grade'         => 'nullable|string|max:100',
@@ -75,6 +78,10 @@ class OriginatorController extends Controller
             // flags เพิ่มเติม
             'skip_sup'         => 'sometimes|boolean',
             'skip_sup_reason'  => 'nullable|string|max:1000',
+
+            // ไฟล์แนบ: จำกัดชนิดตาม accept ของหน้าฟอร์ม และขนาดไม่เกิน 10MB ต่อไฟล์
+            'files'            => 'nullable|array|max:10',
+            'files.*'          => 'file|mimes:pdf,doc,docx,txt,jpg,jpeg,png,gif,xlsx|max:10240',
         ]);
 
 
@@ -112,6 +119,7 @@ class OriginatorController extends Controller
 
                 'req_date'   => $data['request_date'],
                 'req_type'   => (int) $data['req_type'],
+                'urgency'    => (int) $data['urgency'],
 
                 'docu_date'  => $data['docu_date'],
                 'docu_no'    => $docuNo,
@@ -221,6 +229,41 @@ class OriginatorController extends Controller
                 ->where('wa.status', 'PENDING')
                 ->select('u.email', 'u.name', 'wa.approver_user_id')
                 ->get();
+
+            // --- ความเร่งด่วน "มาก": แจ้งเตือน Planner (ผู้อนุมัติถัดไป) ทันที ---
+            if ((int) $data['urgency'] === WocrData::URGENCY_HIGH && $nextApprovers->isNotEmpty()) {
+                $reviewUrl   = route('wocr.planner', ['id' => $wfId]);
+                $requesterNm = (string) ($user->name ?? '');
+                $mfgNo       = $data['mfg_no'] ?? null;
+                $detail      = $data['mfg_request_detail'] ?? null;
+                $docNoFinal  = $docuNo;
+
+                DB::afterCommit(function () use ($nextApprovers, $reviewUrl, $requesterNm, $mfgNo, $detail, $docNoFinal) {
+                    foreach ($nextApprovers as $approver) {
+                        if (blank($approver->email)) {
+                            continue;
+                        }
+                        try {
+                            \Illuminate\Support\Facades\Mail::to($approver->email)->send(
+                                new \App\Mail\WocrUrgentMail(
+                                    docuNo: $docNoFinal,
+                                    recipientName: $approver->name,
+                                    requesterName: $requesterNm,
+                                    urgencyLabel: WocrData::urgencyText(WocrData::URGENCY_HIGH),
+                                    mfgNo: $mfgNo,
+                                    detail: $detail,
+                                    reviewUrl: $reviewUrl
+                                )
+                            );
+                        } catch (\Throwable $e) {
+                            \Illuminate\Support\Facades\Log::error(
+                                'WOCR urgent mail failed: ' . $e->getMessage(),
+                                ['docu_no' => $docNoFinal, 'to' => $approver->email]
+                            );
+                        }
+                    }
+                });
+            }
 
             // ถ้าคนถัดไปมีตัวเราเอง ให้ยิงไปหน้า planner/review
             $flagToNextSelf = $nextApprovers->contains(fn($x) => (int)$x->approver_user_id === (int)$user->id);

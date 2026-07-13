@@ -7,7 +7,7 @@
     @php
         $action = $action ?? '#';
 
-        $form = $form ?? ($WorcData->wfForm ?? null);
+        $form = $form ?? null;
         $readonly = ($readonly ?? false) === true;
         $currentStep = (int) data_get($form, 'current_step_no', 1);
         //dd($form);

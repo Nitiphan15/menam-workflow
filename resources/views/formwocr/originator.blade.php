@@ -129,12 +129,29 @@
                     @enderror
                 </div>
 
+                <div class="mb-3">
+                    <label for="urgency" class="form-label fw-semibold">ระดับความเร่งด่วน
+                        <span class="text-danger">*</span></label>
+                    <select name="urgency" id="urgency"
+                        class="form-select @error('urgency') is-invalid @enderror" style="max-width:240px;">
+                        <option value="1" {{ (string) old('urgency', '2') === '1' ? 'selected' : '' }}>น้อย</option>
+                        <option value="2" {{ (string) old('urgency', '2') === '2' ? 'selected' : '' }}>ปานกลาง</option>
+                        <option value="3" {{ (string) old('urgency', '2') === '3' ? 'selected' : '' }}>มาก (แจ้ง Planner ทันที)</option>
+                    </select>
+                    @error('urgency')
+                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                    @enderror
+                    <div class="form-text">
+                        "น้อย / ปานกลาง" จะถูกแจ้งเตือน Planner ทุกเช้าหากยังไม่ดำเนินการ — "มาก" จะส่งอีเมลถึง Planner ทันที
+                    </div>
+                </div>
+
                 <div class="row">
                     <div class="col-md-4 position-relative">
                         <label for="mfg_no" class="form-label fw-semibold">MFG No.</label>
                         <input type="text" id="mfg_no" name="mfg_no" class="form-control form-control-lg"
                             placeholder="W25xxxxxx" autocomplete="off" autofocus value="{{ old('mfg_no') }}"
-                            data-url="{{ route('api.mfgs.search') }}">
+                            data-url="{{ route('api.wocr.mfgs.search') }}">
                         <input type="hidden" id="mfg_no_id" name="mfg_no_id">
                         <div id="mfg_no-list" class="list-group position-absolute w-100 shadow-sm"
                             style="z-index:1050;max-height:260px;overflow:auto;display:none;"></div>
