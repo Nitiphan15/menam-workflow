@@ -272,6 +272,11 @@ class OrderDueDateController extends Controller
                 continue;
             }
 
+            $salesId = (int) ($row->sales_id ?? 0);
+            if (($this->salesToGroupMap[$salesId] ?? null) === 'D8') {
+                continue;
+            }
+
             $type = trim((string) ($row->type_name ?? '')) ?: 'UNKNOWN';
             $value = (float) ($row->total_qty ?? 0);
 
@@ -407,6 +412,7 @@ class OrderDueDateController extends Controller
     private function getDueSummaryRaw(string $from, string $to): array
     {
         $qtyExpr = $this->weightedQtyExpr('oi');
+        $custPoExclusionSql = $this->customerPoExclusionSql();
         $sql = "
             WITH due_items AS (
                 SELECT
@@ -426,7 +432,7 @@ class OrderDueDateController extends Controller
                   AND oi.reqdate <= ?
                   AND oi.unit <> ' '
                   AND p.partnumber LIKE 'F%'
-                  AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+                  $custPoExclusionSql
                   AND pt.id <> 56
             )
             SELECT
@@ -444,6 +450,7 @@ class OrderDueDateController extends Controller
     private function getDueSummaryByMonthRaw(string $from, string $to): array
     {
         $qtyExpr = $this->weightedQtyExpr('oi');
+        $custPoExclusionSql = $this->customerPoExclusionSql();
         $sql = "
             WITH due_items AS (
                 SELECT
@@ -464,16 +471,17 @@ class OrderDueDateController extends Controller
                   AND oi.reqdate <= ?
                   AND oi.unit <> ' '
                   AND p.partnumber LIKE 'F%'
-                  AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+                  $custPoExclusionSql
                   AND pt.id <> 56
             )
             SELECT
                 month_number,
+                sales_id,
                 type_name,
                 ROUND(SUM(CASE WHEN sales_id = 1436 THEN bath ELSE qty END), 2) AS total_qty
             FROM due_items
-            GROUP BY month_number, type_name
-            ORDER BY month_number, type_name
+            GROUP BY month_number, sales_id, type_name
+            ORDER BY month_number, sales_id, type_name
         ";
 
         return DB::connection($this->conn)->select($sql, [$from, $to]);
@@ -639,6 +647,7 @@ class OrderDueDateController extends Controller
         $placeholders = implode(',', array_fill(0, count($salesIds), '?'));
         $typeWhere = $typeName !== '' ? 'AND pt.description = ?' : '';
         $qtyExpr = $this->weightedQtyExpr('oi');
+        $custPoExclusionSql = $this->customerPoExclusionSql();
 
         $sql = "
             SELECT
@@ -672,7 +681,7 @@ class OrderDueDateController extends Controller
               AND oi.reqdate <= ?
               AND oi.unit <> ' '
               AND p.partnumber LIKE 'F%'
-              AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
+              $custPoExclusionSql
               AND pt.id <> 56
               $typeWhere
             ORDER BY oi.reqdate, oe.ordnumber, p.partnumber
@@ -692,6 +701,12 @@ class OrderDueDateController extends Controller
         }
 
         return $rows;
+    }
+
+    private function customerPoExclusionSql(): string
+    {
+        return "AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST', 'STOCK')
+                  AND UPPER(TRIM(oe.custponumber)) NOT LIKE 'STOCK%'";
     }
 
     private function salesIdsForGroup(string $groupCode): array
