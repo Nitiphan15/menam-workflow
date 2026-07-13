@@ -80,7 +80,7 @@ return new class extends Migration
                 $table->text('corrective_action')->nullable();
                 $table->text('preventive_action')->nullable();
                 $table->text('sales_remark')->nullable();
-                $table->string('review_status', 20)->default('open');
+                $table->string('review_status', 50)->default('open');
                 $table->unsignedBigInteger('reviewed_by')->nullable();
                 $table->dateTime('reviewed_at')->nullable();
                 $table->unsignedBigInteger('created_by')->nullable();

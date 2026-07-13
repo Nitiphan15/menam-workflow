@@ -6,20 +6,20 @@ use App\Models\Concerns\UsesWorkflowConnection;
 use App\Models\Users\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class DeadstockItemReview extends Model
+class DeadstockItemReviewLog extends Model
 {
     use UsesWorkflowConnection;
 
-    protected $table = 'ds_item_reviews';
+    protected $table = 'ds_item_review_logs';
 
     protected $guarded = [];
 
     protected $casts = [
-        'revised_due_date' => 'date',
-        'next_follow_up_date' => 'date',
-        'reviewed_at' => 'datetime',
+        'changed_fields' => 'array',
+        'before_values' => 'array',
+        'after_values' => 'array',
+        'changed_at' => 'datetime',
     ];
 
     public function snapshotItem(): BelongsTo
@@ -27,13 +27,13 @@ class DeadstockItemReview extends Model
         return $this->belongsTo(DeadstockSnapshotItem::class, 'snapshot_item_id');
     }
 
-    public function reviewer(): BelongsTo
+    public function review(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'reviewed_by');
+        return $this->belongsTo(DeadstockItemReview::class, 'review_id');
     }
 
-    public function logs(): HasMany
+    public function changedBy(): BelongsTo
     {
-        return $this->hasMany(DeadstockItemReviewLog::class, 'review_id');
+        return $this->belongsTo(User::class, 'changed_by');
     }
 }

@@ -5,7 +5,6 @@ namespace App\Services\FormWOS;
 use App\Models\FormWOS\DeadstockSnapshotItem;
 use App\Models\FormWOS\DeadstockSnapshotMonth;
 use Carbon\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class DeadstockSnapshotImportService
@@ -31,6 +30,21 @@ class DeadstockSnapshotImportService
         $snapshotMonth = Carbon::parse($recvDate)->startOfMonth()->toDateString();
         $items = collect($payload['items']);
 
+        // ไฟล์ที่ไม่มีรายการ (เช่น snapshot ย้อนอดีตที่หาข้อมูลไม่เจอ) ห้ามแตะข้อมูลเดือน
+        // เพื่อกันการล้างรายการ/review ของเดือนนั้นทิ้งโดยไม่ตั้งใจ
+        if ($items->isEmpty()) {
+            return [
+                'month_id' => null,
+                'snapshot_month' => $snapshotMonth,
+                'recv_date' => $recvDate,
+                'items' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'deleted' => 0,
+                'skipped' => true,
+            ];
+        }
+
         return DB::connection(config('database.workflow_connection', 'sqlsrv_menam'))
             ->transaction(function () use ($items, $recvDate, $asOfDate, $capturedAt, $snapshotMonth) {
                 $month = DeadstockSnapshotMonth::query()->updateOrCreate(
@@ -41,9 +55,6 @@ class DeadstockSnapshotImportService
                         'captured_at' => $capturedAt,
                         'source_name' => 'mail-daily.report:deadstock.items',
                         'status' => 'ready',
-                        'item_count' => $items->count(),
-                        'total_qty' => $items->sum(fn(array $item) => (float) ($item['quantity'] ?? 0)),
-                        'total_value' => $items->sum(fn(array $item) => (float) ($item['quantity'] ?? 0) * (float) ($item['unitcost'] ?? 0)),
                     ]
                 );
 
@@ -51,11 +62,13 @@ class DeadstockSnapshotImportService
                     ->map(fn(array $item) => $this->normalizeItem((array) $item))
                     ->values();
 
-                $existingRows = DeadstockSnapshotItem::query()
+                // Merge เท่านั้น: รายการเดิมของเดือนที่ไม่อยู่ในไฟล์นี้ต้องคงอยู่
+                // (สถานะเคลียร์แล้ว/คงค้าง ให้มาจากขั้นตอน compare ไม่ใช่การลบทิ้ง)
+                // โหลด key ทั้งเดือนมาเทียบในหน่วยความจำ — เลี่ยง whereIn ที่ชนเพดาน 2100 parameters ของ SQL Server
+                $existingKeys = DeadstockSnapshotItem::query()
                     ->where('snapshot_month_id', $month->id)
-                    ->get(['id', 'item_key']);
-                $existingKeys = $existingRows->pluck('item_key')->flip();
-                $deleted = $this->deleteMissingSnapshotItems($month->id, $existingRows, $normalizedRows->pluck('item_key')->flip());
+                    ->pluck('item_key')
+                    ->flip();
 
                 $created = $normalizedRows
                     ->reject(fn(array $row) => $existingKeys->has($row['item_key']))
@@ -108,6 +121,18 @@ class DeadstockSnapshotImportService
                     );
                 }
 
+                // ยอดรวมของเดือนต้องนับจากรายการจริงใน DB เพราะไฟล์หนึ่งเป็นแค่บางส่วนของเดือน
+                $aggregate = DeadstockSnapshotItem::query()
+                    ->where('snapshot_month_id', $month->id)
+                    ->selectRaw('COUNT(*) AS item_count, COALESCE(SUM(snapshot_qty), 0) AS total_qty, COALESCE(SUM(snapshot_value), 0) AS total_value')
+                    ->first();
+
+                $month->update([
+                    'item_count' => (int) $aggregate->item_count,
+                    'total_qty' => (float) $aggregate->total_qty,
+                    'total_value' => (float) $aggregate->total_value,
+                ]);
+
                 return [
                     'month_id' => $month->id,
                     'snapshot_month' => $snapshotMonth,
@@ -115,7 +140,7 @@ class DeadstockSnapshotImportService
                     'items' => $items->count(),
                     'created' => $created,
                     'updated' => $updated,
-                    'deleted' => $deleted,
+                    'deleted' => 0,
                 ];
             });
     }
@@ -230,10 +255,16 @@ class DeadstockSnapshotImportService
             }
         }
 
+        // ยอดรวมของเดือนนับจากรายการจริงใน DB เพราะไฟล์หนึ่งเป็นแค่บางส่วนของเดือน
+        $aggregate = DeadstockSnapshotItem::query()
+            ->where('snapshot_month_id', $month->id)
+            ->selectRaw('COUNT(*) AS item_count, COALESCE(SUM(snapshot_qty), 0) AS total_qty, COALESCE(SUM(snapshot_value), 0) AS total_value')
+            ->first();
+
         $month->update([
-            'item_count' => $items,
-            'total_qty' => $totalQty,
-            'total_value' => $totalValue,
+            'item_count' => (int) $aggregate->item_count,
+            'total_qty' => (float) $aggregate->total_qty,
+            'total_value' => (float) $aggregate->total_value,
         ]);
 
         return [
@@ -292,37 +323,6 @@ class DeadstockSnapshotImportService
                 'dead_stock_flag' => (bool) ($item['dead_stock_flag'] ?? true),
             ],
         ];
-    }
-
-    private function deleteMissingSnapshotItems(int $monthId, Collection $existingRows, Collection $currentKeys): int
-    {
-        $staleIds = $existingRows
-            ->reject(fn($row) => $currentKeys->has($row->item_key))
-            ->pluck('id')
-            ->values();
-
-        if ($staleIds->isEmpty()) {
-            return 0;
-        }
-
-        foreach ($staleIds->chunk(800) as $ids) {
-            DB::connection(config('database.workflow_connection', 'sqlsrv_menam'))
-                ->table('ds_item_compare_logs')
-                ->whereIn('snapshot_item_id', $ids->all())
-                ->delete();
-
-            DB::connection(config('database.workflow_connection', 'sqlsrv_menam'))
-                ->table('ds_item_reviews')
-                ->whereIn('snapshot_item_id', $ids->all())
-                ->delete();
-
-            DeadstockSnapshotItem::query()
-                ->where('snapshot_month_id', $monthId)
-                ->whereIn('id', $ids->all())
-                ->delete();
-        }
-
-        return $staleIds->count();
     }
 
     private function stringValue(mixed $value): ?string

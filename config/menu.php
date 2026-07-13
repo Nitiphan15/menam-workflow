@@ -379,6 +379,7 @@ return [
                     ['icon' => 'fa-list-check', 'text' => 'ประวัติการใช้งาน (Log)', 'route' => 'adminweb.activity-logs.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-broom', 'text' => 'ล้าง Cache', 'route' => 'adminweb.cache.clear', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-rotate', 'text' => 'Dump Autoload', 'route' => 'adminweb.autoload.dump', 'permission' => 'ADMINWEB'],
+                    ['icon' => 'fa-gears', 'text' => 'Deadstock Config', 'route' => 'adminweb.deadstock.config', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-stethoscope', 'text' => 'ตรวจ Path Deadstock', 'route' => 'adminweb.deadstock.diag', 'permission' => 'ADMINWEB'],
 
                 ],

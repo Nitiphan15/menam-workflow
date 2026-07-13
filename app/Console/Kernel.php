@@ -24,6 +24,24 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Bangkok')
             ->onOneServer()
             ->withoutOverlapping();
+
+        $schedule->command('deadstock:import-snapshot')
+            ->dailyAt('08:03')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping();
+
+        $schedule->command('deadstock:compare-current')
+            ->hourly()
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping();
+
+        $schedule->command('deadstock:capture-month-end')
+            ->lastDayOfMonth('23:30')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping();
     }
 
     /**

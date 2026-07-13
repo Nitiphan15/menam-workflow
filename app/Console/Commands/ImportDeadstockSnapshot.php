@@ -27,6 +27,11 @@ class ImportDeadstockSnapshot extends Command
 
         $result = $importService->importFile($file);
 
+        if (!empty($result['skipped'])) {
+            $this->warn('Snapshot file has no items - skipped import, no data changed. (' . $file . ')');
+            return self::SUCCESS;
+        }
+
         $this->info('Imported Deadstock snapshot successfully.');
         $this->line('Month: ' . $result['snapshot_month']);
         $this->line('Recv date: ' . $result['recv_date']);
@@ -48,9 +53,17 @@ class ImportDeadstockSnapshot extends Command
             return is_file($candidate) ? $candidate : '';
         }
 
-        $files = glob($dir . DIRECTORY_SEPARATOR . 'deadstock_items_*.json') ?: [];
+        $files = glob($dir . DIRECTORY_SEPARATOR . 'deadstock_items_????-??-??.json') ?: [];
         rsort($files);
 
-        return $files[0] ?? '';
+        // ข้ามไฟล์ที่ลงวันที่อนาคต (เกิดจากการรันผิดวัน) ไม่ให้ scheduler import ซ้ำทุกเช้า
+        $today = now('Asia/Bangkok')->toDateString();
+        foreach ($files as $file) {
+            if (preg_match('/deadstock_items_(\d{4}-\d{2}-\d{2})\.json$/', basename($file), $m) && $m[1] <= $today) {
+                return $file;
+            }
+        }
+
+        return '';
     }
 }

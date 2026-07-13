@@ -284,10 +284,13 @@ Route::prefix('/deadstock')
     Route::get('/dashboard', [DeadstockReportController::class, 'dashboard'])->name('dashboard');
     Route::get('/review', [DeadstockReportController::class, 'review'])->name('review');
     Route::get('/review/export', [DeadstockReportController::class, 'exportReview'])->name('review.export');
+    Route::get('/review/summary-pdf', [DeadstockReportController::class, 'exportSummaryPdf'])->name('review.summary_pdf');
 
     // ต้อง login ก่อนจึงจะทำ action ที่เปลี่ยนข้อมูล/ส่งเมลได้
     Route::middleware('auth')->group(function () {
       Route::post('/review/{item}/save', [DeadstockReportController::class, 'saveReview'])->name('review.save');
+      Route::post('/review/import', [DeadstockReportController::class, 'importReviewExcel'])->name('review.import');
+      Route::get('/review/import-template', [DeadstockReportController::class, 'downloadReviewImportTemplate'])->name('review.import_template');
       Route::post('/review/{month}/compare', [DeadstockReportController::class, 'compareMonth'])->name('review.compare');
       Route::get('/manual', [DeadstockReportController::class, 'manual'])->name('manual');
       Route::post('/manual/send', [DeadstockReportController::class, 'send'])->name('send');
@@ -976,6 +979,7 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::get('/deadstock/config', [DeadstockReportController::class, 'config'])->name('deadstock.config');
     Route::post('/deadstock/config/create-baseline', [DeadstockReportController::class, 'createBaselineSnapshot'])->name('deadstock.create_baseline');
     Route::post('/deadstock/config/import-latest', [DeadstockReportController::class, 'importLatestSnapshot'])->name('deadstock.import_latest');
+    Route::post('/deadstock/config/sync-current', [DeadstockReportController::class, 'syncCurrentDeadstock'])->name('deadstock.sync_current');
 
     Route::get('/users/register',  [UserAdminController::class, 'index'])->name('users.register');
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');
