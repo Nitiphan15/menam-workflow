@@ -3103,6 +3103,19 @@ class ForecastRmDivisionController extends Controller
             return back()->with('error', 'ไม่พบข้อมูลสำหรับบันทึก');
         }
 
+        $settingRows = $this->uniqueForecastRowsByKey(
+            $settingRows,
+            ['sales_code', 'forecast_base_month', 'customer_id', 'fg_partnumber']
+        );
+        $snapshotRows = $this->uniqueForecastRowsByKey(
+            $snapshotRows,
+            ['sales_code', 'forecast_base_month', 'customer_id', 'fg_partnumber', 'forecast_month']
+        );
+        $historyRows = $this->uniqueForecastRowsByKey(
+            $historyRows,
+            ['sales_code', 'forecast_base_month', 'customer_id', 'fg_partnumber', 'forecast_month']
+        );
+
         DB::connection($this->fcConn)->transaction(function () use (
             $salesCode,
             $baseMonth,
@@ -3211,7 +3224,32 @@ class ForecastRmDivisionController extends Controller
             }, $historyRows);
 
             if (!empty($snapshotRows)) {
-                $this->insertRowsByChunk('fc_rm_division_forecast', $snapshotRows, 50);
+                $this->upsertRowsByChunk(
+                    'fc_rm_division_forecast',
+                    $snapshotRows,
+                    ['sales_code', 'forecast_base_month', 'customer_id', 'fg_partnumber', 'forecast_month'],
+                    [
+                        'batch_id',
+                        'company_mode',
+                        'customer_name',
+                        'fg_description',
+                        'rm_partnumber',
+                        'history_avg6',
+                        'k_factor',
+                        'forecast_qty',
+                        'forecast_1m',
+                        'forecast_6m',
+                        'manual_forecast_1m',
+                        'source_type',
+                        'is_selected',
+                        'row_remark',
+                        'supplier_code',
+                        'supplier_name',
+                        'sales_order_qty',
+                        'updated_at',
+                        'updated_by',
+                    ]
+                );
             }
 
             if (!empty($historyRows)) {
@@ -3678,6 +3716,21 @@ class ForecastRmDivisionController extends Controller
             'updated_at'          => $r['updated_at'] ?? now(),
             'updated_by'          => isset($r['updated_by']) ? (int) $r['updated_by'] : null,
         ];
+    }
+
+    private function uniqueForecastRowsByKey(array $rows, array $columns): array
+    {
+        $unique = [];
+
+        foreach ($rows as $row) {
+            $key = collect($columns)
+                ->map(fn($column) => strtoupper(trim((string) ($row[$column] ?? ''))))
+                ->implode('|');
+
+            $unique[$key] = $row;
+        }
+
+        return array_values($unique);
     }
 
     private function insertRowsByChunk(string $table, array $rows, int $chunkSize = 50): void

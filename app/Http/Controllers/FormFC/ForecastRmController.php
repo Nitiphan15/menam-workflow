@@ -1797,6 +1797,14 @@ class ForecastRmController extends Controller
         return $need < 0 ? abs($need) : $need;
     }
 
+    private function exportNeedToOrderExcelValue(array $r): float
+    {
+        $need = (float) ($r['need_to_order'] ?? 0);
+
+        // In Forecast RM Excel, web-table red shortage values should export as negative.
+        return $need > 0 ? -$need : abs($need);
+    }
+
     private function exportMainRow(array $r): array
     {
         $row = [
@@ -1814,7 +1822,7 @@ class ForecastRmController extends Controller
             (float) ($r['total_forecast'] ?? 0),
             (float) ($r['safety_forecast_planner'] ?? 0),
             (float) ($r['total_forecast_so'] ?? 0),
-            $this->exportNeedDisplayValue($r),
+            $this->exportNeedToOrderExcelValue($r),
             (float) ($r['manual_order_qty'] ?? 0),
         ];
 
@@ -1844,7 +1852,7 @@ class ForecastRmController extends Controller
             (float) ($r['total_forecast'] ?? 0),
             (float) ($r['safety_forecast_planner'] ?? 0),
             (float) ($r['total_forecast_so'] ?? 0),
-            $this->exportNeedDisplayValue($r),
+            $this->exportNeedToOrderExcelValue($r),
             (float) ($r['manual_order_qty'] ?? 0),
         ];
     }
@@ -2168,11 +2176,11 @@ class ForecastRmController extends Controller
                 mos.supplier_name,
                 mos.manual_order_qty AS supplier_order_qty
             ")
-            ->whereDate('mo.plan_month', $planMonth);
-
-        if ($companyMode !== 'ALL') {
-            $q->where('mo.company_mode', $companyMode);
-        }
+            ->whereDate('mo.plan_month', $planMonth)
+            // กรอง company_mode ให้ตรงกับโหมดหน้าจอเสมอ (รวมถึง 'ALL')
+            // เพราะ chip บันทึกลง company_mode ตามโหมดที่เลือก ถ้าไม่กรองจะดึง
+            // record ต่างโหมดของ SKU เดียวกันมารวมจน groupBy ยุบแล้วยอดเพี้ยน
+            ->where('mo.company_mode', $companyMode);
 
         if (!empty($skuTerms)) {
             $q->where(function ($sub) use ($skuTerms) {
@@ -2200,10 +2208,16 @@ class ForecastRmController extends Controller
                     ->unique('code')
                     ->values();
 
+                // ยอดรวมที่โชว์บน chip ต้องตรงกับผลรวม supplier split ในป็อปอัปเสมอ
+                // จึงคำนวณจาก supplier rows (แหล่งเดียวกับ supplier_order_qty_by_code)
+                // ถ้าไม่มี supplier rows (ข้อมูลเก่า) ค่อย fallback ไปใช้ยอดที่เก็บไว้
+                $supplierTotal = round((float) $supplierRows->sum('qty'), 2);
+                $storedTotal = round((float) ($first['manual_order_qty'] ?? 0), 2);
+
                 return [
                     'id' => (int) ($first['id'] ?? 0),
                     'auto_need_to_order' => round((float) ($first['auto_need_to_order'] ?? 0), 2),
-                    'manual_order_qty' => round((float) ($first['manual_order_qty'] ?? 0), 2),
+                    'manual_order_qty' => $supplierRows->isNotEmpty() ? $supplierTotal : $storedTotal,
                     'remark' => (string) ($first['remark'] ?? ''),
                     'supplier_rows' => $supplierRows->all(),
                     'supplier_codes' => $supplierRows
