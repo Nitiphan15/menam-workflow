@@ -299,6 +299,7 @@ class PoErpService
     {
         if (!$workflowId) {
             return [
+                'submitted_by' => null,
                 'ordered_by' => collect(),
                 'authorized_by' => null,
                 'po_confirmed_by' => null,
@@ -307,6 +308,7 @@ class PoErpService
 
         $selects = [
             'h.step_no',
+            'h.action_type',
             'h.actor_user_id',
             'h.created_at',
             'u.name as actor_name',
@@ -318,15 +320,18 @@ class PoErpService
         $logs = SqlServerDb::table('wf_action_histories as h')
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
-            ->where('h.action_type', 'APPROVE')
+            ->whereIn('h.action_type', ['SUBMIT', 'APPROVE'])
             ->orderBy('h.created_at')
             ->get($selects);
 
         $logs = $logs->map(fn ($row) => $this->decorateSignatureRow($row));
 
+        $approvals = $logs->where('action_type', 'APPROVE');
+
         return [
-            'ordered_by' => $logs->where('step_no', 2)->values(),
-            'authorized_by' => $logs->firstWhere('step_no', 3),
+            'submitted_by' => $logs->firstWhere('action_type', 'SUBMIT'),
+            'ordered_by' => $approvals->where('step_no', 2)->values(),
+            'authorized_by' => $approvals->firstWhere('step_no', 3),
             'po_confirmed_by' => null,
         ];
     }

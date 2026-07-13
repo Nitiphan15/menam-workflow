@@ -407,9 +407,56 @@ class PoExportController extends Controller
     private function writeSignedPdf(string $targetPath, array $documents): void
     {
         $pdf = new class extends Fpdi {
+            protected array $extGStates = [];
+
             public function useFontPath(string $path): void
             {
                 $this->fontpath = rtrim($path, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
+            }
+
+            public function setAlpha(float $alpha, string $blendMode = 'Normal'): void
+            {
+                $alpha = max(0, min(1, $alpha));
+                $this->extGStates[] = [
+                    'ca' => $alpha,
+                    'CA' => $alpha,
+                    'BM' => '/' . preg_replace('/[^A-Za-z]/', '', $blendMode),
+                ];
+
+                $this->_out('/GS' . count($this->extGStates) . ' gs');
+            }
+
+            protected function _putextgstates(): void
+            {
+                foreach ($this->extGStates as $index => $extGState) {
+                    $this->_newobj();
+                    $this->extGStates[$index]['n'] = $this->n;
+                    $this->_put('<</Type /ExtGState');
+                    $this->_put('/ca ' . sprintf('%.3F', $extGState['ca']));
+                    $this->_put('/CA ' . sprintf('%.3F', $extGState['CA']));
+                    $this->_put('/BM ' . $extGState['BM']);
+                    $this->_put('>>');
+                    $this->_put('endobj');
+                }
+            }
+
+            protected function _putresourcedict(): void
+            {
+                parent::_putresourcedict();
+
+                if ($this->extGStates !== []) {
+                    $this->_put('/ExtGState <<');
+                    foreach ($this->extGStates as $index => $extGState) {
+                        $this->_put('/GS' . ($index + 1) . ' ' . $extGState['n'] . ' 0 R');
+                    }
+                    $this->_put('>>');
+                }
+            }
+
+            protected function _putresources(): void
+            {
+                $this->_putextgstates();
+                parent::_putresources();
             }
         };
         $pdf->SetAutoPageBreak(false);
@@ -434,6 +481,7 @@ class PoExportController extends Controller
 
                     $pdf->AddPage($orientation, [$size['width'], $size['height']]);
                     $pdf->useTemplate($templateId);
+                    $this->overlayPlusPaperTint($pdf, $po, $size['width'], $size['height']);
 
                     $this->overlayPoTextOverrides(
                         $pdf,
@@ -456,6 +504,23 @@ class PoExportController extends Controller
                 File::delete($path);
             }
         }
+    }
+
+    private function overlayPlusPaperTint(Fpdi $pdf, ?PoHeader $po, float $pageWidth, float $pageHeight): void
+    {
+        if (!$po || PoErpService::normalizeSource($po->site) !== PoErpService::SOURCE_PLUS) {
+            return;
+        }
+
+        if (!method_exists($pdf, 'setAlpha')) {
+            return;
+        }
+
+        $pdf->setAlpha(1, 'Multiply');
+        $pdf->SetFillColor(176, 238, 207);
+        $pdf->Rect(0, 0, $pageWidth, $pageHeight, 'F');
+        $pdf->setAlpha(1, 'Normal');
+        $pdf->SetFillColor(255, 255, 255);
     }
 
     private function pagesToImportFromErpPdf(string $pdfPath, int $pageCount): int
@@ -931,14 +996,16 @@ class PoExportController extends Controller
 
     private function overlaySignatures(Fpdi $pdf, array $signatures, float $pageWidth, float $pageHeight, array &$tempImages): void
     {
-        $orderedBy = collect($signatures['ordered_by'] ?? [])->first();
+        $submittedBy = $signatures['submitted_by'] ?? null;
+        $purchaseApprovedBy = collect($signatures['ordered_by'] ?? [])->first();
         $authorizedBy = $signatures['authorized_by'] ?? null;
 
-        $this->overlaySignatureSlot($pdf, $orderedBy, 0.13 * $pageWidth, 0.878 * $pageHeight, 0.20 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages);
+        $this->overlaySignatureSlot($pdf, $submittedBy, 0.105 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.132 * $pageWidth, 0.090 * $pageWidth);
+        $this->overlaySignatureSlot($pdf, $purchaseApprovedBy, 0.225 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.252 * $pageWidth, 0.090 * $pageWidth);
         $this->overlaySignatureSlot($pdf, $authorizedBy, 0.43 * $pageWidth, 0.878 * $pageHeight, 0.20 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages);
     }
 
-    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages): void
+    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null): void
     {
         if (!$signature || empty($signature->signature_data_uri)) {
             return;
@@ -956,8 +1023,8 @@ class PoExportController extends Controller
         if (!empty($signature->created_at)) {
             $pdf->SetFont('Arial', '', 7);
             $pdf->SetTextColor(0, 0, 0);
-            $pdf->SetXY($x, $dateY - 0.2);
-            $pdf->Cell($width, 4, date('d-M-Y', strtotime((string) $signature->created_at)), 0, 0, 'C');
+            $pdf->SetXY($dateX ?? $x, $dateY - 0.2);
+            $pdf->Cell($dateWidth ?? $width, 4, date('d-M-Y', strtotime((string) $signature->created_at)), 0, 0, 'C');
         }
     }
 
