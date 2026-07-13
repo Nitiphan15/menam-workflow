@@ -110,6 +110,12 @@ return [
         'to' => array_values(array_filter(array_map('trim', explode(',', env('DP_MAIL_TO', ''))))),
         'cc' => array_values(array_filter(array_map('trim', explode(',', env('DP_MAIL_CC', ''))))),
     ],
+
+    'truck_assign' => [
+        'to'  => array_values(array_filter(array_map('trim', explode(',', env('ASSIGN_MAIL_TO', ''))))),
+        'cc'  => array_values(array_filter(array_map('trim', explode(',', env('ASSIGN_MAIL_CC', ''))))),
+        'bcc' => array_values(array_filter(array_map('trim', explode(',', env('ASSIGN_MAIL_BCC', ''))))),
+    ],
     /*
     |--------------------------------------------------------------------------
     | Markdown Mail Settings

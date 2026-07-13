@@ -19,6 +19,7 @@ class DivisionPartMasterController extends Controller
         1434 => 'D6',
         1435 => 'D7',
         1436 => 'D8',
+        478468285 => 'D9',
         528615586 => 'D9',
     ];
 

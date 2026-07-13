@@ -26,6 +26,7 @@ class User extends Authenticatable implements AuthorizableContract
      */
     protected $fillable = [
         'user_code',
+        'username',
         'name',
         'email',
         'phone',
@@ -58,6 +59,35 @@ class User extends Authenticatable implements AuthorizableContract
     {
         return $this->belongsToMany(DeptRole::class, 'user_dept_roles', 'user_id', 'role_id')
             ->withPivot('department_id');
+    }
+
+    public static function usernameFromName(?string $name): string
+    {
+        $parts = preg_split('/\s+/', trim((string) $name), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $firstName = strtolower(preg_replace('/[^a-z0-9]+/i', '', $parts[0] ?? ''));
+        $lastInitial = strtolower(preg_replace('/[^a-z0-9]+/i', '', mb_substr($parts[1] ?? '', 0, 1)));
+
+        $username = $lastInitial !== '' ? "{$firstName}_{$lastInitial}" : $firstName;
+
+        return $username !== '' ? $username : 'user';
+    }
+
+    public static function uniqueUsernameForName(string $name, ?int $ignoreId = null): string
+    {
+        $base = self::usernameFromName($name);
+        $username = $base;
+        $suffix = 2;
+
+        while (self::query()
+            ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+            ->where('username', $username)
+            ->exists()
+        ) {
+            $username = $base . $suffix;
+            $suffix++;
+        }
+
+        return $username;
     }
 
 

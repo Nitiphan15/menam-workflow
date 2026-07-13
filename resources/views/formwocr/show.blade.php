@@ -11,8 +11,8 @@
         $status = request('status');
         $site = request('site');
 
-        // ตัวเลือกฟิลเตอร์
-        $siteOptions = $siteOptions ?? collect($list)->pluck('data_site')->filter()->unique()->values();
+        // ตัวเลือกฟิลเตอร์ (ไซต์ plus/wire อนุมานจาก prefix ของ mfg_no — ส่งมาจาก controller)
+        $siteOptions = $siteOptions ?? ['plus' => 'Plus', 'wire' => 'Wire'];
         $statusOptions =
             $statusOptions ??
             collect([
@@ -61,7 +61,7 @@
                 <div class="input-group">
                     <span class="input-group-text"><i class="bi bi-search"></i></span>
                     <input name="q" value="{{ $q }}" class="form-control"
-                        placeholder="Part No / ลูกค้า / Doc No">
+                        placeholder="Doc No / MFG No / Grade">
                 </div>
             </div>
 
@@ -69,8 +69,8 @@
                 <label class="form-label small text-secondary">ไซต์</label>
                 <select name="site" class="form-select">
                     <option value="">ทั้งหมด</option>
-                    @foreach ($siteOptions as $s)
-                        <option value="{{ $s }}" @selected($site === $s)>{{ $s }}</option>
+                    @foreach ($siteOptions as $sValue => $sLabel)
+                        <option value="{{ $sValue }}" @selected((string) $site === (string) $sValue)>{{ $sLabel }}</option>
                     @endforeach
                 </select>
             </div>
@@ -115,6 +115,7 @@
                             <th class="text-nowrap">Doc No</th>
                             <th class="text-nowrap">Req Date</th>
                             <th class="text-nowrap">MFG No</th>
+                            <th class="text-nowrap">ความเร่งด่วน</th>
                             <th class="text-nowrap">เหตุผล</th>
                             <th class="text-nowrap">สถานะ</th>
                             <th class="text-nowrap">ผู้ยื่น</th>
@@ -174,6 +175,13 @@
 
                                 <td>{{ optional($row->req_date)->format('d/m/Y') }}</td>
                                 <td>{{ $row->mfg_no }}</td>
+                                <td>
+                                    @php
+                                        $u = (int) ($row->urgency ?? 0);
+                                        $uClass = [1 => 'text-bg-secondary', 2 => 'text-bg-warning', 3 => 'text-bg-danger'][$u] ?? 'text-bg-light';
+                                    @endphp
+                                    <span class="badge {{ $uClass }}">{{ \App\Models\FormWOCR\WocrData::urgencyText($u) }}</span>
+                                </td>
                                 <td>{{ $row->mfg_request_detail }}</td>
 
                                 <td>
@@ -192,7 +200,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="10" class="text-center text-muted py-5">ไม่พบข้อมูล</td>
+                                <td colspan="11" class="text-center text-muted py-5">ไม่พบข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>

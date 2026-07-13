@@ -5,23 +5,6 @@
 @section('content')
     <div class="container-fluid py-3">
 
-        @if (session('success'))
-            <div class="alert alert-success shadow-sm">
-                {{ session('success') }}
-            </div>
-        @endif
-
-        @if ($errors->any())
-            <div class="alert alert-danger shadow-sm">
-                <div class="fw-bold mb-1">บันทึกไม่สำเร็จ</div>
-                <ul class="mb-0 ps-3">
-                    @foreach ($errors->all() as $error)
-                        <li>{{ $error }}</li>
-                    @endforeach
-                </ul>
-            </div>
-        @endif
-
         <div class="card shadow-sm border-0 mb-3">
             <div class="card-body">
                 <form method="GET" action="{{ route('fc.divisionPartMaster.index') }}">

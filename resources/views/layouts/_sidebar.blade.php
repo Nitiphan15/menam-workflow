@@ -3,8 +3,140 @@
 
     $u = auth()->user();
 
+    $menuKey = function ($item) {
+        if (!empty($item['route'])) {
+            return 'route:' . $item['route'];
+        }
+
+        return 'text:' . ($item['text'] ?? '');
+    };
+
+    $collectMenuRoutes = function (array $menuItems) {
+        $routes = [];
+
+        foreach ($menuItems as $item) {
+            if (!empty($item['route'])) {
+                $routes[$item['route']] = true;
+            }
+
+            foreach ($item['children'] ?? [] as $child) {
+                if (!empty($child['route'])) {
+                    $routes[$child['route']] = true;
+                }
+            }
+        }
+
+        return $routes;
+    };
+
+    $stripDuplicateRoutes = function (array $item, array $seenRoutes) {
+        if (!empty($item['route']) && isset($seenRoutes[$item['route']])) {
+            return null;
+        }
+
+        if (!empty($item['children'])) {
+            $item['children'] = array_values(
+                array_filter(
+                    $item['children'],
+                    fn($child) => empty($child['route']) || !isset($seenRoutes[$child['route']]),
+                ),
+            );
+
+            if (empty($item['children']) && empty($item['route'])) {
+                return null;
+            }
+        }
+
+        return $item;
+    };
+
+    $appendMenus = function (array $baseMenus, array $newMenus) use (
+        $menuKey,
+        $collectMenuRoutes,
+        $stripDuplicateRoutes,
+    ) {
+        $seen = [];
+        $seenRoutes = $collectMenuRoutes($baseMenus);
+
+        foreach ($baseMenus as $item) {
+            $seen[$menuKey($item)] = true;
+        }
+
+        foreach ($newMenus as $item) {
+            $item = $stripDuplicateRoutes($item, $seenRoutes);
+
+            if ($item === null) {
+                continue;
+            }
+
+            $key = $menuKey($item);
+
+            if (!isset($seen[$key])) {
+                $baseMenus[] = $item;
+                $seen[$key] = true;
+
+                foreach ($collectMenuRoutes([$item]) as $route => $_) {
+                    $seenRoutes[$route] = true;
+                }
+            }
+        }
+
+        return $baseMenus;
+    };
+
+    $mergeMenuChildren = function (array $baseChildren, array $newChildren) use ($menuKey) {
+        $seen = [];
+
+        foreach ($baseChildren as $child) {
+            $seen[$menuKey($child)] = true;
+        }
+
+        foreach ($newChildren as $child) {
+            $key = $menuKey($child);
+
+            if (!isset($seen[$key])) {
+                $baseChildren[] = $child;
+                $seen[$key] = true;
+            }
+        }
+
+        return $baseChildren;
+    };
+
+    $mergeDuplicateMenus = function (array $menuItems) use ($menuKey, $mergeMenuChildren) {
+        $merged = [];
+        $indexes = [];
+
+        foreach ($menuItems as $item) {
+            $key = $menuKey($item);
+
+            if (!isset($indexes[$key])) {
+                $indexes[$key] = count($merged);
+                $merged[] = $item;
+                continue;
+            }
+
+            $index = $indexes[$key];
+
+            if (!empty($item['children'])) {
+                $merged[$index]['children'] = $mergeMenuChildren($merged[$index]['children'] ?? [], $item['children']);
+            }
+        }
+
+        return $merged;
+    };
+
     if (auth()->check()) {
         $menus = config('menu.menu.auth', []);
+
+        if (config('menu.show_guest_menu_when_auth', false)) {
+            $hiddenGuestRoutes = config('menu.hide_guest_menu_routes_when_auth', []);
+            $guestMenus = array_filter(config('menu.menu.guest', []), function ($item) use ($hiddenGuestRoutes) {
+                return !in_array($item['route'] ?? null, $hiddenGuestRoutes, true);
+            });
+
+            $menus = $appendMenus($menus, array_values($guestMenus));
+        }
 
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PP') ? config('menu.menu.pp', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('PA') ? config('menu.menu.pa', []) : []);
@@ -26,7 +158,39 @@
         $menus = array_merge($menus, auth()->user()->hasRoleCode('WR') ? config('menu.menu.wr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('EXAM') ? config('menu.menu.exam', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ISR') ? config('menu.menu.isr', []) : []);
-        $menus = array_merge($menus, auth()->user()->hasRoleCode('DP') ? config('menu.menu.dp', []) : []);
+        $menus = array_merge(
+            $menus,
+            auth()
+                ->user()
+                ->hasRoleCode(['TDP'])
+                ? config('menu.menu.tdp', [])
+                : [],
+        );
+        $menus = array_merge(
+            $menus,
+            auth()
+                ->user()
+                ->hasRoleCode(['GP', 'GPM'])
+                ? config('menu.menu.gp', [])
+                : [],
+        );
+        $menus = array_merge(
+            $menus,
+            auth()
+                ->user()
+                ->hasRoleCode(['VC', 'VCA', 'VCL', 'VCPD', 'VCP', 'VCS', 'VCM', 'VCC'])
+                ? config('menu.menu.vc', [])
+                : [],
+        );
+        $menus = array_merge(
+            $menus,
+            auth()
+                ->user()
+                ->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL'])
+                ? config('menu.menu.dp', [])
+                : [],
+        );
+        //$menus = array_merge($menus, auth()->user()->hasRoleCode('DPA') ? config('menu.menu.dpa', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('RISK') ? config('menu.menu.risk', []) : []);
 
         $menus = array_merge(
@@ -51,6 +215,8 @@
     } else {
         $menus = config('menu.menu.guest', []);
     }
+
+    $menus = $mergeDuplicateMenus($menus);
 
     $menus = array_filter($menus, function ($item) {
         return empty($item['permission']) || (auth()->check() && auth()->user()->hasRoleCode($item['permission']));
@@ -85,7 +251,7 @@
             return 'Accounting';
         }
 
-        if (Str::contains($text, ['Sales', 'Delivery Plan', 'Delivery Volume', 'Order Due Date'])) {
+        if (Str::contains($text, ['Sales', 'Delivery Plan', 'Delivery Volume', 'Order Due Date', 'Deadstock'])) {
             return 'Sales';
         }
 
@@ -118,6 +284,26 @@
 
     $menus = collect($menus)->sortBy(fn($item) => $groupOrder[$menuGroupFor($item)] ?? 99)->values()->all();
 
+    $menuItemIsActive = function ($item) {
+        if (!empty($item['route']) && request()->routeIs($item['route'], $item['route'] . '.*')) {
+            return true;
+        }
+
+        foreach ($item['children'] ?? [] as $child) {
+            if (!empty($child['route']) && request()->routeIs($child['route'], $child['route'] . '.*')) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    $menuGroupIsActive = function (string $group) use ($menus, $menuGroupFor, $menuItemIsActive) {
+        return collect($menus)
+            ->filter(fn($item) => $menuGroupFor($item) === $group)
+            ->contains(fn($item) => $menuItemIsActive($item));
+    };
+
     // prefix id ให้ไม่ชนกันระหว่าง desktop/mobile
     $desktopPrefix = 'desk';
     $mobilePrefix = 'mob';
@@ -126,7 +312,7 @@
 
 
 {{-- ปุ่มเปิดเมนู (แสดงเฉพาะมือถือ) --}}
-<div class="d-md-none mb-2">
+<div class="mobile-menu-trigger d-md-none mb-2">
     <button class="btn btn-outline-secondary w-100" type="button" data-bs-toggle="offcanvas"
         data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
         <i class="fas fa-bars me-2"></i> เมนู
@@ -155,12 +341,32 @@
         </div>
 
         <nav class="nav flex-column">
-            @php $currentGroup = null; @endphp
+            @php
+                $currentGroup = null;
+                $sectionOpen = false;
+            @endphp
             @foreach ($menus as $item)
                 @php $nextGroup = $menuGroupFor($item); @endphp
                 @if ($nextGroup !== $currentGroup)
-                    <div class="sidebar-section">{{ $nextGroup }}</div>
-                    @php $currentGroup = $nextGroup; @endphp
+                    @if ($sectionOpen)
+                        </div>
+                    @endif
+                    @php
+                        $sectionActive = $menuGroupIsActive($nextGroup);
+                        $sectionKey = Str::slug($nextGroup);
+                        $sectionId = $desktopPrefix . '-section-' . $sectionKey;
+                    @endphp
+                    <button type="button" class="sidebar-section sidebar-section-toggle"
+                        data-bs-toggle="collapse" data-bs-target="#{{ $sectionId }}"
+                        aria-controls="{{ $sectionId }}" aria-expanded="true">
+                        <span>{{ $nextGroup }}</span>
+                        <i class="fas fa-chevron-down sidebar-section-chevron"></i>
+                    </button>
+                    <div class="collapse show sidebar-section-items" id="{{ $sectionId }}">
+                    @php
+                        $currentGroup = $nextGroup;
+                        $sectionOpen = true;
+                    @endphp
                 @endif
 
 
@@ -189,7 +395,7 @@
                         <nav class="nav flex-column ms-3 submenu">
                             @foreach ($item['children'] as $child)
                                 @if (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
-                                    <a href="{{ route($child['route']) }}"
+                                    <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
                                         title="{{ $child['text'] }}">
                                         <i class="fas {{ $child['icon'] }} me-1"></i>
@@ -200,7 +406,7 @@
                         </nav>
                     </div>
                 @else
-                    <a href="{{ route($item['route']) }}"
+                    <a href="{{ route($item['route'], $item['query'] ?? []) }}"
                         class="nav-link has-tooltip {{ request()->routeIs($item['route'] . '*') ? 'active' : '' }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
@@ -208,6 +414,11 @@
                     </a>
                 @endif
             @endforeach
+            @if ($sectionOpen)
+                </div>
+            @endif
+
+            <span data-sidebar-section-stop></span>
 
             @auth
                 <hr class="text-white my-3">
@@ -238,12 +449,32 @@
         </div>
 
         <nav class="nav flex-column">
-            @php $currentGroup = null; @endphp
+            @php
+                $currentGroup = null;
+                $sectionOpen = false;
+            @endphp
             @foreach ($menus as $item)
                 @php $nextGroup = $menuGroupFor($item); @endphp
                 @if ($nextGroup !== $currentGroup)
-                    <div class="sidebar-section">{{ $nextGroup }}</div>
-                    @php $currentGroup = $nextGroup; @endphp
+                    @if ($sectionOpen)
+                        </div>
+                    @endif
+                    @php
+                        $sectionActive = $menuGroupIsActive($nextGroup);
+                        $sectionKey = Str::slug($nextGroup);
+                        $sectionId = $mobilePrefix . '-section-' . $sectionKey;
+                    @endphp
+                    <button type="button" class="sidebar-section sidebar-section-toggle"
+                        data-bs-toggle="collapse" data-bs-target="#{{ $sectionId }}"
+                        aria-controls="{{ $sectionId }}" aria-expanded="true">
+                        <span>{{ $nextGroup }}</span>
+                        <i class="fas fa-chevron-down sidebar-section-chevron"></i>
+                    </button>
+                    <div class="collapse show sidebar-section-items" id="{{ $sectionId }}">
+                    @php
+                        $currentGroup = $nextGroup;
+                        $sectionOpen = true;
+                    @endphp
                 @endif
 
 
@@ -271,7 +502,7 @@
                         <nav class="nav flex-column ms-3 submenu">
                             @foreach ($item['children'] as $child)
                                 @if (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
-                                    <a href="{{ route($child['route']) }}"
+                                    <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
                                         title="{{ $child['text'] }}">
                                         <i class="fas {{ $child['icon'] }} me-1"></i>
@@ -282,7 +513,7 @@
                         </nav>
                     </div>
                 @else
-                    <a href="{{ route($item['route']) }}"
+                    <a href="{{ route($item['route'], $item['query'] ?? []) }}"
                         class="nav-link has-tooltip {{ request()->routeIs($item['route'] . '*') ? 'active' : '' }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
@@ -290,6 +521,11 @@
                     </a>
                 @endif
             @endforeach
+            @if ($sectionOpen)
+                </div>
+            @endif
+
+            <span data-sidebar-section-stop></span>
 
             @auth
                 <hr class="text-white my-3">
@@ -352,14 +588,49 @@
     }
 
     .sidebar-section {
+        align-items: center;
+        background: transparent;
+        border: 0;
         color: rgba(255, 255, 255, .46);
+        display: flex;
         font-size: 11px;
         font-weight: 700;
+        justify-content: space-between;
         letter-spacing: .08em;
         line-height: 1;
         margin: 18px 8px 7px;
+        padding: 0;
+        text-align: left;
         text-transform: uppercase;
+        width: calc(100% - 16px);
         white-space: nowrap;
+    }
+
+    .sidebar-section-toggle {
+        cursor: pointer;
+        transition: color .15s ease;
+    }
+
+    .sidebar-section-toggle:hover {
+        color: rgba(255, 255, 255, .78);
+    }
+
+    .sidebar-section-chevron {
+        font-size: 10px;
+        opacity: .62;
+        transition: transform .16s ease, opacity .16s ease;
+    }
+
+    .sidebar-section-toggle.is-collapsed .sidebar-section-chevron {
+        transform: rotate(-90deg);
+    }
+
+    .sidebar-section-toggle[aria-expanded="false"] .sidebar-section-chevron {
+        transform: rotate(-90deg);
+    }
+
+    .sidebar-section-toggle:hover .sidebar-section-chevron {
+        opacity: .95;
     }
 
     .sidebar-section:first-child {

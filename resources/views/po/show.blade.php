@@ -4,6 +4,116 @@
 @section('page-title', 'PO Detail')
 
 @section('content')
+    <style>
+        .po-approval-sidebar .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+        }
+
+        .po-approval-sidebar .card-header {
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 10px 14px;
+        }
+
+        .po-approval-sidebar .card-body {
+            padding: 12px 14px;
+        }
+
+        .po-approval-sidebar .alert {
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .po-approval-chip {
+            border-radius: 999px;
+            padding: 0.2rem 0.55rem;
+            background: #e2e8f0;
+            color: #334155;
+            font-size: 0.74rem;
+            font-weight: 700;
+        }
+
+        .po-person-card,
+        .po-timeline-card,
+        .po-sign-card {
+            border: 1px solid #dbe4f0;
+            border-radius: 9px;
+            background: #fff;
+            padding: 12px;
+        }
+
+        .po-person-card + .po-person-card,
+        .po-timeline-card + .po-timeline-card,
+        .po-sign-card + .po-sign-card {
+            margin-top: 8px;
+        }
+
+        .po-person-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #dbeafe;
+            color: #1d4ed8;
+            font-weight: 800;
+            flex: 0 0 auto;
+        }
+
+        .po-sign-img {
+            max-width: 180px;
+            max-height: 58px;
+        }
+
+        .po-cpa-card {
+            border: 1px solid #dbe4f0;
+            border-radius: 10px;
+            background: #f8fafc;
+        }
+
+        .po-help-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #dbeafe;
+            color: #1d4ed8;
+            font-size: 0.72rem;
+            font-weight: 800;
+            cursor: help;
+        }
+
+        .po-doc-card .form-control[readonly],
+        .po-doc-card textarea[readonly] {
+            background: #f8fafc;
+            border-color: #dbe4f0;
+            color: #0f172a;
+            font-weight: 600;
+        }
+
+        .po-lines-card .table thead th,
+        .po-attach-card .table thead th {
+            background: #f8fafc;
+            color: #334155;
+            font-size: 0.84rem;
+        }
+
+        .po-pdf-edit-card {
+            border: 1px solid #dbe4f0;
+            border-radius: 10px;
+        }
+
+        .po-pdf-edit-card .form-text {
+            color: #64748b;
+        }
+    </style>
+
     <div class="container py-3">
         @if (session('ok'))
             <div class="alert alert-success">{{ session('ok') }}</div>
@@ -13,17 +123,21 @@
         @endif
 
         @can('POPUR')
-            <div class="card border-0 shadow-sm mb-3">
+            <div class="card po-cpa-card shadow-sm mb-3">
                 <div class="card-body d-flex flex-wrap align-items-end gap-2">
                     <form method="POST" action="{{ route('po.erp.connect') }}" class="d-flex flex-wrap align-items-end gap-2">
                         @csrf
                         <div>
-                            <label class="form-label small text-muted mb-1">ERP Username</label>
+                            <label class="form-label small text-muted mb-1">
+                                CPA Username
+                                <span class="po-help-dot" data-bs-toggle="tooltip" data-bs-placement="top"
+                                    title="ใช้บัญชี CPA เพื่อสร้าง session สำหรับดึง PDF ต้นฉบับจาก CPA ก่อนระบบจะแปะลายเซ็นและข้อมูล workflow เพิ่ม">?</span>
+                            </label>
                             <input type="text" name="erp_username" class="form-control form-control-sm" style="min-width: 150px;"
                                 autocomplete="username">
                         </div>
                         <div>
-                            <label class="form-label small text-muted mb-1">ERP Password</label>
+                            <label class="form-label small text-muted mb-1">CPA Password</label>
                             <input type="password" name="erp_password" class="form-control form-control-sm" style="min-width: 150px;"
                                 autocomplete="current-password">
                         </div>
@@ -34,22 +148,26 @@
                                 <option value="mswplus">Menam Plus</option>
                             </select>
                         </div>
-                        <button type="submit" class="btn btn-sm btn-primary">Connect ERP</button>
+                        <button type="submit" class="btn btn-sm btn-primary">Login CPA</button>
                     </form>
                     <form method="POST" action="{{ route('po.erpSession.save') }}" class="d-flex flex-wrap align-items-end gap-2">
                         @csrf
                         <div>
-                            <label class="form-label small text-muted mb-1">ERP PHPSESSID</label>
+                            <label class="form-label small text-muted mb-1">
+                                CPA PHPSESSID
+                                <span class="po-help-dot" data-bs-toggle="tooltip" data-bs-placement="top"
+                                    title="กรณี login CPA ผ่านหน้าเว็บหลักไว้แล้ว สามารถนำค่า PHPSESSID มาใส่เพื่อให้ระบบดาวน์โหลด PDF ได้">?</span>
+                            </label>
                             <input type="text" name="erp_phpsessid" value="{{ session('po_erp_phpsessid') }}"
                                 class="form-control form-control-sm" style="min-width: 280px;"
-                                placeholder="Paste PHPSESSID or full Cookie header">
+                                placeholder="Paste CPA PHPSESSID or full Cookie header">
                         </div>
-                        <button type="submit" class="btn btn-sm btn-outline-primary">Save Session</button>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Save CPA Session</button>
                     </form>
                     <form method="POST" action="{{ route('po.erpSession.clear') }}">
                         @csrf
                         @method('DELETE')
-                        <button type="submit" class="btn btn-sm btn-outline-secondary">Clear</button>
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Clear CPA Session</button>
                     </form>
                 </div>
             </div>
@@ -68,8 +186,11 @@
 
         <div class="row g-4">
             <div class="col-lg-8">
-                <div class="card shadow-sm mb-3">
-                    <div class="card-header"><strong>ข้อมูลเอกสาร</strong></div>
+                <div class="card po-doc-card shadow-sm mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong>ข้อมูลเอกสาร</strong>
+                        <span class="badge text-bg-light">{{ $po->status_code }}</span>
+                    </div>
                     <div class="card-body">
                         <div class="row g-3">
                             <div class="col-md-4">
@@ -125,8 +246,11 @@
                     </div>
                 </div>
 
-                <div class="card shadow-sm mb-3">
-                    <div class="card-header"><strong>รายการสินค้า</strong></div>
+                <div class="card po-lines-card shadow-sm mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong>รายการสินค้า</strong>
+                        <span class="badge text-bg-light">{{ number_format($detailRows->count()) }} lines</span>
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-bordered align-middle mb-0">
                             <thead class="table-light">
@@ -153,9 +277,106 @@
                     </div>
                 </div>
 
-                <div class="card shadow-sm">
-                    <div class="card-header"><strong>Attached / เอกสารประกอบ</strong></div>
+                @php
+                    $pdfDescriptionOverrideText = collect(old('pdf_description_overrides', $po->pdf_description_overrides ?? []))
+                        ->map(fn ($value) => trim((string) $value))
+                        ->filter()
+                        ->implode("\n");
+                    $pdfCommentsOverride = old('pdf_comments_override', $po->pdf_comments_override ?? '');
+                    $hasPdfTextOverride = $pdfDescriptionOverrideText !== ''
+                        || trim((string) $pdfCommentsOverride) !== '';
+                @endphp
+                <div class="card po-pdf-edit-card shadow-sm mb-3">
+                    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div>
+                            <strong>เพิ่มข้อความใน PDF</strong>
+                            <span class="badge {{ $hasPdfTextOverride ? 'text-bg-warning' : 'text-bg-light' }}">
+                                {{ $hasPdfTextOverride ? 'มีข้อความเพิ่ม' : 'ตามต้นฉบับ CPA' }}
+                            </span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-po-edit-focus="pdf-description">
+                                เพิ่มข้อความ Description
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-po-edit-focus="pdf-comments">
+                                เพิ่มข้อความ Comments
+                            </button>
+                        </div>
+                    </div>
                     <div class="card-body">
+                        <form method="POST" action="{{ route('po.update', $po->id) }}">
+                            @csrf
+                            @method('PUT')
+
+                            <div class="alert alert-light border mb-3">
+                                ข้อความที่กรอกจะถูกพิมพ์<strong>เพิ่มต่อท้าย</strong>ข้อความเดิมของ CPA ใน PDF ตอน Download
+                                (ข้อความเดิมยังอยู่ครบ ไม่ถูกแทนที่); เว้นว่าง = ไม่เพิ่มอะไร
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">เพิ่มต่อท้าย Description</label>
+                                <textarea name="pdf_description_overrides[0]"
+                                    class="form-control"
+                                    rows="3"
+                                    data-po-edit-target="pdf-description"
+                                    {{ $canEditPdfOverride ? '' : 'readonly' }}>{{ $pdfDescriptionOverrideText }}</textarea>
+                                <div class="form-text">จะพิมพ์ต่อใต้บรรทัดสุดท้ายของช่อง Description ในหน้าที่เลือก (ขึ้นบรรทัดใหม่ได้)</div>
+                            </div>
+
+                            <div class="mb-3" style="max-width: 260px;">
+                                <label class="form-label">พิมพ์ Description ที่หน้า</label>
+                                <input type="text" name="pdf_description_override_pages"
+                                    class="form-control"
+                                    placeholder="หน้าสุดท้าย"
+                                    value="{{ old('pdf_description_override_pages', $po->pdf_description_override_pages) }}"
+                                    {{ $canEditPdfOverride ? '' : 'readonly' }}>
+                                <div class="form-text">เช่น 2 หรือ 1,3 หรือ 1-3 หรือ all (ทุกหน้า); เว้นว่าง = หน้าสุดท้าย</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">เพิ่มต่อท้าย Comments</label>
+                                <textarea name="pdf_comments_override"
+                                    class="form-control"
+                                    rows="3"
+                                    data-po-edit-target="pdf-comments"
+                                    {{ $canEditPdfOverride ? '' : 'readonly' }}>{{ $pdfCommentsOverride }}</textarea>
+                                <div class="form-text">จะพิมพ์ต่อจากบรรทัดสุดท้ายของช่อง Comments ใน PDF (แยกจากหมายเหตุไฟล์แนบ)</div>
+                            </div>
+
+                            <div class="mb-3" style="max-width: 260px;">
+                                <label class="form-label">พิมพ์ Comments ที่หน้า</label>
+                                <input type="text" name="pdf_comments_override_pages"
+                                    class="form-control"
+                                    placeholder="หน้าสุดท้าย"
+                                    value="{{ old('pdf_comments_override_pages', $po->pdf_comments_override_pages) }}"
+                                    {{ $canEditPdfOverride ? '' : 'readonly' }}>
+                                <div class="form-text">เช่น 2 หรือ 1,3 หรือ 1-3 หรือ all (ทุกหน้า); เว้นว่าง = หน้าสุดท้าย</div>
+                            </div>
+
+                            @if ($canEditPdfOverride)
+                                <button class="btn btn-primary">บันทึกข้อความบน PDF</button>
+                            @else
+                                <div class="alert alert-secondary mb-0">เอกสารเข้า workflow แล้ว แก้ข้อความ PDF ไม่ได้จนกว่าจะถูกตีกลับ</div>
+                            @endif
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card po-attach-card shadow-sm">
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong>Attached / เอกสารประกอบ</strong>
+                        <span class="badge text-bg-light">{{ number_format($po->attachments->count()) }} files</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-po-edit-focus="notes">
+                                แก้หมายเหตุ
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-po-edit-focus="files">
+                                เพิ่มไฟล์แนบ
+                            </button>
+                        </div>
+
                         <form method="POST" action="{{ route('po.update', $po->id) }}" enctype="multipart/form-data">
                             @csrf
                             @method('PUT')
@@ -217,7 +438,7 @@
                                                 : $fallbackName;
                                         @endphp
                                         <tr>
-                                            <td><a href="{{ Storage::disk('public')->url($attachment->file_path) }}"
+                                            <td><a href="{{ route('po.attachments.show', [$po->id, $attachment->id]) }}"
                                                     target="_blank">{{ $displayFileName }}</a></td>
                                             <td>{{ $attachment->remark ?: '-' }}</td>
                                             <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
@@ -234,7 +455,7 @@
                 </div>
             </div>
 
-            <div class="col-lg-4">
+            <div class="col-lg-4 po-approval-sidebar">
                 <div class="card shadow-sm mb-3">
                     <div class="card-header"><strong>Workflow</strong></div>
                     <div class="card-body">
@@ -269,7 +490,10 @@
                 </div>
 
                 <div class="card shadow-sm mb-3">
-                    <div class="card-header"><strong>Waiting Approval</strong></div>
+                    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+                        <strong>Waiting Approval</strong>
+                        <span class="po-approval-chip">{{ $pendingApprovers->count() }} pending</span>
+                    </div>
                     <div class="card-body">
                         @if ($po->workflow_id && $pendingApprovers->isNotEmpty())
                             <div class="small text-muted mb-2">
@@ -277,10 +501,13 @@
                                 {{ $currentStepName ?: 'Step ' . ($po->workflow?->current_step_no ?? '-') }}
                             </div>
                             @foreach ($pendingApprovers as $approver)
-                                <div class="border rounded p-3 mb-2">
-                                    <div class="fw-semibold">{{ $approver->name }}</div>
-                                    <div class="small text-muted">{{ $approver->email ?: '-' }}</div>
-                                    <div class="small text-muted">Step {{ $approver->step_no }}</div>
+                                <div class="po-person-card d-flex gap-3 align-items-start">
+                                    <div class="po-person-avatar">{{ mb_substr((string) $approver->name, 0, 1) }}</div>
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold">{{ $approver->name }}</div>
+                                        <div class="small text-muted">{{ $approver->email ?: '-' }}</div>
+                                        <div class="small text-muted">Step {{ $approver->step_no }}</div>
+                                    </div>
                                 </div>
                             @endforeach
                         @elseif ($po->workflow_id)
@@ -306,7 +533,7 @@
                                     default => 'text-bg-primary',
                                 };
                             @endphp
-                            <div class="border rounded p-3 mb-2">
+                            <div class="po-timeline-card">
                                 <div class="d-flex justify-content-between gap-2">
                                     <span class="badge {{ $badgeClass }}">{{ $action ?: '-' }}</span>
                                     <span class="small text-muted">
@@ -336,7 +563,7 @@
                                         ->filter(fn($name) => trim((string) $name) !== '')
                                         ->implode(' / '),
                                     'image' => collect($signatures['ordered_by'] ?? [])
-                                        ->pluck('signature_url')
+                                        ->pluck('signature_data_uri')
                                         ->filter()
                                         ->first(),
                                     'date' => collect($signatures['ordered_by'] ?? [])
@@ -348,7 +575,7 @@
                                 [
                                     'label' => 'Authorized by',
                                     'name' => $signatures['authorized_by']->actor_name ?? '',
-                                    'image' => $signatures['authorized_by']->signature_url ?? null,
+                                    'image' => $signatures['authorized_by']->signature_data_uri ?? null,
                                     'date' => !empty($signatures['authorized_by']?->created_at)
                                         ? \Illuminate\Support\Carbon::parse(
                                             $signatures['authorized_by']->created_at,
@@ -359,11 +586,16 @@
                         @endphp
 
                         @foreach ($signatureCards as $card)
-                            <div class="border rounded p-3 mb-3">
-                                <div class="fw-semibold">{{ $card['label'] }}</div>
+                            <div class="po-sign-card">
+                                <div class="d-flex justify-content-between align-items-center gap-2">
+                                    <div class="fw-semibold">{{ $card['label'] }}</div>
+                                    <span class="badge {{ $card['date'] !== '' ? 'text-bg-success' : 'text-bg-light' }}">
+                                        {{ $card['date'] !== '' ? 'Signed' : 'Pending' }}
+                                    </span>
+                                </div>
                                 <div class="mt-2">
                                     @if (!empty($card['image']))
-                                        <img src="{{ $card['image'] }}" alt="{{ $card['label'] }}" style="max-width: 180px; max-height: 58px;">
+                                        <img src="{{ $card['image'] }}" alt="{{ $card['label'] }}" class="po-sign-img">
                                     @else
                                         {{ $card['name'] !== '' ? $card['name'] : '................................' }}
                                     @endif
@@ -397,4 +629,38 @@
             </form>
         </div>
     </div>
+
+    <script>
+        (() => {
+            if (window.bootstrap?.Tooltip) {
+                document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+                    bootstrap.Tooltip.getOrCreateInstance(el);
+                });
+            }
+
+            const focusTarget = (selector) => {
+                const target = document.querySelector(selector);
+                if (!target) return;
+
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                window.setTimeout(() => target.focus({ preventScroll: true }), 250);
+            };
+
+            document.querySelector('[data-po-edit-focus="notes"]')?.addEventListener('click', () => {
+                focusTarget('textarea[name="notes"]');
+            });
+
+            document.querySelector('[data-po-edit-focus="files"]')?.addEventListener('click', () => {
+                focusTarget('input[name="files[]"]');
+            });
+
+            document.querySelector('[data-po-edit-focus="pdf-description"]')?.addEventListener('click', () => {
+                focusTarget('[data-po-edit-target="pdf-description"]');
+            });
+
+            document.querySelector('[data-po-edit-focus="pdf-comments"]')?.addEventListener('click', () => {
+                focusTarget('[data-po-edit-target="pdf-comments"]');
+            });
+        })();
+    </script>
 @endsection

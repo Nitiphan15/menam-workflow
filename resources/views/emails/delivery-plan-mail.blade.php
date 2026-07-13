@@ -110,7 +110,7 @@
                                         </td>
                                         <td
                                             style="border:1px solid #d1d5db; padding:6px; text-align:right; font-weight:bold;">
-                                            {{ isset($row['qty']) ? number_format((float) $row['qty'], 3) : '-' }}
+                                            {{ $row['qty_display'] ?? (isset($row['qty']) ? number_format((float) $row['qty'], 3) : '-') }}
                                         </td>
                                         <td style="border:1px solid #d1d5db; padding:6px;">{{ $row['address'] ?? '-' }}
                                         </td>

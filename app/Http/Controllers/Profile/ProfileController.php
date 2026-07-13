@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Profile;
 
 use App\Http\Controllers\Controller;
+use App\Models\Users\User as WorkflowUser;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -48,6 +49,7 @@ class ProfileController extends Controller
 
         $payload = [
             'name' => $request->name,
+            'username' => WorkflowUser::uniqueUsernameForName($request->name, (int) $user->id),
             'email' => $request->email,
             'phone' => $request->phone,
             'department' => $request->department,
@@ -85,7 +87,7 @@ class ProfileController extends Controller
 
         $validator = Validator::make($request->all(), [
             'current_password' => 'required|string',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => 'required|string|min:4|confirmed',
         ]);
 
         if ($validator->fails()) {

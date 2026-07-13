@@ -1,4 +1,4 @@
-﻿@extends('layouts.layout')
+@extends('layouts.layout')
 
 @section('title', 'รายละเอียดภาระงานเครื่องจักร')
 @section('page-title', 'รายละเอียดภาระงานเครื่องจักร')

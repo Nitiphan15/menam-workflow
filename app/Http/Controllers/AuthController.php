@@ -21,8 +21,12 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
+        if (!$request->filled('login') && $request->filled('email')) {
+            $request->merge(['login' => $request->input('email')]);
+        }
+
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'login' => 'required|string|max:255',
             'password' => 'required',
         ]);
 
@@ -30,18 +34,28 @@ class AuthController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
-        $credentials = $request->only('email', 'password');
-        $credentials['is_active'] = 1;
+        $login = trim((string) $request->input('login'));
+        $loginField = filter_var($login, FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
+        $credentials = [
+            $loginField => $login,
+            'password' => $request->input('password'),
+            'is_active' => 1,
+        ];
 
         if (Auth::attempt($credentials)) {
             $request->session()->regenerate();
             auth()->user()->load('deptRoles');
 
-            $to = $request->input('redirect_to');
-            return $to ? redirect($to) : redirect()->intended('/');
+            // อนุญาต redirect เฉพาะ path ภายในระบบ กัน open redirect ไปโดเมนอื่น
+            // (ปฏิเสธ "//..." และ "/\..." ที่ browser ตีความเป็นลิงก์ข้ามโดเมน)
+            $to = (string) $request->input('redirect_to', '');
+            if ($to !== '' && $to[0] === '/' && !preg_match('#^/[/\\\\]#', $to)) {
+                return redirect($to);
+            }
+            return redirect()->intended('/');
         }
         return back()->withErrors([
-            'email' => 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง.',
+            'login' => 'Username/email or password is incorrect. Please try again.',
         ])->withInput();
     }
 

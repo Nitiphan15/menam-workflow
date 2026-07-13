@@ -6,12 +6,18 @@ use App\Http\Controllers\Controller;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class PlannerForecastController extends Controller
 {
     private string $fcConn = 'sqlsrv_menam';
     private string $plannerCode = 'PLN';
+
+    private function bumpForecastIndexCacheVersion(): void
+    {
+        Cache::forever('forecast_rm:index:version', (int) Cache::get('forecast_rm:index:version', 1) + 1);
+    }
 
     private function userOr403()
     {
@@ -282,7 +288,7 @@ class PlannerForecastController extends Controller
             $autoForecastDay = 1;
         }
 
-        $historyMonths = collect(range(1, 6))
+        $historyMonths = collect(range(0, 5))
             ->map(fn($i) => (clone $base)->subMonths($i))
             ->reverse()
             ->values();
@@ -341,8 +347,8 @@ class PlannerForecastController extends Controller
 
         $historyRaw = $this->fetchPlannerHistoryByMasterRm(
             $rmParts,
-            (clone $base)->subMonths(6)->startOfMonth(),
-            (clone $base)->subMonths(1)->endOfMonth()
+            (clone $base)->subMonths(5)->startOfMonth(),
+            (clone $base)->endOfMonth()
         );
 
         $historyMap = $historyRaw
@@ -741,6 +747,8 @@ class PlannerForecastController extends Controller
                 );
         });
 
+        $this->bumpForecastIndexCacheVersion();
+
         return back()->with('success', 'บันทึก Planner Forecast เรียบร้อยแล้ว');
     }
 
@@ -885,6 +893,8 @@ class PlannerForecastController extends Controller
 
             $this->insertRowsByChunk('fc_rm_division_forecast_item_history', $historyRows, 50);
         });
+
+        $this->bumpForecastIndexCacheVersion();
 
         return back()->with('success', 'บันทึก Manual Forecast เรียบร้อยแล้ว');
     }

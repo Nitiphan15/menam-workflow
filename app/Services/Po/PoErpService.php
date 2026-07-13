@@ -44,7 +44,6 @@ class PoErpService
                         $kw = trim($search);
                         $q->where(function ($sub) use ($kw) {
                             $sub->where('oe.ordnumber', 'like', "%{$kw}%")
-                                ->orWhere('ap.invnumber', 'like', "%{$kw}%")
                                 ->orWhere('vendor.name', 'like', "%{$kw}%")
                                 ->orWhere('oe.f1', 'like', "%{$kw}%");
                         });
@@ -53,8 +52,8 @@ class PoErpService
                     ->orderByDesc(DB::raw('MAX(oe.transdate)'))
                     ->get([
                         DB::raw('MAX(oe.transdate) as transdate'),
+                        DB::raw('MAX(oe.reqdate) as reqdate'),
                         'oe.ordnumber',
-                        DB::raw("STRING_AGG(DISTINCT ap.invnumber, ', ') as invnumber"),
                         DB::raw('MAX(oe.amount) as qty'),
                         'oe.f1',
                     ])
@@ -90,8 +89,9 @@ class PoErpService
 
             return (object) [
                 'ordnumber' => $row->ordnumber,
-                'invnumber' => $row->invnumber,
+                'invnumber' => null,
                 'transdate' => $row->transdate,
+                'reqdate' => $row->reqdate ?? null,
                 'qty' => (float) ($row->qty ?? 0),
                 'site' => $sourceSystem,
                 'source_label' => self::sourceLabel($sourceSystem),
@@ -141,7 +141,7 @@ class PoErpService
     {
         return $this->baseDetailQuery($sourceSystem)
             ->table('oe')
-            ->join('ap', 'ap.ordnumber', '=', 'oe.ordnumber')
+            ->leftJoin('ap', 'ap.ordnumber', '=', 'oe.ordnumber')
             ->join('vendor', 'vendor.id', '=', 'oe.vendor_id')
             ->join('employee', 'oe.requester_id', '=', 'employee.id')
             ->join('orderitems', 'oe.id', '=', 'orderitems.trans_id')
@@ -154,8 +154,8 @@ class PoErpService
             ->where('oe.closed', false)
             ->where('oe.cancelled', false)
             ->whereDate('oe.transdate', '>=', '2026-04-01')
-            ->whereRaw("oe.ordnumber ~ '^PO[0-9]'")
-            ->where('oe.shipped_or_received', true)
+            ->whereRaw("oe.ordnumber ~ '^POR?[0-9]'")
+            ->where('oe.shipped_or_received', false)
             ->where('oe.ordnumber', $ordnumber)
             ->orderBy('orderitems.id')
             ->get([
@@ -201,8 +201,8 @@ class PoErpService
             ->where('oe.closed', false)
             ->where('oe.cancelled', false)
             ->whereDate('oe.transdate', '>=', '2026-04-01')
-            ->whereRaw("oe.ordnumber ~ '^PO[0-9]'")
-            ->where('oe.shipped_or_received', true)
+            ->whereRaw("oe.ordnumber ~ '^POR?[0-9]'")
+            ->where('oe.shipped_or_received', false)
             ->where('oe.ordnumber', $ordnumber)
             ->orderByDesc('oe.id')
             ->value('oe.id');
@@ -299,6 +299,7 @@ class PoErpService
     {
         if (!$workflowId) {
             return [
+                'submitted_by' => null,
                 'ordered_by' => collect(),
                 'authorized_by' => null,
                 'po_confirmed_by' => null,
@@ -307,6 +308,7 @@ class PoErpService
 
         $selects = [
             'h.step_no',
+            'h.action_type',
             'h.actor_user_id',
             'h.created_at',
             'u.name as actor_name',
@@ -318,15 +320,18 @@ class PoErpService
         $logs = SqlServerDb::table('wf_action_histories as h')
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
-            ->where('h.action_type', 'APPROVE')
+            ->whereIn('h.action_type', ['SUBMIT', 'APPROVE'])
             ->orderBy('h.created_at')
             ->get($selects);
 
         $logs = $logs->map(fn ($row) => $this->decorateSignatureRow($row));
 
+        $approvals = $logs->where('action_type', 'APPROVE');
+
         return [
-            'ordered_by' => $logs->where('step_no', 2)->values(),
-            'authorized_by' => $logs->firstWhere('step_no', 3),
+            'submitted_by' => $logs->firstWhere('action_type', 'SUBMIT'),
+            'ordered_by' => $approvals->where('step_no', 2)->values(),
+            'authorized_by' => $approvals->firstWhere('step_no', 3),
             'po_confirmed_by' => null,
         ];
     }
@@ -429,17 +434,23 @@ class PoErpService
 
     private function baseListQuery(string $sourceSystem)
     {
+        // Scope: PO ที่ยังไม่รับของ (shipped_or_received = false) และยังไม่มี invoice
+        // (ไม่มีแถวใน ap ที่ ordnumber ตรงกัน) ครอบทั้งเลข PO และ POR
         return $this->baseDetailQuery($sourceSystem)
             ->table('oe')
-            ->join('ap', 'ap.ordnumber', '=', 'oe.ordnumber')
             ->join('vendor', 'vendor.id', '=', 'oe.vendor_id')
             ->join('employee', 'oe.requester_id', '=', 'employee.id')
             ->join('orderitems', 'oe.id', '=', 'orderitems.trans_id')
             ->where('oe.closed', false)
             ->where('oe.cancelled', false)
             ->whereDate('oe.transdate', '>=', '2026-04-01')
-            ->whereRaw("oe.ordnumber ~ '^PO[0-9]'")
-            ->where('oe.shipped_or_received', true);
+            ->whereRaw("oe.ordnumber ~ '^POR?[0-9]'")
+            ->where('oe.shipped_or_received', false)
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('ap')
+                    ->whereColumn('ap.ordnumber', 'oe.ordnumber');
+            });
     }
 
     private function baseDetailQuery(?string $sourceSystem = null)

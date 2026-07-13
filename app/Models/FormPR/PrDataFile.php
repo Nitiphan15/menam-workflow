@@ -2,13 +2,16 @@
 
 namespace App\Models\FormPR;
 
+use App\Models\Concerns\UsesWorkflowConnection;
 use Illuminate\Database\Eloquent\Model;
-use app\Models\FormPR\PrData;
-use app\Models\WF\WfForm;
+use App\Models\FormPR\PrData;
+use App\Models\WF\WfForm;
 
 
 class PrDataFile extends Model
 {
+    use UsesWorkflowConnection;
+
     protected $table = 'pr_data_files';
     public $timestamps = false;
 

@@ -13,7 +13,7 @@
         //$mfg = $mfg ?? '';
         // Blade form with input fields and dynamic rows
         $wocrData = $wocrData ?? ($WocrData ?? null);
-        $wfId = $form->id ?? ($wocrData->wfForm->id ?? ($wfId ?? null));
+        $wfId = $form->id ?? ($wfId ?? data_get($wocrData, 'form_id'));
         //dd($wocrData);
         $form = $form ?? (object) [];
         $items = collect(
@@ -33,6 +33,7 @@
             ),
         );
         $reqType = (string) $v('req_type', '');
+        $urgency = (string) $v('urgency', '2');
     @endphp
 
 
@@ -134,12 +135,26 @@
                     @enderror
                 </div>
 
+                <div class="mb-3">
+                    <label for="urgency" class="form-label fw-semibold">ระดับความเร่งด่วน
+                        <span class="text-danger">*</span></label>
+                    <select name="urgency" id="urgency"
+                        class="form-select @error('urgency') is-invalid @enderror" style="max-width:240px;">
+                        <option value="1" @selected($urgency === '1')>น้อย</option>
+                        <option value="2" @selected($urgency === '2')>ปานกลาง</option>
+                        <option value="3" @selected($urgency === '3')>มาก</option>
+                    </select>
+                    @error('urgency')
+                        <div class="invalid-feedback d-block">{{ $message }}</div>
+                    @enderror
+                </div>
+
                 <div class="row">
                     <div class="col-md-4 position-relative">
                         <label for="mfg_no" class="form-label fw-semibold">MFG No.</label>
                         <input type="text" id="mfg_no" name="mfg_no" class="form-control form-control-lg"
                             placeholder="W25xxxxxx" autocomplete="off" autofocus value="{{ $v('mfg_no') }}"
-                            data-url="{{ route('api.mfgs.search') }}">
+                            data-url="{{ route('api.wocr.mfgs.search') }}">
 
                         <!-- ถ้าต้องการเก็บ id แยก ใช้ hid ตามเดิม -->
                         <input type="hidden" id="mfg_no_id" name="mfg_no_id" value="{{ old('mfg_no_id') }}">
@@ -265,6 +280,7 @@
             const typeEl = document.getElementById('form_type');
             const sizeEl = document.getElementById('size');
             const qtyEl = document.getElementById('qty');
+            const lengthEl = document.getElementById('length');
 
             let timer = null,
                 idx = -1;
@@ -274,6 +290,7 @@
                 typeEl.value = m.type ?? '';
                 sizeEl.value = m.size ?? '';
                 qtyEl.value = m.wo_qty ?? '';
+                lengthEl.value = m.length ?? '';
             };
 
             const debounce = (fn, ms = 200) => (...a) => {

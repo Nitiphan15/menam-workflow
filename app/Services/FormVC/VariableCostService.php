@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -27,6 +28,52 @@ class VariableCostService
         '1110203',
         '2020500',
     ];
+
+    private const WIRE_CHARGED_TO_PLUS_ACCOUNT_CODES = [
+        '5210310',
+        '5210330',
+        '5210340',
+        '5210350',
+        '5210700',
+        '6010100',
+        '6010200',
+        '6120000',
+    ];
+
+    public const ACCOUNT_DISPLAY_CACHE_KEY = 'vc_account_display_codes';
+
+    public const DEFAULT_ACCOUNT_OPTION_CODES = [
+        '5210100',
+        '5210310',
+        '5210330',
+        '5210340',
+        '5210350',
+        '5210370',
+        '5210401',
+        '5210602',
+        '5210700',
+        '5211000',
+        '5211100',
+        '5211200',
+        '5211700',
+        '5211800',
+        '5220200',
+        '5220600',
+        '6030001',
+        '6040000',
+        '6050000',
+        '6060100',
+        '6120201',
+        '6120401',
+        '7050000',
+        '7060200',
+        '7070000',
+        '7080000',
+    ];
+
+    private string $fcConn = 'sqlsrv_menam';
+    private string $accountDisplayTable = 'vc_account_display_accounts';
+    private string $truckWeightLogTable = 'vc_truck_weight_logs';
 
     private ?array $classInfoBySite = null;
 
@@ -92,10 +139,34 @@ class VariableCostService
     public function getSummaryData(array $filters): array
     {
         $filters = $this->normalizeFilters($filters);
-        $combined = $this->fetchCombinedAggregates($filters, ['overall', 'dept', 'acc']);
+        $combined = $this->fetchCombinedAggregates($filters, ['overall', 'dept', 'acc', 'matrix']);
 
         $departmentSummary = $this->postProcessDepartmentTotals($combined['department'], $filters['site']);
-        $accountOptions = $this->extractAccountOptions($combined['account']);
+        $accountSummary = $this->postProcessAccountTotals($combined['account']);
+        $accountOptions = $this->accountOptionsFromSummary($accountSummary);
+        $kpis = $this->buildKpis($combined['overall']);
+        $kpis['account_count'] = $accountSummary->count();
+        $extraSummary = $this->getProductionSalesSummary($filters);
+        $truckWeightLog = $this->latestTruckWeightLog($filters);
+        if ($truckWeightLog) {
+            $extraSummary['truck'] = [
+                'qty' => (float) $truckWeightLog->weight_kg,
+                'source' => 'manual_log',
+                'log' => $truckWeightLog,
+            ];
+        }
+        $extraSummary['truck']['logs'] = $this->truckWeightLogs($filters);
+        $extraSummary['transport'] = [
+            'amount' => $this->transportExpenseFromMatrix($combined['matrix'], $filters['site']),
+            'department_code' => 'WH01',
+            'account_code' => '6040000',
+        ];
+        $truckWeight = (float) data_get($extraSummary, 'truck.qty', 0);
+        $transportAmount = (float) data_get($extraSummary, 'transport.amount', 0);
+        $extraSummary['transport']['cost_per_kg'] = $truckWeight > 0
+            ? $transportAmount / $truckWeight
+            : null;
+        $departmentSummary = $this->applyDepartmentProductionCosts($departmentSummary, $extraSummary);
 
         return [
             'filters' => $filters,
@@ -106,10 +177,215 @@ class VariableCostService
             'expenseMatrix' => ['accounts' => collect(), 'rows' => collect(), 'columnTotals' => [], 'grandTotal' => 0],
             'rows' => collect(),
             'detailRows' => collect(),
+            'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $this->buildDepartmentOptionsFromMaster($filters['site']),
             'accountOptions' => $accountOptions,
-            'kpis' => $this->buildKpis($combined['overall']),
+            'kpis' => $kpis,
+            'extraSummary' => $extraSummary,
         ];
+    }
+
+    public function storeTruckWeightLog(array $filters, float $weightKg, ?string $notes, $user): void
+    {
+        $filters = $this->normalizeFilters($filters);
+
+        DB::connection($this->fcConn)
+            ->table($this->truckWeightLogTable)
+            ->insert([
+                'period_date_from' => $filters['date_from'],
+                'period_date_to' => $filters['date_to'],
+                'site' => $filters['site'],
+                'weight_kg' => $weightKg,
+                'notes' => trim((string) $notes) !== '' ? trim((string) $notes) : null,
+                'created_by' => $user?->id,
+                'created_by_name' => $user?->name,
+                'created_by_email' => $user?->email,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+    }
+
+    public function latestTruckWeightLog(array $filters): ?object
+    {
+        $filters = $this->normalizeFilters($filters);
+
+        try {
+            return DB::connection($this->fcConn)
+                ->table($this->truckWeightLogTable)
+                ->where('period_date_from', $filters['date_from'])
+                ->where('period_date_to', $filters['date_to'])
+                ->where('site', $filters['site'])
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->first();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * รายการบันทึกน้ำหนักรถบรรทุกทั้งหมดของช่วงวันที่ + site ปัจจุบัน (ใหม่สุดก่อน) — ใช้แสดงให้แก้ไข/ลบ.
+     */
+    public function truckWeightLogs(array $filters): Collection
+    {
+        $filters = $this->normalizeFilters($filters);
+
+        try {
+            return collect(DB::connection($this->fcConn)
+                ->table($this->truckWeightLogTable)
+                ->where('period_date_from', $filters['date_from'])
+                ->where('period_date_to', $filters['date_to'])
+                ->where('site', $filters['site'])
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->get());
+        } catch (\Throwable $e) {
+            return collect();
+        }
+    }
+
+    public function updateTruckWeightLog(int $id, float $weightKg, ?string $notes, $user): bool
+    {
+        $affected = DB::connection($this->fcConn)
+            ->table($this->truckWeightLogTable)
+            ->where('id', $id)
+            ->update([
+                'weight_kg' => $weightKg,
+                'notes' => trim((string) $notes) !== '' ? trim((string) $notes) : null,
+                'updated_at' => now(),
+            ]);
+
+        return $affected > 0;
+    }
+
+    public function deleteTruckWeightLog(int $id): bool
+    {
+        $affected = DB::connection($this->fcConn)
+            ->table($this->truckWeightLogTable)
+            ->where('id', $id)
+            ->delete();
+
+        return $affected > 0;
+    }
+
+    private function applyDepartmentProductionCosts(Collection $rows, array $extraSummary): Collection
+    {
+        $fgQty = (float) data_get($extraSummary, 'fg.qty', 0);
+        $gratingQty = (float) data_get($extraSummary, 'grating.qty', 0);
+        $salesQty = (float) data_get($extraSummary, 'sales.qty', 0);
+
+        return $rows->map(function ($row) use ($fgQty, $gratingQty, $salesQty) {
+            $isGratingDepartment = Str::upper($this->cleanText($row->department_code ?? '')) === 'PD14';
+            $productionQty = $isGratingDepartment ? $gratingQty : $fgQty;
+
+            $row->production_basis = $isGratingDepartment ? 'Grating' : 'FG';
+            $row->production_qty = $productionQty;
+            $row->production_cost_per_kg = $productionQty > 0
+                ? (float) $row->total_amount / $productionQty
+                : null;
+            $row->sales_qty = $salesQty;
+            $row->sales_cost_per_kg = $salesQty > 0
+                ? (float) $row->total_amount / $salesQty
+                : null;
+
+            return $row;
+        });
+    }
+
+    private function transportExpenseFromMatrix(Collection $rawRows, string $selectedSite): float
+    {
+        $matrix = $this->postProcessMatrix($rawRows, $selectedSite);
+
+        return (float) collect($matrix['rows'] ?? [])
+            ->filter(fn($row) => Str::upper($this->cleanText($row->department_code ?? '')) === 'WH01')
+            ->sum(fn($row) => (float) data_get($row, 'amounts.6040000', 0));
+    }
+
+    /**
+     * ยอดผลิต (FG / Grating) จาก ERP และยอดขาย (delivery volume) ตาม site + ช่วงวันที่เดียวกับ filter.
+     * คืนค่าเป็นทั้งจำนวน (กก.) และมูลค่า (บาท) สำหรับยอดผลิต.
+     */
+    public function getProductionSalesSummary(array $filters): array
+    {
+        $filters = $this->normalizeFilters($filters);
+        $sites = $filters['site'] === 'ALL'
+            ? self::SITES
+            : [$filters['site'] => self::SITES[$filters['site']]];
+
+        $cacheKey = 'vc_extra_summary:v8:' . md5(json_encode([
+            array_keys($sites),
+            $filters['date_from'],
+            $filters['date_to'],
+        ]));
+
+        return Cache::remember($cacheKey, 300, function () use ($sites, $filters) {
+            $fg = ['qty' => 0.0, 'value' => 0.0];
+            $grating = ['qty' => 0.0, 'value' => 0.0];
+            $salesQty = 0.0;
+
+            foreach ($sites as $connection) {
+                try {
+                    // FG = partnumber ขึ้นต้น F แต่ไม่ใช่ FG ; Grating = partnumber ขึ้นต้น FG
+                    $fgRow = $this->fetchProductionTotals($connection, "UPPER(TRIM(p.partnumber)) LIKE 'F%' AND UPPER(TRIM(p.partnumber)) NOT LIKE 'FG%'", $filters);
+                    $gratingRow = $this->fetchProductionTotals($connection, "UPPER(TRIM(p.partnumber)) LIKE 'FG%'", $filters);
+
+                    $fg['qty'] += (float) ($fgRow->qty ?? 0);
+                    $fg['value'] += (float) ($fgRow->value ?? 0);
+                    $grating['qty'] += (float) ($gratingRow->qty ?? 0);
+                    $grating['value'] += (float) ($gratingRow->value ?? 0);
+                    $salesQty += $this->fetchSalesDeliveryQty($connection, $filters);
+                } catch (\Throwable $e) {
+                    // เผื่อบาง connection ไม่มีตารางที่ต้องใช้ — ข้ามไป ไม่ให้ทั้งหน้าพัง
+                }
+            }
+
+            return [
+                'fg' => $fg,
+                'grating' => $grating,
+                'sales' => ['qty' => $salesQty],
+                'truck' => ['qty' => 0.0, 'source' => 'not_available'],
+            ];
+        });
+    }
+
+    private function fetchProductionTotals(string $connection, string $partWhere, array $filters): object
+    {
+        $sql = "
+            SELECT
+                ROUND(COALESCE(SUM(CASE WHEN sus.qty > 0 THEN sus.qty ELSE 0 END), 0)::numeric, 2) AS qty,
+                ROUND(COALESCE(SUM(CASE WHEN sus.qty > 0 THEN sus.qty * COALESCE(p.sellprice, 0) ELSE 0 END), 0)::numeric, 2) AS value
+            FROM parts p
+            JOIN serializeunits su ON su.parts_id = p.id
+            JOIN serializeunitsmvmt sus ON sus.su_id = su.id
+            WHERE sus.transdate >= ?
+              AND sus.transdate <= ?
+              AND {$partWhere}
+        ";
+
+        $row = DB::connection($connection)->selectOne($sql, [$filters['date_from'], $filters['date_to']]);
+
+        return $row ?: (object) ['qty' => 0, 'value' => 0];
+    }
+
+    private function fetchSalesDeliveryQty(string $connection, array $filters): float
+    {
+        $sql = "
+            SELECT ROUND(COALESCE(SUM(
+                pi.qty * CASE WHEN p.ref_unit = '03' THEN p.ref_unit_qty ELSE 1 END
+            ), 0)::numeric, 2) AS qty
+            FROM predm
+            JOIN predmitems pi ON predm.id = pi.trans_id
+            JOIN parts p ON pi.parts_id = p.id
+            WHERE predm.ordnumber IS NOT NULL
+              AND predm.ordnumber LIKE 'SO%'
+              AND predm.transdate >= ?
+              AND predm.transdate <= ?
+              AND pi.unit != ' '
+        ";
+
+        $row = DB::connection($connection)->selectOne($sql, [$filters['date_from'], $filters['date_to']]);
+
+        return (float) ($row->qty ?? 0);
     }
 
     public function getAccountsData(array $filters): array
@@ -118,7 +394,9 @@ class VariableCostService
         $combined = $this->fetchCombinedAggregates($filters, ['overall', 'acc']);
 
         $accountSummary = $this->postProcessAccountTotals($combined['account']);
-        $accountOptions = $this->extractAccountOptions($combined['account']);
+        $accountOptions = $this->accountOptionsFromSummary($accountSummary);
+        $kpis = $this->buildKpis($combined['overall']);
+        $kpis['account_count'] = $accountSummary->count();
 
         return [
             'filters' => $filters,
@@ -129,9 +407,10 @@ class VariableCostService
             'expenseMatrix' => ['accounts' => collect(), 'rows' => collect(), 'columnTotals' => [], 'grandTotal' => 0],
             'rows' => collect(),
             'detailRows' => collect(),
+            'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $this->buildDepartmentOptionsFromMaster($filters['site']),
             'accountOptions' => $accountOptions,
-            'kpis' => $this->buildKpis($combined['overall']),
+            'kpis' => $kpis,
         ];
     }
 
@@ -141,7 +420,10 @@ class VariableCostService
         $combined = $this->fetchCombinedAggregates($filters, ['overall', 'matrix']);
 
         $expenseMatrix = $this->postProcessMatrix($combined['matrix'], $filters['site']);
+        $kpis = $this->buildKpis($combined['overall']);
+        $kpis['account_count'] = collect($expenseMatrix['accounts'])->count();
         $accountOptions = $expenseMatrix['accounts']
+            ->filter(fn($a) => $this->isAccountOptionCode($a->code ?? ''))
             ->map(fn($a) => trim($a->code . ' ' . $a->name))
             ->filter()
             ->unique()
@@ -157,23 +439,86 @@ class VariableCostService
             'expenseMatrix' => $expenseMatrix,
             'rows' => collect(),
             'detailRows' => collect(),
+            'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $this->buildDepartmentOptionsFromMaster($filters['site']),
             'accountOptions' => $accountOptions,
-            'kpis' => $this->buildKpis($combined['overall']),
+            'kpis' => $kpis,
         ];
     }
 
-    private function extractAccountOptions(Collection $accountRows): Collection
+    private function accountOptionsFromSummary(Collection $accountRows): Collection
     {
         return $accountRows
-            ->map(function ($row) {
-                $parts = $this->splitAccountLabel($row->account ?? '');
-                return trim($parts['code'] . ' ' . $parts['name']);
-            })
+            ->filter(fn($row) => $this->isAccountOptionCode($row->account_code ?? ''))
+            ->map(fn($row) => trim(($row->account_code ?? '') . ' ' . ($row->account_name ?? '')))
             ->filter()
             ->unique()
             ->sort()
             ->values();
+    }
+
+    private function filterAccountOptionLabels(Collection $options): Collection
+    {
+        return $options
+            ->map(fn($option) => $this->cleanText($option ?? ''))
+            ->filter(fn($option) => $option !== '' && $this->isAccountOptionCode($this->splitAccountLabel($option)['code']))
+            ->unique()
+            ->sort()
+            ->values();
+    }
+
+    private function isAccountOptionCode(?string $code): bool
+    {
+        return in_array(trim((string) $code), $this->activeAccountOptionCodes(), true);
+    }
+
+    private function activeAccountOptionCodes(): array
+    {
+        return Cache::remember(self::ACCOUNT_DISPLAY_CACHE_KEY, 300, function () {
+            try {
+                $exists = DB::connection($this->fcConn)
+                    ->table('sys.objects')
+                    ->where('object_id', DB::raw("OBJECT_ID(N'dbo.{$this->accountDisplayTable}')"))
+                    ->where('type', 'U')
+                    ->exists();
+
+                if (!$exists) {
+                    return self::DEFAULT_ACCOUNT_OPTION_CODES;
+                }
+
+                $rows = DB::connection($this->fcConn)
+                    ->table($this->accountDisplayTable)
+                    ->select('account_code', 'is_active')
+                    ->get();
+
+                if ($rows->isEmpty()) {
+                    return self::DEFAULT_ACCOUNT_OPTION_CODES;
+                }
+
+                return $rows
+                    ->filter(fn($row) => (int) ($row->is_active ?? 0) === 1)
+                    ->pluck('account_code')
+                    ->map(fn($code) => trim((string) $code))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                return self::DEFAULT_ACCOUNT_OPTION_CODES;
+            }
+        });
+    }
+
+    private function accountDisplaySqlClause(): array
+    {
+        $codes = array_values(array_filter($this->activeAccountOptionCodes(), fn($code) => trim((string) $code) !== ''));
+        if (empty($codes)) {
+            return ['FALSE', []];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($codes), '?'));
+
+        return ["split_part(COALESCE(account, ''), ' ', 1) IN ({$placeholders})", $codes];
     }
 
     private function buildKpis(array $overall): array
@@ -214,12 +559,7 @@ class VariableCostService
         $optionFilters['account'] = [];
         $accountOptions = (!empty($filters['department']) || !empty($filters['account']))
             ? $this->fetchAccountOptionsAggregate($optionFilters)
-            : $accountSummary
-            ->map(fn($r) => trim($r->account_code . ' ' . $r->account_name))
-            ->filter()
-            ->unique()
-            ->sort()
-            ->values();
+            : $this->accountOptionsFromSummary($accountSummary);
 
         return [
             'filters' => $filters,
@@ -230,6 +570,7 @@ class VariableCostService
             'monthlySummary' => $monthlySummary,
             'departmentMonthly' => collect(),
             'expenseMatrix' => $expenseMatrix,
+            'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $this->buildDepartmentOptionsFromMaster($filters['site']),
             'accountOptions' => $accountOptions,
             'kpis' => [
@@ -271,10 +612,7 @@ class VariableCostService
 
         $rows = $this->applyDepartmentDisplayLabels($rowsCurrentRaw, $filters['site']);
         $previousRows = $this->applyDepartmentDisplayLabels($rowsPreviousRaw, $filters['site']);
-        $optionRows = $rows;
-        $optionFilters = $filters;
-        $optionFilters['department'] = [];
-        $optionFilters['account'] = [];
+        $accountOptions = $this->fetchAccountOptionsAggregate($filters);
 
         $currentGroups = $rows->groupBy(fn($row) => ($row->department_code ?: '') . '|' . $row->department);
         $previousGroups = $previousRows->groupBy(fn($row) => ($row->department_code ?: '') . '|' . $row->department);
@@ -348,8 +686,9 @@ class VariableCostService
             'monthlySummary' => $monthlySummary,
             'departmentMonthly' => $departmentMonthly,
             'expenseMatrix' => ['accounts' => collect(), 'rows' => collect(), 'columnTotals' => [], 'grandTotal' => $total],
+            'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $this->buildDepartmentOptionsFromMaster($filters['site']),
-            'accountOptions' => collect(),
+            'accountOptions' => $accountOptions,
             'kpis' => [
                 'total_amount' => $total,
                 'bill_count' => $billCount,
@@ -375,6 +714,10 @@ class VariableCostService
 
         $baseFilters = [
             'site' => $yearlyFilters['site'],
+            'division_group' => $filters['division_group'] ?? [],
+            'division_department_mode' => $filters['division_department_mode'] ?? 'AND',
+            'division_scope' => $filters['division_scope'] ?? null,
+            'division_allowed_groups' => $filters['division_allowed_groups'] ?? [],
             'department' => [],
             'account' => $accountArray,
             'invoice' => '',
@@ -468,6 +811,8 @@ class VariableCostService
                 'date_from' => "{$year}-01-01",
                 'date_to' => "{$year}-12-31",
                 'site' => $yearlyFilters['site'],
+                'division_group' => $twoYearFilters['division_group'],
+                'division_department_mode' => $twoYearFilters['division_department_mode'],
                 'department' => $selectedClasses->isNotEmpty()
                     ? $selectedClasses->pluck('label')->implode(', ')
                     : '',
@@ -488,8 +833,11 @@ class VariableCostService
                 'months' => $monthTotals,
                 'total_amount' => array_sum($monthTotals),
             ],
+            'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $classOptions->pluck('label')->values(),
-            'accountOptions' => $yearlyRows->map(fn($row) => $row->account_code . ' ' . $row->account_name)->values(),
+            'accountOptions' => $this->filterAccountOptionLabels(
+                $yearlyRows->map(fn($row) => $row->account_code . ' ' . $row->account_name)
+            ),
             'kpis' => [
                 'total_amount' => (float) $yearlyRows->sum('total_amount'),
                 'bill_count' => (int) $currentClassTotals['bills'],
@@ -510,7 +858,9 @@ class VariableCostService
         $data = $this->getData($filters);
         $filters = $data['filters'];
 
-        $detailRows = $this->applyDepartmentDisplayLabels($this->fetchRows($filters), $filters['site']);
+        $detailRows = $this->recalculateDetailBalances(
+            $this->applyDepartmentDisplayLabels($this->fetchRows($filters), $filters['site'])
+        );
         $data['rows'] = $detailRows;
         $data['detailRows'] = $this->sortDetailRows($detailRows)->values();
         $data['departmentMonthly'] = $detailRows
@@ -648,6 +998,8 @@ class VariableCostService
             ['Date From', $filters['date_from']],
             ['Date To', $filters['date_to']],
             ['Site', $filters['site']],
+            ['Division Group Filter', is_array($filters['division_group']) ? implode(', ', $filters['division_group']) : $filters['division_group']],
+            ['Division/Department Mode', $filters['division_department_mode']],
             ['Department Filter', is_array($filters['department']) ? implode(', ', $filters['department']) : $filters['department']],
             ['Account Filter', is_array($filters['account']) ? implode(', ', $filters['account']) : $filters['account']],
             ['Invoice Filter', $filters['invoice']],
@@ -674,11 +1026,11 @@ class VariableCostService
         $sheet->getStyle('A' . $startRow)->getFont()->setBold(true)->setSize(12);
         $headerRow = $startRow + 1;
         $sheet->fromArray(
-            ['Department Code', 'Department', 'Bills', 'Lines', 'Total Amount', 'Average'],
+            ['Department Code', 'Department', 'Bills', 'Lines', 'Total Amount', 'Average', 'Sales Kg', 'Cost / Sales Kg', 'Production Basis', 'Production Kg', 'Cost / Production Kg'],
             null,
             'A' . $headerRow
         );
-        $this->styleHeader($sheet, 'A' . $headerRow . ':F' . $headerRow);
+        $this->styleHeader($sheet, 'A' . $headerRow . ':K' . $headerRow);
 
         $rowIdx = $headerRow + 1;
         foreach ($data['departmentSummary'] as $row) {
@@ -689,45 +1041,91 @@ class VariableCostService
                 $row->line_count,
                 $row->total_amount,
                 $row->avg_amount,
+                $row->sales_qty ?? null,
+                $row->sales_cost_per_kg ?? null,
+                $row->production_basis ?? 'FG',
+                $row->production_qty ?? null,
+                $row->production_cost_per_kg ?? null,
             ], null, 'A' . $rowIdx);
             $rowIdx++;
         }
         if ($rowIdx > $headerRow + 1) {
+            $sheet->fromArray([
+                '',
+                'Total',
+                '=SUM(C' . ($headerRow + 1) . ':C' . ($rowIdx - 1) . ')',
+                '=SUM(D' . ($headerRow + 1) . ':D' . ($rowIdx - 1) . ')',
+                '=SUM(E' . ($headerRow + 1) . ':E' . ($rowIdx - 1) . ')',
+                null,
+                '',
+                '=SUM(H' . ($headerRow + 1) . ':H' . ($rowIdx - 1) . ')',
+                '',
+                '',
+                '=SUM(K' . ($headerRow + 1) . ':K' . ($rowIdx - 1) . ')',
+            ], null, 'A' . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':K' . $rowIdx)->getFont()->setBold(true);
             $sheet->getStyle('E' . ($headerRow + 1) . ':F' . ($rowIdx - 1))
+                ->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('G' . ($headerRow + 1) . ':H' . $rowIdx)
+                ->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('J' . ($headerRow + 1) . ':K' . $rowIdx)
+                ->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('E' . $rowIdx . ':F' . $rowIdx)
                 ->getNumberFormat()->setFormatCode('#,##0.00');
         }
 
-        $this->autoSize($sheet, 6);
-        $sheet->freezePane('A' . ($headerRow + 1));
+        $this->autoSize($sheet, 11);
     }
 
     private function buildAccountsSheet(Spreadsheet $spreadsheet, array $data): void
     {
         $sheet = new Worksheet($spreadsheet, 'Accounts');
         $spreadsheet->addSheet($sheet);
+        $showSiteBreakdown = ($data['filters']['site'] ?? 'ALL') === 'ALL';
 
-        $sheet->fromArray(
-            ['Account Code', 'Account Name', 'Lines', 'Total Amount'],
-            null,
-            'A1'
-        );
-        $this->styleHeader($sheet, 'A1:D1');
+        $header = ['Account Code', 'Account Name', 'Lines', 'Total Amount'];
+        if ($showSiteBreakdown) {
+            $header[] = 'WIRE';
+            $header[] = 'PLUS';
+        }
+        $sheet->fromArray($header, null, 'A1');
+        $endCol = $this->columnLetter(count($header));
+        $this->styleHeader($sheet, 'A1:' . $endCol . '1');
 
         $rowIdx = 2;
         foreach ($data['accountSummary'] as $row) {
-            $sheet->fromArray([
+            $line = [
                 $row->account_code,
                 $row->account_name,
                 $row->line_count,
                 $row->total_amount,
-            ], null, 'A' . $rowIdx);
+            ];
+            if ($showSiteBreakdown) {
+                $siteAmounts = (array) ($row->site_amounts ?? []);
+                $line[] = (float) ($siteAmounts['WIRE'] ?? 0);
+                $line[] = (float) ($siteAmounts['PLUS'] ?? 0);
+            }
+            $sheet->fromArray($line, null, 'A' . $rowIdx);
             $rowIdx++;
         }
         if ($rowIdx > 2) {
-            $sheet->getStyle('D2:D' . ($rowIdx - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+            $totalLine = [
+                '',
+                'Total',
+                '=SUM(C2:C' . ($rowIdx - 1) . ')',
+                '=SUM(D2:D' . ($rowIdx - 1) . ')',
+            ];
+            if ($showSiteBreakdown) {
+                $totalLine[] = '=SUM(E2:E' . ($rowIdx - 1) . ')';
+                $totalLine[] = '=SUM(F2:F' . ($rowIdx - 1) . ')';
+            }
+            $sheet->fromArray($totalLine, null, 'A' . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFont()->setBold(true);
+            $sheet->getStyle('D2:' . $endCol . ($rowIdx - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('D' . $rowIdx . ':' . $endCol . $rowIdx)->getNumberFormat()->setFormatCode('#,##0.00');
         }
 
-        $this->autoSize($sheet, 4);
+        $this->autoSize($sheet, count($header));
         $sheet->freezePaneByColumnAndRow(1, 2);
     }
 
@@ -776,6 +1174,15 @@ class VariableCostService
             $rowIdx++;
         }
         if ($rowIdx > 2) {
+            $totalLine = ['', 'Total'];
+            for ($col = 3; $col <= count($header); $col++) {
+                $letter = $this->columnLetter($col);
+                $totalLine[] = str_ends_with((string) ($header[$col - 1] ?? ''), '%')
+                    ? null
+                    : '=SUM(' . $letter . '2:' . $letter . ($rowIdx - 1) . ')';
+            }
+            $sheet->fromArray($totalLine, null, 'A' . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFont()->setBold(true);
             $sheet->getStyle('C2:' . $endCol . ($rowIdx - 1))->getNumberFormat()->setFormatCode('#,##0.00');
             if ($hasPrevious) {
                 for ($col = 5; $col <= count($header); $col += 3) {
@@ -784,6 +1191,7 @@ class VariableCostService
                 }
                 $sheet->getStyle($endCol . '2:' . $endCol . ($rowIdx - 1))->getNumberFormat()->setFormatCode('0.0%');
             }
+            $sheet->getStyle('C' . $rowIdx . ':' . $endCol . $rowIdx)->getNumberFormat()->setFormatCode('#,##0.00');
         }
 
         $this->autoSize($sheet, count($header));
@@ -800,12 +1208,16 @@ class VariableCostService
 
         $header = ['รหัสแผนก', 'แผนก'];
         foreach ($accounts as $account) {
-            $header[] = trim(($account->code ? $account->code . ' ' : '') . $account->name);
+            $header[] = $this->matrixAccountHeaderLabel($account, ($data['filters']['site'] ?? 'ALL') === 'ALL');
         }
         $header[] = 'รวม';
         $sheet->fromArray($header, null, 'A1');
         $endCol = $this->columnLetter(count($header));
         $this->styleHeader($sheet, 'A1:' . $endCol . '1');
+        $sheet->getStyle('A1:' . $endCol . '1')->getAlignment()
+            ->setWrapText(true)
+            ->setVertical(Alignment::VERTICAL_CENTER);
+        $sheet->getRowDimension(1)->setRowHeight(($data['filters']['site'] ?? 'ALL') === 'ALL' ? 72 : 48);
 
         $rowIdx = 2;
         foreach ($matrix['rows'] as $row) {
@@ -832,7 +1244,13 @@ class VariableCostService
             $sheet->getStyle('C2:' . $endCol . $rowIdx)->getNumberFormat()->setFormatCode('#,##0.00');
         }
 
-        $this->autoSize($sheet, count($header));
+        $sheet->getColumnDimension('A')->setWidth(14);
+        $sheet->getColumnDimension('B')->setWidth(24);
+        for ($col = 3; $col <= count($header) - 1; $col++) {
+            $sheet->getColumnDimensionByColumn($col)->setWidth(18);
+        }
+        $sheet->getColumnDimension($endCol)->setWidth(14);
+        $sheet->getStyle('A1:' . $endCol . $rowIdx)->getAlignment()->setWrapText(true);
         $sheet->freezePaneByColumnAndRow(3, 2);
     }
 
@@ -851,19 +1269,15 @@ class VariableCostService
             'Account Name',
             'Department Code',
             'Department',
+            'Qty',
+            'Unit Price',
             'Amount',
             'Balance',
-            'Bill Amount',
             'Line No',
             'Part Description',
             'Invoice Description',
-            'Qty',
-            'Unit Price',
-            'Invoice Class No',
-            'Invoice Class',
-            'AccTrans Class No',
-            'AccTrans Class',
-            'Class Match',
+            'Class No',
+            'Class',
             'Notes',
             'F1',
             'F2',
@@ -880,32 +1294,139 @@ class VariableCostService
         $this->styleHeader($sheet, 'A1:' . $endCol . '1');
 
         $rowIdx = 2;
-        foreach ($this->sortDetailRows($data['rows']) as $row) {
+        $currentDepartmentKey = null;
+        $currentDepartmentLabel = '';
+        $currentAccountKey = null;
+        $currentAccountLabel = '';
+        $departmentAmountTotal = 0.0;
+        $accountAmountTotal = 0.0;
+        $runningBalance = 0.0;
+        $grandAmountTotal = 0.0;
+        $sortedRows = $this->sortDetailRows(collect($data['rows'] ?? []));
+
+        $writeAccountSubtotal = function () use ($sheet, $endCol, &$rowIdx, &$accountAmountTotal, &$currentAccountLabel, &$runningBalance) {
+            if ($currentAccountLabel === '') {
+                return;
+            }
+
+            $sheet->fromArray([
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                'Subtotal - ' . $currentAccountLabel,
+                '',
+                '',
+                $accountAmountTotal,
+                $runningBalance,
+            ], null, 'A' . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFont()->setBold(true);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('EAF4EF');
+            $rowIdx++;
+            $accountAmountTotal = 0.0;
+        };
+
+        $writeDepartmentSubtotal = function () use ($sheet, $endCol, &$rowIdx, &$departmentAmountTotal, &$currentDepartmentLabel, &$runningBalance) {
+            if ($currentDepartmentLabel === '') {
+                return;
+            }
+
+            $sheet->fromArray([
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                'Department Total - ' . $currentDepartmentLabel,
+                '',
+                '',
+                $departmentAmountTotal,
+                $runningBalance,
+            ], null, 'A' . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFont()->setBold(true);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('D9EAD3');
+            $rowIdx++;
+            $departmentAmountTotal = 0.0;
+        };
+
+        $writeDepartmentHeader = function () use ($sheet, $endCol, &$rowIdx, &$currentDepartmentLabel) {
+            if ($currentDepartmentLabel === '') {
+                return;
+            }
+
+            $sheet->fromArray([$currentDepartmentLabel], null, 'A' . $rowIdx);
+            $sheet->mergeCells('A' . $rowIdx . ':' . $endCol . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFont()->setBold(true)->setSize(12);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFill()
+                ->setFillType(Fill::FILL_SOLID)
+                ->getStartColor()->setRGB('F2F7F4');
+            $rowIdx++;
+        };
+
+        foreach ($sortedRows as $row) {
+            $departmentKey = trim((string) ($row->department_code ?? '')) . '|' . trim((string) ($row->department ?? ''));
+            $accountKey = trim((string) ($row->account_code ?? ''));
+
+            if ($currentDepartmentKey !== null && $departmentKey !== $currentDepartmentKey) {
+                $writeAccountSubtotal();
+                $writeDepartmentSubtotal();
+                $currentAccountKey = null;
+                $currentAccountLabel = '';
+            } elseif ($currentAccountKey !== null && $accountKey !== $currentAccountKey) {
+                $writeAccountSubtotal();
+            }
+
+            if ($departmentKey !== $currentDepartmentKey) {
+                $currentDepartmentKey = $departmentKey;
+                $currentDepartmentLabel = trim((string) ($row->department_code ?? '') . ' ' . (string) ($row->department ?? ''));
+                $writeDepartmentHeader();
+            }
+
+            if ($accountKey !== $currentAccountKey) {
+                $currentAccountKey = $accountKey;
+                $currentAccountLabel = trim((string) ($row->account_code ?? '') . ' ' . (string) ($row->account_name ?? ''));
+            }
+
             $lines = $this->detailDisplayLines($row);
+            [$classNo, $className] = $this->detailClassColumns($row);
             foreach ($lines as $index => $detailLine) {
+                $lineAmount = (float) ($detailLine['total'] ?? 0);
+                $runningBalance += $lineAmount;
+                $accountAmountTotal += $lineAmount;
+                $departmentAmountTotal += $lineAmount;
+                $grandAmountTotal += $lineAmount;
+
+                $invoiceNo = (string) ($row->invnumber ?? '');
                 $line = [
                     $row->site,
                     $row->transdate,
                     $row->apnumber,
-                    $row->invnumber,
+                    $invoiceNo,
                     $row->ordnumber,
                     $row->account_code,
                     $row->account_name,
                     $row->department_code,
                     $row->department,
-                    $detailLine['total'],
-                    $index === 0 ? $row->balance : null,
-                    $index === 0 ? $row->bill_amount : null,
+                    $detailLine['qty'],
+                    $detailLine['unit'],
+                    $lineAmount,
+                    $runningBalance,
                     $index + 1,
                     $detailLine['part_description'],
                     $detailLine['invoice_description'],
-                    $detailLine['qty'],
-                    $detailLine['unit'],
-                    $row->invoice_classnumber,
-                    $row->invoice_class_description,
-                    $row->acc_classnumber,
-                    $row->acc_class_description,
-                    $row->class_match_status,
+                    $classNo,
+                    $className,
                     $index === 0 ? $row->notes : '',
                     $index === 0 ? $row->f1 : '',
                     $index === 0 ? $row->f2 : '',
@@ -918,13 +1439,35 @@ class VariableCostService
                     $row->vendor_id,
                 ];
                 $sheet->fromArray($line, null, 'A' . $rowIdx);
+                $sheet->setCellValueExplicit('D' . $rowIdx, $invoiceNo, DataType::TYPE_STRING);
                 $rowIdx++;
             }
         }
+        $writeAccountSubtotal();
+        $writeDepartmentSubtotal();
 
         if ($rowIdx > 2) {
-            $sheet->getStyle('J2:L' . ($rowIdx - 1))->getNumberFormat()->setFormatCode('#,##0.00');
-            $sheet->getStyle('P2:Q' . ($rowIdx - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('D2:D' . ($rowIdx - 1))
+                ->getNumberFormat()
+                ->setFormatCode('@');
+            $sheet->fromArray([
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                'Total',
+                '',
+                '',
+                $grandAmountTotal,
+                '=MAX(M2:M' . ($rowIdx - 1) . ')',
+            ], null, 'A' . $rowIdx);
+            $sheet->getStyle('A' . $rowIdx . ':' . $endCol . $rowIdx)->getFont()->setBold(true);
+            $sheet->getStyle('J2:M' . ($rowIdx - 1))->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('J' . $rowIdx . ':M' . $rowIdx)->getNumberFormat()->setFormatCode('#,##0.00');
         }
 
         foreach (['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] as $col) {
@@ -936,6 +1479,36 @@ class VariableCostService
     private function columnLetter(int $columnIndex): string
     {
         return \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnIndex);
+    }
+
+    private function matrixAccountHeaderLabel($account, bool $showSiteBreakdown): string
+    {
+        $parts = array_values(array_filter([
+            $this->cleanText($account->name ?? ''),
+            $this->cleanText($account->code ?? ''),
+        ], fn($part) => $part !== ''));
+
+        if ($showSiteBreakdown) {
+            $siteAmounts = (array) ($account->site_amounts ?? []);
+            $parts[] = 'WIRE ' . number_format((float) ($siteAmounts['WIRE'] ?? 0), 2);
+            $parts[] = 'PLUS ' . number_format((float) ($siteAmounts['PLUS'] ?? 0), 2);
+        }
+
+        return implode("\n", $parts);
+    }
+
+    private function detailClassColumns($row): array
+    {
+        $accClassNo = $this->cleanText($row->acc_classnumber ?? '');
+        $accClassName = $this->cleanText($row->acc_class_description ?? '');
+        if ($accClassNo !== '' || $accClassName !== '') {
+            return [$accClassNo, $accClassName];
+        }
+
+        return [
+            $this->cleanText($row->invoice_classnumber ?? ''),
+            $this->cleanText($row->invoice_class_description ?? ''),
+        ];
     }
 
     private function normalizeFilters(array $filters): array
@@ -957,6 +1530,11 @@ class VariableCostService
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
             'site' => $site,
+            'division_group' => $this->normalizeFilterArray($filters['division_group'] ?? []),
+            'division_department_mode' => Str::upper(trim((string) ($filters['division_department_mode'] ?? 'AND'))) === 'OR' ? 'OR' : 'AND',
+            // Permission scope for the VC role: 'exclude' = ทุกแผนกที่ไม่อยู่ในกลุ่มที่ระบุ (ungrouped + กลุ่มที่ได้รับสิทธิ์)
+            'division_scope' => ($filters['division_scope'] ?? null) === 'exclude' ? 'exclude' : null,
+            'division_allowed_groups' => $this->normalizeFilterArray($filters['division_allowed_groups'] ?? []),
             'department' => $this->normalizeFilterArray($filters['department'] ?? []),
             'account' => $this->normalizeFilterArray($filters['account'] ?? []),
             'invoice' => trim((string) ($filters['invoice'] ?? '')),
@@ -974,6 +1552,11 @@ class VariableCostService
         return $this->buildDepartmentOptionsFromMaster($selectedSite);
     }
 
+    public function divisionGroupOptionsPublic(): Collection
+    {
+        return $this->divisionGroupOptions();
+    }
+
     private function normalizeFilterArray($value): array
     {
         if (is_string($value)) {
@@ -987,6 +1570,263 @@ class VariableCostService
             array_map(fn($v) => trim((string) $v), $value),
             fn($v) => $v !== ''
         )));
+    }
+
+    private function divisionGroupOptions(): Collection
+    {
+        return Cache::remember('vc_division_group_options', 300, function () {
+            try {
+                return DB::connection($this->fcConn)
+                    ->table('vc_department_division_groups')
+                    ->where('is_active', 1)
+                    ->orderBy('division_group')
+                    ->pluck('division_group')
+                    ->map(fn($value) => trim((string) $value))
+                    ->filter()
+                    ->unique()
+                    ->values();
+            } catch (\Throwable $e) {
+                return collect();
+            }
+        });
+    }
+
+    private function departmentCodesForDivisionGroups(array $groups, string $site): array
+    {
+        $groups = $this->normalizeFilterArray($groups);
+        if (empty($groups)) {
+            return [];
+        }
+
+        $site = Str::upper(trim($site));
+        $sites = $site === 'ALL' ? array_keys(self::SITES) : [$site];
+        $key = 'vc_department_division_group_codes:' . $site . ':' . md5(implode('|', $groups));
+
+        return Cache::remember($key, 300, function () use ($groups, $sites) {
+            try {
+                return DB::connection($this->fcConn)
+                    ->table('vc_department_division_groups')
+                    ->whereIn('site', $sites)
+                    ->whereIn('division_group', $groups)
+                    ->where('is_active', 1)
+                    ->pluck('department_code')
+                    ->map(fn($value) => trim((string) $value))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                return ['__NO_MATCH__'];
+            }
+        }) ?: ['__NO_MATCH__'];
+    }
+
+    /**
+     * รหัสแผนก (classnumber) ที่ต้อง "ตัดออก" สำหรับ permission scope แบบ exclude (role VC).
+     * VC จะเห็นทุกแผนกที่ไม่อยู่ในกลุ่ม ยกเว้นกลุ่มที่ได้รับสิทธิ์เพิ่ม (division_allowed_groups).
+     * คืน [] เมื่อไม่ได้อยู่ใน exclude scope หรือไม่มีรหัสที่ต้องตัด.
+     */
+    private function divisionScopeExcludeCodes(array $filters, string $site): array
+    {
+        if (($filters['division_scope'] ?? null) !== 'exclude') {
+            return [];
+        }
+
+        $allGroups = $this->divisionGroupOptions()->all();
+        $allowedGroups = $this->normalizeFilterArray($filters['division_allowed_groups'] ?? []);
+        $excludeGroups = array_values(array_diff($allGroups, $allowedGroups));
+        if (empty($excludeGroups)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $this->departmentCodesForDivisionGroups($excludeGroups, $site),
+            fn($code) => $code !== '__NO_MATCH__' && trim((string) $code) !== ''
+        ));
+    }
+
+    private function divisionScopeSqlClause(array $filters, string $site, string $column): array
+    {
+        $codes = $this->divisionScopeExcludeCodes($filters, $site);
+        if (empty($codes)) {
+            return ['TRUE', []];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($codes), '?'));
+
+        return ["COALESCE({$column}, '') NOT IN ({$placeholders})", $codes];
+    }
+
+    private function applyDivisionScopeToRows(Collection $rows, array $filters): Collection
+    {
+        $codes = $this->divisionScopeExcludeCodes($filters, (string) ($filters['site'] ?? 'ALL'));
+        if (empty($codes)) {
+            return $rows->values();
+        }
+
+        $excludeLookup = array_flip(array_map(fn($code) => trim((string) $code), $codes));
+
+        return $rows
+            ->filter(fn($row) => !isset($excludeLookup[trim((string) ($row->department_code ?? ''))]))
+            ->values();
+    }
+
+    /**
+     * ป้ายชื่อแผนก (ที่ใช้เป็น option ใน dropdown filter) ที่อยู่ในกลุ่มที่ระบุ — ใช้ปรับ option ตาม permission.
+     */
+    public function departmentLabelsForGroupsPublic(array $groups, string $site): array
+    {
+        $codes = array_values(array_filter(
+            $this->departmentCodesForDivisionGroups($groups, $site),
+            fn($code) => $code !== '__NO_MATCH__' && trim((string) $code) !== ''
+        ));
+        if (empty($codes)) {
+            return [];
+        }
+
+        $codeSet = array_flip(array_map(fn($code) => trim((string) $code), $codes));
+        $classInfo = $this->getClassInfoBySite();
+        $sites = Str::upper(trim($site)) === 'ALL' ? array_keys(self::SITES) : [Str::upper(trim($site))];
+
+        $labels = [];
+        foreach ($sites as $s) {
+            foreach (($classInfo[$s] ?? []) as $classnumber => $description) {
+                if (!isset($codeSet[trim((string) $classnumber)])) {
+                    continue;
+                }
+                $label = $this->stripSiteSuffix($this->cleanText($description));
+                if ($label !== '') {
+                    $labels[$label] = true;
+                }
+            }
+        }
+
+        return array_keys($labels);
+    }
+
+    private function applyDivisionGroupDepartmentFilter($query, array $filters, string $site, string $columnExpression): void
+    {
+        $codes = $this->departmentCodesForDivisionGroups((array) ($filters['division_group'] ?? []), $site);
+        if (empty($codes)) {
+            return;
+        }
+
+        if (in_array('__NO_MATCH__', $codes, true)) {
+            $query->whereRaw('1 = 0');
+            return;
+        }
+
+        $query->whereIn(DB::raw($columnExpression), $codes);
+    }
+
+    private function applyDepartmentAndDivisionGroupFilters($query, array $filters, string $site, string $codeExpression, string $nameExpression): void
+    {
+        $deptFilters = $this->parseDepartmentFilters((array) ($filters['department'] ?? []));
+        $divisionCodes = $this->departmentCodesForDivisionGroups((array) ($filters['division_group'] ?? []), $site);
+        $hasDepartmentFilter = !empty($deptFilters);
+        $hasDivisionGroupFilter = !empty($divisionCodes);
+
+        if (!$hasDepartmentFilter && !$hasDivisionGroupFilter) {
+            return;
+        }
+
+        $mode = (string) ($filters['division_department_mode'] ?? 'AND');
+
+        $query->where(function ($outer) use ($deptFilters, $divisionCodes, $hasDepartmentFilter, $hasDivisionGroupFilter, $mode, $site, $codeExpression, $nameExpression) {
+            $applyDepartments = function ($q) use ($deptFilters, $site, $codeExpression, $nameExpression) {
+                $q->where(function ($deptQuery) use ($deptFilters, $site, $codeExpression, $nameExpression) {
+                    $matchedAny = false;
+                    foreach ($deptFilters as [$term, $siteFilter]) {
+                        if ($siteFilter !== null && $siteFilter !== $site) {
+                            continue;
+                        }
+                        if ($term === '') {
+                            continue;
+                        }
+
+                        $matchedAny = true;
+                        $deptQuery->orWhereRaw("(UPPER(TRIM({$nameExpression})) = UPPER(?) OR UPPER(TRIM({$codeExpression})) = UPPER(?))", [
+                            $term,
+                            $term,
+                        ]);
+                    }
+
+                    if (!$matchedAny) {
+                        $deptQuery->whereRaw('1 = 0');
+                    }
+                });
+            };
+
+            $applyDivisionGroups = function ($q) use ($divisionCodes, $codeExpression) {
+                if (in_array('__NO_MATCH__', $divisionCodes, true)) {
+                    $q->whereRaw('1 = 0');
+                    return;
+                }
+
+                $q->whereIn(DB::raw($codeExpression), $divisionCodes);
+            };
+
+            if ($mode === 'OR' && $hasDepartmentFilter && $hasDivisionGroupFilter) {
+                $outer->where(function ($orQuery) use ($applyDepartments) {
+                    $applyDepartments($orQuery);
+                })->orWhere(function ($orQuery) use ($applyDivisionGroups) {
+                    $applyDivisionGroups($orQuery);
+                });
+                return;
+            }
+
+            if ($hasDepartmentFilter) {
+                $applyDepartments($outer);
+            }
+            if ($hasDivisionGroupFilter) {
+                $applyDivisionGroups($outer);
+            }
+        });
+    }
+
+    private function applyAccountTextFilter($query, array $filters, string $codeColumn = 'c.accno', string $nameColumn = 'c.description'): void
+    {
+        $accountValues = array_values(array_filter(
+            array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
+            fn($v) => $v !== ''
+        ));
+
+        if (empty($accountValues)) {
+            return;
+        }
+
+        $query->where(function ($q) use ($accountValues, $codeColumn, $nameColumn) {
+            foreach ($accountValues as $accountValue) {
+                $q->orWhere($codeColumn, 'ILIKE', '%' . $accountValue . '%')
+                    ->orWhere($nameColumn, 'ILIKE', '%' . $accountValue . '%');
+            }
+        });
+    }
+
+    private function shouldExcludeWireChargedToPlus(array $filters, string $site): bool
+    {
+        return Str::upper(trim($site)) === 'WIRE'
+            && Str::upper(trim((string) ($filters['site'] ?? ''))) === 'ALL';
+    }
+
+    private function wireChargedToPlusSqlClause(array $filters, string $site): array
+    {
+        if (!$this->shouldExcludeWireChargedToPlus($filters, $site)) {
+            return ['TRUE', []];
+        }
+
+        $placeholders = implode(',', array_fill(0, count(self::WIRE_CHARGED_TO_PLUS_ACCOUNT_CODES), '?'));
+
+        return [
+            "split_part(COALESCE(account, ''), ' ', 1) NOT IN ({$placeholders})",
+            self::WIRE_CHARGED_TO_PLUS_ACCOUNT_CODES,
+        ];
+    }
+
+    private function isWireChargedToPlusRow($row, array $filters, string $site): bool
+    {
+        return $this->shouldExcludeWireChargedToPlus($filters, $site)
+            && in_array(trim((string) ($row->account_code ?? '')), self::WIRE_CHARGED_TO_PLUS_ACCOUNT_CODES, true);
     }
 
     private function parseDepartmentFilters(array $values): array
@@ -1007,6 +1847,9 @@ class VariableCostService
     {
         return $rows
             ->sortBy([
+                ['site', 'asc'],
+                ['department_code', 'asc'],
+                ['department', 'asc'],
                 ['account_code', 'asc'],
                 ['account_name', 'asc'],
                 ['transdate', 'asc'],
@@ -1014,6 +1857,20 @@ class VariableCostService
                 ['ordnumber', 'asc'],
                 ['ap_id', 'asc'],
             ])
+            ->values();
+    }
+
+    private function recalculateDetailBalances(Collection $rows): Collection
+    {
+        $runningBalance = 0.0;
+
+        return $this->sortDetailRows($rows)
+            ->map(function ($row) use (&$runningBalance) {
+                $runningBalance += (float) ($row->amount ?? 0);
+                $row->balance = $runningBalance;
+
+                return $row;
+            })
             ->values();
     }
 
@@ -1120,12 +1977,20 @@ class VariableCostService
             $rows = $rows->concat($this->fetchCostCenterRowsForConnection($connection, $site, $filters));
         }
 
+        $rows = $this->applyDivisionScopeToRows($rows, $filters);
+
         return $rows
             ->filter(fn($row) => !in_array(trim((string) ($row->account_code ?? '')), self::EXCLUDED_ACCOUNT_CODES, true))
+            ->filter(fn($row) => !$this->isWireChargedToPlusRow($row, $filters, (string) ($row->site ?? '')))
+            ->filter(fn($row) => $this->isAccountOptionCode($row->account_code ?? ''))
             ->sortBy([
-                ['transdate', 'desc'],
-                ['invnumber', 'asc'],
+                ['site', 'asc'],
+                ['department_code', 'asc'],
+                ['department', 'asc'],
                 ['account_code', 'asc'],
+                ['account_name', 'asc'],
+                ['transdate', 'asc'],
+                ['invnumber', 'asc'],
             ])
             ->values();
     }
@@ -1171,7 +2036,7 @@ class VariableCostService
 
     private function fetchMonthlyRowsForConnection(string $connection, string $site, array $filters): Collection
     {
-        [$sql, $bindings] = $this->monthlyAggregateSql($filters);
+        [$sql, $bindings] = $this->monthlyAggregateSql($filters, $site);
         $rows = $this->runTunedSelect($connection, $sql, $bindings);
 
         return $rows
@@ -1201,22 +2066,21 @@ class VariableCostService
             ? self::SITES
             : [$filters['site'] => self::SITES[$filters['site']]];
 
-        [$sql, $bindings] = $this->monthlyAccountOptionsSql($filters);
         $options = collect();
-        foreach ($sites as $connection) {
+        foreach ($sites as $site => $connection) {
+            [$sql, $bindings] = $this->monthlyAccountOptionsSql($filters, $site);
             $options = $options->concat($this->runTunedSelect($connection, $sql, $bindings)
                 ->map(fn($row) => $this->cleanText($row->account ?? '')));
         }
 
         return $options
-            ->filter()
-            ->unique()
-            ->sort()
-            ->values();
+            ->pipe(fn(Collection $rows) => $this->filterAccountOptionLabels($rows));
     }
 
-    private function monthlyFilterClause(array $filters): array
+    private function monthlyFilterClause(array $filters, string $site): array
     {
+        [$displayAccountSql, $displayAccountBindings] = $this->accountDisplaySqlClause();
+        [$wireChargeSql, $wireChargeBindings] = $this->wireChargedToPlusSqlClause($filters, $site);
         $accounts = array_values(array_filter(
             array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
             fn($v) => $v !== ''
@@ -1234,12 +2098,14 @@ class VariableCostService
         $invoice = (string) ($filters['invoice'] ?? '');
         $notes = (string) ($filters['notes'] ?? '');
 
-        $where = $accountSql
+        $where = $wireChargeSql . " AND " . $displayAccountSql . " AND " . $accountSql
             . " AND (? = '' OR invnumber ILIKE '%' || ? || '%' OR apnumber ILIKE '%' || ? || '%' OR COALESCE(ordnumber, '') ILIKE '%' || ? || '%')"
             . " AND (? = '' OR COALESCE(notes, '') ILIKE '%' || ? || '%' OR COALESCE(item_desc, '') ILIKE '%' || ? || '%')";
 
         $bindings = array_merge(
             [$filters['date_from'], $filters['date_to']],
+            $wireChargeBindings,
+            $displayAccountBindings,
             $accountBindings,
             [$invoice, $invoice, $invoice, $invoice],
             [$notes, $notes, $notes]
@@ -1339,7 +2205,7 @@ class VariableCostService
             $row->invoice_descriptions = $this->cleanText($row->item_desc ?? '');
             $row->item_qty = is_null($row->qty) ? null : (float) $row->qty;
             $row->item_allocated = null;
-            $row->min_unit_price = is_null($row->unit_price) ? null : (float) $row->unit_price;
+            $row->min_unit_price = is_null($row->unit_price) ? null : abs((float) $row->unit_price);
             $row->max_unit_price = $row->min_unit_price;
             $row->item_line_count = 1;
             $row->unit_price_display = $this->unitPriceDisplay($row->min_unit_price, $row->max_unit_price);
@@ -1810,17 +2676,17 @@ class VariableCostService
         SQL;
     }
 
-    private function monthlyAggregateSql(array $filters): array
+    private function monthlyAggregateSql(array $filters, string $site): array
     {
-        [$where, $bindings] = $this->monthlyFilterClause($filters);
+        [$where, $bindings] = $this->monthlyFilterClause($filters, $site);
         $sql = $this->costCenterCteSql() . "\n, filtered AS (\n    SELECT *\n    FROM detail\n    WHERE {$where}\n)\nSELECT\n    classnumber,\n    dept_desc,\n    EXTRACT(MONTH FROM transdate)::int AS month_no,\n    SUM(amount) AS total_amount,\n    COUNT(*) AS line_count,\n    COUNT(DISTINCT source || '-' || source_id::text) AS bill_count,\n    COUNT(DISTINCT account) AS account_count\nFROM filtered\nGROUP BY classnumber, dept_desc, EXTRACT(MONTH FROM transdate)::int\nORDER BY classnumber, month_no";
 
         return [$sql, $bindings];
     }
 
-    private function monthlyAccountOptionsSql(array $filters): array
+    private function monthlyAccountOptionsSql(array $filters, string $site): array
     {
-        [$where, $bindings] = $this->monthlyFilterClause($filters);
+        [$where, $bindings] = $this->monthlyFilterClause($filters, $site);
         $sql = $this->costCenterCteSql() . "\n, filtered AS (\n    SELECT *\n    FROM detail\n    WHERE {$where}\n)\nSELECT DISTINCT account\nFROM filtered\nWHERE COALESCE(account, '') <> ''\nORDER BY account";
 
         return [$sql, $bindings];
@@ -1828,6 +2694,7 @@ class VariableCostService
 
     private function aggregateFilterClause(array $filters, string $site): array
     {
+        [$displayAccountSql, $displayAccountBindings] = $this->accountDisplaySqlClause();
         $accounts = array_values(array_filter(
             array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
             fn($v) => $v !== ''
@@ -1840,6 +2707,20 @@ class VariableCostService
             $accountSql = '(' . implode(' OR ', $parts) . ')';
             $accountBindings = array_map(fn($v) => '%' . $v . '%', $accounts);
         }
+
+        $divisionGroupDepartmentCodes = $this->departmentCodesForDivisionGroups((array) ($filters['division_group'] ?? []), $site);
+        if (empty($divisionGroupDepartmentCodes)) {
+            $divisionGroupSql = 'TRUE';
+            $divisionGroupBindings = [];
+        } elseif (in_array('__NO_MATCH__', $divisionGroupDepartmentCodes, true)) {
+            $divisionGroupSql = 'FALSE';
+            $divisionGroupBindings = [];
+        } else {
+            $divisionGroupSql = 'COALESCE(classnumber, \'\') IN (' . implode(',', array_fill(0, count($divisionGroupDepartmentCodes), '?')) . ')';
+            $divisionGroupBindings = $divisionGroupDepartmentCodes;
+        }
+
+        [$divisionScopeSql, $divisionScopeBindings] = $this->divisionScopeSqlClause($filters, $site, 'classnumber');
 
         $invoice = (string) ($filters['invoice'] ?? '');
         $invoiceSql = "(? = '' OR invnumber ILIKE '%' || ? || '%' OR apnumber ILIKE '%' || ? || '%' OR COALESCE(ordnumber, '') ILIKE '%' || ? || '%')";
@@ -1876,9 +2757,24 @@ class VariableCostService
 
         $excludeList = implode(',', array_map(fn($v) => "'" . $v . "'", self::EXCLUDED_ACCOUNT_CODES));
         $excludeSql = "split_part(COALESCE(account, ''), ' ', 1) NOT IN ({$excludeList})";
+        [$wireChargeSql, $wireChargeBindings] = $this->wireChargedToPlusSqlClause($filters, $site);
 
-        $where = "{$excludeSql} AND {$accountSql} AND {$invoiceSql} AND {$notesSql} AND {$deptSql}";
-        $bindings = array_merge($accountBindings, $invoiceBindings, $notesBindings, $deptBindings);
+        $hasDivisionGroupFilter = !empty((array) ($filters['division_group'] ?? []));
+        $hasDepartmentFilter = !empty((array) ($filters['department'] ?? []));
+        $useDepartmentOrDivisionGroup = ($filters['division_department_mode'] ?? 'AND') === 'OR'
+            && $hasDivisionGroupFilter
+            && $hasDepartmentFilter;
+
+        if ($useDepartmentOrDivisionGroup) {
+            $departmentDivisionSql = "(({$divisionGroupSql}) OR ({$deptSql}))";
+            $departmentDivisionBindings = array_merge($divisionGroupBindings, $deptBindings);
+        } else {
+            $departmentDivisionSql = "{$divisionGroupSql} AND {$deptSql}";
+            $departmentDivisionBindings = array_merge($divisionGroupBindings, $deptBindings);
+        }
+
+        $where = "{$excludeSql} AND {$wireChargeSql} AND {$displayAccountSql} AND {$departmentDivisionSql} AND {$divisionScopeSql} AND {$accountSql} AND {$invoiceSql} AND {$notesSql}";
+        $bindings = array_merge($wireChargeBindings, $displayAccountBindings, $departmentDivisionBindings, $divisionScopeBindings, $accountBindings, $invoiceBindings, $notesBindings);
 
         return [$where, $bindings];
     }
@@ -1938,59 +2834,59 @@ class VariableCostService
 
         if (in_array('overall', $kinds, true)) {
             $unions[] = <<<'SQL'
-SELECT
-    'overall'::text AS kind,
-    ''::text AS classnumber,
-    ''::text AS dept_desc,
-    ''::text AS account,
-    NULL::int AS month_no,
-    ''::text AS month_key,
-    COALESCE(SUM(amount), 0) AS total_amount,
-    COUNT(*) AS line_count,
-    COUNT(DISTINCT source || '-' || source_id::text) AS bill_count,
-    COUNT(DISTINCT NULLIF(COALESCE(classnumber, '') || '|' || COALESCE(dept_desc, ''), '|')) AS dept_count,
-    COUNT(DISTINCT NULLIF(account, '')) AS account_count
-FROM filtered
-SQL;
+        SELECT
+            'overall'::text AS kind,
+            ''::text AS classnumber,
+            ''::text AS dept_desc,
+            ''::text AS account,
+            NULL::int AS month_no,
+            ''::text AS month_key,
+            COALESCE(SUM(amount), 0) AS total_amount,
+            COUNT(*) AS line_count,
+            COUNT(DISTINCT source || '-' || source_id::text) AS bill_count,
+            COUNT(DISTINCT NULLIF(COALESCE(classnumber, '') || '|' || COALESCE(dept_desc, ''), '|')) AS dept_count,
+            COUNT(DISTINCT NULLIF(account, '')) AS account_count
+        FROM filtered
+        SQL;
         }
 
         if (in_array('dept', $kinds, true)) {
             $unions[] = <<<'SQL'
-SELECT
-    'dept'::text,
-    COALESCE(classnumber, ''),
-    COALESCE(dept_desc, ''),
-    '',
-    NULL::int,
-    '',
-    SUM(amount),
-    COUNT(*),
-    COUNT(DISTINCT source || '-' || source_id::text),
-    0,
-    0
-FROM filtered
-GROUP BY classnumber, dept_desc
-SQL;
+        SELECT
+            'dept'::text,
+            COALESCE(classnumber, ''),
+            COALESCE(dept_desc, ''),
+            '',
+            NULL::int,
+            '',
+            SUM(amount),
+            COUNT(*),
+            COUNT(DISTINCT source || '-' || source_id::text),
+            0,
+            0
+        FROM filtered
+        GROUP BY classnumber, dept_desc
+        SQL;
         }
 
         if (in_array('acc', $kinds, true)) {
             $unions[] = <<<'SQL'
-SELECT
-    'acc'::text,
-    '',
-    '',
-    COALESCE(account, ''),
-    NULL::int,
-    '',
-    SUM(amount),
-    COUNT(*),
-    0,
-    0,
-    0
-FROM filtered
-WHERE COALESCE(account, '') <> ''
-GROUP BY account
-SQL;
+        SELECT
+            'acc'::text,
+            '',
+            '',
+            COALESCE(account, ''),
+            NULL::int,
+            '',
+            SUM(amount),
+            COUNT(*),
+            0,
+            0,
+            0
+        FROM filtered
+        WHERE COALESCE(account, '') <> ''
+        GROUP BY account
+        SQL;
         }
 
         if (in_array('matrix', $kinds, true)) {
@@ -2319,10 +3215,7 @@ SQL
 
         return $rows
             ->map(fn($r) => $this->cleanText($r->account ?? ''))
-            ->filter()
-            ->unique()
-            ->sort()
-            ->values();
+            ->pipe(fn(Collection $rows) => $this->filterAccountOptionLabels($rows));
     }
 
     private function postProcessDepartmentTotals(Collection $rawRows, string $selectedSite): Collection
@@ -2376,23 +3269,28 @@ SQL
             ->map(function ($row) {
                 $parts = $this->splitAccountLabel($row->account ?? '');
                 return (object) [
+                    'site' => (string) ($row->site ?? ''),
                     'account_code' => $parts['code'],
                     'account_name' => $parts['name'],
                     'total_amount' => (float) $row->total_amount,
                     'line_count' => (int) $row->line_count,
                 ];
             })
-            ->groupBy(fn($r) => $r->account_code . '|' . $r->account_name)
+            ->filter(fn($row) => $this->isAccountOptionCode($row->account_code))
+            ->groupBy('account_code')
             ->map(function (Collection $group) {
                 $first = $group->first();
                 return (object) [
                     'account_code' => $first->account_code,
-                    'account_name' => $first->account_name,
+                    'account_name' => $this->preferredAccountName($group),
                     'line_count' => (int) $group->sum('line_count'),
                     'total_amount' => (float) $group->sum('total_amount'),
+                    'site_amounts' => $this->siteAmountMap($group),
                 ];
             })
-            ->sortByDesc('total_amount')
+            ->sortBy([
+                ['account_code', 'asc'],
+            ])
             ->values();
     }
 
@@ -2417,12 +3315,13 @@ SQL
             return (object) [
                 'department_code' => $resolvedCode,
                 'department' => $displayName,
+                'site' => $site,
                 'account_code' => $parts['code'],
                 'account_name' => $parts['name'],
-                'account_key' => $parts['code'] . '|' . $parts['name'],
+                'account_key' => $parts['code'],
                 'total_amount' => (float) $row->total_amount,
             ];
-        });
+        })->filter(fn($row) => $this->isAccountOptionCode($row->account_code))->values();
 
         $accounts = $normalized
             ->groupBy('account_key')
@@ -2431,8 +3330,9 @@ SQL
                 return (object) [
                     'key' => $key,
                     'code' => $first->account_code,
-                    'name' => $first->account_name,
+                    'name' => $this->preferredAccountName($group),
                     'total_amount' => (float) $group->sum('total_amount'),
+                    'site_amounts' => $this->siteAmountMap($group),
                 ];
             })
             ->sortBy('code')
@@ -2446,10 +3346,15 @@ SQL
                     ->groupBy('account_key')
                     ->map(fn(Collection $g) => (float) $g->sum('total_amount'))
                     ->all();
+                $siteAmounts = $group
+                    ->groupBy('account_key')
+                    ->map(fn(Collection $g) => $this->siteAmountMap($g))
+                    ->all();
                 return (object) [
                     'department_code' => $first->department_code,
                     'department' => $first->department,
                     'amounts' => $amounts,
+                    'site_amounts' => $siteAmounts,
                     'total_amount' => (float) $group->sum('total_amount'),
                 ];
             })
@@ -2466,6 +3371,29 @@ SQL
             'columnTotals' => $columnTotals,
             'grandTotal' => (float) $normalized->sum('total_amount'),
         ];
+    }
+
+    private function preferredAccountName(Collection $group): string
+    {
+        return $group
+            ->pluck('account_name')
+            ->map(fn($name) => $this->cleanText($name ?? ''))
+            ->filter()
+            ->unique()
+            ->sortByDesc(fn($name) => Str::length($name))
+            ->first() ?? '';
+    }
+
+    private function siteAmountMap(Collection $group): array
+    {
+        $amounts = [];
+        foreach (array_keys(self::SITES) as $site) {
+            $amounts[$site] = (float) $group
+                ->filter(fn($row) => (string) ($row->site ?? '') === $site)
+                ->sum('total_amount');
+        }
+
+        return $amounts;
     }
 
     private function postProcessMonthlySummary(Collection $rawRows): Collection
@@ -2573,28 +3501,8 @@ SQL
             ->selectRaw('ABS(COALESCE(ca.amount, at.amount)) as amount')
             ->selectRaw('0 as balance');
 
-        [$departmentTerm, $departmentSite] = $this->parseDepartmentFilter($filters['department']);
-        if ($departmentSite !== null && $departmentSite !== $site) {
-            return collect();
-        }
-        if ($departmentTerm !== '') {
-            $query->whereRaw("(UPPER(TRIM({$deptNameExpr})) = UPPER(?) OR UPPER(TRIM({$deptCodeExpr})) = UPPER(?))", [
-                $departmentTerm,
-                $departmentTerm,
-            ]);
-        }
-        $accountValues = array_values(array_filter(
-            array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
-            fn($v) => $v !== ''
-        ));
-        if (!empty($accountValues)) {
-            $query->where(function ($q) use ($accountValues) {
-                foreach ($accountValues as $accountValue) {
-                    $q->orWhere('c.accno', 'ILIKE', '%' . $accountValue . '%')
-                        ->orWhere('c.description', 'ILIKE', '%' . $accountValue . '%');
-                }
-            });
-        }
+        $this->applyDepartmentAndDivisionGroupFilters($query, $filters, $site, $deptCodeExpr, $deptNameExpr);
+        $this->applyAccountTextFilter($query, $filters);
         if ($filters['invoice'] !== '') {
             $query->where('co.vouchernumber', 'ILIKE', '%' . $filters['invoice'] . '%');
         }
@@ -2707,28 +3615,8 @@ SQL
             ->selectRaw('ABS(at.amount) as amount')
             ->selectRaw('0 as balance');
 
-        [$departmentTerm, $departmentSite] = $this->parseDepartmentFilter($filters['department']);
-        if ($departmentSite !== null && $departmentSite !== $site) {
-            return collect();
-        }
-        if ($departmentTerm !== '') {
-            $query->whereRaw("(UPPER(TRIM({$deptNameExpr})) = UPPER(?) OR UPPER(TRIM({$deptCodeExpr})) = UPPER(?))", [
-                $departmentTerm,
-                $departmentTerm,
-            ]);
-        }
-        $accountValues = array_values(array_filter(
-            array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
-            fn($v) => $v !== ''
-        ));
-        if (!empty($accountValues)) {
-            $query->where(function ($q) use ($accountValues) {
-                foreach ($accountValues as $accountValue) {
-                    $q->orWhere('c.accno', 'ILIKE', '%' . $accountValue . '%')
-                        ->orWhere('c.description', 'ILIKE', '%' . $accountValue . '%');
-                }
-            });
-        }
+        $this->applyDepartmentAndDivisionGroupFilters($query, $filters, $site, $deptCodeExpr, $deptNameExpr);
+        $this->applyAccountTextFilter($query, $filters);
         if ($filters['invoice'] !== '') {
             $query->where(function ($q) use ($filters) {
                 $q->where('gl.transnumber', 'ILIKE', '%' . $filters['invoice'] . '%')
@@ -2911,29 +3799,8 @@ SQL
             ->selectRaw('ABS(COALESCE(ca.amount, at.amount)) as amount')
             ->selectRaw('(ap.amount - ap.paid) as balance');
 
-        [$departmentTerm, $departmentSite] = $this->parseDepartmentFilter($filters['department']);
-        if ($departmentSite !== null && $departmentSite !== $site) {
-            return collect();
-        }
-        if ($departmentTerm !== '') {
-            $query->whereRaw("(UPPER(TRIM({$departmentNameExpr})) = UPPER(?) OR UPPER(TRIM({$departmentCodeExpr})) = UPPER(?))", [
-                $departmentTerm,
-                $departmentTerm,
-            ]);
-        }
-
-        $accountValues = array_values(array_filter(
-            array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
-            fn($v) => $v !== ''
-        ));
-        if (!empty($accountValues)) {
-            $query->where(function ($q) use ($accountValues) {
-                foreach ($accountValues as $accountValue) {
-                    $q->orWhere('c.accno', 'ILIKE', '%' . $accountValue . '%')
-                        ->orWhere('c.description', 'ILIKE', '%' . $accountValue . '%');
-                }
-            });
-        }
+        $this->applyDepartmentAndDivisionGroupFilters($query, $filters, $site, $departmentCodeExpr, $departmentNameExpr);
+        $this->applyAccountTextFilter($query, $filters);
 
         if ($filters['invoice'] !== '') {
             $query->where(function ($q) use ($filters) {
@@ -3056,28 +3923,8 @@ SQL
             ->selectRaw('ABS(COALESCE(i.qty, 0)) * ABS(COALESCE(i.sellprice, i.unitcost, 0)) as amount')
             ->selectRaw('(ap.amount - ap.paid) as balance');
 
-        [$departmentTerm, $departmentSite] = $this->parseDepartmentFilter($filters['department']);
-        if ($departmentSite !== null && $departmentSite !== $site) {
-            return collect();
-        }
-        if ($departmentTerm !== '') {
-            $query->whereRaw("(UPPER(TRIM({$deptNameExpr})) = UPPER(?) OR UPPER(TRIM({$deptCodeExpr})) = UPPER(?))", [
-                $departmentTerm,
-                $departmentTerm,
-            ]);
-        }
-        $accountValues = array_values(array_filter(
-            array_map(fn($v) => trim((string) $v), (array) ($filters['account'] ?? [])),
-            fn($v) => $v !== ''
-        ));
-        if (!empty($accountValues)) {
-            $query->where(function ($q) use ($accountValues) {
-                foreach ($accountValues as $accountValue) {
-                    $q->orWhere('c.accno', 'ILIKE', '%' . $accountValue . '%')
-                        ->orWhere('c.description', 'ILIKE', '%' . $accountValue . '%');
-                }
-            });
-        }
+        $this->applyDepartmentAndDivisionGroupFilters($query, $filters, $site, $deptCodeExpr, $deptNameExpr);
+        $this->applyAccountTextFilter($query, $filters);
         if ($filters['invoice'] !== '') {
             $query->where(function ($q) use ($filters) {
                 $q->where('ap.invnumber', 'ILIKE', '%' . $filters['invoice'] . '%')
@@ -3281,7 +4128,7 @@ SQL
             : $this->displayQuantity($row->item_qty ?? null);
         $total = (float) $row->amount;
         $unit = !empty($row->preserve_display_qty) && $row->min_unit_price !== null
-            ? (float) $row->min_unit_price
+            ? abs((float) $row->min_unit_price)
             : ($qty != 0.0 ? $total / $qty : $total);
 
         return [[

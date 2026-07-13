@@ -659,8 +659,8 @@
                         <input type="hidden" name="redirect_to" value="{{ url()->full() }}">
 
                         <div class="mb-3">
-                            <label class="form-label">Email</label>
-                            <input name="email" type="email" class="form-control" required>
+                            <label class="form-label">Username หรือ Email</label>
+                            <input name="login" type="text" class="form-control" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Password</label>

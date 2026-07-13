@@ -36,7 +36,9 @@
                         <th style="width: 80px">Source</th>
                         <th>Customer</th>
                         <th style="width: 100px">ERP Terms</th>
+                        <th style="width: 160px">Effective</th>
                         <th style="width: 90px">Days</th>
+                        <th style="width: 90px">Grace</th>
                         <th>รายละเอียด</th>
                         <th>แผนวางบิล</th>
                         <th>รอบชำระ</th>
@@ -55,7 +57,12 @@
                                 <div class="text-muted small">{{ $term->customer_code }}</div>
                             </td>
                             <td>{{ $term->erp_terms ?: '-' }}</td>
+                            <td>
+                                <div>{{ optional($term->effective_from)->format('Y-m-d') ?: 'Any date' }}</div>
+                                <div class="text-muted small">to {{ optional($term->effective_to)->format('Y-m-d') ?: 'open end' }}</div>
+                            </td>
                             <td>{{ number_format((int) $term->credit_days) }}</td>
+                            <td>{{ number_format((int) ($term->grace_days ?? 0)) }}</td>
                             <td>
                                 <div>{{ $term->credit_term_code ?: '-' }}</div>
                                 @if ($term->credit_term_detail)
@@ -92,7 +99,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="9" class="text-center text-muted py-4">ยังไม่มีข้อมูล</td>
+                            <td colspan="11" class="text-center text-muted py-4">ยังไม่มีข้อมูล</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -138,6 +145,19 @@
                             <input type="number" min="0" max="999" name="credit_days" id="creditDaysInput"
                                 class="form-control" required>
                         </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Grace Days</label>
+                            <input type="number" min="0" max="365" name="grace_days" id="graceDaysInput"
+                                class="form-control" value="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Effective From</label>
+                            <input type="date" name="effective_from" id="effectiveFromInput" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Effective To</label>
+                            <input type="date" name="effective_to" id="effectiveToInput" class="form-control">
+                        </div>
                         <div class="col-md-3">
                             <label class="form-label">Term Code</label>
                             <input type="text" name="credit_term_code" id="creditTermCodeInput" class="form-control"
@@ -163,7 +183,11 @@
                             <select name="payment_schedule_id" id="paymentScheduleInput" class="form-select">
                                 <option value="">-- เลือก --</option>
                                 @foreach ($paymentSchedules as $schedule)
-                                    <option value="{{ $schedule->id }}">{{ $schedule->name_th }}</option>
+                                    <option value="{{ $schedule->id }}"
+                                        data-schedule-type="{{ $schedule->schedule_type }}"
+                                        data-payment-day="{{ $schedule->payment_day }}">
+                                        {{ $schedule->name_th }}
+                                    </option>
                                 @endforeach
                             </select>
                         </div>
@@ -178,6 +202,21 @@
                                 <option value="1">Active</option>
                                 <option value="0">Inactive</option>
                             </select>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="border rounded bg-light p-3">
+                                <div class="row g-3 align-items-end">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Preview Invoice Date</label>
+                                        <input type="date" id="previewInvoiceDateInput" class="form-control">
+                                    </div>
+                                    <div class="col-md-9">
+                                        <div class="small text-muted mb-1">Due Date Preview</div>
+                                        <div class="fw-semibold" id="dueDatePreview">-</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="col-12">
@@ -216,6 +255,9 @@
                 sourcePreview: document.getElementById('sourcePreview'),
                 erpTermsPreview: document.getElementById('erpTermsPreview'),
                 creditDays: document.getElementById('creditDaysInput'),
+                graceDays: document.getElementById('graceDaysInput'),
+                effectiveFrom: document.getElementById('effectiveFromInput'),
+                effectiveTo: document.getElementById('effectiveToInput'),
                 creditTermCode: document.getElementById('creditTermCodeInput'),
                 creditTermDetail: document.getElementById('creditTermDetailInput'),
                 billingPlan: document.getElementById('billingPlanInput'),
@@ -223,6 +265,8 @@
                 overridePaymentDay: document.getElementById('overridePaymentDayInput'),
                 isActive: document.getElementById('isActiveInput'),
                 remark: document.getElementById('remarkInput'),
+                previewInvoiceDate: document.getElementById('previewInvoiceDateInput'),
+                dueDatePreview: document.getElementById('dueDatePreview'),
             };
 
             const customerSelect = new TomSelect('#erpCustomerSelect', {
@@ -273,6 +317,7 @@
                 if (!fields.creditDays.dataset.touched) {
                     fields.creditDays.value = data.credit_days ?? extractCreditDays(data.terms || data.erp_terms || '');
                 }
+                updateDueDatePreview();
             }
 
             function extractCreditDays(text) {
@@ -283,6 +328,74 @@
             fields.creditDays.addEventListener('input', () => {
                 fields.creditDays.dataset.touched = '1';
             });
+
+            [fields.creditDays, fields.graceDays, fields.paymentSchedule, fields.overridePaymentDay, fields.previewInvoiceDate].forEach(input => {
+                input.addEventListener('input', updateDueDatePreview);
+                input.addEventListener('change', updateDueDatePreview);
+            });
+
+            function toDateInputValue(date) {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            }
+
+            function parseDateInput(value) {
+                if (!value) return null;
+                const parts = value.split('-').map(Number);
+                if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+                return new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+
+            function addDays(date, days) {
+                const next = new Date(date.getTime());
+                next.setDate(next.getDate() + days);
+                return next;
+            }
+
+            function endOfMonth(date) {
+                return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+            }
+
+            function fixedDayCandidate(date, day) {
+                const clamped = Math.max(1, Math.min(31, day));
+                let candidate = new Date(date.getFullYear(), date.getMonth(), Math.min(clamped, endOfMonth(date).getDate()));
+                if (candidate < date) {
+                    const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+                    candidate = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), Math.min(clamped, endOfMonth(nextMonth).getDate()));
+                }
+                return candidate;
+            }
+
+            function updateDueDatePreview() {
+                const base = parseDateInput(fields.previewInvoiceDate.value);
+                if (!base) {
+                    fields.dueDatePreview.textContent = 'Select an invoice date to preview.';
+                    return;
+                }
+
+                let due = addDays(base, Number(fields.creditDays.value || 0));
+                const option = fields.paymentSchedule.selectedOptions[0];
+                const scheduleType = option?.dataset.scheduleType || '';
+                const paymentDay = Number(fields.overridePaymentDay.value || option?.dataset.paymentDay || 0);
+
+                if (scheduleType === 'end_of_month') {
+                    due = endOfMonth(due);
+                } else if (scheduleType === 'fixed_day' && paymentDay > 0) {
+                    due = fixedDayCandidate(due, paymentDay);
+                }
+
+                const graceDays = Number(fields.graceDays.value || 0);
+                const contractualDue = toDateInputValue(due);
+                if (graceDays > 0) {
+                    due = addDays(due, graceDays);
+                    fields.dueDatePreview.textContent = `${toDateInputValue(due)} (${contractualDue} + ${graceDays} grace days)`;
+                    return;
+                }
+
+                fields.dueDatePreview.textContent = contractualDue;
+            }
 
             document.getElementById('btnCreateTerm').addEventListener('click', function () {
                 resetForm();
@@ -312,6 +425,9 @@
 
                     fields.creditDays.value = term.credit_days ?? 0;
                     fields.creditDays.dataset.touched = '1';
+                    fields.graceDays.value = term.grace_days ?? 0;
+                    fields.effectiveFrom.value = term.effective_from || '';
+                    fields.effectiveTo.value = term.effective_to || '';
                     fields.creditTermCode.value = term.credit_term_code || '';
                     fields.creditTermDetail.value = term.credit_term_detail || '';
                     fields.billingPlan.value = term.billing_plan_id || '';
@@ -319,6 +435,7 @@
                     fields.overridePaymentDay.value = term.override_payment_day || '';
                     fields.isActive.value = term.is_active ? '1' : '0';
                     fields.remark.value = term.remark || '';
+                    updateDueDatePreview();
 
                     titleEl.textContent = 'แก้ไขเงื่อนไขรับชำระลูกค้า';
                     form.action = @json(url('/accounting/customer-payment-terms')) + '/' + term.id;
@@ -348,7 +465,10 @@
                     }
                 });
                 fields.creditDays.value = 0;
+                fields.graceDays.value = 0;
                 fields.isActive.value = '1';
+                fields.previewInvoiceDate.value = toDateInputValue(new Date());
+                updateDueDatePreview();
             }
         });
     </script>

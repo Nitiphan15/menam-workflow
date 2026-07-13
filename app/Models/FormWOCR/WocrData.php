@@ -47,6 +47,7 @@ class WocrData extends Model
         'form_type',
         'grade',
         'req_type',
+        'urgency',
         'size',
         'length',
         'qty',
@@ -57,9 +58,33 @@ class WocrData extends Model
     /** แคสต์ชนิดข้อมูล */
     protected $casts = [
         'form_id'   => 'integer',
+        'urgency'   => 'integer',
         'req_date'  => 'datetime',
         'docu_date' => 'datetime',
     ];
+
+    /** ระดับความเร่งด่วน */
+    public const URGENCY_LOW    = 1;
+    public const URGENCY_MEDIUM = 2;
+    public const URGENCY_HIGH   = 3;
+
+    /** map ระดับความเร่งด่วน -> ป้ายภาษาไทย */
+    public const URGENCY_LABELS = [
+        self::URGENCY_LOW    => 'น้อย',
+        self::URGENCY_MEDIUM => 'ปานกลาง',
+        self::URGENCY_HIGH   => 'มาก',
+    ];
+
+    /** ป้ายภาษาไทยของ urgency ปัจจุบัน */
+    public function urgencyLabel(): string
+    {
+        return self::URGENCY_LABELS[(int) $this->urgency] ?? '-';
+    }
+
+    public static function urgencyText(?int $urgency): string
+    {
+        return self::URGENCY_LABELS[(int) $urgency] ?? '-';
+    }
 
     /* ---------------- Relations ---------------- */
 

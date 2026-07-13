@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Users\User;
 use App\Models\Users\DepartmentRole;
 use App\Support\SqlServerDb;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;

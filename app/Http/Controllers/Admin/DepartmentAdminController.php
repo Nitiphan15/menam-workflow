@@ -27,7 +27,11 @@ class DepartmentAdminController extends Controller
             'parent_id'   => 'nullable|exists:sqlsrv_menam.departments,id',
         ]);
 
-        Department::create($data);
+        SqlServerDb::table('departments')->insert($data + [
+            'is_active' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
         return back()->with('ok', 'เพิ่มแผนกแล้ว');
     }
@@ -74,6 +78,21 @@ class DepartmentAdminController extends Controller
 
     public function destroy($id)
     {
+        $hasUsers    = SqlServerDb::table('users')->where('department_id', $id)->exists();
+        $hasRoles    = SqlServerDb::table('department_roles')->where('department_id', $id)->exists();
+        $hasChildren = SqlServerDb::table('departments')->where('parent_id', $id)->exists();
+
+        if ($hasUsers || $hasRoles || $hasChildren) {
+            $reasons = [];
+            if ($hasUsers)    $reasons[] = 'มีพนักงานสังกัดแผนกนี้';
+            if ($hasRoles)    $reasons[] = 'มีตำแหน่งในแผนกนี้';
+            if ($hasChildren) $reasons[] = 'มีแผนกย่อยอยู่ใต้แผนกนี้';
+
+            return back()->withErrors([
+                'delete' => 'ลบแผนกไม่ได้: ' . implode(', ', $reasons) . ' — กรุณาย้าย/ลบข้อมูลที่เกี่ยวข้องก่อน',
+            ]);
+        }
+
         SqlServerDb::table('departments')->where('id', $id)->delete();
 
         return back()->with('ok', 'ลบแผนกแล้ว');

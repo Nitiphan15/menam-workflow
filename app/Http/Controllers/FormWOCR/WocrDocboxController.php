@@ -54,6 +54,7 @@ class WocrDocboxController extends Controller
                     $row->form_id ?? '',
                     optional($row->req_date)->format('d/m/Y'),
                     $row->req_type ?? '',
+                    \App\Models\FormWOCR\WocrData::urgencyText((int) ($row->urgency ?? 0)),
                     optional($row->docu_date)->format('d/m/Y'),
                     $row->docu_no ?? '',
                     $row->mfg_no ?? '',
@@ -85,6 +86,7 @@ class WocrDocboxController extends Controller
                     'form_id',
                     'Req Date',
                     'Req Type',
+                    'ความเร่งด่วน',
                     'Docu Date',
                     'Docu No',
                     'MFG No',
@@ -128,14 +130,20 @@ class WocrDocboxController extends Controller
         });
 
         return view('formwocr.show', [
-            'list'      => $list,
-            'box'       => $box,
-            'q'         => $kw,
-            'pageTitle' => 'Production Planning Form',
-            'showRoute' => null,
+            'list'        => $list,
+            'box'         => $box,
+            'q'           => $kw,
+            'pageTitle'   => 'Production Planning Form',
+            'showRoute'   => null,
+            'siteOptions' => ['plus' => 'Plus', 'wire' => 'Wire'],
         ]);
     }
 
+    /**
+     * หมายเหตุ: ตาราง wocr_data ไม่มีคอลัมน์ part_no / customer / data_site
+     * - search ค้นจาก docu_no, mfg_no, grade
+     * - filter ไซต์ (plus/wire) อนุมานจาก prefix ของ mfg_no ('+' = plus, ตัวอักษรปกติ = wire)
+     */
     private function docboxQuery(Request $r, string $box)
     {
         $userId = $r->user()?->id;
@@ -207,14 +215,20 @@ class WocrDocboxController extends Controller
 
         if ($kw !== '') {
             $q->where(function ($w) use ($kw) {
-                $w->where('wocr.part_no', 'like', "%{$kw}%")
-                    ->orWhere('wocr.customer', 'like', "%{$kw}%")
-                    ->orWhere('wocr.docu_no', 'like', "%{$kw}%");
+                $w->where('wocr.docu_no', 'like', "%{$kw}%")
+                    ->orWhere('wocr.mfg_no', 'like', "%{$kw}%")
+                    ->orWhere('wocr.grade', 'like', "%{$kw}%");
             });
         }
 
-        if ($site !== '') {
-            $q->where('wocr.data_site', $site);
+        // ไซต์ของ WOCR แยกจาก prefix ของ mfg_no: '+' นำหน้า = plus, ขึ้นต้นตัวอักษรปกติ = wire
+        $siteKey = strtolower($site);
+        if ($siteKey === 'plus') {
+            $q->where('wocr.mfg_no', 'like', '+%');
+        } elseif ($siteKey === 'wire') {
+            $q->where('wocr.mfg_no', 'not like', '+%')
+                ->whereNotNull('wocr.mfg_no')
+                ->where('wocr.mfg_no', '<>', '');
         }
 
         if ($status !== '') {

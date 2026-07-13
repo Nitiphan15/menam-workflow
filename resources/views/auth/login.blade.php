@@ -17,15 +17,19 @@
 
                         <form method="POST" action="{{ route('login') }}">
                             @csrf
+                            @if (request('redirect_to'))
+                                <input type="hidden" name="redirect_to" value="{{ request('redirect_to') }}">
+                            @endif
 
                             <div class="mb-3">
-                                <label for="email" class="form-label">อีเมล</label>
+                                <label for="login" class="form-label">Username หรือ Email</label>
                                 <div class="input-group">
-                                    <span class="input-group-text"><i class="fas fa-envelope"></i></span>
-                                    <input type="email" class="form-control @error('email') is-invalid @enderror"
-                                        id="email" name="email" value="{{ old('email') }}" required autofocus>
+                                    <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                    <input type="text" class="form-control @error('login') is-invalid @enderror"
+                                        id="login" name="login" value="{{ old('login', old('email')) }}" required autofocus>
                                 </div>
-                                @error('email')
+                                <div class="form-text">ใช้ username เช่น somchai_j หรือใช้อีเมลของคุณ</div>
+                                @error('login')
                                     <div class="invalid-feedback d-block">{{ $message }}</div>
                                 @enderror
                             </div>

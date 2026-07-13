@@ -3,13 +3,12 @@
 namespace App\Http\Controllers\FormPR;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 use App\Models\Users\Department;
 use App\Models\FormPR\PrData;
 use App\Services\WorkflowEngine;
-use App\Services\ApproverResolver;
 use App\Support\SqlServerDb;
+use App\Support\WorkflowDb;
 
 class RequestController extends Controller
 {
@@ -57,7 +56,7 @@ class RequestController extends Controller
             'files.*'         => 'file|max:20480',
         ]);
 
-        return DB::transaction(function () use ($r, $data) {
+        return WorkflowDb::transaction('pr', function () use ($r, $data) {
 
             $user = $r->user();
 
@@ -70,7 +69,7 @@ class RequestController extends Controller
             $typeStr = implode(',', $data['type']);
 
             // --- บันทึกหัว PR ---
-            $prId = DB::table('pr_data')->insertGetId([
+            $prId = WorkflowDb::table('pr', 'pr_data')->insertGetId([
                 'form_id'       => null,
                 'req_date'      => $data['request_date'],
                 'docu_date'     => $data['docu_date'] ?? now()->toDateString(),
@@ -102,19 +101,19 @@ class RequestController extends Controller
             );
 
             // ชี้กลับ form_id
-            DB::table('pr_data')->where('id', $prId)->update([
+            WorkflowDb::table('pr', 'pr_data')->where('id', $prId)->update([
                 'form_id'    => $wfId,
                 'updated_at' => now(),
             ]);
 
             // --- Auto-approve step 1 ถ้าอนุมัติโดยต้นเรื่องเพียงคนเดียวจริง ---
-            $authStep1 = SqlServerDb::table('wf_form_authorizes')
+            $authStep1 = WorkflowDb::table('pr', 'wf_form_authorizes')
                 ->where('wf_form_id', $wfId)
                 ->where('step_no', 1)
                 ->pluck('approver_user_id');
 
             if ($authStep1->count() === 1 && (int) $authStep1->first() === (int) $user->id) {
-                WorkflowEngine::approve($wfId, (int) $user->id, $data['reason'] ?? null);
+                WorkflowEngine::approve($wfId, (int) $user->id, $data['reason'] ?? null, 'pr');
             }
 
             // --- รายการสินค้า ---
@@ -134,7 +133,7 @@ class RequestController extends Controller
                         'updated_at' => now(),
                     ];
                 }
-                if ($rows) DB::table('pr_data_list')->insert($rows);
+                if ($rows) WorkflowDb::table('pr', 'pr_data_list')->insert($rows);
             }
 
             // --- แนบไฟล์ ---
@@ -157,7 +156,7 @@ class RequestController extends Controller
                         'updated_at'    => now(),
                     ];
                 }
-                if ($rows) DB::table('pr_data_files')->insert($rows);
+                if ($rows) WorkflowDb::table('pr', 'pr_data_files')->insert($rows);
             }
 
             return redirect()

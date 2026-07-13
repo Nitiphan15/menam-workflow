@@ -16,7 +16,10 @@ class CustomerPaymentTerm extends Model
         'customer_code',
         'customer_name',
         'erp_terms',
+        'effective_from',
+        'effective_to',
         'credit_days',
+        'grace_days',
         'credit_term_code',
         'credit_term_detail',
         'billing_plan_id',
@@ -29,6 +32,9 @@ class CustomerPaymentTerm extends Model
     ];
 
     protected $casts = [
+        'effective_from' => 'date:Y-m-d',
+        'effective_to' => 'date:Y-m-d',
+        'grace_days' => 'integer',
         'is_active' => 'boolean',
     ];
 

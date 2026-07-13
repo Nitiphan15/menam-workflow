@@ -1,4 +1,4 @@
-﻿@extends('layouts.layout')
+@extends('layouts.layout')
 
 @section('title', 'Dashboard ภาระงานเครื่องจักร')
 @section('page-title', 'Dashboard ภาระงานและวันว่างของเครื่องจักร')
@@ -320,7 +320,7 @@
             <div class="col-xl-5">
                 <div class="mla-panel">
                     <div class="mla-head"><span>ชั่วโมงงานเทียบกำลังผลิต</span></div>
-                    <div class="mla-chart"><canvas id="bucketLoadChart"></canvas></div>
+                    <div class="mla-chart"><canvas id="availableCapacityChart"></canvas></div>
                 </div>
             </div>
         </div>
@@ -577,21 +577,40 @@
 
                 const charts = @json($charts ?? []);
                 const machineRows = charts.machineLoad || [];
-                const bucketRows = charts.bucketLoad || [];
+                const capacityMode = charts.capacityPlanMode || 'workcenter';
+                const availableRows = charts.availableCapacity || [];
+                const num = value => {
+                    const parsed = Number(value);
+                    return Number.isFinite(parsed) ? parsed : 0;
+                };
+                const machineLoadPct = row => num(row?.load_pct ?? row?.load_percent ?? row?.load ?? row?.percent);
+                const machineLoadValues = machineRows.map(machineLoadPct);
 
                 const loadColor = pct => {
-                    const v = parseFloat(pct) || 0;
+                    const v = num(pct);
                     if (v >= 100) return '#dc3545';
                     if (v >= 80) return '#f0ad4e';
                     return '#28a745';
                 };
-                const fmtNum = n => (Number(n) || 0).toLocaleString(undefined, {
+                const fmtNum = n => num(n).toLocaleString(undefined, {
                     maximumFractionDigits: 0
                 });
 
                 const wrap = document.getElementById('machineLoadChartWrap');
                 if (wrap) {
                     wrap.querySelector('canvas').style.minHeight = Math.max(360, machineRows.length * 28) + 'px';
+                    const head = wrap.closest('.mla-panel')?.querySelector('.mla-head');
+                    if (head) {
+                        head.innerHTML = '<span>CAPACITY PLAN — Top 25 ' + (capacityMode === 'machine' ? 'Machine' : 'Work Center') + '</span><small class="text-muted">Select Machine filters to drill down by machine. Green &lt; 80% / Yellow 80-100% / Red &gt; 100%</small>';
+                    }
+                }
+
+                const availableCanvas = document.getElementById('availableCapacityChart');
+                if (availableCanvas) {
+                    const head = availableCanvas.closest('.mla-panel')?.querySelector('.mla-head');
+                    if (head) {
+                        head.innerHTML = '<span>Available Capacity</span><small class="text-muted">Used / Remaining by Work Center</small>';
+                    }
                 }
 
                 const inquiryUrl = @json(route('machine-load.inquiry'));
@@ -614,9 +633,9 @@
                         labels: machineRows.map(row => row.label),
                         datasets: [{
                             label: 'โหลด %',
-                            data: machineRows.map(row => row.load_pct),
-                            backgroundColor: machineRows.map(row => loadColor(row.load_pct)),
-                            borderColor: machineRows.map(row => loadColor(row.load_pct)),
+                            data: machineLoadValues,
+                            backgroundColor: machineLoadValues.map(loadColor),
+                            borderColor: machineLoadValues.map(loadColor),
                             borderWidth: 1
                         }]
                     },
@@ -674,7 +693,7 @@
                         scales: {
                             x: {
                                 beginAtZero: true,
-                                suggestedMax: 120,
+                                suggestedMax: Math.max(120, ...machineLoadValues),
                                 title: {
                                     display: true,
                                     text: 'โหลด (%)'
@@ -723,18 +742,18 @@
                     }]
                 });
 
-                new Chart(document.getElementById('bucketLoadChart'), {
+                if (document.getElementById('bucketLoadChart')) new Chart(document.getElementById('bucketLoadChart'), {
                     type: 'bar',
                     data: {
                         labels: bucketRows.map(row => row.label),
                         datasets: [{
                                 label: 'ชั่วโมงงาน',
-                                data: bucketRows.map(row => row.load_hours),
+                                data: bucketRows.map(row => num(row.load_hours)),
                                 backgroundColor: '#dc3545'
                             },
                             {
                                 label: 'กำลังผลิต ชม.',
-                                data: bucketRows.map(row => row.capacity_hours),
+                                data: bucketRows.map(row => num(row.capacity_hours)),
                                 backgroundColor: '#198754'
                             }
                         ]
@@ -749,6 +768,88 @@
                         }
                     }
                 });
+
+                if (availableCanvas) {
+                    new Chart(availableCanvas, {
+                        type: 'bar',
+                        data: {
+                            labels: availableRows.map(row => row.label),
+                            datasets: [{
+                                    label: 'Used',
+                                    data: availableRows.map(row => num(row.used_hours)),
+                                    backgroundColor: '#111827',
+                                    borderWidth: 0
+                                },
+                                {
+                                    label: 'Remaining',
+                                    data: availableRows.map(row => num(row.remaining_hours)),
+                                    backgroundColor: '#f8fafc',
+                                    borderColor: '#94a3b8',
+                                    borderWidth: 1
+                                }
+                            ]
+                        },
+                        options: {
+                            indexAxis: 'y',
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom'
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        title: items => (items[0] && availableRows[items[0].dataIndex]) ? availableRows[items[0].dataIndex].full_label : '',
+                                        afterBody: function(items) {
+                                            if (!items.length) return '';
+                                            const row = availableRows[items[0].dataIndex] || {};
+                                            return [
+                                                'Used: ' + fmtNum(row.used_hours) + ' hr (' + num(row.used_pct).toFixed(1) + '%)',
+                                                'Remaining: ' + fmtNum(row.remaining_hours) + ' hr (' + num(row.remaining_pct).toFixed(1) + '%)',
+                                                'Capacity: ' + fmtNum(row.capacity_hours) + ' hr'
+                                            ];
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    stacked: true,
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: 'Capacity hours'
+                                    }
+                                },
+                                y: {
+                                    stacked: true,
+                                    ticks: {
+                                        autoSkip: false,
+                                        font: {
+                                            size: 11
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        plugins: [{
+                            id: 'availableCapacityLabels',
+                            afterDatasetsDraw(chart) {
+                                const { ctx } = chart;
+                                const meta = chart.getDatasetMeta(1);
+                                ctx.save();
+                                ctx.font = '11px sans-serif';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillStyle = '#111827';
+                                meta.data.forEach((bar, i) => {
+                                    const row = availableRows[i] || {};
+                                    ctx.fillText(num(row.used_pct).toFixed(0) + '% used', bar.x + 6, bar.y);
+                                });
+                                ctx.restore();
+                            }
+                        }]
+                    });
+                }
             });
         </script>
     @endpush

@@ -4,15 +4,6 @@
 
 @section('content')
     <div class="container-fluid">
-        @if (session('success'))
-            <div class="alert alert-success py-2">{{ session('success') }}</div>
-        @endif
-        @if (session('error'))
-            <div class="alert alert-danger py-2">{{ session('error') }}</div>
-        @endif
-        @if ($errors->any())
-            <div class="alert alert-danger py-2">{{ $errors->first() }}</div>
-        @endif
 
         <div class="card mb-3">
             <div class="card-header"><b>Import Planner RM Part Master</b></div>

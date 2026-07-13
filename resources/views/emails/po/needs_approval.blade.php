@@ -40,8 +40,14 @@
                                                 <strong style="color:#35485c;">Source:</strong> {{ $item['source_label'] ?? '-' }}<br>
                                                 <strong style="color:#35485c;">Vendor:</strong> {{ $item['vendor_name'] ?? '-' }}<br>
                                                 <strong style="color:#35485c;">Department:</strong> {{ $item['department'] ?? '-' }}<br>
-                                                <strong style="color:#35485c;">Status:</strong> {{ $item['status_code'] ?? '-' }}
+                                                <strong style="color:#35485c;">Status:</strong> {{ $item['status_code'] ?? '-' }}<br>
+                                                <strong style="color:#35485c;">Current Step:</strong> {{ $item['step_label'] ?? '-' }}
                                             </div>
+
+                                            @include('emails.po.partials.flow', [
+                                                'flowSteps' => $item['flow_steps'] ?? [],
+                                                'currentStepNo' => $item['step_no'] ?? 0,
+                                            ])
 
                                             <div style="margin-top:18px;">
                                                 <a href="{{ $item['approve_url'] }}" style="display:inline-block; background:#3d7fb1; color:#ffffff; text-decoration:none; padding:11px 18px; border-radius:999px; font-size:14px; font-weight:700;">

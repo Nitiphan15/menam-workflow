@@ -2,10 +2,11 @@
 
 namespace App\Models\FormWOS;
 
-use App\Models\User;
 use App\Models\Concerns\UsesWorkflowConnection;
+use App\Models\Users\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class DeadstockItemReview extends Model
 {
@@ -29,5 +30,10 @@ class DeadstockItemReview extends Model
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function logs(): HasMany
+    {
+        return $this->hasMany(DeadstockItemReviewLog::class, 'review_id');
     }
 }

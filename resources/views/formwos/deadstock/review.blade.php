@@ -24,23 +24,167 @@
         }
 
         .ds-toolbar-head {
-            align-items: flex-start;
-            display: flex;
+            align-items: start;
+            display: grid;
             gap: 12px;
-            justify-content: space-between;
+            grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
             margin-bottom: 12px;
         }
 
         .ds-actions {
+            display: grid;
+            gap: 8px;
+            justify-items: end;
+            min-width: 0;
+            width: 100%;
+        }
+
+        .ds-actions .btn {
+            min-width: 128px;
+        }
+
+        .ds-action-row {
+            align-items: center;
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
             justify-content: flex-end;
-            max-width: 460px;
         }
 
-        .ds-actions .btn {
-            min-width: 132px;
+        .ds-action-note {
+            color: #64748b;
+            font-size: .8rem;
+            line-height: 1.45;
+            text-align: right;
+        }
+
+        .ds-import-card {
+            background: #f8fafc;
+            border: 1px solid #dbe4ef;
+            border-radius: 8px;
+            display: grid;
+            gap: 8px;
+            padding: 10px;
+            width: 100%;
+        }
+
+        .ds-import-title {
+            align-items: center;
+            color: #334155;
+            display: flex;
+            font-size: .82rem;
+            font-weight: 700;
+            gap: 6px;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        .ds-import-controls {
+            align-items: center;
+            display: grid;
+            gap: 8px;
+            grid-template-columns: minmax(220px, 1fr) auto auto;
+        }
+
+        .ds-import-controls .form-control[type="file"] {
+            min-width: 0;
+        }
+
+        .ds-filter-title {
+            align-items: center;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            font-weight: 700;
+            justify-content: space-between;
+            margin-top: 4px;
+            padding-top: 12px;
+        }
+
+        .ds-active-filters {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .ds-active-filter {
+            align-items: center;
+            background: #eef4ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 999px;
+            color: #1e3a8a;
+            display: inline-flex;
+            font-size: .78rem;
+            font-weight: 700;
+            gap: 6px;
+            padding: .28rem .58rem;
+            text-decoration: none;
+        }
+
+        .ds-active-filter:hover {
+            background: #dbeafe;
+            color: #1e3a8a;
+            text-decoration: none;
+        }
+
+        .ds-quick-filter {
+            align-items: center;
+            border-top: 1px dashed #dbe4ef;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+
+        .ds-month-range {
+            display: grid;
+            gap: 8px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .ds-month-shortcuts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .ds-month-shortcuts .btn-sm {
+            min-width: 72px;
+            padding-left: .7rem;
+            padding-right: .7rem;
+        }
+
+        .ds-filter-select+.ts-wrapper .ts-control {
+            border-color: #cbd5e1;
+            border-radius: 6px;
+            min-height: 38px;
+            padding: 4px 8px;
+        }
+
+        .ds-filter-select+.ts-wrapper.multi .ts-control {
+            gap: 4px;
+        }
+
+        .ds-filter-select+.ts-wrapper.multi .item {
+            background: #e0f2fe;
+            border: 1px solid #bae6fd;
+            border-radius: 999px;
+            color: #075985;
+            line-height: 1.35;
+            margin: 2px;
+            padding: 2px 8px;
+        }
+
+        .ds-filter-select+.ts-wrapper .ts-dropdown,
+        body>.ts-dropdown {
+            z-index: 1080;
+        }
+
+        body>.ts-dropdown {
+            position: absolute;
         }
 
         .ds-summary-grid {
@@ -157,97 +301,147 @@
             background: #eef2ff;
             border-radius: 999px;
             color: #3730a3;
-            display: inline-flex;
+            display: inline-block;
             font-size: .72rem;
             font-weight: 700;
+            line-height: 1.2;
             margin-top: 6px;
             padding: .2rem .5rem;
         }
 
+        .ds-review-meta {
+            line-height: 1.35;
+            text-align: center;
+        }
+
         .ds-table-wrap {
-            max-height: 68vh;
+            max-height: calc(100vh - 170px);
             overflow: auto;
         }
 
         .ds-grid {
-            font-size: .92rem;
-            min-width: 1480px;
+            border-color: #d8e0ea;
+            font-size: .86rem;
+            min-width: 1420px;
             table-layout: fixed;
         }
 
         .ds-grid th {
-            background: #f8fafc;
-            color: #334155;
-            font-size: .9rem;
+            background: #edf4ff;
+            border-color: #d8e0ea;
+            color: #1f2937;
+            font-size: .8rem;
             font-weight: 800;
             position: sticky;
             top: 0;
+            user-select: none;
+            white-space: nowrap;
             z-index: 4;
         }
 
         .ds-grid th,
         .ds-grid td {
-            padding: .42rem .48rem;
+            border-color: #d8e0ea;
+            padding: .34rem .42rem;
         }
 
         .ds-grid th:nth-child(1),
         .ds-grid td:nth-child(1) {
-            width: 130px;
+            left: 0;
+            position: sticky;
+            text-align: center;
+            width: 52px;
+            z-index: 3;
+        }
+
+        .ds-grid th:nth-child(1) {
+            z-index: 6;
+        }
+
+        .ds-grid td:nth-child(1) {
+            background: #fff;
         }
 
         .ds-grid th:nth-child(2),
-        .ds-grid td:nth-child(2),
-        .ds-grid th:nth-child(5),
-        .ds-grid td:nth-child(5),
+        .ds-grid td:nth-child(2) {
+            left: 52px;
+            position: sticky;
+            width: 130px;
+            z-index: 3;
+        }
+
+        .ds-grid th:nth-child(2) {
+            z-index: 6;
+        }
+
+        .ds-grid td:nth-child(2) {
+            background: #fff;
+        }
+
+        .ds-grid th:nth-child(3),
+        .ds-grid td:nth-child(3),
         .ds-grid th:nth-child(6),
-        .ds-grid td:nth-child(6) {
+        .ds-grid td:nth-child(6),
+        .ds-grid th:nth-child(7),
+        .ds-grid td:nth-child(7) {
             width: 104px;
+        }
+
+        .ds-grid th:nth-child(5),
+        .ds-grid td:nth-child(5) {
+            width: 128px;
         }
 
         .ds-grid th:nth-child(4),
         .ds-grid td:nth-child(4) {
-            width: 128px;
-        }
-
-        .ds-grid th:nth-child(3),
-        .ds-grid td:nth-child(3) {
             width: 220px;
-        }
-
-        .ds-grid th:nth-child(8),
-        .ds-grid td:nth-child(8) {
-            width: 260px;
         }
 
         .ds-grid th:nth-child(9),
         .ds-grid td:nth-child(9) {
-            width: 92px;
+            width: 260px;
         }
 
         .ds-grid th:nth-child(10),
         .ds-grid td:nth-child(10) {
+            width: 92px;
+        }
+
+        .ds-grid th:nth-child(11),
+        .ds-grid td:nth-child(11) {
             width: 160px;
         }
 
-        .ds-grid th:nth-child(7),
-        .ds-grid td:nth-child(7),
-        .ds-grid th:nth-child(11),
-        .ds-grid td:nth-child(11),
+        .ds-grid th:nth-child(8),
+        .ds-grid td:nth-child(8),
         .ds-grid th:nth-child(12),
         .ds-grid td:nth-child(12),
         .ds-grid th:nth-child(13),
-        .ds-grid td:nth-child(13) {
+        .ds-grid td:nth-child(13),
+        .ds-grid th:nth-child(14),
+        .ds-grid td:nth-child(14),
+        .ds-grid th:nth-child(15),
+        .ds-grid td:nth-child(15) {
             display: none;
         }
 
-        .ds-grid th:nth-child(14),
-        .ds-grid td:nth-child(14) {
-            width: 116px;
+        .ds-grid th:nth-child(16),
+        .ds-grid td:nth-child(16) {
+            width: 132px;
         }
 
         .ds-grid td {
-            vertical-align: top;
+            vertical-align: middle;
             word-break: break-word;
+        }
+
+        .ds-grid tbody tr:hover td {
+            background: #f8fbff;
+        }
+
+        .ds-row-no {
+            color: #64748b;
+            font-weight: 800;
         }
 
         .ds-item-meta {
@@ -257,7 +451,15 @@
         }
 
         .ds-review-btn {
-            min-width: 100px;
+            align-items: center;
+            display: inline-flex;
+            gap: 6px;
+            justify-content: center;
+            line-height: 1.25;
+            min-height: 38px;
+            padding: .35rem .55rem;
+            width: 100%;
+            white-space: normal;
         }
 
         .ds-note {
@@ -285,6 +487,76 @@
             padding-top: 12px;
         }
 
+        .ds-toolbar form.row>[class*="col-"] {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        .ds-toolbar form.row .btn,
+        .ds-toolbar form.row .form-control,
+        .ds-toolbar form.row .form-select {
+            min-height: 38px;
+        }
+
+        .ds-compare-note {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            color: #1e3a8a;
+            padding: 12px 14px;
+        }
+
+        .ds-compare-note.warning {
+            background: #fffbeb;
+            border-color: #fde68a;
+            color: #78350f;
+        }
+
+        .ds-compare-note .metric {
+            color: #0f172a;
+            font-weight: 800;
+        }
+
+        .ds-filter-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .ds-filter-badge {
+            background: #f8fafc;
+            border: 1px solid #dbe4ef;
+            border-radius: 999px;
+            color: #334155;
+            display: inline-flex;
+            font-size: .78rem;
+            font-weight: 700;
+            gap: 4px;
+            padding: .28rem .58rem;
+        }
+
+        .ds-help-note {
+            background: #f8fafc;
+            border: 1px solid #dbe4ef;
+            border-radius: 8px;
+            color: #475569;
+            font-size: .86rem;
+            line-height: 1.45;
+            margin-top: 10px;
+            padding: 10px 12px;
+        }
+
+        .ds-status-note {
+            display: grid;
+            gap: 6px;
+        }
+
+        .ds-status-note strong {
+            color: #1f2937;
+        }
+
         .ds-month-picker {
             background: #fff;
             border: 1px solid #dbe4ef;
@@ -307,16 +579,37 @@
 
         @media (max-width: 1200px) {
             .ds-actions {
+                justify-items: stretch;
                 justify-content: flex-start;
-                max-width: none;
+            }
+
+            .ds-action-row,
+            .ds-action-note {
+                justify-content: flex-start;
+                text-align: left;
+            }
+
+            .ds-import-controls {
+                grid-template-columns: minmax(220px, 1fr) auto auto;
             }
 
             .ds-toolbar-head {
-                flex-direction: column;
+                grid-template-columns: 1fr;
             }
 
             .ds-summary-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 720px) {
+            .ds-import-controls {
+                grid-template-columns: 1fr;
+            }
+
+            .ds-import-controls .btn {
+                max-width: none;
+                width: 100%;
             }
         }
     </style>
@@ -332,11 +625,36 @@
                 ->map(fn($month) => $month->snapshot_month?->format('M Y') ?? '-')
                 ->implode(', ');
         $monthLabel = $monthLabel !== '' ? $monthLabel : '-';
+        $formatMonthLabel = function (?string $monthValue): string {
+            $monthValue = trim((string) $monthValue);
+            if ($monthValue === '') {
+                return '';
+            }
+
+            return \Carbon\Carbon::parse($monthValue . '-01')->format('M Y');
+        };
+        $requestMonthFrom = trim((string) request('month_from', ''));
+        $requestMonthTo = trim((string) request('month_to', ''));
+        if ($requestMonthFrom !== '' || $requestMonthTo !== '') {
+            $fromLabel = $formatMonthLabel($requestMonthFrom);
+            $toLabel = $formatMonthLabel($requestMonthTo);
+            $monthLabel = $fromLabel !== '' && $toLabel !== '' && $fromLabel !== $toLabel
+                ? $fromLabel . ' - ' . $toLabel
+                : ($fromLabel !== '' ? $fromLabel : $toLabel);
+        } elseif (!$allMonthsSelected) {
+            $monthLabel = ($selectedMonths ?? collect())
+                ->map(function ($month) {
+                    $displayDate = $month->recv_date ?? $month->as_of_date ?? $month->snapshot_month;
+                    return $displayDate?->format('M Y') ?? '-';
+                })
+                ->implode(', ');
+            $monthLabel = $monthLabel !== '' ? $monthLabel : '-';
+        }
         $statusTabs = [
             'review' => 'ต้องติดตาม',
             'all' => 'ทั้งหมด',
             'pending' => 'รอเทียบข้อมูล',
-            'active' => 'ยังค้าง',
+            'active' => 'คงค้าง',
             'changed' => 'เปลี่ยนแปลง',
             'cleared' => 'เคลียร์แล้ว',
         ];
@@ -345,32 +663,163 @@
             'waiting_sales' => 'รอ Sales',
             'waiting_customer' => 'รอลูกค้า',
             'waiting_delivery' => 'รอจัดส่ง',
+            'not_delivered_current_month' => 'ยังไม่ได้ส่งมอบเดือนปัจจุบัน',
             'follow_up' => 'ต้องติดตามต่อ',
             'closed' => 'ปิดแล้ว',
         ];
-        $actionStatusOptions = ['all' => 'ทุกสถานะการติดตาม', 'no_action' => 'ยังไม่มีงานติดตาม', 'due_follow_up' => 'ถึงวันติดตาม'] + $actionStatusLabels;
+        $actionStatusOptions = [
+            'all' => 'ทุกสถานะติดตาม',
+            'no_action' => 'ยังไม่มีงานติดตาม',
+            'due_follow_up' => 'ถึงวันติดตาม',
+            'not_delivered_current_month' => 'ยังไม่ได้ส่งมอบเดือนปัจจุบัน',
+            'follow_up' => 'ต้องติดตามต่อ',
+            'closed' => 'ปิดแล้ว',
+        ];
+        $allActionStatusLabels = $actionStatusOptions + $actionStatusLabels;
         $sortOptions = [
             'qty_desc' => 'Qty มากสุด',
             'purchase_oldest' => 'วันที่รับเข้าเก่าสุด',
             'due_soon' => 'กำหนดส่งใกล้สุด',
         ];
-        $plusCompanyFilter = collect($companyOptions ?? [])->first(fn($companyName) => stripos((string) $companyName, 'PLUS') !== false);
-        $monthBaseQuery = request()->except(['month_ids', 'month_id']);
-        $latestMonthQuery = $monthBaseQuery + ['month_ids' => $months->take(1)->pluck('id')->map(fn($id) => (int) $id)->all()];
-        $recentThreeMonthQuery = $monthBaseQuery + ['month_ids' => $months->take(3)->pluck('id')->map(fn($id) => (int) $id)->all()];
-        $allMonthQuery = $monthBaseQuery + ['month_ids' => ['all']];
+        $siteOptions = $siteOptions ?? ['WIRE' => 'WIRE', 'PLUS' => 'PLUS'];
+        $customerFilters = collect($customerFilter ?? [])
+            ->filter()
+            ->values();
+        $salesFilters = collect($salesFilter ?? [])
+            ->filter()
+            ->values();
+        $reasonFilters = collect($reasonFilter ?? [])
+            ->filter()
+            ->values();
+        $customerOptionValues = collect($customerOptions ?? []);
+        $salesOptionValues = collect($salesOptions ?? []);
+        $reasonOptionCodes = collect($reasonOptions ?? [])->pluck('deadstock_code');
+        $codeGroup = strtoupper((string) request('code_group', ''));
+        $codeGroupLabel = in_array($codeGroup, ['FF', 'SS'], true) ? $codeGroup . '.*' : '';
+        $normalizedSiteFilter = strtoupper((string) ($siteFilter ?? 'all'));
+        $monthBaseQuery = request()->except(['month_ids', 'month_id', 'month_from', 'month_to']);
+        $monthQueryValue = fn($month) => ($month?->recv_date ?? $month?->as_of_date ?? $month?->snapshot_month)?->format('Y-m');
+        $latestMonth = $monthQueryValue($months->first());
+        $thirdMonth = $monthQueryValue($months->skip(2)->first()) ?? $latestMonth;
+        $oldestMonth = $monthQueryValue($months->last());
+        $latestMonthQuery = $monthBaseQuery + [
+            'month_from' => $latestMonth,
+            'month_to' => $latestMonth,
+        ];
+        $recentThreeMonthQuery = $monthBaseQuery + [
+            'month_from' => $thirdMonth,
+            'month_to' => $latestMonth,
+        ];
+        $allMonthQuery = $monthBaseQuery + [
+            'month_from' => $oldestMonth,
+            'month_to' => $latestMonth,
+        ];
+        $currentStatusLabel = $statusTabs[$status] ?? $status;
+        $currentActionStatusLabel = $allActionStatusLabels[$actionStatus] ?? $actionStatus;
+        $currentSiteLabel = in_array($normalizedSiteFilter, ['WIRE', 'PLUS'], true)
+            ? $normalizedSiteFilter
+            : 'ทุก Site';
+        $lastCheckedAt = !empty($compareHealth['last_checked_at'])
+            ? \Carbon\Carbon::parse($compareHealth['last_checked_at'])->format('d/m/Y H:i')
+            : null;
+        $clearFilterUrl = fn(array $keys) => route('deadstock.review', request()->except(array_merge($keys, ['page'])));
+        $activeFilterChips = [];
+        $monthFilterActive =
+            request()->has('month_from') ||
+            request()->has('month_to') ||
+            request()->has('month_ids') ||
+            request()->has('month_id');
+        if ($monthFilterActive) {
+            $activeFilterChips[] = [
+                'label' => 'เดือน',
+                'value' => $monthLabel,
+                'url' => $clearFilterUrl(['month_from', 'month_to', 'month_ids', 'month_id']),
+            ];
+        }
+        if ($status !== 'review') {
+            $activeFilterChips[] = [
+                'label' => 'สถานะรายการ',
+                'value' => $currentStatusLabel,
+                'url' => route('deadstock.review', array_merge(request()->except(['page']), ['status' => 'review'])),
+            ];
+        }
+        if ($actionStatus !== 'all') {
+            $activeFilterChips[] = [
+                'label' => 'สถานะติดตาม',
+                'value' => $currentActionStatusLabel,
+                'url' => route(
+                    'deadstock.review',
+                    array_merge(request()->except(['page']), ['action_status' => 'all']),
+                ),
+            ];
+        }
+        if (($siteFilter ?? 'all') !== 'all' && ($siteFilter ?? '') !== '') {
+            $activeFilterChips[] = [
+                'label' => 'Site',
+                'value' => $currentSiteLabel !== 'ทุก Site' ? $currentSiteLabel : $siteFilter,
+                'url' => route(
+                    'deadstock.review',
+                    array_merge(request()->except(['page', 'company']), ['site' => 'all']),
+                ),
+            ];
+        }
+        if ($customerFilters->isNotEmpty()) {
+            $activeFilterChips[] = [
+                'label' => 'ลูกค้า',
+                'value' => $customerFilters->implode(', '),
+                'url' => $clearFilterUrl(['customer']),
+            ];
+        }
+        if ($reasonFilters->isNotEmpty()) {
+            $activeFilterChips[] = [
+                'label' => 'สาเหตุ',
+                'value' => $reasonFilters->implode(', '),
+                'url' => $clearFilterUrl(['reason_code']),
+            ];
+        }
+        if ($codeGroupLabel !== '') {
+            $activeFilterChips[] = [
+                'label' => 'Code',
+                'value' => $codeGroupLabel,
+                'url' => $clearFilterUrl(['code_group']),
+            ];
+        }
+        if ($salesFilters->isNotEmpty()) {
+            $activeFilterChips[] = [
+                'label' => 'Sales',
+                'value' => $salesFilters->implode(', '),
+                'url' => $clearFilterUrl(['sales']),
+            ];
+        }
+        if ($serialFilter !== '') {
+            $activeFilterChips[] = [
+                'label' => 'Serial',
+                'value' => $serialFilter,
+                'url' => $clearFilterUrl(['serial']),
+            ];
+        }
+        if ($sort !== 'qty_desc') {
+            $activeFilterChips[] = [
+                'label' => 'เรียง',
+                'value' => $sortOptions[$sort] ?? $sort,
+                'url' => route('deadstock.review', array_merge(request()->except(['page']), ['sort' => 'qty_desc'])),
+            ];
+        }
+        $hasActiveFilters = count($activeFilterChips) > 0;
     @endphp
 
     <div class="container-fluid py-3 ds-shell">
         @if (session('success'))
-            <div class="alert alert-success mb-0">{{ session('success') }}</div>
+            <div class="alert alert-success">{{ session('success') }}</div>
+        @endif
+        @if (session('success_compare'))
+            <div class="alert alert-info">{{ session('success_compare') }}</div>
+        @endif
+        @if (session('error'))
+            <div class="alert alert-danger">{{ session('error') }}</div>
         @endif
         @if ($errors->any())
-            <div class="alert alert-danger mb-0">
-                @foreach ($errors->all() as $error)
-                    <div>{{ $error }}</div>
-                @endforeach
-            </div>
+            <div class="alert alert-danger">{{ $errors->first() }}</div>
         @endif
 
         <section class="ds-toolbar">
@@ -379,69 +828,157 @@
                     <div class="text-muted small">
                         รอบที่เลือก: {{ $monthLabel }}
                         @if (!$allMonthsSelected && $selectedMonth?->recv_date)
-                            · snapshot {{ $selectedMonth->recv_date->format('Y-m-d') }}
+                            · Snapshot วันที่ {{ $selectedMonth->recv_date->format('Y-m-d') }}
                         @endif
                     </div>
                     <div class="text-muted small mt-1">
-                        ใช้ข้อมูล Deadstock ที่ส่งเมลรายวันเป็น snapshot แล้วเทียบกับข้อมูลปัจจุบัน
-                        เพื่อดูความต่อเนื่องของรายการว่ายังค้างอยู่ เคลียร์แล้ว หรือมีการเปลี่ยนแปลงระหว่างทาง
+                        Snapshot คือสำเนาข้อมูล Deadstock ณ วันที่ส่งเมลรายวัน ระบบนำ Snapshot มาเทียบกับข้อมูลปัจจุบัน
+                        เพื่อดูว่ารายการยัง On hand อยู่ เคลียร์แล้ว หรือ Qty/กำหนดส่งเปลี่ยนไป
+                    </div>
+                    <div class="ds-filter-badges">
+                        <span class="ds-filter-badge">เดือน: {{ $monthLabel }}</span>
+                        <span class="ds-filter-badge">สถานะรายการ: {{ $currentStatusLabel }}</span>
+                        <span class="ds-filter-badge">สถานะติดตาม: {{ $currentActionStatusLabel }}</span>
+                        <span class="ds-filter-badge">Site: {{ $currentSiteLabel }}</span>
+                        @if ($customerFilters->isNotEmpty())
+                            <span class="ds-filter-badge">ลูกค้า: {{ $customerFilters->implode(', ') }}</span>
+                        @endif
+                        @if ($reasonFilters->isNotEmpty())
+                            <span class="ds-filter-badge">สาเหตุ: {{ $reasonFilters->implode(', ') }}</span>
+                        @endif
+                        @if ($salesFilters->isNotEmpty())
+                            <span class="ds-filter-badge">Sales: {{ $salesFilters->implode(', ') }}</span>
+                        @endif
+                        @if ($lastCheckedAt)
+                            <span class="ds-filter-badge">เทียบล่าสุด: {{ $lastCheckedAt }}</span>
+                        @else
+                            <span class="ds-filter-badge">ยังไม่เคยเทียบข้อมูลปัจจุบัน</span>
+                        @endif
+                    </div>
+                    <div class="ds-help-note">
+                        คำที่ใช้ในหน้านี้:
+                        Snapshot = ข้อมูลตั้งต้นจากเมลรายวัน,
+                        On hand = ของยังค้างในระบบปัจจุบัน,
+                        เคลียร์แล้ว = ไม่พบ Serial นั้นเป็น On hand แล้ว,
+                        เปลี่ยนแปลง = ยังพบของอยู่แต่ Qty หรือกำหนดส่งไม่ตรงกับ Snapshot,
+                        ตัวกรอง = เงื่อนไขที่ใช้จำกัดรายการด้านล่าง
                     </div>
                 </div>
 
                 <div class="ds-actions">
-                    <a class="btn btn-outline-secondary" href="{{ route('deadstock.dashboard') }}">
-                        <i class="fa fa-chart-column me-1"></i> ภาพรวม
-                    </a>
-                    <form method="post" action="{{ route('deadstock.review.import_latest') }}">
-                        @csrf
-                        <button class="btn btn-outline-primary" type="submit">
-                            <i class="fa fa-file-import me-1"></i> นำเข้าล่าสุด
-                        </button>
-                    </form>
-                    @if ($selectedMonth)
-                        <form method="post" action="{{ route('deadstock.review.compare', $selectedMonth) }}">
-                            @csrf
-                            <button class="btn btn-primary" type="submit">
-                                <i class="fa fa-rotate me-1"></i> เทียบข้อมูลปัจจุบัน
-                            </button>
-                        </form>
-                    @endif
-                    <a class="btn btn-success" href="{{ route('deadstock.review.export', request()->query()) }}">
-                        <i class="fa fa-file-excel me-1"></i> Export Excel
-                    </a>
+                    <div class="ds-action-row">
+                        <a class="btn btn-outline-secondary" href="{{ route('deadstock.dashboard') }}">
+                            <i class="fa fa-chart-column me-1"></i> ภาพรวม
+                        </a>
+                        @if ($selectedMonth)
+                            @auth
+                                <form method="post" action="{{ route('deadstock.review.compare', $selectedMonth) }}">
+                                    @csrf
+                                    @foreach ($selectedMonthIds as $selectedMonthId)
+                                        <input type="hidden" name="month_ids[]" value="{{ $selectedMonthId }}">
+                                    @endforeach
+                                    <button class="btn btn-primary" type="submit" title="เทียบข้อมูลปัจจุบันตามเดือนที่เลือก">
+                                        <i class="fa fa-rotate me-1"></i> เทียบข้อมูลปัจจุบัน
+                                    </button>
+                                </form>
+                                <div class="ds-action-note">
+                                    เทียบตามเดือนที่เลือกอยู่ในตัวกรอง: {{ $monthLabel }}
+                                </div>
+                            @else
+                                <a class="btn btn-primary" href="{{ route('login', ['redirect_to' => url()->full()]) }}">
+                                    <i class="fa fa-right-to-bracket me-1"></i> เข้าสู่ระบบเพื่อเทียบข้อมูล
+                                </a>
+                            @endauth
+                        @endif
+                    </div>
+                    <div class="ds-action-note">
+                        ระบบนำเข้า Snapshot ล่าสุดและเทียบข้อมูลอัตโนมัติทุก 1 ชั่วโมง พร้อมเก็บ Snapshot สิ้นเดือนเพื่อเทียบ % ที่ลดลงจากเดือนก่อน
+                    </div>
+                    <div class="ds-action-row">
+                        <a class="btn btn-success" href="{{ route('deadstock.review.export', request()->query()) }}">
+                            <i class="fa fa-file-excel me-1"></i> Export Excel
+                        </a>
+                        <a class="btn btn-outline-danger" href="{{ route('deadstock.review.summary_pdf', request()->query()) }}">
+                            <i class="fa fa-file-pdf me-1"></i> Summary PDF
+                        </a>
+                    </div>
                 </div>
             </div>
 
-            <form class="row g-3 align-items-end mt-1" method="get" action="{{ route('deadstock.review') }}">
-                <div class="col-12 col-md-4 col-xl-2">
-                    <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
-                        <label class="form-label mb-0">เลือกเดือน</label>
-                        <div class="btn-group btn-group-sm" role="group" aria-label="เลือกช่วงเดือน">
-                            <a class="btn btn-outline-secondary" href="{{ route('deadstock.review', $latestMonthQuery) }}">ล่าสุด</a>
-                            <a class="btn btn-outline-secondary" href="{{ route('deadstock.review', $recentThreeMonthQuery) }}">3 เดือน</a>
-                            <a class="btn btn-outline-secondary" href="{{ route('deadstock.review', $allMonthQuery) }}">ทั้งหมด</a>
-                        </div>
+            @auth
+                <form class="ds-import-card" method="post" action="{{ route('deadstock.review.import', request()->query()) }}" enctype="multipart/form-data">
+                    @csrf
+                    <div class="ds-import-title">
+                        <span><i class="fa fa-upload me-1"></i> Import Excel</span>
                     </div>
-                    <div class="ds-month-picker">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="month-all" name="month_ids[]" value="all" @checked($allMonthsSelected)>
-                            <label class="form-check-label" for="month-all">ทุกเดือน</label>
+                    <div class="ds-import-controls">
+                        <input class="form-control form-control-sm" type="file" name="review_file" accept=".xlsx,.xls,.csv" required>
+                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="dry_run" value="1">
+                            Dry run
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm" type="submit">
+                            Import Excel
+                        </button>
+                        <a class="btn btn-outline-secondary btn-sm" href="{{ route('deadstock.review.import_template') }}">
+                            Template Excel
+                        </a>
+                    </div>
+                </form>
+            @endauth
+
+            <div class="ds-filter-title">
+                <span><i class="fas fa-filter me-1"></i> ตัวกรอง</span>
+                <span class="text-muted small">เลือกเดือน / สถานะ / Site / ลูกค้า / Sales เพื่อดูรายการจาก Snapshot</span>
+            </div>
+
+            <div class="ds-help-note ds-status-note">
+                <div><strong>สถานะ</strong> คือสถานะของรายการ Deadstock หลังระบบเทียบ Snapshot กับข้อมูลปัจจุบัน เช่น คงค้าง, เปลี่ยนแปลง, เคลียร์แล้ว</div>
+                <div><strong>สถานะการติดตาม</strong> คือสถานะงาน follow-up ที่ผู้ใช้บันทึกไว้ในระบบ เช่น ยังไม่เริ่ม, รอ Sales, ต้องติดตามต่อ, ปิดแล้ว</div>
+            </div>
+
+            @if ($hasActiveFilters)
+                <div class="ds-active-filters">
+                    <span class="small text-muted"><i class="fas fa-filter me-1"></i>ตัวกรองที่ใช้อยู่:</span>
+                    @foreach ($activeFilterChips as $chip)
+                        <a class="ds-active-filter" href="{{ $chip['url'] }}" title="คลิกเพื่อลบตัวกรองนี้">
+                            <span>{{ $chip['label'] }}: {{ $chip['value'] }}</span>
+                            <i class="fas fa-xmark"></i>
+                        </a>
+                    @endforeach
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ route('deadstock.review') }}"
+                        title="ล้างทุกตัวกรอง">
+                        <i class="fas fa-eraser me-1"></i>ล้างทั้งหมด
+                    </a>
+                </div>
+            @endif
+
+            <form class="row g-3 align-items-end mt-2" method="get" action="{{ route('deadstock.review') }}">
+                <div class="col-12 col-md-6 col-xl-3">
+                    <label class="form-label">เลือกเดือน</label>
+                    <div class="ds-month-shortcuts" role="group" aria-label="เลือกช่วงเดือน">
+                        <a class="btn btn-sm btn-outline-secondary"
+                            href="{{ route('deadstock.review', $latestMonthQuery) }}">ล่าสุด</a>
+                        <a class="btn btn-sm btn-outline-secondary"
+                            href="{{ route('deadstock.review', $recentThreeMonthQuery) }}">3 เดือน</a>
+                        <a class="btn btn-sm btn-outline-secondary"
+                            href="{{ route('deadstock.review', $allMonthQuery) }}">ทั้งหมด</a>
+                    </div>
+                    <div class="ds-month-range">
+                        <div>
+                            <div class="text-muted small mb-1">จาก</div>
+                            <input class="form-control" type="month" name="month_from" value="{{ $monthFrom }}"
+                                aria-label="จากเดือน">
                         </div>
-                        @forelse ($months as $month)
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="month-{{ $month->id }}" name="month_ids[]" value="{{ $month->id }}" @checked(in_array((int) $month->id, $selectedMonthIds, true) && !$allMonthsSelected)>
-                                <label class="form-check-label" for="month-{{ $month->id }}">
-                                    {{ $month->snapshot_month?->format('M Y') ?? '-' }}
-                                </label>
-                            </div>
-                        @empty
-                            <div class="text-muted small">ยังไม่มี snapshot รายเดือน</div>
-                        @endforelse
+                        <div>
+                            <div class="text-muted small mb-1">ถึง</div>
+                            <input class="form-control" type="month" name="month_to" value="{{ $monthTo }}"
+                                aria-label="ถึงเดือน">
+                        </div>
                     </div>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <label class="form-label">สถานะ</label>
-                    <select class="form-select" name="status">
+                    <select class="form-select ds-filter-select" name="status" data-placeholder="เลือกสถานะ">
                         @foreach ($statusTabs as $value => $label)
                             <option value="{{ $value }}" @selected($status === $value)>{{ $label }}</option>
                         @endforeach
@@ -449,51 +986,74 @@
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <label class="form-label">สถานะการติดตาม</label>
-                    <select class="form-select" name="action_status">
+                    <select class="form-select ds-filter-select" name="action_status" data-placeholder="เลือกสถานะติดตาม">
                         @foreach ($actionStatusOptions as $value => $label)
                             <option value="{{ $value }}" @selected($actionStatus === $value)>{{ $label }}</option>
                         @endforeach
                     </select>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
-                    <label class="form-label">บริษัท</label>
-                    <select class="form-select" name="company">
-                        <option value="all" @selected($companyFilter === 'all')>ทุกบริษัท</option>
-                        @foreach ($companyOptions as $companyName)
-                            <option value="{{ $companyName }}" @selected($companyFilter === $companyName)>{{ $companyName }}</option>
+                    <label class="form-label">Site</label>
+                    <select class="form-select ds-filter-select" name="site" data-placeholder="เลือก Site">
+                        <option value="all" @selected(($siteFilter ?? 'all') === 'all')>ทุก Site</option>
+                        @foreach ($siteOptions as $siteValue => $siteLabel)
+                            <option value="{{ $siteValue }}" @selected(strtoupper((string) ($siteFilter ?? 'all')) === $siteValue)>{{ $siteLabel }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-12 col-md-4 col-xl-2">
+                    <label class="form-label">ลูกค้า</label>
+                    <select class="form-select ds-filter-select" name="customer[]" multiple data-placeholder="ทุกลูกค้า">
+                        @foreach ($customerFilters as $customerName)
+                            @if (!$customerOptionValues->contains($customerName))
+                                <option value="{{ $customerName }}" selected>{{ $customerName }}</option>
+                            @endif
+                        @endforeach
+                        @foreach ($customerOptions as $customerName)
+                            <option value="{{ $customerName }}" @selected($customerFilters->contains($customerName))>{{ $customerName }}</option>
                         @endforeach
                     </select>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <label class="form-label">รหัสสาเหตุ</label>
-                    <select class="form-select" name="reason_code">
-                        <option value="all" @selected($reasonFilter === 'all')>ทุกสาเหตุ</option>
+                    <select class="form-select ds-filter-select" name="reason_code[]" multiple
+                        data-placeholder="ทุกสาเหตุ">
+                        @foreach ($reasonFilters as $selectedReasonCode)
+                            @if (!$reasonOptionCodes->contains($selectedReasonCode))
+                                <option value="{{ $selectedReasonCode }}" selected>{{ $selectedReasonCode }}</option>
+                            @endif
+                        @endforeach
                         @foreach ($reasonOptions as $reasonOption)
                             @php
                                 $reasonCode = $reasonOption->deadstock_code;
                                 $reasonName = trim((string) $reasonOption->deadstock_desc);
                                 $reasonLabel = $reasonName !== '' ? $reasonCode . ' - ' . $reasonName : $reasonCode;
                             @endphp
-                            <option value="{{ $reasonCode }}" @selected($reasonFilter === $reasonCode)>{{ $reasonLabel }}</option>
+                            <option value="{{ $reasonCode }}" @selected($reasonFilters->contains($reasonCode))>{{ $reasonLabel }}</option>
                         @endforeach
                     </select>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <label class="form-label">Sales</label>
-                    <select class="form-select" name="sales">
-                        <option value="all" @selected($salesFilter === 'all')>ทุก Sales</option>
+                    <select class="form-select ds-filter-select" name="sales[]" multiple data-placeholder="ทุก Sales">
+                        @foreach ($salesFilters as $salesName)
+                            @if (!$salesOptionValues->contains($salesName))
+                                <option value="{{ $salesName }}" selected>{{ $salesName }}</option>
+                            @endif
+                        @endforeach
                         @foreach ($salesOptions as $salesName)
-                            <option value="{{ $salesName }}" @selected($salesFilter === $salesName)>{{ $salesName }}</option>
+                            <option value="{{ $salesName }}" @selected($salesFilters->contains($salesName))>{{ $salesName }}</option>
                         @endforeach
                     </select>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <label class="form-label">Serial no.</label>
-                    <input class="form-control" type="search" name="serial" value="{{ $serialFilter }}" placeholder="ค้นหา Serial">
+                    <input class="form-control" type="search" name="serial" value="{{ $serialFilter }}"
+                        placeholder="ค้นหา Serial">
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <label class="form-label">เรียงตาม</label>
-                    <select class="form-select" name="sort">
+                    <select class="form-select ds-filter-select" name="sort" data-placeholder="เลือกการเรียง">
                         @foreach ($sortOptions as $value => $label)
                             <option value="{{ $value }}" @selected($sort === $value)>{{ $label }}</option>
                         @endforeach
@@ -501,52 +1061,106 @@
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <button class="btn btn-outline-primary w-100" type="submit">
-                        <i class="fa fa-filter me-1"></i> ค้นหา
+                        <i class="fas fa-filter me-1"></i> ใช้ตัวกรอง
                     </button>
                 </div>
                 <div class="col-12 col-md-4 col-xl-2">
                     <a class="btn btn-outline-secondary w-100" href="{{ route('deadstock.review') }}">
-                        <i class="fa fa-eraser me-1"></i> ล้างตัวกรอง
+                        <i class="fas fa-rotate-left me-1"></i> ล้าง
                     </a>
                 </div>
             </form>
-            <div class="d-flex flex-wrap gap-2 mt-3">
-                @if ($plusCompanyFilter)
-                    <a class="btn btn-sm {{ $companyFilter === $plusCompanyFilter ? 'btn-primary' : 'btn-outline-primary' }}" href="{{ route('deadstock.review', request()->query() + ['company' => $plusCompanyFilter]) }}">
-                        PLUS
-                    </a>
-                @endif
-                <a class="btn btn-sm btn-outline-warning" href="{{ route('deadstock.review', request()->query() + ['action_status' => 'no_action']) }}">
+            <div class="ds-quick-filter">
+                <span class="fw-semibold small text-muted">ปุ่มลัด</span>
+                <a class="btn btn-sm {{ $normalizedSiteFilter === 'WIRE' ? 'btn-primary' : 'btn-outline-primary' }}"
+                    href="{{ route('deadstock.review', array_merge(request()->except(['company', 'page']), ['site' => 'WIRE'])) }}">
+                    WIRE
+                </a>
+                <a class="btn btn-sm {{ $normalizedSiteFilter === 'PLUS' ? 'btn-primary' : 'btn-outline-primary' }}"
+                    href="{{ route('deadstock.review', array_merge(request()->except(['company', 'page']), ['site' => 'PLUS'])) }}">
+                    PLUS
+                </a>
+                <a class="btn btn-sm {{ $codeGroup === 'FF' ? 'btn-dark' : 'btn-outline-dark' }}"
+                    href="{{ route('deadstock.review', array_merge(request()->except(['page']), ['code_group' => 'FF'])) }}">
+                    FF
+                </a>
+                <a class="btn btn-sm {{ $codeGroup === 'SS' ? 'btn-dark' : 'btn-outline-dark' }}"
+                    href="{{ route('deadstock.review', array_merge(request()->except(['page']), ['code_group' => 'SS'])) }}">
+                    SS
+                </a>
+                <a class="btn btn-sm btn-outline-warning"
+                    href="{{ route('deadstock.review', array_merge(request()->query(), ['action_status' => 'no_action'])) }}">
                     ยังไม่มีงานติดตาม
                 </a>
-                <a class="btn btn-sm btn-outline-primary" href="{{ route('deadstock.review', request()->query() + ['action_status' => 'follow_up']) }}">
+                <a class="btn btn-sm btn-outline-primary"
+                    href="{{ route('deadstock.review', array_merge(request()->query(), ['action_status' => 'follow_up'])) }}">
                     ต้องติดตามต่อ
                 </a>
-                <a class="btn btn-sm btn-outline-danger" href="{{ route('deadstock.review', request()->query() + ['action_status' => 'due_follow_up']) }}">
+                <a class="btn btn-sm btn-outline-danger"
+                    href="{{ route('deadstock.review', array_merge(request()->query(), ['action_status' => 'due_follow_up'])) }}">
                     ถึงวันติดตาม
                 </a>
-                <a class="btn btn-sm btn-outline-secondary" href="{{ route('deadstock.review', request()->query() + ['sort' => 'due_soon']) }}">
+                <a class="btn btn-sm btn-outline-secondary"
+                    href="{{ route('deadstock.review', array_merge(request()->query(), ['sort' => 'due_soon'])) }}">
                     กำหนดส่งใกล้สุด
                 </a>
+                @if ($hasActiveFilters)
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ route('deadstock.review') }}"
+                        title="ล้างตัวกรองทั้งหมด">
+                        <i class="fas fa-xmark me-1"></i> ยกเลิก Filter
+                    </a>
+                @endif
             </div>
         </section>
 
         @if (($rawSnapshotCount ?? 0) > 0 && $months->isEmpty())
             <div class="alert alert-warning mb-0">
-                พบ snapshot file สำหรับ Dashboard แล้ว แต่ยังไม่มีการ import snapshot รายเดือนเข้า `ds_snapshot_months`
-                และ `ds_snapshot_items` จึงยังไม่มีรายการให้ Review ในหน้านี้
+                พบข้อมูลภาพรวมแล้ว แต่ยังไม่มีรายการสำหรับหน้าตรวจสถานะรายเดือน
             </div>
         @endif
 
+        @if (!empty($compareHealth['all_active']))
+            <section class="ds-compare-note {{ !empty($compareHealth['snapshot_is_recent']) ? '' : 'warning' }}">
+                <div class="fw-semibold mb-1">
+                    ผลเทียบตามตัวกรองปัจจุบัน: รายการยังค้างทั้งหมด
+                    {{ number_format((int) ($compareHealth['total'] ?? 0)) }} รายการ
+                </div>
+                <div class="small">
+                    ระบบเทียบกับข้อมูลปัจจุบันแล้วพบ Serial ยัง On hand ครบ จึงขึ้น “ยังค้าง รอส่ง” ทั้งหมด
+                    @if (!empty($compareHealth['snapshot_is_recent']))
+                        ซึ่งเป็นไปได้เมื่อ Snapshot เพิ่งนำเข้าภายใน
+                        {{ number_format((int) ($compareHealth['snapshot_age_days'] ?? 0)) }} วัน
+                    @else
+                        ถ้า Snapshot เก่าหลายวันแล้วยังเป็นแบบนี้ ควรตรวจสอบ Serial/On hand ปัจจุบัน
+                        หรือกดเทียบข้อมูลปัจจุบันอีกครั้ง
+                    @endif
+                </div>
+                <div class="small mt-1">
+                    ตรวจแล้ว <span class="metric">{{ number_format((int) ($compareHealth['checked'] ?? 0)) }}</span> /
+                    มีงานติดตามที่บันทึกแล้ว <span
+                        class="metric">{{ number_format((int) ($compareHealth['reviewed'] ?? 0)) }}</span>
+                    @if ($lastCheckedAt)
+                        / เทียบล่าสุด {{ $lastCheckedAt }}
+                    @endif
+                </div>
+            </section>
+        @endif
+
         <section class="ds-summary">
-            <div class="fw-semibold mb-2">สรุปตาม Parameter ที่เลือก</div>
+            <div class="fw-semibold mb-1">สรุปตามตัวกรองที่เลือก</div>
+            <div class="text-muted small mb-2">
+                ตัวเลขส่วนนี้เปลี่ยนตามเดือน สถานะ Site ลูกค้า Sales สาเหตุ และ Serial ที่เลือกไว้ด้านบน
+                @if ($status !== 'all')
+                    จึงอาจไม่เท่ากับผลรวมทั้งเดือนหลังเทียบข้อมูล เพราะรายการที่เคลียร์แล้วหรือสถานะอื่นอาจถูกตัวกรองซ่อนไว้
+                @endif
+            </div>
             <div class="ds-summary-grid">
                 <div class="ds-kpi">
                     <div class="ds-kpi-label">รายการ</div>
                     <div class="ds-kpi-value">{{ number_format((int) ($summary->total_items ?? 0)) }}</div>
                 </div>
                 <div class="ds-kpi">
-                    <div class="ds-kpi-label">ยังค้าง</div>
+                    <div class="ds-kpi-label">ยังค้าง รอส่ง</div>
                     <div class="ds-kpi-value">{{ number_format((int) ($summary->active_items ?? 0)) }}</div>
                 </div>
                 <div class="ds-kpi">
@@ -558,7 +1172,7 @@
                     <div class="ds-kpi-value">{{ number_format((int) ($summary->cleared_items ?? 0)) }}</div>
                 </div>
                 <div class="ds-kpi">
-                    <div class="ds-kpi-label">Qty จาก snapshot</div>
+                    <div class="ds-kpi-label">Qty จาก Snapshot</div>
                     <div class="ds-kpi-value">{{ number_format((float) ($summary->total_qty ?? 0), 2) }}</div>
                 </div>
                 <div class="ds-kpi">
@@ -582,9 +1196,10 @@
 
         <section class="ds-table">
             <div class="ds-table-wrap">
-                <table class="table table-bordered table-hover mb-0 ds-grid">
+                <table class="table table-sm table-bordered table-hover align-middle mb-0 ds-grid">
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>สถานะ</th>
                             <th>วันที่รับเข้า</th>
                             <th>รายการ</th>
@@ -594,10 +1209,11 @@
                             <th>กำหนดส่งใหม่</th>
                             <th>ลูกค้า / Sales</th>
                             <th>รหัสสาเหตุ</th>
+                            <th>รายละเอียดสาเหตุ</th>
                             <th>รายละเอียด</th>
                             <th>แนวทางแก้ไข</th>
-                            <th>แนวทางป้องกัน</th>
-                            <th>Sales remark</th>
+                            <th>แนวทางป้องกันการเกิดซ้ำ</th>
+                            <th>Remark</th>
                             <th>บันทึก</th>
                         </tr>
                     </thead>
@@ -612,21 +1228,27 @@
                                 $currentQtyRounded = $currentQty !== null ? round($currentQty, 2) : null;
                                 $snapshotDue = $item->due_date?->format('Y-m-d');
                                 $currentDue = $item->current_due_date?->format('Y-m-d');
-                                $qtyChanged = $item->compare_status === 'changed'
-                                    && $currentQtyRounded !== null
-                                    && $currentQtyRounded !== $snapshotQtyRounded;
-                                $dueChanged = $item->compare_status === 'changed'
-                                    && $currentDue !== null
-                                    && $currentDue !== $snapshotDue;
+                                $qtyChanged =
+                                    $item->compare_status === 'changed' &&
+                                    $currentQtyRounded !== null &&
+                                    $currentQtyRounded !== $snapshotQtyRounded;
+                                $dueChanged =
+                                    $item->compare_status === 'changed' &&
+                                    $currentDue !== null &&
+                                    $currentDue !== $snapshotDue;
                                 $changeDetails = [];
                                 if ($qtyChanged) {
-                                    $changeDetails[] = 'Qty: ' . number_format($snapshotQtyRounded, 2) . ' -> ' . number_format($currentQtyRounded, 2);
+                                    $changeDetails[] =
+                                        'Qty: ' .
+                                        number_format($snapshotQtyRounded, 2) .
+                                        ' -> ' .
+                                        number_format($currentQtyRounded, 2);
                                 }
                                 if ($dueChanged) {
                                     $changeDetails[] = 'กำหนดส่ง: ' . ($snapshotDue ?: '-') . ' -> ' . $currentDue;
                                 }
                                 if ($item->compare_status === 'changed' && empty($changeDetails)) {
-                                    $changeDetails[] = 'ข้อมูลปัจจุบันต่างจาก snapshot';
+                                    $changeDetails[] = 'ข้อมูลปัจจุบันต่างจาก Snapshot';
                                 }
                                 $changeTags = [];
                                 if ($qtyChanged) {
@@ -638,13 +1260,22 @@
                                 $reviewStatus = $review?->review_status ?? 'open';
                                 $serialNumber = trim((string) $item->serialnumber);
                                 $transactionNumber = trim((string) $item->transaction_number);
-                                $showTransactionNumber = $transactionNumber !== '' && strcasecmp($transactionNumber, $serialNumber) !== 0;
-                                $liveReasonCode = trim((string) ($item->latestCompareLog?->matched_deadstock_code ?? ''));
+                                $showTransactionNumber =
+                                    $transactionNumber !== '' && strcasecmp($transactionNumber, $serialNumber) !== 0;
+                                $liveReasonCode = trim(
+                                    (string) ($item->latestCompareLog?->matched_deadstock_code ?? ''),
+                                );
                                 $reasonCode = $liveReasonCode !== '' ? $liveReasonCode : $item->deadstock_code;
-                                $reasonDescription = \App\Support\FormWOS\DeadstockReasonMap::description($reasonCode, $item->deadstock_desc);
-                                $reasonIsFromLive = $liveReasonCode !== '' && $liveReasonCode !== (string) $item->deadstock_code;
+                                $reasonDescription = \App\Support\FormWOS\DeadstockReasonMap::description(
+                                    $reasonCode,
+                                    $item->deadstock_desc,
+                                );
+                                $reasonIsFromLive =
+                                    $liveReasonCode !== '' && $liveReasonCode !== (string) $item->deadstock_code;
+                                $itemSiteLabel = stripos((string) $item->company, 'PLUS') !== false ? 'PLUS' : 'WIRE';
                             @endphp
                             <tr>
+                                <td><span class="ds-row-no">{{ $items->firstItem() + $loop->index }}</span></td>
                                 <td>
                                     <span class="ds-status {{ $item->compare_status }}">
                                         {{ $statusTabs[$item->compare_status] ?? ucfirst($item->compare_status) }}
@@ -673,7 +1304,8 @@
                                 </td>
                                 <td>{{ $item->purchase_date?->format('Y-m-d') ?? '-' }}</td>
                                 <td>
-                                    <div class="ds-cell-strong">{{ $item->part_description ?: $item->partnumber ?: '-' }}</div>
+                                    <div class="ds-cell-strong">{{ $item->part_description ?: $item->partnumber ?: '-' }}
+                                    </div>
                                     <div class="ds-item-meta">
                                         {{ $item->partnumber ?: '-' }}
                                     </div>
@@ -690,7 +1322,8 @@
                                         <div @class(['ds-note', 'ds-change-value' => $qtyChanged])>
                                             ปัจจุบัน {{ number_format((float) $item->current_qty, 2) }}
                                             @if ($qtyChanged)
-                                                <div>ต่าง {{ number_format($currentQtyRounded - $snapshotQtyRounded, 2) }}</div>
+                                                <div>ต่าง {{ number_format($currentQtyRounded - $snapshotQtyRounded, 2) }}
+                                                </div>
                                             @endif
                                         </div>
                                     @endif
@@ -704,10 +1337,7 @@
                                     @endif
                                 </td>
                                 <td>
-                                    <input
-                                        form="{{ $formId }}"
-                                        class="form-control ds-input"
-                                        type="date"
+                                    <input form="{{ $formId }}" class="form-control ds-input" type="date"
                                         name="revised_due_date"
                                         value="{{ old('revised_due_date', $review?->revised_due_date?->format('Y-m-d')) }}">
                                 </td>
@@ -718,7 +1348,7 @@
                                 <td>
                                     <div class="fw-semibold">{{ $reasonCode ?: '-' }}</div>
                                     <div class="ds-item-meta">
-                                        {{ $item->company ?: '-' }}
+                                        Site: {{ $itemSiteLabel }}
                                         @if ($reasonIsFromLive)
                                             · ปัจจุบัน
                                         @endif
@@ -726,38 +1356,34 @@
                                 </td>
                                 <td>{{ $reasonDescription ?: '-' }}</td>
                                 <td>
-                                    <textarea
-                                        form="{{ $formId }}"
-                                        class="form-control ds-textarea"
-                                        name="corrective_action"
-                                        rows="3">{{ old('corrective_action', $review?->corrective_action) }}</textarea>
+                                    <textarea form="{{ $formId }}" class="form-control ds-textarea" name="review_detail" rows="3">{{ old('review_detail', $review?->review_detail) }}</textarea>
                                 </td>
                                 <td>
-                                    <textarea
-                                        form="{{ $formId }}"
-                                        class="form-control ds-textarea"
-                                        name="preventive_action"
-                                        rows="3">{{ old('preventive_action', $review?->preventive_action) }}</textarea>
+                                    <textarea form="{{ $formId }}" class="form-control ds-textarea" name="corrective_action" rows="3">{{ old('corrective_action', $review?->corrective_action) }}</textarea>
                                 </td>
                                 <td>
-                                    <textarea
-                                        form="{{ $formId }}"
-                                        class="form-control ds-textarea"
-                                        name="sales_remark"
-                                        rows="3">{{ old('sales_remark', $review?->sales_remark) }}</textarea>
+                                    <textarea form="{{ $formId }}" class="form-control ds-textarea" name="preventive_action" rows="3">{{ old('preventive_action', $review?->preventive_action) }}</textarea>
                                 </td>
                                 <td>
-                                    <button
-                                        type="button"
-                                        class="btn btn-outline-primary ds-review-btn"
-                                        data-bs-toggle="modal"
-                                        data-bs-target="#review-modal-{{ $item->id }}">
-                                        <i class="fa fa-pen-to-square me-1"></i> บันทึกงาน
-                                    </button>
+                                    <textarea form="{{ $formId }}" class="form-control ds-textarea" name="sales_remark" rows="3">{{ old('sales_remark', $review?->sales_remark) }}</textarea>
+                                </td>
+                                <td>
+                                    @auth
+                                        <button type="button" class="btn btn-outline-primary ds-review-btn"
+                                            data-bs-toggle="modal" data-bs-target="#review-modal-{{ $item->id }}">
+                                            <i class="fa fa-pen-to-square me-1"></i> บันทึกงาน
+                                        </button>
+                                    @else
+                                        <a class="btn btn-outline-primary ds-review-btn"
+                                            href="{{ route('login', ['redirect_to' => url()->full()]) }}">
+                                            <i class="fa fa-right-to-bracket me-1"></i> เข้าสู่ระบบเพื่อบันทึก
+                                        </a>
+                                    @endauth
                                     <div class="ds-note mt-2">
-                                        <span class="ds-action-status">{{ $actionStatusLabels[$reviewStatus] ?? $reviewStatus }}</span>
+                                        <span
+                                            class="ds-action-status">{{ $actionStatusLabels[$reviewStatus] ?? $reviewStatus }}</span>
                                     </div>
-                                    <div class="ds-note mt-2">
+                                    <div class="ds-note ds-review-meta mt-2">
                                         @if ($review?->next_follow_up_date)
                                             ตามต่อ {{ $review->next_follow_up_date->format('Y-m-d') }}
                                         @elseif ($review?->reviewed_at)
@@ -768,91 +1394,116 @@
                                     </div>
                                 </td>
                             </tr>
-                            <div class="modal fade" id="review-modal-{{ $item->id }}" tabindex="-1" aria-hidden="true">
-                                <div class="modal-dialog modal-lg modal-dialog-scrollable">
-                                    <div class="modal-content">
-                                        <form method="post" action="{{ route('deadstock.review.save', $item) }}">
-                                            @csrf
-                                            <div class="modal-header">
-                                                <div>
-                                                    <h5 class="modal-title mb-1">บันทึกการติดตาม</h5>
-                                                    <div class="text-muted small">
-                                                        {{ $item->part_description ?: $item->partnumber ?: '-' }}
-                                                        · {{ $item->serialnumber ?: $item->transaction_number ?: '-' }}
-                                                    </div>
-                                                </div>
-                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                            </div>
-                                            <div class="modal-body">
-                                                @if (!empty($changeDetails))
-                                                    <div class="alert alert-warning py-2">
-                                                        <div class="fw-semibold mb-1">เปลี่ยนจาก snapshot</div>
-                                                        @foreach ($changeDetails as $changeDetail)
-                                                            <div>{{ $changeDetail }}</div>
-                                                        @endforeach
-                                                    </div>
-                                                @endif
-                                                <div class="row g-3">
-                                                    <div class="col-12 col-md-4">
-                                                        <label class="form-label">กำหนดส่งใหม่</label>
-                                                        <input class="form-control" type="date" name="revised_due_date" value="{{ old('revised_due_date', $review?->revised_due_date?->format('Y-m-d')) }}">
-                                                    </div>
-                                                    <div class="col-12 col-md-4">
-                                                        <label class="form-label">สถานะการติดตาม</label>
-                                                        <select class="form-select" name="review_status">
-                                                            @foreach ($actionStatusLabels as $value => $label)
-                                                                <option value="{{ $value }}" @selected($reviewStatus === $value)>{{ $label }}</option>
-                                                            @endforeach
-                                                        </select>
-                                                    </div>
-                                                    <div class="col-12 col-md-4">
-                                                        <label class="form-label">วันติดตามถัดไป</label>
-                                                        <input class="form-control" type="date" name="next_follow_up_date" value="{{ old('next_follow_up_date', $review?->next_follow_up_date?->format('Y-m-d')) }}">
-                                                    </div>
-                                                    <div class="col-12">
-                                                        <label class="form-label">ลูกค้า / Sales</label>
-                                                        <div class="form-control bg-light">{{ $item->customer_name ?: '-' }} / {{ $item->salesperson_name ?: '-' }}</div>
-                                                    </div>
-                                                    <div class="col-12">
-                                                        <label class="form-label">แนวทางแก้ไข</label>
-                                                        <textarea class="form-control" name="corrective_action" rows="4">{{ old('corrective_action', $review?->corrective_action) }}</textarea>
-                                                    </div>
-                                                    <div class="col-12">
-                                                        <label class="form-label">แนวทางป้องกัน</label>
-                                                        <textarea class="form-control" name="preventive_action" rows="4">{{ old('preventive_action', $review?->preventive_action) }}</textarea>
-                                                    </div>
-                                                    <div class="col-12">
-                                                        <label class="form-label">Sales remark</label>
-                                                        <textarea class="form-control" name="sales_remark" rows="3">{{ old('sales_remark', $review?->sales_remark) }}</textarea>
-                                                    </div>
-                                                    <div class="col-12">
+                            @auth
+                                <div class="modal fade" id="review-modal-{{ $item->id }}" tabindex="-1"
+                                    aria-hidden="true">
+                                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                        <div class="modal-content">
+                                            <form method="post" action="{{ route('deadstock.review.save', $item) }}">
+                                                @csrf
+                                                <div class="modal-header">
+                                                    <div>
+                                                        <h5 class="modal-title mb-1">บันทึกการติดตาม</h5>
                                                         <div class="text-muted small">
-                                                            @if ($review?->reviewed_at)
-                                                                บันทึกล่าสุด {{ $review->reviewed_at->format('Y-m-d H:i') }}
-                                                                @if ($review?->reviewer)
-                                                                    โดย {{ $review->reviewer->name }}
+                                                            {{ $item->part_description ?: $item->partnumber ?: '-' }}
+                                                            · {{ $item->serialnumber ?: $item->transaction_number ?: '-' }}
+                                                        </div>
+                                                    </div>
+                                                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                                        aria-label="Close"></button>
+                                                </div>
+                                                <div class="modal-body">
+                                                    @if (!empty($changeDetails))
+                                                        <div class="alert alert-warning py-2">
+                                                            <div class="fw-semibold mb-1">เปลี่ยนจาก Snapshot</div>
+                                                            @foreach ($changeDetails as $changeDetail)
+                                                                <div>{{ $changeDetail }}</div>
+                                                            @endforeach
+                                                        </div>
+                                                    @endif
+                                                    <div class="row g-3">
+                                                        <div class="col-12 col-md-4">
+                                                            <label class="form-label">กำหนดส่งใหม่</label>
+                                                            <input class="form-control" type="date"
+                                                                name="revised_due_date"
+                                                                value="{{ old('revised_due_date', $review?->revised_due_date?->format('Y-m-d')) }}">
+                                                            <label class="form-check mt-2 small">
+                                                                <input
+                                                                    class="form-check-input js-no-revised-due"
+                                                                    type="checkbox"
+                                                                    @checked($reviewStatus === 'not_delivered_current_month')>
+                                                                <span class="form-check-label">ยังไม่มีกำหนดใหม่</span>
+                                                            </label>
+                                                        </div>
+                                                        <div class="col-12 col-md-4">
+                                                            <label class="form-label">สถานะการติดตาม</label>
+                                                            <select class="form-select" name="review_status">
+                                                                @foreach ($actionStatusLabels as $value => $label)
+                                                                    <option value="{{ $value }}"
+                                                                        @selected($reviewStatus === $value)>{{ $label }}
+                                                                    </option>
+                                                                @endforeach
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-12 col-md-4">
+                                                            <label class="form-label">วันติดตามถัดไป</label>
+                                                            <input class="form-control" type="date"
+                                                                name="next_follow_up_date"
+                                                                value="{{ old('next_follow_up_date', $review?->next_follow_up_date?->format('Y-m-d')) }}">
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <label class="form-label">ลูกค้า / Sales</label>
+                                                            <div class="form-control bg-light">
+                                                                {{ $item->customer_name ?: '-' }} /
+                                                                {{ $item->salesperson_name ?: '-' }}</div>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <label class="form-label">รายละเอียด</label>
+                                                            <textarea class="form-control" name="review_detail" rows="4">{{ old('review_detail', $review?->review_detail) }}</textarea>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <label class="form-label">แนวทางแก้ไข</label>
+                                                            <textarea class="form-control" name="corrective_action" rows="4">{{ old('corrective_action', $review?->corrective_action) }}</textarea>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <label class="form-label">แนวทางป้องกันการเกิดซ้ำ</label>
+                                                            <textarea class="form-control" name="preventive_action" rows="4">{{ old('preventive_action', $review?->preventive_action) }}</textarea>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <label class="form-label">Remark</label>
+                                                            <textarea class="form-control" name="sales_remark" rows="3">{{ old('sales_remark', $review?->sales_remark) }}</textarea>
+                                                        </div>
+                                                        <div class="col-12">
+                                                            <div class="text-muted small">
+                                                                @if ($review?->reviewed_at)
+                                                                    บันทึกล่าสุด
+                                                                    {{ $review->reviewed_at->format('Y-m-d H:i') }}
+                                                                    @if ($review?->reviewer)
+                                                                        โดย {{ $review->reviewer->name }}
+                                                                    @endif
+                                                                @else
+                                                                    ยังไม่มีประวัติการติดตาม
                                                                 @endif
-                                                            @else
-                                                                ยังไม่มีประวัติการติดตาม
-                                                            @endif
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                            <div class="modal-footer">
-                                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button>
-                                                <button class="btn btn-success" type="submit">
-                                                    <i class="fa fa-floppy-disk me-1"></i> บันทึกการติดตาม
-                                                </button>
-                                            </div>
-                                        </form>
+                                                <div class="modal-footer">
+                                                    <button type="button" class="btn btn-outline-secondary"
+                                                        data-bs-dismiss="modal">ปิด</button>
+                                                    <button class="btn btn-success" type="submit">
+                                                        <i class="fa fa-floppy-disk me-1"></i> บันทึกการติดตาม
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            @endauth
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted py-4">
-                                    ยังไม่มี snapshot item สำหรับเดือนนี้
+                                <td colspan="16" class="text-center text-muted py-4">
+                                    ยังไม่มีรายการ Snapshot สำหรับเดือนนี้
                                 </td>
                             </tr>
                         @endforelse
@@ -866,3 +1517,52 @@
         @endif
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (window.TomSelect) {
+                document.querySelectorAll('.ds-filter-select').forEach(function(el) {
+                    if (el.tomselect) return;
+
+                    new TomSelect(el, {
+                        plugins: el.multiple ? ['remove_button'] : [],
+                        create: false,
+                        persist: false,
+                        placeholder: el.dataset.placeholder || '',
+                        maxOptions: 1000,
+                        dropdownParent: 'body',
+                        allowEmptyOption: !el.multiple,
+                    });
+                });
+            }
+
+            document.querySelectorAll('.js-no-revised-due').forEach(function(checkbox) {
+                const modal = checkbox.closest('.modal');
+                if (!modal) return;
+
+                const revisedDue = modal.querySelector('input[name="revised_due_date"]');
+                const reviewStatus = modal.querySelector('select[name="review_status"]');
+
+                const syncNoRevisedDue = function() {
+                    if (!revisedDue || !reviewStatus) return;
+
+                    if (checkbox.checked) {
+                        revisedDue.value = '';
+                        revisedDue.disabled = true;
+                        reviewStatus.value = 'not_delivered_current_month';
+                    } else {
+                        revisedDue.disabled = false;
+                    }
+                };
+
+                checkbox.addEventListener('change', syncNoRevisedDue);
+                reviewStatus?.addEventListener('change', function() {
+                    checkbox.checked = reviewStatus.value === 'not_delivered_current_month';
+                    syncNoRevisedDue();
+                });
+                syncNoRevisedDue();
+            });
+        });
+    </script>
+@endpush

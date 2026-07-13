@@ -19,11 +19,14 @@ class UserLookupController extends Controller
                     ->orWhere('user_code', 'like', "%$q%");
             }))
             ->orderBy('name')
-            ->limit(20)->get(['id', 'name', 'email', 'user_code']);
+            ->limit(20)->get(['id', 'name', 'user_code']);
 
         return
             response()->json([
-                'results' => $rows->map(fn($u) => ['id' => $u->id, 'text' => "$u->name ($u->email)"]),
+                'results' => $rows->map(fn($u) => [
+                    'id'   => $u->id,
+                    'text' => $u->user_code ? "$u->name ($u->user_code)" : $u->name,
+                ]),
             ]);
     }
 }

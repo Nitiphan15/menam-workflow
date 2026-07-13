@@ -63,7 +63,7 @@ if (-not (Get-Command sqlcmd -ErrorAction SilentlyContinue)) {
     }
 
     Write-Host "sqlcmd was not found. Falling back to Laravel/PHP database connection ..."
-    & php (Join-Path $root "scripts\run_fc_division_forecast_dev_sql.php")
+    & php (Join-Path $root "scripts\run_fc_division_forecast_sql.php")
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }

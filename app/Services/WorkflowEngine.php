@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Services\Po\PoErpService;
 use App\Support\WorkflowDb;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 class WorkflowEngine
 {
@@ -476,7 +475,7 @@ class WorkflowEngine
         $appCode = strtolower((string) ($wf->app_code ?? ''));
 
         if ($appCode === 'pr') {
-            $pr = DB::table('pr_data')->where('id', $wf->ref_id)->first();
+            $pr = WorkflowDb::table($appCode, 'pr_data')->where('id', $wf->ref_id)->first();
 
             return [
                 'department_id' => (int) ($pr->department_id ?? 0),

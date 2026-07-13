@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\DB;
 
 class DeadstockSnapshotImportService
 {
+    private const UPSERT_CHUNK_SIZE = 70;
+
     public function importFile(string $path): array
     {
         if (!is_file($path)) {
@@ -28,6 +30,21 @@ class DeadstockSnapshotImportService
         $snapshotMonth = Carbon::parse($recvDate)->startOfMonth()->toDateString();
         $items = collect($payload['items']);
 
+        // ไฟล์ที่ไม่มีรายการ (เช่น snapshot ย้อนอดีตที่หาข้อมูลไม่เจอ) ห้ามแตะข้อมูลเดือน
+        // เพื่อกันการล้างรายการ/review ของเดือนนั้นทิ้งโดยไม่ตั้งใจ
+        if ($items->isEmpty()) {
+            return [
+                'month_id' => null,
+                'snapshot_month' => $snapshotMonth,
+                'recv_date' => $recvDate,
+                'items' => 0,
+                'created' => 0,
+                'updated' => 0,
+                'deleted' => 0,
+                'skipped' => true,
+            ];
+        }
+
         return DB::connection(config('database.workflow_connection', 'sqlsrv_menam'))
             ->transaction(function () use ($items, $recvDate, $asOfDate, $capturedAt, $snapshotMonth) {
                 $month = DeadstockSnapshotMonth::query()->updateOrCreate(
@@ -38,9 +55,6 @@ class DeadstockSnapshotImportService
                         'captured_at' => $capturedAt,
                         'source_name' => 'mail-daily.report:deadstock.items',
                         'status' => 'ready',
-                        'item_count' => $items->count(),
-                        'total_qty' => $items->sum(fn(array $item) => (float) ($item['quantity'] ?? 0)),
-                        'total_value' => $items->sum(fn(array $item) => (float) ($item['quantity'] ?? 0) * (float) ($item['unitcost'] ?? 0)),
                     ]
                 );
 
@@ -48,16 +62,13 @@ class DeadstockSnapshotImportService
                     ->map(fn(array $item) => $this->normalizeItem((array) $item))
                     ->values();
 
-                $existingKeys = collect();
-                foreach ($normalizedRows->pluck('item_key')->chunk(800) as $keys) {
-                    $existingKeys = $existingKeys->merge(
-                        DeadstockSnapshotItem::query()
-                            ->where('snapshot_month_id', $month->id)
-                            ->whereIn('item_key', $keys->all())
-                            ->pluck('item_key')
-                    );
-                }
-                $existingKeys = $existingKeys->flip();
+                // Merge เท่านั้น: รายการเดิมของเดือนที่ไม่อยู่ในไฟล์นี้ต้องคงอยู่
+                // (สถานะเคลียร์แล้ว/คงค้าง ให้มาจากขั้นตอน compare ไม่ใช่การลบทิ้ง)
+                // โหลด key ทั้งเดือนมาเทียบในหน่วยความจำ — เลี่ยง whereIn ที่ชนเพดาน 2100 parameters ของ SQL Server
+                $existingKeys = DeadstockSnapshotItem::query()
+                    ->where('snapshot_month_id', $month->id)
+                    ->pluck('item_key')
+                    ->flip();
 
                 $created = $normalizedRows
                     ->reject(fn(array $row) => $existingKeys->has($row['item_key']))
@@ -77,7 +88,7 @@ class DeadstockSnapshotImportService
                     })
                     ->all();
 
-                foreach (array_chunk($upsertRows, 500) as $chunk) {
+                foreach (array_chunk($upsertRows, self::UPSERT_CHUNK_SIZE) as $chunk) {
                     DeadstockSnapshotItem::query()->upsert(
                         $chunk,
                         ['snapshot_month_id', 'item_key'],
@@ -110,6 +121,18 @@ class DeadstockSnapshotImportService
                     );
                 }
 
+                // ยอดรวมของเดือนต้องนับจากรายการจริงใน DB เพราะไฟล์หนึ่งเป็นแค่บางส่วนของเดือน
+                $aggregate = DeadstockSnapshotItem::query()
+                    ->where('snapshot_month_id', $month->id)
+                    ->selectRaw('COUNT(*) AS item_count, COALESCE(SUM(snapshot_qty), 0) AS total_qty, COALESCE(SUM(snapshot_value), 0) AS total_value')
+                    ->first();
+
+                $month->update([
+                    'item_count' => (int) $aggregate->item_count,
+                    'total_qty' => (float) $aggregate->total_qty,
+                    'total_value' => (float) $aggregate->total_value,
+                ]);
+
                 return [
                     'month_id' => $month->id,
                     'snapshot_month' => $snapshotMonth,
@@ -117,6 +140,7 @@ class DeadstockSnapshotImportService
                     'items' => $items->count(),
                     'created' => $created,
                     'updated' => $updated,
+                    'deleted' => 0,
                 ];
             });
     }
@@ -191,36 +215,38 @@ class DeadstockSnapshotImportService
                 })
                 ->all();
 
-            DeadstockSnapshotItem::query()->upsert(
-                $upsertRows,
-                ['snapshot_month_id', 'item_key'],
-                [
-                    'company',
-                    'part_id',
-                    'partnumber',
-                    'part_description',
-                    'transaction_number',
-                    'serialnumber',
-                    'purchase_date',
-                    'status_time',
-                    'snapshot_qty',
-                    'unit',
-                    'unitcost',
-                    'snapshot_value',
-                    'part_type_description',
-                    'customer_id',
-                    'customer_name',
-                    'due_date',
-                    'salesperson_id',
-                    'salesperson_name',
-                    'deadstock_code',
-                    'deadstock_desc',
-                    'days_diff',
-                    'days_overdue',
-                    'dead_stock_flag',
-                    'updated_at',
-                ]
-            );
+            foreach (array_chunk($upsertRows, self::UPSERT_CHUNK_SIZE) as $chunk) {
+                DeadstockSnapshotItem::query()->upsert(
+                    $chunk,
+                    ['snapshot_month_id', 'item_key'],
+                    [
+                        'company',
+                        'part_id',
+                        'partnumber',
+                        'part_description',
+                        'transaction_number',
+                        'serialnumber',
+                        'purchase_date',
+                        'status_time',
+                        'snapshot_qty',
+                        'unit',
+                        'unitcost',
+                        'snapshot_value',
+                        'part_type_description',
+                        'customer_id',
+                        'customer_name',
+                        'due_date',
+                        'salesperson_id',
+                        'salesperson_name',
+                        'deadstock_code',
+                        'deadstock_desc',
+                        'days_diff',
+                        'days_overdue',
+                        'dead_stock_flag',
+                        'updated_at',
+                    ]
+                );
+            }
 
             foreach ($normalizedRows as $row) {
                 $items++;
@@ -229,10 +255,16 @@ class DeadstockSnapshotImportService
             }
         }
 
+        // ยอดรวมของเดือนนับจากรายการจริงใน DB เพราะไฟล์หนึ่งเป็นแค่บางส่วนของเดือน
+        $aggregate = DeadstockSnapshotItem::query()
+            ->where('snapshot_month_id', $month->id)
+            ->selectRaw('COUNT(*) AS item_count, COALESCE(SUM(snapshot_qty), 0) AS total_qty, COALESCE(SUM(snapshot_value), 0) AS total_value')
+            ->first();
+
         $month->update([
-            'item_count' => $items,
-            'total_qty' => $totalQty,
-            'total_value' => $totalValue,
+            'item_count' => (int) $aggregate->item_count,
+            'total_qty' => (float) $aggregate->total_qty,
+            'total_value' => (float) $aggregate->total_value,
         ]);
 
         return [

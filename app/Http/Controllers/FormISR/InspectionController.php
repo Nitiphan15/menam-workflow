@@ -31,9 +31,194 @@ class InspectionController extends Controller
         ]);
     }
 
+    public function workcenterTests(Request $request)
+    {
+        $site = strtolower((string) $request->query('site', 'wire')) === 'plus' ? 'plus' : 'wire';
+        $connectionName = $site === 'plus' ? 'pgsqlmfgp' : 'pgsqlmfgw';
+        $conn = DB::connection($connectionName);
+
+        $q = trim((string) $request->query('q', ''));
+        $selectedId = (int) $request->query('workcentertestval_id', 0);
+
+        $activitySub = $conn->table('workcentertest as wct')
+            ->leftJoin('workcentertestitems as wcti', 'wcti.workcentertest_id', '=', 'wct.id')
+            ->selectRaw('
+                wct.workcenter_id,
+                COUNT(DISTINCT wct.id) AS test_count,
+                COUNT(wcti.id) AS item_count,
+                MAX(wct.lastupdate) AS last_test_at
+            ')
+            ->groupBy('wct.workcenter_id');
+
+        $query = $conn->table('workcentertestval as wtv')
+            ->join('workcenter as wc', 'wc.id', '=', 'wtv.workcenter_id')
+            ->leftJoinSub($activitySub, 'act', function ($join) {
+                $join->on('act.workcenter_id', '=', 'wtv.workcenter_id');
+            })
+            ->select([
+                'wtv.*',
+                'wc.workcenternumber',
+                'wc.description as workcenter_description',
+                'wc.capacity',
+                'wc.workhour',
+                'act.test_count',
+                'act.item_count',
+                'act.last_test_at',
+            ])
+            ->orderBy('wc.workcenternumber')
+            ->orderByDesc('wtv.id');
+
+        if ($q !== '') {
+            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q) . '%';
+            $query->where(function ($where) use ($q, $like) {
+                if (ctype_digit($q)) {
+                    $where->orWhere('wtv.id', (int) $q)
+                        ->orWhere('wtv.workcenter_id', (int) $q);
+                }
+
+                $where->orWhere('wc.workcenternumber', 'ILIKE', $like)
+                    ->orWhere('wc.description', 'ILIKE', $like)
+                    ->orWhere('wtv.valseq', 'ILIKE', $like);
+            });
+        }
+
+        if ($selectedId > 0) {
+            $query->where('wtv.id', $selectedId);
+        }
+
+        $configs = $query->limit(80)->get();
+        $extends = $configs->isEmpty()
+            ? collect()
+            : $conn->table('workcentertestvalextend')
+                ->whereIn('workcentertestval_id', $configs->pluck('id')->all())
+                ->get()
+                ->keyBy('workcentertestval_id');
+
+        $rows = $configs->map(function ($config) use ($extends) {
+            $extend = $extends->get($config->id);
+            $slots = $this->normalizeWorkcenterTestSlots($config, $extend);
+
+            return [
+                'id' => (int) $config->id,
+                'workcenter_id' => (int) $config->workcenter_id,
+                'workcenter_number' => trim((string) ($config->workcenternumber ?? '')),
+                'workcenter_description' => trim((string) ($config->workcenter_description ?? '')),
+                'capacity' => $config->capacity ?? null,
+                'workhour' => $config->workhour ?? null,
+                'valseq' => (string) ($config->valseq ?? ''),
+                'reqf' => (string) ($config->reqf ?? ''),
+                'test_count' => (int) ($config->test_count ?? 0),
+                'item_count' => (int) ($config->item_count ?? 0),
+                'last_test_at' => $config->last_test_at ?? null,
+                'slot_count' => count($slots),
+                'required_count' => collect($slots)->where('required', true)->count(),
+                'slots' => $slots,
+            ];
+        })->values();
+
+        return view('formisr.workcenter-tests', [
+            'rows' => $rows,
+            'filters' => [
+                'site' => $site,
+                'q' => $q,
+                'workcentertestval_id' => $selectedId > 0 ? $selectedId : null,
+            ],
+            'summary' => [
+                'config_count' => $rows->count(),
+                'slot_count' => $rows->sum('slot_count'),
+                'required_count' => $rows->sum('required_count'),
+                'actual_test_count' => $rows->sum('test_count'),
+                'actual_item_count' => $rows->sum('item_count'),
+            ],
+        ]);
+    }
+
     /**
      * สร้าง ViewModel สำหรับหน้า Inspection Report ตาม MFG No
      */
+    protected function normalizeWorkcenterTestSlots($config, $extend = null): array
+    {
+        $keys = array_values(array_filter(array_map(
+            static fn($key) => trim((string) $key),
+            explode(':', (string) ($config->valseq ?? ''))
+        )));
+
+        $requiredMap = [];
+        foreach (explode(':', (string) ($config->reqf ?? '')) as $token) {
+            $token = trim((string) $token);
+            if ($token === '' || !str_contains($token, '_')) {
+                continue;
+            }
+
+            [$key, $flag] = explode('_', $token, 2);
+            $requiredMap[strtolower($key)] = strtolower($flag);
+        }
+
+        $rows = [];
+        foreach ($keys as $position => $key) {
+            $key = strtolower($key);
+            $source = $this->slotSourceObject($key, $config, $extend);
+            $labelField = $key . 'text';
+            $operField = $key . 'oper';
+            $upperField = $key . 'upper';
+            $lowerField = $key . 'lower';
+            $tabField = $key . 'tab';
+
+            $flag = $requiredMap[$key] ?? null;
+            $label = trim((string) ($source->{$labelField} ?? ''));
+            $operator = trim((string) ($source->{$operField} ?? ''));
+
+            $rows[] = [
+                'position' => $position + 1,
+                'key' => $key,
+                'group' => $this->slotGroup($key),
+                'label' => $label !== '' ? $label : strtoupper($key),
+                'required_flag' => $flag,
+                'required' => $flag === 'm',
+                'operator' => $operator,
+                'lower' => $source->{$lowerField} ?? null,
+                'upper' => $source->{$upperField} ?? null,
+                'tab' => $source->{$tabField} ?? null,
+                'source_table' => $source === $extend ? 'workcentertestvalextend' : 'workcentertestval',
+            ];
+        }
+
+        return $rows;
+    }
+
+    protected function slotSourceObject(string $key, $config, $extend)
+    {
+        if ($extend && preg_match('/^(q?v)(\d+)$/', $key, $matches) && (int) $matches[2] >= 11) {
+            return $extend;
+        }
+
+        return $config;
+    }
+
+    protected function slotGroup(string $key): string
+    {
+        if (str_starts_with($key, 'qv')) {
+            return 'QC Numeric';
+        }
+        if (str_starts_with($key, 'qt')) {
+            return 'QC Text';
+        }
+        if (str_starts_with($key, 'qb')) {
+            return 'QC Boolean';
+        }
+        if (str_starts_with($key, 'v')) {
+            return 'Numeric';
+        }
+        if (str_starts_with($key, 't')) {
+            return 'Text';
+        }
+        if (str_starts_with($key, 'b')) {
+            return 'Boolean';
+        }
+
+        return 'Other';
+    }
+
     protected function buildViewModel(string $mfgNo): ?array
     {
         // --------------------------------------------------

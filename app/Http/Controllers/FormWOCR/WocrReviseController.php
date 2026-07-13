@@ -74,12 +74,16 @@ class WOCRReviseController extends Controller
             'form_type'           => 'nullable|string|max:50',
             'grade'               => 'nullable|string|max:50',
             'req_type'            => 'required|in:1,2,3',
+            'urgency'             => 'required|integer|in:1,2,3',
             'size'                => 'nullable|string|max:50',
             'length'              => 'nullable|string|max:50',
             'qty'                 => 'required|numeric|min:0',
             'mfg_request_detail'  => 'required|string|max:2000',
             'reason'              => 'nullable|string|max:2000',
 
+            // ไฟล์แนบ: จำกัดชนิดตาม accept ของหน้าฟอร์ม และขนาดไม่เกิน 10MB ต่อไฟล์
+            'files'               => 'nullable|array|max:10',
+            'files.*'             => 'file|mimes:pdf,doc,docx,txt,jpg,jpeg,png,gif,xlsx|max:10240',
         ]);
 
         //dd($request);
@@ -91,6 +95,7 @@ class WOCRReviseController extends Controller
             'form_type'          => $nullify($data['form_type'] ?? null),
             'grade'              => $nullify($data['grade'] ?? null),
             'req_type'           => (int) ($data['req_type'] ?? 0),
+            'urgency'            => (int) ($data['urgency'] ?? WocrData::URGENCY_MEDIUM),
             'size'               => $nullify($data['size'] ?? null),
             'length'             => $nullify($data['length'] ?? null),
             'qty'                => (float) ($data['qty'] ?? 0),

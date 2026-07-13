@@ -1,6 +1,6 @@
-IF OBJECT_ID('dbo.fc_rm_division_forecast_approval_dev', 'U') IS NULL
+IF OBJECT_ID('dbo.fc_rm_division_forecast_approval', 'U') IS NULL
 BEGIN
-    CREATE TABLE dbo.fc_rm_division_forecast_approval_dev (
+    CREATE TABLE dbo.fc_rm_division_forecast_approval (
         id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
         sales_code NVARCHAR(20) NOT NULL,
         forecast_base_month DATE NOT NULL,
@@ -21,17 +21,17 @@ BEGIN
         updated_by INT NULL
     );
 
-    CREATE UNIQUE INDEX UX_fc_rm_division_forecast_approval_dev_row
-        ON dbo.fc_rm_division_forecast_approval_dev
+    CREATE UNIQUE INDEX UX_fc_rm_division_forecast_approval_row
+        ON dbo.fc_rm_division_forecast_approval
         (sales_code, forecast_base_month, customer_id, fg_partnumber);
 
-    CREATE INDEX IX_fc_rm_division_forecast_approval_dev_rm_month
-        ON dbo.fc_rm_division_forecast_approval_dev
+    CREATE INDEX IX_fc_rm_division_forecast_approval_rm_month
+        ON dbo.fc_rm_division_forecast_approval
         (forecast_base_month, rm_partnumber, sales_code);
 END;
 
-IF COL_LENGTH('dbo.fc_rm_division_forecast_approval_dev', 'approval_k_factor') IS NULL
+IF COL_LENGTH('dbo.fc_rm_division_forecast_approval', 'approval_k_factor') IS NULL
 BEGIN
-    ALTER TABLE dbo.fc_rm_division_forecast_approval_dev
+    ALTER TABLE dbo.fc_rm_division_forecast_approval
         ADD approval_k_factor DECIMAL(18,1) NULL;
 END;

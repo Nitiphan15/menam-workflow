@@ -1,10 +1,28 @@
 @extends('layouts.layout')
-@section('page-title', 'Truck Dashboard')
-@section('title', 'Truck Dashboard')
+@section('page-title', 'ตารางรถขนส่ง')
+@section('title', 'ตารางรถขนส่ง')
 
 @section('content')
     @php
+        $u = auth()->user();
+        $canDpa =
+            auth()->check() &&
+            (($u->is_superadmin ?? 0) == 1 || (method_exists($u, 'hasRoleCode') && $u->hasRoleCode('DPA')));
         $refreshUrl = route('dp.dashboard.truck-board', ['ship_date' => $shipDate]);
+        $fmtWeight = function ($kg) {
+            $kg = (float) ($kg ?? 0);
+            return number_format($kg, 0, '.', ',') . ' kg';
+        };
+        $fmtLineLoad = function ($row, $kg = null) use ($fmtWeight) {
+            $weight = (float) ($kg ?? ($row->qty ?? 0));
+            $lineQty = is_numeric($row->line_qty_display ?? null) ? (float) $row->line_qty_display : 0.0;
+            $unit = (string) ($row->line_qty_unit ?? '');
+            if ($weight == 0.0 && $lineQty > 0 && $unit === 'ชิ้น') {
+                return number_format($lineQty, 0) . ' ชิ้น';
+            }
+
+            return $fmtWeight($weight);
+        };
     @endphp
 
     <style>
@@ -37,6 +55,92 @@
             border-radius: 20px;
             overflow: hidden;
             box-shadow: 0 10px 28px rgba(15, 23, 42, .10);
+            scroll-margin-top: 110px;
+        }
+
+        .board-quickbar {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 10px 14px;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, .06);
+            position: sticky;
+            top: 8px;
+            z-index: 30;
+        }
+
+        .board-jump-chips {
+            max-height: 88px;
+            overflow-y: auto;
+            padding: 2px 0;
+        }
+
+        .board-jump-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            color: #1e293b;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .15s;
+            white-space: nowrap;
+        }
+
+        .board-jump-chip:hover {
+            background: #1d4ed8;
+            color: #fff;
+            border-color: #1d4ed8;
+            transform: translateY(-1px);
+        }
+
+        .board-jump-chip .chip-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .board-jump-chip .chip-dot.status-open { background: #16a34a; }
+        .board-jump-chip .chip-dot.status-closed { background: #64748b; }
+        .board-jump-chip .chip-dot.status-unassigned { background: #f59e0b; }
+
+        .board-jump-chip .chip-pct {
+            opacity: .7;
+            font-weight: 500;
+            font-size: 11px;
+        }
+
+        .board-jump-chip.is-hidden {
+            opacity: .25;
+            text-decoration: line-through;
+        }
+
+        .board-jump-chip.is-target-flash {
+            animation: chipFlash .9s ease;
+        }
+
+        @keyframes chipFlash {
+            0%   { box-shadow: 0 0 0 0 rgba(29, 78, 216, .55); }
+            70%  { box-shadow: 0 0 0 12px rgba(29, 78, 216, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(29, 78, 216, 0); }
+        }
+
+        /* ย่อการ์ดรถ: ซ่อนทุก section ของการ์ดยกเว้น header */
+        .truck-card.is-collapsed > *:not(.truck-header) {
+            display: none !important;
+        }
+
+        .truck-card .truck-header {
+            cursor: pointer;
+        }
+
+        .truck-card.is-collapsed .truck-header {
+            padding-bottom: 12px;
         }
 
         .truck-card.unassigned .truck-header {
@@ -71,12 +175,59 @@
 
         .truck-badge {
             display: inline-block;
-            padding: 4px 10px;
+            padding: 5px 11px;
             border-radius: 999px;
             font-size: .78rem;
             font-weight: 700;
-            background: rgba(255, 255, 255, .16);
-            border: 1px solid rgba(255, 255, 255, .18);
+            color: #0f172a;
+            background: rgba(255, 255, 255, .92);
+            border: 1px solid rgba(255, 255, 255, .72);
+            box-shadow: 0 4px 14px rgba(15, 23, 42, .10);
+        }
+
+        .truck-badge.status-open {
+            color: #065f46;
+            background: #dcfce7;
+            border-color: #86efac;
+        }
+
+        .truck-badge.status-closed {
+            color: #334155;
+            background: #e2e8f0;
+            border-color: #cbd5e1;
+        }
+
+        .truck-badge.metric {
+            color: #1e3a8a;
+        }
+
+        .truck-badge.metric-muted {
+            color: #475569;
+        }
+
+        .truck-badge.metric-warning {
+            color: #854d0e;
+            background: #fef3c7;
+            border-color: #fbbf24;
+        }
+
+        .truck-badge.metric-danger {
+            color: #991b1b;
+            background: #fee2e2;
+            border-color: #fca5a5;
+        }
+
+        .truck-close-btn {
+            color: #065f46;
+            background: #fff;
+            border: 1px solid #86efac;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, .16);
+        }
+
+        .truck-close-btn:hover {
+            color: #fff;
+            background: #16a34a;
+            border-color: #16a34a;
         }
 
         .truck-stat {
@@ -181,6 +332,63 @@
             margin-right: 6px;
         }
 
+        .board-filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            padding: 10px 12px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, .06);
+        }
+
+        .board-filter-bar .btn.active {
+            color: #fff;
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .truck-print-btn {
+            color: #1e3a8a;
+            background: rgba(255, 255, 255, .94);
+            border: 1px solid rgba(255, 255, 255, .75);
+            box-shadow: 0 6px 18px rgba(15, 23, 42, .14);
+        }
+
+        .truck-print-btn:hover {
+            color: #fff;
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+        }
+
+        .truck-title-link {
+            color: inherit;
+            text-decoration: none;
+            border-bottom: 1px dashed rgba(255, 255, 255, .45);
+            transition: opacity .15s ease;
+        }
+
+        .truck-title-link:hover {
+            color: #fff;
+            opacity: .85;
+            border-bottom-color: #fff;
+        }
+
+        tr.jsTruckRowLink {
+            cursor: pointer;
+            transition: background-color .15s ease;
+        }
+
+        tr.jsTruckRowLink:hover {
+            background-color: #eff6ff;
+        }
+
+        tr.jsTruckRowLink:hover td {
+            background-color: #eff6ff;
+        }
+
         @media (max-width: 1199px) {
             .truck-stat-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -206,19 +414,101 @@
         <div class="container-fluid">
 
             <div class="top-bar pb-3">
+                @include('formdp.partials.transport-nav', [
+                    'tnActive'   => 'board',
+                    'tnShipDate' => $shipDate,
+                    'tnSo'       => request('q', ''),
+                    'tnCustomer' => '',
+                    'tnMfg'      => '',
+                ])
+
+                @php
+                    $activeFilters = [];
+                    $filterLabels = [
+                        'so'       => 'SO',
+                        'mfg'      => 'MFG',
+                        'customer' => 'Customer',
+                        'shipto'   => 'Ship To',
+                        'ord_id'   => 'Ord ID',
+                        'q'        => 'ค้นหา',
+                        'status'   => 'สถานะ',
+                        'divsales' => 'Sales',
+                    ];
+                    foreach ($filterLabels as $fkey => $flabel) {
+                        $val = trim((string) request($fkey, ''));
+                        if ($val !== '') {
+                            $activeFilters[] = ['key' => $fkey, 'label' => $flabel, 'value' => $val];
+                        }
+                    }
+                @endphp
+
+                @if (!empty($activeFilters))
+                    <div class="dp-active-filters mb-2 d-flex flex-wrap align-items-center gap-2">
+                        <span class="small text-muted"><i class="fas fa-filter me-1"></i>ตัวกรองที่ใช้อยู่:</span>
+                        @foreach ($activeFilters as $f)
+                            @php
+                                $removeUrl = request()->fullUrlWithQuery([$f['key'] => null]);
+                            @endphp
+                            <a href="{{ $removeUrl }}"
+                                class="badge bg-primary-subtle text-primary-emphasis border border-primary-subtle text-decoration-none"
+                                title="คลิกเพื่อลบตัวกรองนี้">
+                                {{ $f['label'] }}: <span class="fw-semibold">{{ $f['value'] }}</span>
+                                <i class="fas fa-times ms-1"></i>
+                            </a>
+                        @endforeach
+                        <a href="{{ route('dp.dashboard.truck-board', ['ship_date' => $shipDate]) }}"
+                            class="btn btn-sm btn-outline-danger py-0 px-2" title="ล้างทุกตัวกรอง">
+                            <i class="fas fa-eraser me-1"></i>ล้างทั้งหมด
+                        </a>
+                    </div>
+                @endif
+
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-                    <div>
-                        <h2 class="mb-1 fw-bold">Dashboard Loading by Truck</h2>
-                        <div class="text-muted">
-                            วันที่ส่งสินค้า: <strong>{{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }}</strong>
-                        </div>
+                    <div class="text-muted">
+                        วันที่ส่งสินค้า: <strong>{{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }}</strong>
                     </div>
 
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="small text-muted">
-                            <span class="refresh-dot"></span>
-                            Refresh ทุก 60 วินาที
-                        </span>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <form method="GET" action="{{ route('dp.dashboard.truck-board') }}"
+                            class="d-flex align-items-center gap-1 flex-nowrap" id="truckBoardDateForm">
+                            <label for="truckBoardShipDate" class="small fw-semibold mb-0 text-nowrap">วันที่:</label>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnBoardDatePrev"
+                                title="วันก่อนหน้า">&laquo;</button>
+                            <input type="date" class="form-control form-control-sm" name="ship_date"
+                                id="truckBoardShipDate" value="{{ $shipDate }}" style="min-width:150px;"
+                                onchange="document.getElementById('truckBoardDateForm').submit();">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnBoardDateNext"
+                                title="วันถัดไป">&raquo;</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap"
+                                id="btnBoardDateToday" title="วันนี้">วันนี้</button>
+                        </form>
+                        @if ($canDpa)
+                            <div class="btn-group btn-group-sm">
+                            <a href="{{ route('dp.dashboard.truck-board.export.print', ['ship_date' => $shipDate]) }}"
+                                class="btn btn-outline-primary" target="_blank">
+                                <i class="fas fa-print me-1"></i> Export จัดรถทั้งหมด
+                            </a>
+                            <a href="{{ route('dp.dashboard.truck-board.export.pdf', ['ship_date' => $shipDate]) }}"
+                                class="btn btn-outline-primary">PDF</a>
+                            <a href="{{ route('dp.dashboard.truck-board.export.excel', ['ship_date' => $shipDate]) }}"
+                                class="btn btn-outline-primary">Excel</a>
+                            </div>
+                            <form method="POST" action="{{ route('dp.dashboard.truck-board.send-mail') }}"
+                                id="assignMailForm" class="jsAssignMailForm d-inline"
+                                data-already-sent="{{ ($assignMailAlreadySent ?? false) ? '1' : '0' }}"
+                                data-ship-text="{{ \Carbon\Carbon::parse($shipDate)->format('d-m-y') }}">
+                                @csrf
+                                <input type="hidden" name="ship_date" value="{{ $shipDate }}">
+                                <input type="hidden" name="force_send" class="jsAssignMailForce" value="0">
+                                <button type="submit" class="btn btn-success btn-sm">
+                                    <i class="fas fa-paper-plane me-1"></i> ส่งเมลจัดรถ
+                                </button>
+                            </form>
+                        @endif
+                        <a href="{{ route('dp.dashboard.truck-board') }}" class="btn btn-outline-secondary btn-sm"
+                            title="ล้าง filter ทั้งหมด">
+                            <i class="fas fa-eraser me-1"></i> Reset
+                        </a>
                         <a href="{{ $refreshUrl }}" class="btn btn-primary btn-sm">
                             <i class="fas fa-rotate-right me-1"></i> Refresh
                         </a>
@@ -265,8 +555,8 @@
                     <div class="col-6 col-md-4 col-xl">
                         <div class="card summary-card h-100">
                             <div class="card-body">
-                                <div class="summary-label">QTY รวม (KG)</div>
-                                <div class="summary-value">{{ number_format($summary['total_qty'], 3) }}</div>
+                                <div class="summary-label">QTY รวม</div>
+                                <div class="summary-value">{{ $fmtWeight($summary['total_qty']) }}</div>
                             </div>
                         </div>
                     </div>
@@ -274,21 +564,275 @@
                     <div class="col-6 col-md-4 col-xl">
                         <div class="card summary-card h-100">
                             <div class="card-body">
-                                <div class="summary-label">น้ำหนักขึ้นรถรวม (KG)</div>
-                                <div class="summary-value">{{ number_format($summary['total_weight'], 3) }}</div>
+                                <div class="summary-label">น้ำหนักขึ้นรถรวม</div>
+                                <div class="summary-value">{{ $fmtWeight($summary['total_weight']) }}</div>
                             </div>
                         </div>
                     </div>
                 </div>
+
+                <div class="board-filter-bar mb-3" id="truckBoardFilters">
+                    <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="truck board filters">
+                        <button type="button" class="btn btn-outline-primary active"
+                            data-board-filter="all">ทั้งหมด</button>
+                        <button type="button" class="btn btn-outline-primary" data-board-filter="open">รอบเปิด</button>
+                        <button type="button" class="btn btn-outline-primary" data-board-filter="closed">ปิดแล้ว</button>
+                        <button type="button" class="btn btn-outline-primary"
+                            data-board-filter="unassigned">ยังไม่จัดรถ</button>
+                        <button type="button" class="btn btn-outline-primary"
+                            data-board-filter="special">งานพิเศษ</button>
+                    </div>
+                    <div class="ms-auto d-flex align-items-center gap-2" style="min-width:320px;">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="fas fa-search"></i></span>
+                            <input type="search" class="form-control" id="truckBoardSearch"
+                                placeholder="ค้นหาทะเบียน / SO / MFG / ลูกค้า / สถานที่ส่ง">
+                            <button type="button" class="btn btn-outline-secondary" id="truckBoardSearchClear"
+                                title="ล้าง">&times;</button>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-dark text-nowrap" id="boardQuickCollapseAll"
+                            title="ย่อ/ขยายทั้งหมด">
+                            <i class="fas fa-compress-alt me-1"></i> ย่อ/ขยาย
+                        </button>
+                    </div>
+                </div>
             </div>
 
+            {{-- Quick-jump chips (ใต้ KPI/filter, เหนืองานพิเศษ) --}}
+            @if (count($truckGroups) > 0)
+                <div class="board-quickbar mb-3 py-2">
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small text-muted">
+                        <i class="fas fa-truck me-1"></i> คลิก chip เพื่อกระโดดไปการ์ดรถ
+                        <span class="ms-auto">
+                            แสดง <span id="boardQuickVisibleCount" class="fw-semibold">{{ count($truckGroups) }}</span>/{{ count($truckGroups) }} รถ
+                        </span>
+                    </div>
+                    <div class="board-jump-chips d-flex flex-wrap gap-1">
+                        @foreach ($truckGroups as $truck)
+                            @php
+                                $chipKey = 'truck-' . md5($truck->truck_label . '|' . $loop->index);
+                                $chipStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
+                                $chipQty = (float) ($truck->total_assigned ?? 0);
+                                $chipMax = (float) ($truck->max_load ?? 0);
+                                $chipPct = $chipMax > 0 ? min(100, round($chipQty / $chipMax * 100)) : null;
+                            @endphp
+                            <button type="button"
+                                class="board-jump-chip jsBoardJump"
+                                data-target="{{ $chipKey }}"
+                                data-board-status="{{ $chipStatus }}"
+                                title="{{ $truck->truck_label }} · {{ $fmtWeight($chipQty) }}{{ $chipMax > 0 ? ' / ' . $fmtWeight($chipMax) : '' }}">
+                                <span class="chip-dot status-{{ $chipStatus }}"></span>
+                                <span class="chip-plate">{{ $truck->truck_label }}</span>
+                                @if ($chipPct !== null)
+                                    <span class="chip-pct">{{ $chipPct }}%</span>
+                                @endif
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
+            @if (($specialGroups ?? collect())->isNotEmpty())
+                @php
+                    $specialSearchText = collect($specialGroups ?? [])
+                        ->flatten(1)
+                        ->flatMap(function ($row) {
+                            return [
+                                $row->dispatch_label ?? '',
+                                $row->so_number ?? '',
+                                $row->mfg_no ?? '',
+                                $row->customer_name ?? '',
+                                $row->sales_name ?? '',
+                                $row->address ?? '',
+                                $row->part_number ?? '',
+                                $row->part_desc ?? '',
+                            ];
+                        })
+                        ->filter()
+                        ->implode(' ');
+                @endphp
+                <div class="card mb-4 jsBoardSpecialSection" data-board-status="special"
+                    data-board-search="{{ e(mb_strtolower($specialSearchText)) }}">
+                    <div class="card-header bg-warning-subtle fw-bold">
+                        งานพิเศษวันนี้
+                    </div>
+                    <div class="card-body">
+                        @foreach ($specialGroups as $dispatchType => $specialRows)
+                            @php
+                                $firstSpecial = $specialRows->first();
+                                $specialGroupKey = 'special-' . md5((string) $dispatchType);
+                                $cancelableSpecialRows = $specialRows->filter(fn($row) => $canDpa && ($row->can_cancel_special ?? false))->values();
+                            @endphp
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                                    <div class="fw-semibold">
+                                        {{ $firstSpecial->dispatch_label ?? $dispatchType }}
+                                        <span class="text-muted">({{ number_format($specialRows->count()) }} รายการ)</span>
+                                    </div>
+                                    @if ($cancelableSpecialRows->isNotEmpty())
+                                        <button type="button"
+                                            class="btn btn-sm btn-outline-danger fw-semibold jsBoardCancelSpecialSelectedBtn"
+                                            data-group-key="{{ $specialGroupKey }}"
+                                            data-label="{{ e($firstSpecial->dispatch_label ?? $dispatchType) }}"
+                                            disabled>
+                                            <i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก
+                                        </button>
+                                    @endif
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered align-middle mb-0">
+                                        <thead class="table-light">
+                                            <tr>
+                                                @if ($cancelableSpecialRows->isNotEmpty())
+                                                    <th style="width:46px;" class="text-center">
+                                                        <input type="checkbox" class="form-check-input jsBoardCancelSpecialSelectAll"
+                                                            data-group-key="{{ $specialGroupKey }}" title="เลือกรายการงานพิเศษทั้งหมดในกลุ่มนี้">
+                                                    </th>
+                                                @endif
+                                                <th style="width:70px;">#</th>
+                                                <th style="width:130px;">เวลา</th>
+                                                <th style="width:140px;">SO</th>
+                                                <th style="width:160px;">MFG</th>
+                                                <th>สินค้า</th>
+                                                <th style="width:180px;">ลูกค้า / Sales</th>
+                                                <th>สถานที่ส่ง</th>
+                                                <th style="width:160px;">สถานะ</th>
+                                                <th style="width:150px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($specialRows as $i => $row)
+                                                @php
+                                                    $specialInquiryUrl = route('dp.inquiry', [
+                                                        'ship_from' => $shipDate,
+                                                        'ship_to' => $shipDate,
+                                                        'status' => 'ALL',
+                                                        'ord_id' => $row->ord_id ?? null,
+                                                        'searched' => 1,
+                                                    ]);
+                                                @endphp
+                                                <tr class="jsTruckRowLink" data-href="{{ $specialInquiryUrl }}"
+                                                    title="ดูรายการนี้ใน Inquiry">
+                                                    @if ($cancelableSpecialRows->isNotEmpty())
+                                                        <td class="text-center">
+                                                            <input type="checkbox"
+                                                                class="form-check-input jsBoardCancelSpecialCheck"
+                                                                data-group-key="{{ $specialGroupKey }}"
+                                                                data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
+                                                                data-so="{{ e($row->so_number ?? '') }}"
+                                                                data-mfg="{{ e($row->mfg_no ?? '') }}"
+                                                                @disabled(!($row->can_cancel_special ?? false))>
+                                                        </td>
+                                                    @endif
+                                                    <td class="text-center fw-bold">{{ $i + 1 }}</td>
+                                                    <td>
+                                                        {{ !empty($row->window_at) ? \Carbon\Carbon::parse($row->window_at)->format('H:i') : '-' }}
+                                                    </td>
+                                                    <td>{{ $row->so_number ?: '-' }}</td>
+                                                    <td>{{ $row->mfg_no ?: '-' }}</td>
+                                                    <td>
+                                                        <div class="fw-semibold">{{ $row->part_number ?: '-' }}</div>
+                                                        <div class="small">{{ $row->part_desc ?: '-' }}</div>
+                                                        <div class="small text-muted">QTY
+                                                            {{ $fmtLineLoad($row, $row->qty ?? 0) }}</div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="fw-semibold">{{ $row->customer_name ?: '-' }}</div>
+                                                        <div class="small text-muted">{{ $row->sales_name ?: '-' }}</div>
+                                                    </td>
+                                                    <td>{{ $row->address ?: '-' }}</td>
+                                                    <td>
+                                                        <div>{{ $row->dp_status ?: '-' }}</div>
+                                                        @if (strtoupper((string) ($row->dispatch_type ?? '')) === 'POSTPONED')
+                                                            <div class="small {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'text-primary' : 'text-muted' }}">
+                                                                {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'เลื่อนโดย Logistics' : 'เลื่อนโดย Sales/DP' }}
+                                                            </div>
+                                                        @endif
+                                                        @if (!empty($row->special_remark))
+                                                            <div class="small text-muted">{{ $row->special_remark }}</div>
+                                                        @endif
+                                                    </td>
+                                                    <td class="text-center">
+                                                        @if ($canDpa && ($row->can_cancel_special ?? false))
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-danger mb-1 jsBoardCancelSpecialOneBtn"
+                                                                data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
+                                                                data-label="{{ e(($row->mfg_no ?: $row->so_number ?: 'ord_id=' . (int) ($row->ord_id ?? 0))) }}">
+                                                                ยกเลิก
+                                                            </button>
+                                                        @endif
+                                                        @if ($canDpa && $row->is_open && strtoupper((string) $row->dispatch_type) !== 'POSTPONED')
+                                                            <form method="POST"
+                                                                action="{{ route('dp.inquiry.special-dispatch.close', ['ordId' => $row->ord_id]) }}"
+                                                                onsubmit="return confirm('ยืนยันปิดงานพิเศษนี้?');">
+                                                                @csrf
+                                                                <button
+                                                                    class="btn btn-sm btn-outline-success">ปิดงาน</button>
+                                                            </form>
+                                                        @else
+                                                            <span class="text-muted small">-</span>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             @forelse ($truckGroups as $truck)
-                <div class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4">
+                @php
+                    $truckSearchText = collect([
+                        $truck->truck_label,
+                        $truck->driver_name,
+                        $truck->driver_phone,
+                        $truck->helper_names,
+                        $truck->remark,
+                    ])
+                        ->merge(
+                            $truck->rows->flatMap(function ($row) {
+                                return [
+                                    $row->so_number ?? '',
+                                    $row->mfg_no ?? '',
+                                    $row->customer_name ?? '',
+                                    $row->sales_name ?? '',
+                                    $row->address ?? '',
+                                    $row->part_number ?? '',
+                                    $row->part_desc ?? '',
+                                ];
+                            }),
+                        )
+                        ->filter()
+                        ->implode(' ');
+                    $boardStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
+                    $cardKey = 'truck-' . md5($truck->truck_label . '|' . $loop->index);
+                    $canUnassignTruck = $canDpa && !$truck->is_unassigned && !$truck->is_closed;
+                @endphp
+                <div id="{{ $cardKey }}"
+                    class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4 jsBoardTruckCard"
+                    data-card-key="{{ $cardKey }}"
+                    data-board-status="{{ $boardStatus }}"
+                    data-board-search="{{ e(mb_strtolower($truckSearchText)) }}">
                     <div class="truck-header">
                         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
                             <div>
+                                @php
+                                    $inquiryHeaderUrl = route('dp.inquiry', [
+                                        'ship_from' => $shipDate,
+                                        'ship_to' => $shipDate,
+                                        'status' => 'ALL',
+                                        'searched' => 1,
+                                    ]);
+                                @endphp
                                 <h3 class="truck-title mb-0">
-                                    <i class="fas fa-truck me-2"></i>{{ $truck->truck_label }}
+                                    <a href="{{ $inquiryHeaderUrl }}" class="truck-title-link"
+                                        title="ดูใน Inquiry (วันที่ส่ง {{ \Carbon\Carbon::parse($shipDate)->format('d/m/Y') }})">
+                                        <i class="fas fa-truck me-2"></i>{{ $truck->truck_label }}
+                                    </a>
                                 </h3>
 
                                 <div class="truck-subtitle">
@@ -303,6 +847,8 @@
                                             {{ $truck->driver_phone !== '' ? $truck->driver_phone : '-' }}</span>
                                         <span><strong>ความยาวรถ:</strong>
                                             {{ filled($truck->car_length) ? $truck->car_length : '-' }}</span>
+                                        <span><strong>เด็กรถ:</strong>
+                                            {{ $truck->helper_names !== '' ? $truck->helper_names : '-' }}</span>
                                     @endif
 
                                     @if (!$truck->is_unassigned && $truck->remark !== '')
@@ -312,13 +858,60 @@
                             </div>
 
                             <div class="d-flex flex-wrap gap-2">
-                                <span class="truck-badge">รายการ {{ number_format($truck->item_count) }}</span>
-                                <span class="truck-badge">QTY {{ number_format($truck->total_qty, 3) }} KG</span>
-                                <span class="truck-badge">ขึ้นรถ {{ number_format($truck->total_assigned, 3) }} KG</span>
+                                @if (!$truck->is_unassigned)
+                                    <span class="truck-badge {{ $truck->is_closed ? 'status-closed' : 'status-open' }}">
+                                        {{ $truck->is_closed ? 'ปิดรอบแล้ว' : 'รอบเปิดอยู่' }}
+                                    </span>
+                                @endif
+                                <span class="truck-badge metric-muted">รายการ
+                                    {{ number_format($truck->item_count) }}</span>
+                                <span class="truck-badge metric">QTY {{ $fmtWeight($truck->total_qty) }}</span>
+                                <span class="truck-badge metric">ขึ้นรถ {{ $fmtWeight($truck->total_assigned) }}</span>
                                 @if (!$truck->is_unassigned && $truck->max_load > 0)
-                                    <span class="truck-badge">Max {{ number_format($truck->max_load, 3) }} KG</span>
-                                    <span class="truck-badge">คงเหลือ {{ number_format($truck->remaining_load, 3) }}
-                                        KG</span>
+                                    @php
+                                        $remainingRatio =
+                                            (float) $truck->max_load > 0
+                                                ? (float) $truck->remaining_load / (float) $truck->max_load
+                                                : 1;
+                                        $remainingClass =
+                                            $remainingRatio < 0.1
+                                                ? 'metric-danger'
+                                                : ($remainingRatio < 0.25
+                                                    ? 'metric-warning'
+                                                    : 'metric');
+                                    @endphp
+                                    <span class="truck-badge metric-muted">Max {{ $fmtWeight($truck->max_load) }}</span>
+                                    <span class="truck-badge {{ $remainingClass }}">คงเหลือ
+                                        {{ $fmtWeight($truck->remaining_load) }}</span>
+                                @endif
+                                @if ($canUnassignTruck)
+                                    <button type="button"
+                                        class="btn btn-sm btn-outline-danger fw-semibold jsBoardUnassignSelectedBtn"
+                                        data-card-key="{{ $cardKey }}"
+                                        data-truck-label="{{ e($truck->truck_label) }}"
+                                        disabled>
+                                        <i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก
+                                    </button>
+                                    <button type="button"
+                                        class="btn btn-sm btn-outline-warning fw-semibold jsBoardUnassignTruckBtn"
+                                        data-truck-label="{{ e($truck->truck_label) }}"
+                                        data-item-count="{{ (int) $truck->item_count }}"
+                                        data-ord-ids="{{ e($truck->rows->pluck('ord_id')->map(fn($id) => (int) $id)->filter()->unique()->implode(',')) }}">
+                                        <i class="fas fa-times me-1"></i> ยกเลิกทั้งคัน
+                                    </button>
+                                    <form method="POST" action="{{ route('dp.dashboard.truck-board.trip.close') }}"
+                                        onsubmit="return confirm('ยืนยันปิดรอบรถนี้?');">
+                                        @csrf
+                                        <input type="hidden" name="truck_source" value="{{ $truck->truck_source }}">
+                                        <input type="hidden" name="truck_id" value="{{ $truck->truck_id }}">
+                                        <input type="hidden" name="manual_plate_no"
+                                            value="{{ $truck->manual_plate_no }}">
+                                        <input type="hidden" name="ship_date" value="{{ $shipDate }}">
+                                        <input type="hidden" name="trip_no" value="{{ $truck->trip_no }}">
+                                        <button type="submit" class="btn btn-sm fw-semibold truck-close-btn">
+                                            <i class="fas fa-check me-1"></i> ปิดรอบรถ
+                                        </button>
+                                    </form>
                                 @endif
                             </div>
                         </div>
@@ -332,16 +925,16 @@
                             </div>
                             <div class="truck-stat-box">
                                 <span class="label">QTY รวม</span>
-                                <span class="value">{{ number_format($truck->total_qty, 3) }} KG</span>
+                                <span class="value">{{ $fmtWeight($truck->total_qty) }}</span>
                             </div>
                             <div class="truck-stat-box">
                                 <span class="label">ขึ้นรถรวม</span>
-                                <span class="value">{{ number_format($truck->total_assigned, 3) }} KG</span>
+                                <span class="value">{{ $fmtWeight($truck->total_assigned) }}</span>
                             </div>
                             <div class="truck-stat-box">
                                 <span class="label">คงเหลือความจุ</span>
                                 <span class="value">
-                                    {{ !$truck->is_unassigned && !is_null($truck->remaining_load) ? number_format($truck->remaining_load, 3) . ' KG' : '-' }}
+                                    {{ !$truck->is_unassigned && !is_null($truck->remaining_load) ? $fmtWeight($truck->remaining_load) : '-' }}
                                 </span>
                             </div>
                         </div>
@@ -351,6 +944,12 @@
                         <table class="table table-sm table-bordered align-middle truck-table">
                             <thead>
                                 <tr>
+                                    @if ($canUnassignTruck)
+                                        <th style="width: 46px;" class="text-center">
+                                            <input type="checkbox" class="form-check-input jsBoardUnassignSelectAll"
+                                                data-card-key="{{ $cardKey }}" title="เลือกรายการทั้งหมดในรถคันนี้">
+                                        </th>
+                                    @endif
                                     <th style="width: 60px;">#</th>
                                     <th style="width: 120px;">วันที่ / เวลา</th>
                                     <th style="width: 140px;">SO</th>
@@ -358,7 +957,7 @@
                                     <th class="col-main">สินค้า</th>
                                     <th style="width: 140px;">MFG</th>
                                     <th style="width: 130px;">ระบุเส้น/ชิ้น</th>
-                                    <th style="width: 130px;">Qty / Assigned</th>
+                                    <th style="width: 130px;">Qty / ขึ้นรถ</th>
                                     <th style="width: 130px;">Stock FG</th>
                                     <th style="width: 160px;">ลูกค้า / Sales</th>
                                     <th class="address-text">สถานที่ส่ง</th>
@@ -368,7 +967,29 @@
                             </thead>
                             <tbody>
                                 @foreach ($truck->rows as $i => $row)
-                                    <tr>
+                                    @php
+                                        $rowInquiryUrl = route('dp.inquiry', [
+                                            'ship_from' => $shipDate,
+                                            'ship_to' => $shipDate,
+                                            'status' => 'ALL',
+                                            'ord_id' => $row->ord_id ?? null,
+                                            'so' => $row->so_number ?: null,
+                                            'mfg' => $row->mfg_no ?: null,
+                                            'searched' => 1,
+                                        ]);
+                                    @endphp
+                                    <tr class="jsTruckRowLink" data-href="{{ $rowInquiryUrl }}"
+                                        title="ดูรายการนี้ใน Inquiry">
+                                        @if ($canUnassignTruck)
+                                            <td class="text-center">
+                                                <input type="checkbox"
+                                                    class="form-check-input jsBoardUnassignCheck"
+                                                    data-card-key="{{ $cardKey }}"
+                                                    data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
+                                                    data-so="{{ e($row->so_number ?? '') }}"
+                                                    data-mfg="{{ e($row->mfg_no ?? '') }}">
+                                            </td>
+                                        @endif
                                         <td class="text-center fw-bold">{{ $i + 1 }}</td>
 
                                         <td>
@@ -400,7 +1021,9 @@
                                         <td>
                                             @if (!is_null($row->line_qty_display) && (float) $row->line_qty_display > 0)
                                                 <div class="mini-text fw-bold text-danger">
-                                                    {{ ($row->line_qty_unit ?? 'เส้น') === 'ชิ้น' ? 'ชิ้น' : 'ระบุเส้น' }} : {{ number_format((float) $row->line_qty_display, 0) }} {{ $row->line_qty_unit ?? 'เส้น' }}
+                                                    {{ ($row->line_qty_unit ?? 'เส้น') === 'ชิ้น' ? 'ชิ้น' : 'ระบุเส้น' }}
+                                                    : {{ number_format((float) $row->line_qty_display, 0) }}
+                                                    {{ $row->line_qty_unit ?? 'เส้น' }}
                                                 </div>
                                             @else
                                                 <span class="text-muted">-</span>
@@ -408,10 +1031,10 @@
                                         </td>
 
                                         <td>
-                                            <div class="value-strong">{{ number_format((float) ($row->qty ?? 0), 3) }}
+                                            <div class="value-strong">{{ $fmtLineLoad($row, $row->qty ?? 0) }}
                                             </div>
                                             <div class="mini-text">Assigned:
-                                                {{ number_format((float) ($row->display_weight ?? 0), 3) }}</div>
+                                                {{ $fmtLineLoad($row, $row->display_weight ?? 0) }}</div>
                                         </td>
 
                                         <td class="stock-text">
@@ -446,9 +1069,584 @@
         </div>
     </div>
 
+    @if ($canDpa)
+        <div class="modal fade" id="boardUnassignTruckModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" method="POST" id="boardUnassignTruckForm"
+                    action="{{ route('dp.inquiry.truck.unassign.bulk') }}">
+                    @csrf
+                    <input type="hidden" name="return_url" value="{{ url()->full() }}">
+                    <div id="boardUnassignOrdIds"></div>
+                    <div class="modal-header">
+                        <h5 class="modal-title">ยกเลิกรถ</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการที่เลือก</div>
+                            <div class="fw-semibold" id="boardUnassignTruckInfo">-</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold" for="boardRemarkUnassign">เหตุผลยกเลิกรถ</label>
+                            <textarea class="form-control" name="remark_unassign" id="boardRemarkUnassign" rows="3"
+                                maxlength="500" placeholder="กรอกเหตุผล" required></textarea>
+                            <div class="form-text">จำเป็นต้องกรอกเหตุผล และระบบจะบันทึกไว้ใน remark ของรายการ</div>
+                        </div>
+                        <div class="alert alert-warning small mb-0">
+                            ระบบจะยกเลิกการจัดรถของรายการที่เลือก และเปลี่ยนสถานะกลับเป็น NEW
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-warning btn-sm">ยืนยันยกเลิก</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($canDpa)
+        <div class="modal fade" id="boardCancelSpecialModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form class="modal-content" method="POST" id="boardCancelSpecialForm"
+                    action="{{ route('dp.inquiry.special-dispatch.cancel.bulk') }}">
+                    @csrf
+                    <input type="hidden" name="return_url" value="{{ url()->full() }}">
+                    <div id="boardCancelSpecialOrdIds"></div>
+                    <div class="modal-header">
+                        <h5 class="modal-title">ยกเลิกงานพิเศษ</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-2">
+                            <div class="small text-muted">รายการที่เลือก</div>
+                            <div class="fw-semibold" id="boardCancelSpecialInfo">-</div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold" for="boardCancelSpecialRemark">เหตุผลยกเลิกงานพิเศษ</label>
+                            <textarea class="form-control" name="cancel_remark" id="boardCancelSpecialRemark" rows="3"
+                                maxlength="500" placeholder="กรอกเหตุผล" required></textarea>
+                        </div>
+                        <div class="alert alert-warning small mb-0">
+                            ยกเลิกได้เฉพาะงานพิเศษที่ยังเปิดอยู่ ถ้าเป็นงานเลื่อนจาก Sales/DP ที่สร้างแถวใหม่แล้ว ระบบจะไม่อนุญาตให้ยกเลิกจากหน้านี้
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                        <button type="submit" class="btn btn-danger btn-sm">ยืนยันยกเลิกงานพิเศษ</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($canDpa)
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                var boardUnassignModalEl = document.getElementById('boardUnassignTruckModal');
+                var boardUnassignModal = boardUnassignModalEl && window.bootstrap ? new bootstrap.Modal(boardUnassignModalEl) : null;
+                var boardUnassignForm = document.getElementById('boardUnassignTruckForm');
+                var boardUnassignOrdIds = document.getElementById('boardUnassignOrdIds');
+                var boardUnassignInfo = document.getElementById('boardUnassignTruckInfo');
+                var boardRemarkUnassign = document.getElementById('boardRemarkUnassign');
+                var boardCancelSpecialModalEl = document.getElementById('boardCancelSpecialModal');
+                var boardCancelSpecialModal = boardCancelSpecialModalEl && window.bootstrap ? new bootstrap.Modal(boardCancelSpecialModalEl) : null;
+                var boardCancelSpecialForm = document.getElementById('boardCancelSpecialForm');
+                var boardCancelSpecialOrdIds = document.getElementById('boardCancelSpecialOrdIds');
+                var boardCancelSpecialInfo = document.getElementById('boardCancelSpecialInfo');
+                var boardCancelSpecialRemark = document.getElementById('boardCancelSpecialRemark');
+
+                function warnBoardUnassign(message) {
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'warning',
+                            title: 'ตรวจสอบข้อมูล',
+                            text: message,
+                            confirmButtonText: 'ตกลง',
+                        });
+                        return;
+                    }
+                    alert(message);
+                }
+
+                document.querySelectorAll('.jsBoardUnassignTruckBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        if (!boardUnassignForm || !boardUnassignModal || !boardUnassignOrdIds) return;
+
+                        var ordIds = String(btn.dataset.ordIds || '')
+                            .split(',')
+                            .map(function (id) { return id.trim(); })
+                            .filter(Boolean);
+
+                        if (ordIds.length === 0) {
+                            warnBoardUnassign('ไม่พบรายการในรถคันนี้สำหรับยกเลิก');
+                            return;
+                        }
+
+                        boardUnassignOrdIds.innerHTML = '';
+                        ordIds.forEach(function (ordId) {
+                            var hidden = document.createElement('input');
+                            hidden.type = 'hidden';
+                            hidden.name = 'ord_ids[]';
+                            hidden.value = ordId;
+                            boardUnassignOrdIds.appendChild(hidden);
+                        });
+
+                        if (boardUnassignInfo) {
+                            var truckLabel = btn.dataset.truckLabel || '-';
+                            boardUnassignInfo.textContent = truckLabel + ' | ' + ordIds.length + ' รายการ';
+                        }
+                        if (boardRemarkUnassign) boardRemarkUnassign.value = '';
+                        boardUnassignModal.show();
+                    });
+                });
+
+                function openBoardSelectedUnassign(ordIds, label) {
+                    if (!boardUnassignForm || !boardUnassignModal || !boardUnassignOrdIds) return;
+                    var cleanOrdIds = (ordIds || [])
+                        .map(function (id) { return String(id || '').trim(); })
+                        .filter(Boolean)
+                        .filter(function (id, index, all) { return all.indexOf(id) === index; });
+
+                    if (cleanOrdIds.length === 0) {
+                        warnBoardUnassign('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
+                        return;
+                    }
+
+                    boardUnassignOrdIds.innerHTML = '';
+                    cleanOrdIds.forEach(function (ordId) {
+                        var hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'ord_ids[]';
+                        hidden.value = ordId;
+                        boardUnassignOrdIds.appendChild(hidden);
+                    });
+
+                    if (boardUnassignInfo) {
+                        boardUnassignInfo.textContent = (label || 'รายการที่เลือก') + ' | ' + cleanOrdIds.length + ' รายการ';
+                    }
+                    if (boardRemarkUnassign) boardRemarkUnassign.value = '';
+                    boardUnassignModal.show();
+                }
+
+                function syncBoardSelectedUnassign(cardKey) {
+                    var checks = Array.from(document.querySelectorAll('.jsBoardUnassignCheck'))
+                        .filter(function (check) { return check.dataset.cardKey === cardKey; });
+                    var selected = checks.filter(function (check) { return check.checked; });
+                    var selectedBtn = document.querySelector('.jsBoardUnassignSelectedBtn[data-card-key="' + cardKey + '"]');
+                    var selectAll = document.querySelector('.jsBoardUnassignSelectAll[data-card-key="' + cardKey + '"]');
+
+                    if (selectedBtn) {
+                        selectedBtn.disabled = selected.length === 0;
+                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected.length ? ' (' + selected.length + ')' : '');
+                    }
+
+                    if (selectAll) {
+                        selectAll.checked = checks.length > 0 && selected.length === checks.length;
+                        selectAll.indeterminate = selected.length > 0 && selected.length < checks.length;
+                    }
+                }
+
+                document.querySelectorAll('.jsBoardUnassignCheck').forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        syncBoardSelectedUnassign(check.dataset.cardKey || '');
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardUnassignSelectAll').forEach(function (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        var cardKey = selectAll.dataset.cardKey || '';
+                        document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]').forEach(function (check) {
+                            check.checked = selectAll.checked;
+                        });
+                        syncBoardSelectedUnassign(cardKey);
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardUnassignSelectedBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var cardKey = btn.dataset.cardKey || '';
+                        var checks = Array.from(document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]'))
+                            .filter(function (check) { return check.checked; });
+                        var ordIds = checks.map(function (check) { return check.dataset.ordId || ''; });
+                        var preview = checks
+                            .slice(0, 4)
+                            .map(function (check) { return check.dataset.mfg || check.dataset.so || check.dataset.ordId || ''; })
+                            .filter(Boolean)
+                            .join(', ');
+                        var label = btn.dataset.truckLabel || 'รายการที่เลือก';
+                        if (preview) label += ' | ' + preview;
+                        openBoardSelectedUnassign(ordIds, label);
+                    });
+                });
+
+                if (boardUnassignForm) {
+                    boardUnassignForm.addEventListener('submit', function (e) {
+                        if (!boardRemarkUnassign || boardRemarkUnassign.value.trim() === '') {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณากรอกเหตุผลยกเลิกรถ');
+                            boardRemarkUnassign?.focus();
+                            return;
+                        }
+                        if (!boardUnassignOrdIds || boardUnassignOrdIds.querySelectorAll('input[name="ord_ids[]"]').length === 0) {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
+                        }
+                    });
+                }
+
+                function openBoardCancelSpecial(ordIds, label) {
+                    if (!boardCancelSpecialForm || !boardCancelSpecialModal || !boardCancelSpecialOrdIds) return;
+                    var cleanOrdIds = (ordIds || [])
+                        .map(function (id) { return String(id || '').trim(); })
+                        .filter(Boolean)
+                        .filter(function (id, index, all) { return all.indexOf(id) === index; });
+
+                    if (cleanOrdIds.length === 0) {
+                        warnBoardUnassign('กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก');
+                        return;
+                    }
+
+                    boardCancelSpecialOrdIds.innerHTML = '';
+                    cleanOrdIds.forEach(function (ordId) {
+                        var hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'ord_ids[]';
+                        hidden.value = ordId;
+                        boardCancelSpecialOrdIds.appendChild(hidden);
+                    });
+
+                    if (boardCancelSpecialInfo) {
+                        boardCancelSpecialInfo.textContent = (label || 'งานพิเศษที่เลือก') + ' | ' + cleanOrdIds.length + ' รายการ';
+                    }
+                    if (boardCancelSpecialRemark) boardCancelSpecialRemark.value = '';
+                    boardCancelSpecialModal.show();
+                }
+
+                function syncBoardCancelSpecialSelection(groupKey) {
+                    var checks = Array.from(document.querySelectorAll('.jsBoardCancelSpecialCheck'))
+                        .filter(function (check) { return check.dataset.groupKey === groupKey && !check.disabled; });
+                    var selected = checks.filter(function (check) { return check.checked; });
+                    var selectedBtn = document.querySelector('.jsBoardCancelSpecialSelectedBtn[data-group-key="' + groupKey + '"]');
+                    var selectAll = document.querySelector('.jsBoardCancelSpecialSelectAll[data-group-key="' + groupKey + '"]');
+
+                    if (selectedBtn) {
+                        selectedBtn.disabled = selected.length === 0;
+                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected.length ? ' (' + selected.length + ')' : '');
+                    }
+
+                    if (selectAll) {
+                        selectAll.checked = checks.length > 0 && selected.length === checks.length;
+                        selectAll.indeterminate = selected.length > 0 && selected.length < checks.length;
+                    }
+                }
+
+                document.querySelectorAll('.jsBoardCancelSpecialCheck').forEach(function (check) {
+                    check.addEventListener('change', function () {
+                        syncBoardCancelSpecialSelection(check.dataset.groupKey || '');
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardCancelSpecialSelectAll').forEach(function (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        var groupKey = selectAll.dataset.groupKey || '';
+                        document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]').forEach(function (check) {
+                            if (!check.disabled) check.checked = selectAll.checked;
+                        });
+                        syncBoardCancelSpecialSelection(groupKey);
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardCancelSpecialSelectedBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var groupKey = btn.dataset.groupKey || '';
+                        var checks = Array.from(document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]'))
+                            .filter(function (check) { return check.checked && !check.disabled; });
+                        var ordIds = checks.map(function (check) { return check.dataset.ordId || ''; });
+                        var preview = checks
+                            .slice(0, 4)
+                            .map(function (check) { return check.dataset.mfg || check.dataset.so || check.dataset.ordId || ''; })
+                            .filter(Boolean)
+                            .join(', ');
+                        var label = btn.dataset.label || 'งานพิเศษที่เลือก';
+                        if (preview) label += ' | ' + preview;
+                        openBoardCancelSpecial(ordIds, label);
+                    });
+                });
+
+                document.querySelectorAll('.jsBoardCancelSpecialOneBtn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        openBoardCancelSpecial([btn.dataset.ordId || ''], btn.dataset.label || 'งานพิเศษที่เลือก');
+                    });
+                });
+
+                if (boardCancelSpecialForm) {
+                    boardCancelSpecialForm.addEventListener('submit', function (e) {
+                        if (!boardCancelSpecialRemark || boardCancelSpecialRemark.value.trim() === '') {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณากรอกเหตุผลยกเลิกงานพิเศษ');
+                            boardCancelSpecialRemark?.focus();
+                            return;
+                        }
+                        if (!boardCancelSpecialOrdIds || boardCancelSpecialOrdIds.querySelectorAll('input[name="ord_ids[]"]').length === 0) {
+                            e.preventDefault();
+                            warnBoardUnassign('กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก');
+                        }
+                    });
+                }
+
+                function askSend(sent, t) {
+                    var title = sent ? 'ยืนยันส่งซ้ำ' : 'ยืนยันส่งเมลจัดรถ';
+                    var text = sent
+                        ? ('เคยส่งเมลจัดรถของวันที่ ' + t + ' แล้ว ต้องการส่งซ้ำอีกครั้งหรือไม่?')
+                        : ('ต้องการส่งเมลจัดรถของวันที่ ' + t + ' หรือไม่?');
+                    if (!window.Swal) {
+                        return Promise.resolve(window.confirm(text));
+                    }
+                    return Swal.fire({
+                        title: title,
+                        text: text,
+                        icon: sent ? 'warning' : 'question',
+                        showCancelButton: true,
+                        confirmButtonText: sent ? 'ส่งซ้ำ' : 'ส่งเมล',
+                        cancelButtonText: 'ยกเลิก',
+                        confirmButtonColor: sent ? '#f59e0b' : '#22c55e',
+                        cancelButtonColor: '#64748b',
+                        reverseButtons: true,
+                    }).then(function (r) { return r.isConfirmed; });
+                }
+
+                function doSend(form, sent) {
+                    var force = form.querySelector('.jsAssignMailForce');
+                    if (force) force.value = sent ? '1' : '0';
+                    form.dataset.confirmed = '1';
+                    if (window.Swal) {
+                        Swal.fire({
+                            title: 'กำลังส่งเมล...',
+                            text: 'กรุณารอสักครู่',
+                            allowOutsideClick: false,
+                            allowEscapeKey: false,
+                            didOpen: function () { Swal.showLoading(); },
+                        });
+                    }
+                    form.submit();
+                }
+
+                document.querySelectorAll('.jsAssignMailForm').forEach(function (form) {
+                    form.addEventListener('submit', function (e) {
+                        if (form.dataset.confirmed === '1') return; // ผ่านการยืนยันแล้ว
+                        e.preventDefault();
+                        var sent = form.dataset.alreadySent === '1';
+                        askSend(sent, form.dataset.shipText || '').then(function (ok) {
+                            if (ok) doSend(form, sent);
+                        });
+                    });
+                });
+
+                @if (session('assign_mail_confirm'))
+                    var dupForm = document.querySelector('.jsAssignMailForm');
+                    if (dupForm) {
+                        askSend(true, @json(session('assign_mail_confirm'))).then(function (ok) {
+                            if (ok) doSend(dupForm, true);
+                        });
+                    }
+                @endif
+
+                @if (session('assign_mail_success'))
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'ส่งเมลสำเร็จ',
+                            text: @json(session('assign_mail_success')),
+                            confirmButtonColor: '#22c55e',
+                            timer: 3000,
+                            timerProgressBar: true,
+                            showConfirmButton: false,
+                        });
+                    } else {
+                        alert(@json(session('assign_mail_success')));
+                    }
+                @endif
+
+                @if (session('assign_mail_error'))
+                    if (window.Swal) {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'ส่งเมลไม่สำเร็จ',
+                            text: @json(session('assign_mail_error')),
+                            confirmButtonColor: '#ef4444',
+                        });
+                    } else {
+                        alert(@json(session('assign_mail_error')));
+                    }
+                @endif
+            });
+        </script>
+    @endif
+
     <script>
-        setTimeout(() => {
-            window.location.reload();
-        }, 60000);
+        (function truckBoardFilters() {
+            const filterButtons = Array.from(document.querySelectorAll('[data-board-filter]'));
+            const searchInput = document.getElementById('truckBoardSearch');
+            const cards = Array.from(document.querySelectorAll('.jsBoardTruckCard'));
+            const specialSection = document.querySelector('.jsBoardSpecialSection');
+            let activeFilter = 'all';
+
+            function applyFilters() {
+                const q = String(searchInput?.value || '').trim().toLowerCase();
+
+                cards.forEach((card) => {
+                    const status = card.dataset.boardStatus || '';
+                    const text = card.dataset.boardSearch || '';
+                    const matchFilter = activeFilter === 'all' || activeFilter === status;
+                    const matchSearch = q === '' || text.includes(q);
+                    card.classList.toggle('d-none', !(matchFilter && matchSearch));
+                });
+
+                if (specialSection) {
+                    const showSpecial = activeFilter === 'all' || activeFilter === 'special';
+                    const specialText = specialSection.dataset.boardSearch || '';
+                    const matchSpecialSearch = q === '' || specialText.includes(q);
+                    specialSection.classList.toggle('d-none', !(showSpecial && matchSpecialSearch));
+                }
+            }
+
+            filterButtons.forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    activeFilter = btn.dataset.boardFilter || 'all';
+                    filterButtons.forEach((x) => x.classList.toggle('active', x === btn));
+                    applyFilters();
+                });
+            });
+
+            if (searchInput) {
+                searchInput.addEventListener('input', applyFilters);
+            }
+        })();
+
+        (function truckBoardDateNav() {
+            const form = document.getElementById('truckBoardDateForm');
+            const input = document.getElementById('truckBoardShipDate');
+            const btnPrev = document.getElementById('btnBoardDatePrev');
+            const btnNext = document.getElementById('btnBoardDateNext');
+            const btnToday = document.getElementById('btnBoardDateToday');
+
+            if (!form || !input) return;
+
+            function shift(days) {
+                const cur = input.value ? new Date(input.value + 'T00:00:00') : new Date();
+                cur.setDate(cur.getDate() + days);
+                const y = cur.getFullYear();
+                const m = String(cur.getMonth() + 1).padStart(2, '0');
+                const d = String(cur.getDate()).padStart(2, '0');
+                input.value = `${y}-${m}-${d}`;
+                form.submit();
+            }
+
+            function today() {
+                const t = new Date();
+                const y = t.getFullYear();
+                const m = String(t.getMonth() + 1).padStart(2, '0');
+                const d = String(t.getDate()).padStart(2, '0');
+                input.value = `${y}-${m}-${d}`;
+                form.submit();
+            }
+
+            if (btnPrev) btnPrev.addEventListener('click', () => shift(-1));
+            if (btnNext) btnNext.addEventListener('click', () => shift(1));
+            if (btnToday) btnToday.addEventListener('click', today);
+        })();
+
+        (function truckBoardRowClick() {
+            document.querySelectorAll('tr.jsTruckRowLink').forEach((tr) => {
+                tr.addEventListener('click', (e) => {
+                    // ignore clicks on links, buttons, form controls inside the row
+                    const target = e.target;
+                    if (target.closest('a, button, input, select, textarea, form, label')) return;
+                    const url = tr.dataset.href;
+                    if (!url) return;
+                    if (e.ctrlKey || e.metaKey || e.button === 1) {
+                        window.open(url, '_blank');
+                    } else {
+                        window.location.href = url;
+                    }
+                });
+            });
+        })();
+
+        // Quick-jump chips + collapse + sync กับ search/filter เดิม
+        (function boardQuickbar() {
+            const searchInput = document.getElementById('truckBoardSearch');
+            const searchClear = document.getElementById('truckBoardSearchClear');
+            const visibleCount = document.getElementById('boardQuickVisibleCount');
+            const collapseAllBtn = document.getElementById('boardQuickCollapseAll');
+            const cards = Array.from(document.querySelectorAll('.jsBoardTruckCard'));
+            const chips = Array.from(document.querySelectorAll('.jsBoardJump'));
+            if (cards.length === 0) return;
+
+            let allCollapsed = false;
+
+            // อัปเดต chip dim + จำนวน ตามสถานะ card.display ปัจจุบัน (ที่ filter เดิมจัดให้)
+            function syncChips() {
+                let shown = 0;
+                cards.forEach((card) => {
+                    const isHidden = card.style.display === 'none' || card.classList.contains('d-none');
+                    if (!isHidden) shown++;
+                    const key = card.getAttribute('data-card-key') || '';
+                    const chip = chips.find((c) => c.getAttribute('data-target') === key);
+                    if (chip) chip.classList.toggle('is-hidden', isHidden);
+                });
+                if (visibleCount) visibleCount.textContent = shown;
+            }
+
+            // hook กับ search/filter เดิม (input + click on status filter)
+            searchInput?.addEventListener('input', () => setTimeout(syncChips, 30));
+            document.querySelectorAll('[data-board-filter]').forEach((btn) => {
+                btn.addEventListener('click', () => setTimeout(syncChips, 30));
+            });
+
+            searchClear?.addEventListener('click', () => {
+                if (!searchInput) return;
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.focus();
+            });
+
+            // คลิก chip → scroll ไปการ์ด
+            chips.forEach((chip) => {
+                chip.addEventListener('click', () => {
+                    const key = chip.getAttribute('data-target');
+                    const target = document.getElementById(key);
+                    if (!target) return;
+                    if (target.classList.contains('is-collapsed')) {
+                        target.classList.remove('is-collapsed');
+                    }
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    chip.classList.add('is-target-flash');
+                    setTimeout(() => chip.classList.remove('is-target-flash'), 900);
+                });
+            });
+
+            // คลิก header การ์ด → toggle collapse
+            cards.forEach((card) => {
+                const header = card.querySelector('.truck-header');
+                if (!header) return;
+                header.addEventListener('click', (ev) => {
+                    if (ev.target.closest('a, button, input, select, textarea, form, label')) return;
+                    card.classList.toggle('is-collapsed');
+                });
+            });
+
+            // ย่อ/ขยายทั้งหมด
+            collapseAllBtn?.addEventListener('click', () => {
+                allCollapsed = !allCollapsed;
+                cards.forEach((c) => c.classList.toggle('is-collapsed', allCollapsed));
+                collapseAllBtn.innerHTML = allCollapsed
+                    ? '<i class="fas fa-expand-alt me-1"></i> ขยาย'
+                    : '<i class="fas fa-compress-alt me-1"></i> ย่อ/ขยาย';
+            });
+
+            syncChips();
+        })();
     </script>
 @endsection

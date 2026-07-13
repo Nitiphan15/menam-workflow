@@ -7,10 +7,6 @@
             <a href="{{ route('lis.create') }}" class="btn btn-primary">+ New Inquiry</a>
         </div>
 
-        @if (session('success'))
-            <div class="alert alert-success">{{ session('success') }}</div>
-        @endif
-
         <form method="GET" class="card mb-3">
             <div class="card-body row g-2 align-items-end">
                 <div class="col-md-4">

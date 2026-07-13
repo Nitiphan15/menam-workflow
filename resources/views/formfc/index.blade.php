@@ -1328,14 +1328,21 @@
 
                             columns.forEach(col => {
                                 const td = document.createElement('td');
-                                const value = item[col.key] ?? '';
+                                const rawValue = item[col.key];
+                                const value = rawValue ?? '';
 
                                 if (col.type === 'number') {
                                     td.className = 'text-end';
-                                    td.textContent = Number(value || 0).toLocaleString(undefined, {
-                                        minimumFractionDigits: 2,
-                                        maximumFractionDigits: 2
-                                    });
+                                    if (col.dashWhenEmpty && (rawValue === null || rawValue === undefined || rawValue === '')) {
+                                        td.classList.add('text-muted');
+                                        td.textContent = col.dashText || '—';
+                                        if (col.dashTitle) td.title = col.dashTitle;
+                                    } else {
+                                        td.textContent = Number(value || 0).toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                        });
+                                    }
                                 } else {
                                     td.textContent = value;
                                 }
@@ -1520,12 +1527,18 @@
                             {
                                 key: 'forecast_1m',
                                 label: 'Manager 1M',
-                                type: 'number'
+                                type: 'number',
+                                dashWhenEmpty: true,
+                                dashText: 'รอ approve',
+                                dashTitle: 'หัวหน้ายังไม่ approve รายการนี้'
                             },
                             {
                                 key: 'forecast_6m',
                                 label: 'Manager 6M',
-                                type: 'number'
+                                type: 'number',
+                                dashWhenEmpty: true,
+                                dashText: 'รอ approve',
+                                dashTitle: 'หัวหน้ายังไม่ approve รายการนี้'
                             },
                             {
                                 key: 'division_forecast_1m',

@@ -9,7 +9,6 @@
         'matrix' => ['label' => 'แผนก x ค่าใช้จ่าย', 'route' => 'variable-cost.matrix'],
         'accounts' => ['label' => 'ตามบัญชี', 'route' => 'variable-cost.accounts'],
         'yearly' => ['label' => 'รายปีตาม Class', 'route' => 'variable-cost.yearly'],
-        'details' => ['label' => 'รายละเอียด', 'route' => 'variable-cost.details'],
     ];
 @endphp
 

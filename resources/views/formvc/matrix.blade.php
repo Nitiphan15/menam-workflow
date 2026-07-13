@@ -9,9 +9,8 @@
         $accounts = collect($matrix['accounts'] ?? []);
         $matrixRows = collect($matrix['rows'] ?? []);
         $columnTotals = $matrix['columnTotals'] ?? [];
+        $showSiteBreakdown = ($filters['site'] ?? 'ALL') === 'ALL';
         $fmt = fn($value, $decimals = 2) => ((float) $value) == 0.0 ? '-' : number_format((float) $value, $decimals);
-        $matrixFilters = collect($filters ?? [])->only(['date_from', 'date_to', 'site', 'invoice', 'notes'])->filter(fn($v) => is_array($v) ? !empty($v) : (string) $v !== '')->all();
-        $returnParams = ['return_url' => request()->fullUrl(), 'return_label' => 'กลับหน้าแผนก x ค่าใช้จ่าย'];
     @endphp
 
     @include('formvc.partials.styles')
@@ -44,6 +43,11 @@
                                 <th class="num account-col" data-vc-zero="{{ $columnTotal == 0.0 ? '1' : '0' }}">
                                     <div>{{ $account->name }}</div>
                                     <small class="d-block text-white-50">{{ $account->code }}</small>
+                                    @if ($showSiteBreakdown)
+                                        @php $siteAmounts = (array) ($account->site_amounts ?? []); @endphp
+                                        <small class="d-block text-white-50">WIRE {{ $fmt($siteAmounts['WIRE'] ?? 0) }}</small>
+                                        <small class="d-block text-white-50">PLUS {{ $fmt($siteAmounts['PLUS'] ?? 0) }}</small>
+                                    @endif
                                 </th>
                             @endforeach
                             <th class="num">รวม</th>
@@ -62,13 +66,7 @@
                                         $columnTotal = (float) ($columnTotals[$account->key] ?? 0);
                                     @endphp
                                     <td class="num" data-vc-zero="{{ $columnTotal == 0.0 ? '1' : '0' }}">
-                                        @if ($amount != 0.0)
-                                            <a class="vc-drill-link" href="{{ route('variable-cost.details', $matrixFilters + ['department' => $row->department, 'account' => trim($account->code . ' ' . $account->name)] + $returnParams) }}">
-                                                {{ $fmt($amount) }}
-                                            </a>
-                                        @else
-                                            {{ $fmt($amount) }}
-                                        @endif
+                                        <div>{{ $fmt($amount) }}</div>
                                     </td>
                                 @endforeach
                                 <td class="num fw-bold">{{ $fmt($row->total_amount) }}</td>
@@ -83,7 +81,9 @@
                                 <td class="dept-col">Total</td>
                                 @foreach ($accounts as $account)
                                     @php $columnTotal = (float) ($columnTotals[$account->key] ?? 0); @endphp
-                                    <td class="num" data-vc-zero="{{ $columnTotal == 0.0 ? '1' : '0' }}">{{ $fmt($columnTotal) }}</td>
+                                    <td class="num" data-vc-zero="{{ $columnTotal == 0.0 ? '1' : '0' }}">
+                                        <div>{{ $fmt($columnTotal) }}</div>
+                                    </td>
                                 @endforeach
                                 <td class="num">{{ $fmt($matrix['grandTotal'] ?? 0) }}</td>
                             </tr>
