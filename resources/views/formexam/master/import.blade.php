@@ -19,16 +19,6 @@
 
             <hr>
 
-            @if ($errors->any())
-                <div class="alert alert-danger">
-                    <ul class="mb-0">
-                        @foreach ($errors->all() as $e)
-                            <li>{{ $e }}</li>
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
-
             <form method="POST" action="{{ route('exam.master.import.store', $formExam->id) }}"
                 enctype="multipart/form-data" class="row g-3">
                 @csrf

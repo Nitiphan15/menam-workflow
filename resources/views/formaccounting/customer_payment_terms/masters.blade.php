@@ -72,13 +72,6 @@
         </div>
     </div>
 
-    @if (session('success'))
-        <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
-            <i class="fa fa-check-circle me-1"></i>{{ session('success') }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-    @endif
-
     <div class="row g-4">
         {{-- ========== BILLING PLANS ========== --}}
         <div class="col-xl-6">

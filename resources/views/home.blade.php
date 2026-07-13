@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.1.0');
+        $latestVersion = config('app.version', '1.2.0');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -45,6 +45,34 @@
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                     <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <strong>อัปเดตระบบ: Deadstock, Grating Performance, DIE Tracking, Login, Password และ VC</strong>
+                                </div>
+                                <ul class="mb-0 text-muted">
+                                    <li>Deadstock: เพิ่ม/ปรับหน้าตรวจสอบและติดตามรายการค้างสต็อกให้ดูสถานะงานได้ชัดขึ้น</li>
+                                    <li>Grating Performance: เพิ่มหน้าบันทึกและติดตามผลงาน Grating Performance สำหรับดูงานรายวันและสรุปประสิทธิภาพ</li>
+                                    <li>DIE Tracking: ปรับข้อมูลการติดตาม DIE และ claim ให้ค้นหา/ตรวจสอบงานได้สะดวกขึ้น</li>
+                                    <li>Login: สามารถเข้าสู่ระบบด้วย username เช่น somchai_j หรือ email ได้</li>
+                                    <li>Password: เปลี่ยนรหัสผ่านใหม่ขั้นต่ำ 4 ตัวอักษร</li>
+                                    <li>VC: ปรับปรุงหน้าสรุปและรายละเอียด Variable Cost เพื่อรองรับการตรวจสอบข้อมูลต้นทุนได้ดีขึ้น</li>
+                                </ul>
+                            </div>
+
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge text-bg-secondary">v 1.1.0</span>
+                                    <strong>อัปเดตงานจัดรถ + ส่งเมลจัดรถ และการแจ้งเตือนทั้งระบบ</strong>
+                                </div>
+                                <ul class="mb-0 text-muted">
+                                    <li>หน้า Inquiry: เปิดใช้ "จัดรถหลายงานพร้อมกัน" เลือกหลายรายการของวันส่งเดียวกันแล้วจัดรถคันเดียวได้</li>
+                                    <li>หน้าจัดรถส่งสินค้า: เพิ่มช่อง "เบอร์โทร Shipping" บันทึกไว้กับการจัดรถแต่ละรายการ</li>
+                                    <li>เพิ่มปุ่ม "ส่งเมลจัดรถ" แนบไฟล์ PDF + Excel ตารางจัดรถส่งให้ผู้เกี่ยวข้องอัตโนมัติ (หน้าจัดรถส่งสินค้า และ ตารางรถขนส่ง) มีให้ยืนยันก่อนส่งและกันส่งซ้ำ</li>
+                                    <li>ปรับการแจ้งเตือนผลการทำงานทั้งระบบเป็นป๊อปอัปมุมจอ (toast) แสดงครั้งเดียว ไม่ซ้ำซ้อน</li>
+                                </ul>
+                            </div>
+
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge text-bg-secondary">v 1.1.0</span>
                                     <strong>อัปเดต Delivery Plan Inquiry และเอกสารจัดส่ง</strong>
                                 </div>
                                 <ul class="mb-0 text-muted">
@@ -56,7 +84,7 @@
 
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <span class="badge text-bg-secondary">v 1.1.0</span>
                                     <strong>ปรับปรุง Production Status Tracking</strong>
                                 </div>
                                 <ul class="mb-0 text-muted">
@@ -68,7 +96,7 @@
 
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <span class="badge text-bg-secondary">v 1.1.0</span>
                                     <strong>เพิ่มเครื่องมือ Logistics ก่อนจัดรถ</strong>
                                 </div>
                                 <ul class="mb-0 text-muted">
