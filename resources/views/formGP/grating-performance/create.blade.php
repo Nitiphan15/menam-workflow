@@ -525,8 +525,9 @@
                         if (isFieldWork) input.value = '0';
                     });
                     fieldActivities.forEach(input => {
-                        input.required = isFieldWork;
+                        input.required = false;
                     });
+                    syncFieldActivityValidity();
                     const details = fieldFields.querySelector('[name="field_details"]');
                     if (details) details.required = isFieldWork;
                     if (details && isFieldWork) autoGrow(details);
@@ -539,6 +540,7 @@
                             input.checked = false;
                         });
                         if (details) details.value = '';
+                        syncFieldActivityValidity();
                     }
                     entryList?.querySelectorAll('.gp-entry-row').forEach(updateFieldMfgSummary);
 
@@ -555,6 +557,24 @@
                     });
                 });
                 syncFieldWork();
+
+                function syncFieldActivityValidity() {
+                    if (!fieldActivities.length) return true;
+
+                    const isFieldWork = hasFieldStepChecked();
+                    const hasActivity = fieldActivities.some(input => input.checked);
+                    const message = isFieldWork && !hasActivity ? 'Please choose at least one field activity.' : '';
+
+                    fieldActivities.forEach((input, index) => {
+                        input.setCustomValidity(index === 0 ? message : '');
+                    });
+
+                    return !message;
+                }
+
+                fieldActivities.forEach(input => {
+                    input.addEventListener('change', syncFieldActivityValidity);
+                });
 
                 function autoGrow(area) {
                     if (!area) return;
@@ -728,6 +748,13 @@
                 }
 
                 form?.addEventListener('submit', function (event) {
+                    if (!syncFieldActivityValidity()) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        fieldActivities[0]?.reportValidity();
+                        return;
+                    }
+
                     if (!validateAllPlanLimits()) {
                         event.preventDefault();
                         event.stopImmediatePropagation();

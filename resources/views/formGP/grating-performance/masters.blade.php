@@ -117,7 +117,7 @@
             </form>
             <div class="gp-table-wrap">
                 <table class="table table-sm table-bordered gp-table mb-0">
-                    <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>งานที่รับผิดชอบ</th><th>นักศึกษา</th><th>สถานะ</th><th style="width:118px;"></th></tr></thead>
+                    <thead><tr><th>รหัสพนักงาน</th><th>ชื่อ</th><th>ชื่อเล่น</th><th>งานที่รับผิดชอบ</th><th>นักศึกษา</th><th>สถานะ</th><th>Created / Updated by</th><th style="width:118px;"></th></tr></thead>
                     <tbody>
                         @forelse ($employees as $employee)
                             @php
@@ -180,6 +180,10 @@
                                     </select>
                                 </td>
                                 <td>
+                                    {{ $employee->created_by_name ?? '-' }}
+                                    <div class="small text-muted">{{ $employee->updated_by_name ?? '-' }}</div>
+                                </td>
+                                <td>
                                     <div class="d-flex gap-1">
                                         <button form="employee-{{ $employee->id }}" class="btn btn-sm btn-primary" title="บันทึก"><i class="fas fa-save"></i></button>
                                         <form method="POST" action="{{ route('grating-performance.employees.destroy', $employee->id) }}" class="gp-delete-employee-form" data-employee-name="{{ $employee->name }}">
@@ -191,7 +195,7 @@
                                 </td>
                             </tr>
                         @empty
-                            <tr><td colspan="7" class="text-center text-muted py-4">ยังไม่มีพนักงาน</td></tr>
+                            <tr><td colspan="8" class="text-center text-muted py-4">ยังไม่มีพนักงาน</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -260,7 +264,7 @@
             </form>
             <div class="gp-table-wrap gp-employee-table-wrap">
                 <table class="table table-sm table-bordered gp-table mb-0">
-                    <thead><tr><th>ชื่อขั้นตอน</th><th>Code <span class="text-muted fw-normal small">(ระบบ)</span></th><th class="num">Target ชิ้น/ชม.</th><th class="num">Target กก./ชม.</th><th class="num">Sort</th><th>หน้างาน</th><th>สถานะ</th><th style="width:90px;"></th></tr></thead>
+                    <thead><tr><th>ชื่อขั้นตอน</th><th>Code <span class="text-muted fw-normal small">(ระบบ)</span></th><th class="num">Target ชิ้น/ชม.</th><th class="num">Target กก./ชม.</th><th class="num">Sort</th><th>หน้างาน</th><th>สถานะ</th><th>Created / Updated by</th><th style="width:90px;"></th></tr></thead>
                     <tbody>
                         @forelse ($steps as $step)
                             <tr>
@@ -281,10 +285,14 @@
                                         <option value="0" @selected(!$step->active)>ปิด</option>
                                     </select>
                                 </td>
+                                <td>
+                                    {{ $step->created_by_name ?? '-' }}
+                                    <div class="small text-muted">{{ $step->updated_by_name ?? '-' }}</div>
+                                </td>
                                 <td><button form="step-{{ $step->id }}" class="btn btn-sm btn-primary"><i class="fas fa-save"></i></button></td>
                             </tr>
                         @empty
-                            <tr><td colspan="8" class="text-center text-muted py-4">ยังไม่มี step</td></tr>
+                            <tr><td colspan="9" class="text-center text-muted py-4">ยังไม่มี step</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -319,7 +327,7 @@
             </form>
             <div class="gp-table-wrap">
                 <table class="table table-sm table-bordered gp-table mb-0">
-                    <thead><tr><th>Project</th><th>เลข SO</th><th class="num">Sort</th><th>สถานะ</th><th style="width:90px;"></th></tr></thead>
+                    <thead><tr><th>Project</th><th>เลข SO</th><th class="num">Sort</th><th>สถานะ</th><th>Created / Updated by</th><th style="width:90px;"></th></tr></thead>
                     <tbody>
                         @forelse ($projects as $project)
                             <tr>
@@ -332,10 +340,14 @@
                                         <option value="0" @selected(!$project->active)>ปิด</option>
                                     </select>
                                 </td>
+                                <td>
+                                    {{ $project->created_by_name ?? '-' }}
+                                    <div class="small text-muted">{{ $project->updated_by_name ?? '-' }}</div>
+                                </td>
                                 <td><button form="project-{{ $project->id }}" class="btn btn-sm btn-primary"><i class="fas fa-save"></i></button></td>
                             </tr>
                         @empty
-                            <tr><td colspan="5" class="text-center text-muted py-4">ยังไม่มี master project</td></tr>
+                            <tr><td colspan="6" class="text-center text-muted py-4">ยังไม่มี master project</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -370,7 +382,7 @@
             </form>
             <div class="gp-table-wrap">
                 <table class="table table-sm table-bordered gp-table mb-0">
-                    <thead><tr><th>Code</th><th>Name</th><th class="num">Sort</th><th>สถานะ</th><th style="width:90px;"></th></tr></thead>
+                    <thead><tr><th>Code</th><th>Name</th><th class="num">Sort</th><th>สถานะ</th><th>Created / Updated by</th><th style="width:90px;"></th></tr></thead>
                     <tbody>
                         @forelse ($fieldActivities as $activity)
                             <tr>
@@ -383,10 +395,14 @@
                                         <option value="0" @selected(!$activity->active)>ปิด</option>
                                     </select>
                                 </td>
+                                <td>
+                                    {{ $activity->created_by_name ?? '-' }}
+                                    <div class="small text-muted">{{ $activity->updated_by_name ?? '-' }}</div>
+                                </td>
                                 <td><button form="activity-{{ $activity->id }}" class="btn btn-sm btn-primary"><i class="fas fa-save"></i></button></td>
                             </tr>
                         @empty
-                            <tr><td colspan="5" class="text-center text-muted py-4">ยังไม่มีกิจกรรมหน้างาน</td></tr>
+                            <tr><td colspan="6" class="text-center text-muted py-4">ยังไม่มีกิจกรรมหน้างาน</td></tr>
                         @endforelse
                     </tbody>
                 </table>

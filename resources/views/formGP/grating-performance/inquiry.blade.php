@@ -14,6 +14,7 @@
         .gp-panel { background:#fff; border:1px solid #dfe5ec; border-radius:8px; overflow:visible; }
         .gp-head { padding:12px 16px; border-bottom:1px solid #e8edf2; display:flex; align-items:center; justify-content:space-between; gap:12px; font-weight:700; }
         .gp-table-wrap { max-height:640px; overflow:auto; }
+        .gp-table { min-width:1500px; }
         .gp-table th { position:sticky; top:0; z-index:2; background:#edf4ff; white-space:nowrap; }
         .gp-table td { vertical-align:middle; }
         .gp-table .gp-sticky-date { position:sticky; left:0; z-index:3; background:#fff; min-width:92px; }
@@ -25,18 +26,35 @@
         .gp-table tbody tr:hover .gp-sticky-date,
         .gp-table tbody tr:hover .gp-sticky-mfg,
         .gp-table tbody tr:hover .gp-sticky-action { background:#f8fbff; }
+        .gp-transaction-project { min-width:190px; white-space:normal; }
+        .gp-transaction-step { min-width:180px; white-space:normal; }
+        .gp-transaction-employee { min-width:220px; white-space:normal; }
         .gp-summary-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; }
         .gp-summary-card { border:1px solid #dfe5ec; border-radius:8px; background:#fff; padding:10px 12px; }
         .gp-summary-card .label { color:#6b7280; font-size:.78rem; }
         .gp-summary-card .value { font-weight:800; font-size:1.15rem; line-height:1.2; }
         .gp-subline { display:block; color:#6b7280; font-size:.78rem; line-height:1.35; }
-        .gp-mini-table-wrap { max-height:360px; overflow:auto; }
+        .gp-mini-table-wrap { max-height:calc(100vh - 260px); min-height:520px; overflow:auto; }
         .gp-mini-table th { position:sticky; top:0; z-index:2; background:#f8fbff; white-space:nowrap; }
         .gp-mini-table td { vertical-align:top; }
+        .gp-mini-table { min-width:980px; }
+        .gp-employee-cell { min-width:220px; white-space:normal; }
+        .gp-work-list { display:grid; gap:4px; }
+        .gp-work-item { line-height:1.35; overflow-wrap:anywhere; }
+        .gp-detail-row { display:none; }
+        .gp-detail-row.is-open { display:table-row; }
+        .gp-detail-panel { background:#fff; border:1px solid #dbe4ef; border-radius:6px; padding:10px; }
+        .gp-detail-table { min-width:880px; }
+        .gp-detail-toggle { white-space:nowrap; }
+        .gp-detail-toggle.is-open { color:#fff; background:#0d6efd; border-color:#0d6efd; }
+        .gp-group-total { background:#fbfdff; font-weight:700; }
+        .gp-group-total.gp-detail-click { cursor:pointer; }
+        .gp-group-total.gp-detail-click:hover { background:#eef6ff; }
+        .gp-group-total.is-open { background:#dbeafe; color:#0f3d78; }
         .gp-mfg-group { background:#f6f8fb; font-weight:800; }
         .gp-step-cell { min-width:180px; }
-        .gp-work-summary { min-width:320px; max-width:620px; white-space:normal; }
-        .gp-mode-layout { display:grid; grid-template-columns:minmax(0, 1fr) 280px; gap:12px; align-items:start; }
+        .gp-work-summary { min-width:460px; max-width:820px; white-space:normal; }
+        .gp-mode-layout { display:grid; grid-template-columns:minmax(0, 1fr) 240px; gap:12px; align-items:start; }
         .gp-total-panel { background:#fff; border:1px solid #dfe5ec; border-radius:8px; overflow:hidden; position:sticky; top:12px; }
         .gp-total-panel .gp-total-head { padding:10px 12px; background:#f8fbff; border-bottom:1px solid #e8edf2; font-weight:800; }
         .gp-total-body { padding:10px 12px; }
@@ -44,7 +62,7 @@
         .gp-total-row:last-child { border-bottom:0; }
         .gp-total-label { color:#6b7280; }
         .gp-total-value { font-weight:800; text-align:right; font-variant-numeric:tabular-nums; }
-        .gp-subtotal-list { max-height:300px; overflow:auto; margin-top:8px; border-top:1px solid #e5e7eb; padding-top:8px; }
+        .gp-subtotal-list { max-height:420px; overflow:auto; margin-top:8px; border-top:1px solid #e5e7eb; padding-top:8px; }
         @media (max-width:1199px) { .gp-mode-layout { grid-template-columns:1fr; } .gp-total-panel { position:static; } }
         .gp-project-wrap { position:relative; }
         .gp-mfg-list { position:absolute; z-index:20; background:#fff; border:1px solid #ced4da; border-radius:6px; width:100%; max-height:240px; overflow:auto; display:none; }
@@ -155,6 +173,12 @@
             $viewMode = $filters['view_mode'] ?? 'transactions';
             $employeeDailyRows = $employeeDailyRows ?? collect();
             $mfgFlowRows = $mfgFlowRows ?? collect();
+            $employeeDetailRows = $employeeDetailRows ?? collect();
+            $mfgDetailRows = $mfgDetailRows ?? collect();
+            $employeeDetailsByEmployee = $employeeDetailRows->groupBy('detail_employee_id');
+            $employeeDetailsByDay = $employeeDetailRows->groupBy(fn($row) => $row->detail_employee_id . '|' . $row->work_day);
+            $mfgDetailsByMfg = $mfgDetailRows->groupBy('mfg_no');
+            $mfgDetailsByStep = $mfgDetailRows->groupBy(fn($row) => $row->mfg_no . '|' . $row->step_id);
             $employeeTotals = [
                 'rows' => $employeeDailyRows->count(),
                 'employees' => $employeeDailyRows->pluck('employee_id')->unique()->count(),
@@ -170,17 +194,17 @@
                 ];
             });
             $mfgTotals = [
-                'rows' => $mfgFlowRows->count(),
+                'rows' => $mfgDetailRows->count(),
                 'mfgs' => $mfgFlowRows->pluck('mfg_no')->unique()->count(),
-                'hours' => $mfgFlowRows->sum('minutes') / 60,
-                'good_pcs' => $mfgFlowRows->sum('allocated_good_pcs'),
-                'bad_pcs' => $mfgFlowRows->sum('allocated_bad_pcs'),
+                'hours' => $mfgDetailRows->sum('duration_minutes') / 60,
+                'good_pcs' => $mfgDetailRows->sum('good_qty_pcs'),
+                'bad_pcs' => $mfgDetailRows->sum('bad_qty_pcs'),
             ];
-            $mfgSubtotals = $mfgFlowRows->groupBy('mfg_no')->map(function ($items) {
+            $mfgSubtotals = $mfgDetailRows->groupBy('mfg_no')->map(function ($items) {
                 return [
-                    'hours' => $items->sum('minutes') / 60,
-                    'good_pcs' => $items->sum('allocated_good_pcs'),
-                    'bad_pcs' => $items->sum('allocated_bad_pcs'),
+                    'hours' => $items->sum('duration_minutes') / 60,
+                    'good_pcs' => $items->sum('good_qty_pcs'),
+                    'bad_pcs' => $items->sum('bad_qty_pcs'),
                 ];
             });
         @endphp
@@ -205,17 +229,115 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse ($employeeDailyRows as $dailyRow)
-                                <tr>
-                                    <td>{{ $dailyRow->employee_name }}</td>
-                                    <td>{{ \Carbon\Carbon::parse($dailyRow->work_day)->format('d/m/Y') }}</td>
-                                    <td class="gp-work-summary">
-                                        {{ $dailyRow->work_summary }}
-                                        <span class="gp-subline">{{ number_format($dailyRow->entry_count) }} transactions</span>
+                            @forelse ($employeeDailyRows->groupBy('employee_id') as $employeeId => $employeeRows)
+                                @php
+                                    $firstEmployee = $employeeRows->first();
+                                    $employeeSubtotal = [
+                                        'rows' => $employeeRows->sum('entry_count'),
+                                        'hours' => $employeeRows->sum('minutes') / 60,
+                                        'good_pcs' => $employeeRows->sum('allocated_good_pcs'),
+                                        'bad_pcs' => $employeeRows->sum('allocated_bad_pcs'),
+                                    ];
+                                    $employeeDetailTarget = 'employee-detail-' . $employeeId;
+                                    $employeeDetails = $employeeDetailsByEmployee->get($employeeId, collect());
+                                @endphp
+                                <tr class="gp-mfg-group">
+                                    <td colspan="6">
+                                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                                            <span>{{ $firstEmployee->employee_name }}</span>
+                                            <button type="button" class="btn btn-sm btn-outline-primary gp-detail-toggle" data-detail-target="{{ $employeeDetailTarget }}">
+                                                Transactions ({{ number_format($employeeDetails->count()) }})
+                                            </button>
+                                        </div>
                                     </td>
-                                    <td class="num">{{ $hours($dailyRow->minutes) }}</td>
-                                    <td class="num">{{ $fmt($dailyRow->allocated_good_pcs, 0) }}</td>
-                                    <td class="num">{{ $fmt($dailyRow->allocated_bad_pcs, 0) }}</td>
+                                </tr>
+                                @foreach ($employeeRows as $dailyRow)
+                                    @php
+                                        $workItems = collect(explode(' | ', (string) $dailyRow->work_summary))
+                                            ->map(fn($item) => trim($item))
+                                            ->filter()
+                                            ->values();
+                                        $dayDetailTarget = 'employee-detail-' . $employeeId . '-' . \Carbon\Carbon::parse($dailyRow->work_day)->format('Ymd');
+                                        $dayDetails = $employeeDetailsByDay->get($employeeId . '|' . $dailyRow->work_day, collect());
+                                    @endphp
+                                    <tr>
+                                        <td></td>
+                                        <td>{{ \Carbon\Carbon::parse($dailyRow->work_day)->format('d/m/Y') }}</td>
+                                        <td class="gp-work-summary">
+                                            <div class="gp-work-list">
+                                                @foreach ($workItems as $workItem)
+                                                    <div class="gp-work-item">{{ $workItem }}</div>
+                                                @endforeach
+                                            </div>
+                                            <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                                                <span class="gp-subline">{{ number_format($dailyRow->entry_count) }} transactions</span>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary gp-detail-toggle" data-detail-target="{{ $dayDetailTarget }}">Detail</button>
+                                            </div>
+                                        </td>
+                                        <td class="num">{{ $hours($dailyRow->minutes) }}</td>
+                                        <td class="num">{{ $fmt($dailyRow->allocated_good_pcs, 0) }}</td>
+                                        <td class="num">{{ $fmt($dailyRow->allocated_bad_pcs, 0) }}</td>
+                                    </tr>
+                                    <tr class="gp-detail-row" data-detail-row="{{ $dayDetailTarget }}">
+                                        <td colspan="6">
+                                            <div class="gp-detail-panel">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm table-bordered gp-detail-table mb-0">
+                                                        <thead><tr><th>Date</th><th>MFG / SO</th><th>Step</th><th>Time</th><th class="num">Hrs</th><th class="num">Good pcs</th><th class="num">Bad pcs</th><th>Note</th></tr></thead>
+                                                        <tbody>
+                                                            @forelse ($dayDetails as $detail)
+                                                                <tr>
+                                                                    <td>{{ \Carbon\Carbon::parse($detail->work_date)->format('d/m/Y') }}</td>
+                                                                    <td>{{ $detail->is_field_work ? (($detail->field_mfgs ?? '') ?: 'FIELD') : $detail->mfg_no }}<span class="gp-subline">{{ $detail->salesorder ?? '' }}</span></td>
+                                                                    <td>{{ $detail->step_name }}</td>
+                                                                    <td>{{ \Carbon\Carbon::parse($detail->started_at)->format('H:i') }}-{{ $detail->finished_at ? \Carbon\Carbon::parse($detail->finished_at)->format('H:i') : '-' }}</td>
+                                                                    <td class="num">{{ $hours($detail->duration_minutes) }}</td>
+                                                                    <td class="num">{{ $fmt($detail->allocated_good_pcs, 0) }}</td>
+                                                                    <td class="num">{{ $fmt($detail->allocated_bad_pcs, 0) }}</td>
+                                                                    <td>{{ $detail->notes }}</td>
+                                                                </tr>
+                                                            @empty
+                                                                <tr><td colspan="8" class="text-center text-muted">No transaction detail</td></tr>
+                                                            @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                                <tr class="gp-group-total">
+                                    <td colspan="3">Subtotal {{ $firstEmployee->employee_name }} <span class="gp-subline">{{ number_format($employeeSubtotal['rows']) }} transactions</span></td>
+                                    <td class="num">{{ $fmt($employeeSubtotal['hours'], 1) }}</td>
+                                    <td class="num">{{ $fmt($employeeSubtotal['good_pcs'], 0) }}</td>
+                                    <td class="num">{{ $fmt($employeeSubtotal['bad_pcs'], 0) }}</td>
+                                </tr>
+                                <tr class="gp-detail-row" data-detail-row="{{ $employeeDetailTarget }}">
+                                    <td colspan="6">
+                                        <div class="gp-detail-panel">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-bordered gp-detail-table mb-0">
+                                                    <thead><tr><th>Date</th><th>MFG / SO</th><th>Step</th><th>Time</th><th class="num">Hrs</th><th class="num">Good pcs</th><th class="num">Bad pcs</th><th>Note</th></tr></thead>
+                                                    <tbody>
+                                                        @forelse ($employeeDetails as $detail)
+                                                            <tr>
+                                                                <td>{{ \Carbon\Carbon::parse($detail->work_date)->format('d/m/Y') }}</td>
+                                                                <td>{{ $detail->is_field_work ? (($detail->field_mfgs ?? '') ?: 'FIELD') : $detail->mfg_no }}<span class="gp-subline">{{ $detail->salesorder ?? '' }}</span></td>
+                                                                <td>{{ $detail->step_name }}</td>
+                                                                <td>{{ \Carbon\Carbon::parse($detail->started_at)->format('H:i') }}-{{ $detail->finished_at ? \Carbon\Carbon::parse($detail->finished_at)->format('H:i') : '-' }}</td>
+                                                                <td class="num">{{ $hours($detail->duration_minutes) }}</td>
+                                                                <td class="num">{{ $fmt($detail->allocated_good_pcs, 0) }}</td>
+                                                                <td class="num">{{ $fmt($detail->allocated_bad_pcs, 0) }}</td>
+                                                                <td>{{ $detail->notes }}</td>
+                                                            </tr>
+                                                        @empty
+                                                            <tr><td colspan="8" class="text-center text-muted">No transaction detail</td></tr>
+                                                        @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </td>
                                 </tr>
                             @empty
                                 <tr><td colspan="6" class="text-center text-muted py-3">No employee daily data</td></tr>
@@ -267,29 +389,124 @@
                         </thead>
                         <tbody>
                             @forelse ($mfgFlowRows->groupBy('mfg_no') as $mfgNo => $flowRows)
-                                @php $firstFlow = $flowRows->first(); @endphp
+                                @php
+                                    $firstFlow = $flowRows->first();
+                                    $mfgStepSubtotals = $flowRows->groupBy('step_id')->map(function ($stepRows) {
+                                        $firstStep = $stepRows->first();
+                                        return [
+                                            'step_name' => $firstStep->step_name,
+                                            'step_code' => $firstStep->step_code,
+                                            'rows' => $stepRows->sum('entry_count'),
+                                            'hours' => $stepRows->sum('minutes') / 60,
+                                            'good_pcs' => $stepRows->sum('allocated_good_pcs'),
+                                            'bad_pcs' => $stepRows->sum('allocated_bad_pcs'),
+                                        ];
+                                    });
+                                    $mfgDetailTarget = 'mfg-detail-' . md5((string) $mfgNo);
+                                    $mfgDetails = $mfgDetailsByMfg->get($mfgNo, collect());
+                                @endphp
                                 <tr class="gp-mfg-group">
                                     <td colspan="7">
-                                        {{ $mfgNo }}
-                                        @if($firstFlow->project ?? null)
-                                            <span class="text-muted">/ {{ $firstFlow->project }}</span>
-                                        @endif
-                                        @if($firstFlow->salesorder ?? null)
-                                            <span class="text-muted">/ SO: {{ $firstFlow->salesorder }}</span>
-                                        @endif
+                                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                                            <span>
+                                                {{ $mfgNo }}
+                                                @if($firstFlow->project ?? null)
+                                                    <span class="text-muted">/ {{ $firstFlow->project }}</span>
+                                                @endif
+                                                @if($firstFlow->salesorder ?? null)
+                                                    <span class="text-muted">/ SO: {{ $firstFlow->salesorder }}</span>
+                                                @endif
+                                                @if(($firstFlow->plan_qty_pcs ?? null) !== null)
+                                                    <span class="gp-subline">กำหนด: {{ $fmt($firstFlow->plan_qty_pcs, 0) }} ชิ้น</span>
+                                                @endif
+                                            </span>
+                                            <button type="button" class="btn btn-sm btn-outline-primary gp-detail-toggle" data-detail-target="{{ $mfgDetailTarget }}">
+                                                Transactions ({{ number_format($mfgDetails->count()) }})
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
-                                @foreach ($flowRows as $flowRow)
-                                    <tr>
+                                @foreach ($flowRows->groupBy('step_id') as $stepId => $stepRows)
+                                    @foreach ($stepRows as $flowRow)
+                                        <tr>
+                                            <td></td>
+                                            <td class="gp-step-cell">{{ $flowRow->step_name }}<span class="gp-subline">{{ $flowRow->step_code }}</span></td>
+                                            <td class="gp-employee-cell">{{ $flowRow->employee_name }}<span class="gp-subline">{{ number_format($flowRow->entry_count) }} transactions</span></td>
+                                            <td class="num">{{ $hours($flowRow->minutes) }}</td>
+                                            <td class="num">{{ $fmt($flowRow->allocated_good_pcs, 0) }}</td>
+                                            <td class="num">{{ $fmt($flowRow->allocated_bad_pcs, 0) }}</td>
+                                            <td>{{ $flowRow->last_work_date ? \Carbon\Carbon::parse($flowRow->last_work_date)->format('d/m/Y') : '-' }}</td>
+                                        </tr>
+                                    @endforeach
+                                    @php
+                                        $stepSubtotal = $mfgStepSubtotals->get($stepId);
+                                        $stepDetailTarget = 'mfg-step-detail-' . md5((string) $mfgNo . '|' . $stepId);
+                                        $stepDetails = $mfgDetailsByStep->get($mfgNo . '|' . $stepId, collect());
+                                    @endphp
+                                    <tr class="gp-group-total gp-detail-click" data-detail-target="{{ $stepDetailTarget }}">
                                         <td></td>
-                                        <td class="gp-step-cell">{{ $flowRow->step_name }}<span class="gp-subline">{{ $flowRow->step_code }}</span></td>
-                                        <td>{{ $flowRow->employee_name }}<span class="gp-subline">{{ number_format($flowRow->entry_count) }} transactions</span></td>
-                                        <td class="num">{{ $hours($flowRow->minutes) }}</td>
-                                        <td class="num">{{ $fmt($flowRow->allocated_good_pcs, 0) }}</td>
-                                        <td class="num">{{ $fmt($flowRow->allocated_bad_pcs, 0) }}</td>
-                                        <td>{{ $flowRow->last_work_date ? \Carbon\Carbon::parse($flowRow->last_work_date)->format('d/m/Y') : '-' }}</td>
+                                        <td>{{ $stepSubtotal['step_name'] }}<span class="gp-subline">{{ $stepSubtotal['step_code'] }}</span></td>
+                                        <td>Step subtotal <span class="gp-subline">{{ number_format($stepDetails->count()) }} transactions</span></td>
+                                        <td class="num">{{ $fmt($stepSubtotal['hours'], 1) }}</td>
+                                        <td class="num">{{ $fmt($stepSubtotal['good_pcs'], 0) }}</td>
+                                        <td class="num">{{ $fmt($stepSubtotal['bad_pcs'], 0) }}</td>
+                                        <td></td>
+                                    </tr>
+                                    <tr class="gp-detail-row" data-detail-row="{{ $stepDetailTarget }}">
+                                        <td colspan="7">
+                                            <div class="gp-detail-panel">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm table-bordered gp-detail-table mb-0">
+                                                        <thead><tr><th>Date</th><th>Step</th><th>Employee</th><th>Time</th><th class="num">Hrs</th><th class="num">Good pcs</th><th class="num">Bad pcs</th><th>Note</th></tr></thead>
+                                                        <tbody>
+                                                            @forelse ($stepDetails as $detail)
+                                                                <tr>
+                                                                    <td>{{ \Carbon\Carbon::parse($detail->work_date)->format('d/m/Y') }}</td>
+                                                                    <td>{{ $detail->step_name }}<span class="gp-subline">{{ $detail->step_code }}</span></td>
+                                                                    <td>{{ $detail->employee_names }}<span class="gp-subline">{{ number_format($detail->team_size) }} คน</span></td>
+                                                                    <td>{{ \Carbon\Carbon::parse($detail->started_at)->format('H:i') }}-{{ $detail->finished_at ? \Carbon\Carbon::parse($detail->finished_at)->format('H:i') : '-' }}</td>
+                                                                    <td class="num">{{ $hours($detail->duration_minutes) }}</td>
+                                                                    <td class="num">{{ $fmt($detail->good_qty_pcs, 0) }}</td>
+                                                                    <td class="num">{{ $fmt($detail->bad_qty_pcs, 0) }}</td>
+                                                                    <td>{{ $detail->notes }}</td>
+                                                                </tr>
+                                                            @empty
+                                                                <tr><td colspan="8" class="text-center text-muted">No transaction detail</td></tr>
+                                                            @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </td>
                                     </tr>
                                 @endforeach
+                                <tr class="gp-detail-row" data-detail-row="{{ $mfgDetailTarget }}">
+                                    <td colspan="7">
+                                        <div class="gp-detail-panel">
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-bordered gp-detail-table mb-0">
+                                                    <thead><tr><th>Date</th><th>Step</th><th>Employee</th><th>Time</th><th class="num">Hrs</th><th class="num">Good pcs</th><th class="num">Bad pcs</th><th>Note</th></tr></thead>
+                                                    <tbody>
+                                                        @forelse ($mfgDetails as $detail)
+                                                            <tr>
+                                                                <td>{{ \Carbon\Carbon::parse($detail->work_date)->format('d/m/Y') }}</td>
+                                                                <td>{{ $detail->step_name }}</td>
+                                                                <td>{{ $detail->employee_names }}<span class="gp-subline">{{ number_format($detail->team_size) }} คน</span></td>
+                                                                <td>{{ \Carbon\Carbon::parse($detail->started_at)->format('H:i') }}-{{ $detail->finished_at ? \Carbon\Carbon::parse($detail->finished_at)->format('H:i') : '-' }}</td>
+                                                                <td class="num">{{ $hours($detail->duration_minutes) }}</td>
+                                                                <td class="num">{{ $fmt($detail->good_qty_pcs, 0) }}</td>
+                                                                <td class="num">{{ $fmt($detail->bad_qty_pcs, 0) }}</td>
+                                                                <td>{{ $detail->notes }}</td>
+                                                            </tr>
+                                                        @empty
+                                                            <tr><td colspan="8" class="text-center text-muted">No transaction detail</td></tr>
+                                                        @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
                             @empty
                                 <tr><td colspan="7" class="text-center text-muted py-3">No MFG flow data</td></tr>
                             @endforelse
@@ -328,9 +545,9 @@
                         <tr>
                             <th class="gp-sticky-date">วันที่</th>
                             <th class="gp-sticky-mfg">MFG</th>
-                            <th>โครงการ / เลข SO</th>
-                            <th>Step</th>
-                            <th>พนักงาน</th>
+                            <th class="gp-transaction-project">โครงการ / เลข SO</th>
+                            <th class="gp-transaction-step">Step</th>
+                            <th class="gp-transaction-employee">พนักงาน</th>
                             <th>เริ่ม</th>
                             <th>จบ</th>
                             <th class="num">ชม.</th>
@@ -340,6 +557,7 @@
                             <th>งานหน้างาน</th>
                             <th>จบงาน</th>
                             <th>หมายเหตุ</th>
+                            <th>Created / Updated by</th>
                             <th class="gp-sticky-action">จัดการ</th>
                         </tr>
                     </thead>
@@ -359,14 +577,14 @@
                                         {{ $row->mfg_no }}
                                     @endif
                                 </td>
-                                <td>
+                                <td class="gp-transaction-project">
                                     {{ ($row->project ?? null) ?: '-' }}
                                     @if($row->salesorder ?? null)
                                         <div class="small text-muted">{{ $row->salesorder }}</div>
                                     @endif
                                 </td>
-                                <td>{{ $row->step_name }}</td>
-                                <td>{{ $row->employee_names }}<div class="small text-muted">{{ number_format($row->team_size) }} คน</div></td>
+                                <td class="gp-transaction-step">{{ $row->step_name }}</td>
+                                <td class="gp-transaction-employee">{{ $row->employee_names }}<div class="small text-muted">{{ number_format($row->team_size) }} คน</div></td>
                                 <td>{{ \Carbon\Carbon::parse($row->started_at)->format('H:i') }}</td>
                                 <td>{{ $row->finished_at ? \Carbon\Carbon::parse($row->finished_at)->format('H:i') : '-' }}</td>
                                 <td class="num">{{ $hours($row->duration_minutes) }}</td>
@@ -395,8 +613,13 @@
                                 </td>
                                 <td>{!! $row->is_finished ? '<span class="badge bg-success">จบงาน</span>' : '<span class="badge bg-warning text-dark">ยังไม่จบ</span>' !!}</td>
                                 <td>{{ $row->notes }}</td>
+                                <td>
+                                    {{ $row->created_by_name ?? '-' }}
+                                    <div class="small text-muted">{{ $row->updated_by_name ?? '-' }}</div>
+                                </td>
                                 <td class="text-nowrap gp-sticky-action">
                                     <div class="d-grid gap-1">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary gp-detail-toggle" data-detail-target="transaction-detail-{{ $row->id }}">Detail</button>
                                     <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#edit-entry-{{ $row->id }}">แก้ไข</button>
                                     <form method="POST" action="{{ route('grating-performance.entries.destroy', $row->id) }}" class="gp-delete-entry-form" data-entry-label="{{ $row->is_field_work ? ($row->project ?? 'Field work') : $row->mfg_no }}">
                                         @csrf
@@ -406,8 +629,25 @@
                                     </div>
                                 </td>
                             </tr>
+                            <tr class="gp-detail-row" data-detail-row="transaction-detail-{{ $row->id }}">
+                                <td colspan="16">
+                                    <div class="gp-detail-panel">
+                                        <div class="row g-2">
+                                            <div class="col-md-3"><strong>Date</strong><div>{{ \Carbon\Carbon::parse($row->work_date)->format('d/m/Y') }}</div></div>
+                                            <div class="col-md-3"><strong>MFG / SO</strong><div>{{ $row->is_field_work ? (($row->field_mfgs ?? '') ?: 'FIELD') : $row->mfg_no }}</div><span class="gp-subline">{{ $row->salesorder ?? '' }}</span></div>
+                                            <div class="col-md-3"><strong>Step</strong><div>{{ $row->step_name }}</div></div>
+                                            <div class="col-md-3"><strong>Employee</strong><div>{{ $row->employee_names }}</div><span class="gp-subline">{{ number_format($row->team_size) }} คน</span></div>
+                                            <div class="col-md-3"><strong>Time</strong><div>{{ \Carbon\Carbon::parse($row->started_at)->format('H:i') }}-{{ $row->finished_at ? \Carbon\Carbon::parse($row->finished_at)->format('H:i') : '-' }}</div><span class="gp-subline">{{ $hours($row->duration_minutes) }} hrs</span></div>
+                                            <div class="col-md-3"><strong>Good</strong><div>{{ $fmt($row->good_qty_pcs, 0) }} pcs</div><span class="gp-subline">{{ $fmt($row->good_qty_kg) }} kg</span></div>
+                                            <div class="col-md-3"><strong>Bad</strong><div>{{ $fmt($row->bad_qty_pcs, 0) }} pcs</div><span class="gp-subline">{{ $fmt($row->bad_qty_kg) }} kg</span></div>
+                                            <div class="col-md-3"><strong>Plan</strong><div>{{ ($row->plan_qty_pcs ?? null) ? $fmt($row->plan_qty_pcs, 0) . ' pcs' : '-' }}</div></div>
+                                            <div class="col-12"><strong>Note</strong><div>{{ $row->notes ?: '-' }}</div></div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
                         @empty
-                            <tr><td colspan="15" class="text-center text-muted py-4">ยังไม่มีข้อมูล</td></tr>
+                            <tr><td colspan="16" class="text-center text-muted py-4">ยังไม่มีข้อมูล</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -550,6 +790,28 @@
     <script>
         (function () {
             const gpStepBalanceUrl = @json(route('grating-performance.step-balance'));
+
+            document.addEventListener('click', function (event) {
+                const trigger = event.target.closest('.gp-detail-toggle, .gp-detail-click');
+                if (!trigger) return;
+
+                const target = trigger.dataset.detailTarget;
+                if (!target) return;
+
+                let isOpen = false;
+                document.querySelectorAll(`[data-detail-row="${CSS.escape(target)}"]`).forEach(row => {
+                    row.classList.toggle('is-open');
+                    isOpen = row.classList.contains('is-open');
+                });
+
+                trigger.classList.toggle('is-open', isOpen);
+                trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+
+                if (trigger.classList.contains('gp-detail-toggle')) {
+                    trigger.dataset.closedLabel = trigger.dataset.closedLabel || trigger.textContent.trim();
+                    trigger.textContent = isOpen ? 'Hide detail' : trigger.dataset.closedLabel;
+                }
+            });
 
             function numberValue(value) {
                 const parsed = parseFloat(String(value ?? '').replace(/,/g, ''));

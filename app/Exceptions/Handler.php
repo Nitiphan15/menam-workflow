@@ -57,6 +57,14 @@ class Handler extends ExceptionHandler
                     'Session expired. Please log in again.'
                 );
             }
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Session expired. Please refresh the page and try again.',
+                ], 419);
+            }
+
+            return response()->view('errors.419', [], 419);
         }
 
         return parent::render($request, $e);

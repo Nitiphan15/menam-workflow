@@ -14,10 +14,16 @@ use Illuminate\Validation\ValidationException;
 class GratingPerformanceController extends Controller
 {
     private const D8_FG_GRATING_MONTHLY_TARGET = 1700000.0;
+    private const WORK_BREAKS = [
+        ['10:00', '10:15'],
+        ['12:00', '13:00'],
+        ['15:00', '15:15'],
+    ];
 
     private ?array $entryColumnAvailability = null;
     private ?array $stepColumnAvailability = null;
     private ?array $employeeColumnAvailability = null;
+    private ?array $tableColumnAvailability = null;
 
     private const DEFAULT_MASTER_STEPS = [
         ['step_code' => 'WELD_ASSEMBLY', 'step_name' => 'เชื่อมประกอบ', 'target_kg_per_hour' => null, 'sort_order' => 10, 'is_field_work' => false],
@@ -150,6 +156,8 @@ class GratingPerformanceController extends Controller
                 'rows' => collect(),
                 'employeeDailyRows' => collect(),
                 'mfgFlowRows' => collect(),
+                'employeeDetailRows' => collect(),
+                'mfgDetailRows' => collect(),
                 'steps' => collect(),
                 'employees' => collect(),
             ]);
@@ -160,13 +168,15 @@ class GratingPerformanceController extends Controller
         $rows = collect();
         $employeeDailyRows = collect();
         $mfgFlowRows = collect();
+        $employeeDetailRows = collect();
+        $mfgDetailRows = collect();
 
         if ($viewMode === 'transactions') {
             $employeeRollup = $this->employeeRollupSubquery();
             $stepRollup = $this->stepRollupSubquery();
             $fieldMfgRollup = $this->fieldMfgRollupSubquery();
             $targetPcsExpr = $this->hasStepColumn('target_pcs_per_hour') ? 's.target_pcs_per_hour' : 'CAST(NULL AS decimal(12, 3))';
-            $rows = $this->entryBase($filters)
+            $query = $this->entryBase($filters)
                 ->select([
                     'e.*',
                     DB::raw("COALESCE(sr.step_codes, s.step_code) as step_code"),
@@ -179,15 +189,33 @@ class GratingPerformanceController extends Controller
                 ])
                 ->leftJoinSub($employeeRollup, 'er', 'er.entry_id', '=', 'e.id')
                 ->leftJoinSub($stepRollup, 'sr', 'sr.entry_id', '=', 'e.id')
-                ->leftJoinSub($fieldMfgRollup, 'fmr', 'fmr.entry_id', '=', 'e.id')
+                ->leftJoinSub($fieldMfgRollup, 'fmr', 'fmr.entry_id', '=', 'e.id');
+
+            if ($this->hasTableColumn('grating_daily_entries', 'created_by')) {
+                $query->leftJoin('users as creator', 'creator.id', '=', 'e.created_by')
+                    ->addSelect(DB::raw("creator.name as created_by_name"));
+            } else {
+                $query->addSelect(DB::raw("CAST(NULL AS NVARCHAR(160)) as created_by_name"));
+            }
+
+            if ($this->hasTableColumn('grating_daily_entries', 'updated_by')) {
+                $query->leftJoin('users as updater', 'updater.id', '=', 'e.updated_by')
+                    ->addSelect(DB::raw("updater.name as updated_by_name"));
+            } else {
+                $query->addSelect(DB::raw("CAST(NULL AS NVARCHAR(160)) as updated_by_name"));
+            }
+
+            $rows = $query
                 ->orderByDesc('e.work_date')
                 ->orderByDesc('e.started_at')
                 ->paginate(50)
                 ->withQueryString();
         } elseif ($viewMode === 'employee') {
             $employeeDailyRows = $this->employeeDailyInquiry($filters);
+            $employeeDetailRows = $this->employeeTransactionDetails($filters);
         } elseif ($viewMode === 'mfg') {
             $mfgFlowRows = $this->mfgFlowInquiry($filters);
+            $mfgDetailRows = $this->mfgTransactionDetails($filters);
         }
 
         return view('formGP.grating-performance.inquiry', [
@@ -197,6 +225,8 @@ class GratingPerformanceController extends Controller
             'summary' => $this->inquirySummary($filters),
             'employeeDailyRows' => $employeeDailyRows,
             'mfgFlowRows' => $mfgFlowRows,
+            'employeeDetailRows' => $employeeDetailRows,
+            'mfgDetailRows' => $mfgDetailRows,
             'steps' => $this->stepOptions(false),
             'employees' => $this->employeeOptions(false),
         ]);
@@ -340,7 +370,7 @@ class GratingPerformanceController extends Controller
                     if ($finishedAt->lt($startedAt)) {
                         $finishedAt->addDay();
                     }
-                    $durationMinutes = max(0, $startedAt->diffInMinutes($finishedAt));
+                    $durationMinutes = $this->netDurationMinutes($startedAt, $finishedAt);
                 }
 
                 $quantity = $this->entryQuantityPayload($entry, $isFieldWork);
@@ -352,7 +382,7 @@ class GratingPerformanceController extends Controller
                     $this->assertEntryDoesNotExceedPlan($entry, $quantity, $stepIds, $mfgNo, $index, null, $batchTotals);
                 }
 
-                $entryId = SqlServerDb::table('grating_daily_entries')->insertGetId([
+                $entryPayload = [
                     'work_date' => $workDate,
                     'mfg_no' => $mfgNo,
                     'step_id' => $primaryStepId,
@@ -382,15 +412,18 @@ class GratingPerformanceController extends Controller
                     'notes' => $entry['notes'] ?? null,
                     'created_at' => now(),
                     'updated_at' => now(),
-                ]);
+                ];
+
+                $entryId = SqlServerDb::table('grating_daily_entries')
+                    ->insertGetId($this->withAudit('grating_daily_entries', $entryPayload));
 
                 SqlServerDb::table('grating_entry_steps')->insert(
-                    $stepIds->map(fn($stepId) => [
+                    $stepIds->map(fn($stepId) => $this->withAudit('grating_entry_steps', [
                         'entry_id' => $entryId,
                         'step_id' => $stepId,
                         'created_at' => now(),
                         'updated_at' => now(),
-                    ])->all()
+                    ]))->all()
                 );
 
                 if ($isFieldWork) {
@@ -403,12 +436,12 @@ class GratingPerformanceController extends Controller
                     ->unique()
                     ->values();
 
-                $employeeRows = $employeeIds->map(fn($employeeId) => [
+                $employeeRows = $employeeIds->map(fn($employeeId) => $this->withAudit('grating_entry_employees', [
                     'entry_id' => $entryId,
                     'employee_id' => $employeeId,
                     'created_at' => now(),
                     'updated_at' => now(),
-                ])->all();
+                ]))->all();
 
                 SqlServerDb::table('grating_entry_employees')->insert($employeeRows);
             }
@@ -586,7 +619,7 @@ class GratingPerformanceController extends Controller
             if ($finishedAt->lt($startedAt)) {
                 $finishedAt->addDay();
             }
-            $durationMinutes = max(0, $startedAt->diffInMinutes($finishedAt));
+            $durationMinutes = $this->netDurationMinutes($startedAt, $finishedAt);
         }
 
         $entryPayload = [
@@ -616,7 +649,7 @@ class GratingPerformanceController extends Controller
         SqlServerDb::transaction(function () use ($entry, $validated, $workDate, $startedAt, $finishedAt, $durationMinutes, $quantity, $stepId, $isFieldWork, $isPackStep) {
             SqlServerDb::table('grating_daily_entries')
                 ->where('id', $entry)
-                ->update([
+                ->update($this->withAudit('grating_daily_entries', [
                     'work_date' => $workDate,
                     'step_id' => $stepId,
                     'started_at' => $startedAt,
@@ -638,15 +671,15 @@ class GratingPerformanceController extends Controller
                     'salesorder' => $quantity['salesorder'],
                     'notes' => $validated['notes'] ?? null,
                     'updated_at' => now(),
-                ]);
+                ], true));
 
             SqlServerDb::table('grating_entry_steps')->where('entry_id', $entry)->delete();
-            SqlServerDb::table('grating_entry_steps')->insert([
+            SqlServerDb::table('grating_entry_steps')->insert($this->withAudit('grating_entry_steps', [
                 'entry_id' => $entry,
                 'step_id' => $stepId,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ]);
+            ]));
 
             $this->syncFieldMfgs($entry, $isFieldWork ? ($validated['field_mfgs'] ?? []) : []);
         });
@@ -716,13 +749,66 @@ class GratingPerformanceController extends Controller
             ->sum(DB::raw('COALESCE(e.good_qty_pcs, 0) + COALESCE(e.bad_qty_pcs, 0)'));
     }
 
-    public function destroyEntry(int $entry)
+    private function netDurationMinutes(Carbon $startedAt, Carbon $finishedAt): int
     {
-        if ($this->hasFieldMfgTable()) {
-            SqlServerDb::table('grating_entry_field_mfgs')->where('entry_id', $entry)->delete();
+        $grossMinutes = max(0, $startedAt->diffInMinutes($finishedAt));
+        if ($grossMinutes === 0) {
+            return 0;
         }
 
-        SqlServerDb::table('grating_daily_entries')->where('id', $entry)->delete();
+        $breakMinutes = 0;
+        $day = $startedAt->copy()->startOfDay();
+        $lastDay = $finishedAt->copy()->startOfDay();
+
+        while ($day->lte($lastDay)) {
+            foreach (self::WORK_BREAKS as [$breakStartTime, $breakEndTime]) {
+                $breakStart = Carbon::parse($day->toDateString() . ' ' . $breakStartTime);
+                $breakEnd = Carbon::parse($day->toDateString() . ' ' . $breakEndTime);
+                $overlapStart = $startedAt->gt($breakStart) ? $startedAt->copy() : $breakStart;
+                $overlapEnd = $finishedAt->lt($breakEnd) ? $finishedAt->copy() : $breakEnd;
+
+                if ($overlapEnd->gt($overlapStart)) {
+                    $breakMinutes += $overlapStart->diffInMinutes($overlapEnd);
+                }
+            }
+
+            $day->addDay();
+        }
+
+        return max(0, $grossMinutes - $breakMinutes);
+    }
+
+    public function destroyEntry(int $entry)
+    {
+        SqlServerDb::transaction(function () use ($entry) {
+            $entryRow = SqlServerDb::table('grating_daily_entries')->where('id', $entry)->first();
+            if (!$entryRow) {
+                return;
+            }
+
+            $this->logDeleteSnapshot('grating_daily_entries', $entryRow, $entry);
+
+            SqlServerDb::table('grating_entry_employees')
+                ->where('entry_id', $entry)
+                ->get()
+                ->each(fn($row) => $this->logDeleteSnapshot('grating_entry_employees', $row, $entry));
+
+            SqlServerDb::table('grating_entry_steps')
+                ->where('entry_id', $entry)
+                ->get()
+                ->each(fn($row) => $this->logDeleteSnapshot('grating_entry_steps', $row, $entry));
+
+            if ($this->hasFieldMfgTable()) {
+                SqlServerDb::table('grating_entry_field_mfgs')
+                    ->where('entry_id', $entry)
+                    ->get()
+                    ->each(fn($row) => $this->logDeleteSnapshot('grating_entry_field_mfgs', $row, $entry));
+
+                SqlServerDb::table('grating_entry_field_mfgs')->where('entry_id', $entry)->delete();
+            }
+
+            SqlServerDb::table('grating_daily_entries')->where('id', $entry)->delete();
+        });
 
         return back()->with('success', 'ยกเลิกรายการแล้ว');
     }
@@ -754,6 +840,16 @@ class GratingPerformanceController extends Controller
     public function destroyEmployee(int $employee)
     {
         SqlServerDb::transaction(function () use ($employee) {
+            $employeeRow = SqlServerDb::table('grating_employees')->where('id', $employee)->first();
+            if ($employeeRow) {
+                $this->logDeleteSnapshot('grating_employees', $employeeRow);
+            }
+
+            SqlServerDb::table('grating_entry_employees')
+                ->where('employee_id', $employee)
+                ->get()
+                ->each(fn($row) => $this->logDeleteSnapshot('grating_entry_employees', $row, $row->entry_id ?? null));
+
             SqlServerDb::table('grating_entry_employees')->where('employee_id', $employee)->delete();
             SqlServerDb::table('grating_employees')->where('id', $employee)->delete();
         });
@@ -778,14 +874,20 @@ class GratingPerformanceController extends Controller
 
         $now = now();
         foreach (self::DEFAULT_MASTER_STEPS as $step) {
-            SqlServerDb::table('grating_steps')->updateOrInsert(
-                ['step_code' => $step['step_code']],
-                array_merge($step, [
+            $existing = SqlServerDb::table('grating_steps')->where('step_code', $step['step_code'])->first();
+            $payload = array_merge($step, [
                     'active' => true,
-                    'created_at' => $now,
                     'updated_at' => $now,
-                ])
-            );
+                ]);
+
+            if ($existing) {
+                SqlServerDb::table('grating_steps')
+                    ->where('id', $existing->id)
+                    ->update($this->withAudit('grating_steps', $payload, true));
+            } else {
+                SqlServerDb::table('grating_steps')
+                    ->insert($this->withAudit('grating_steps', array_merge($payload, ['created_at' => $now])));
+            }
         }
 
         return back()->with('success', 'เติม Master Step เป็น checklist แล้ว');
@@ -1087,6 +1189,7 @@ class GratingPerformanceController extends Controller
         $teamSize = $this->teamSizeSubquery();
         $projectExpr = $this->hasEntryColumn('project') ? 'MAX(e.project)' : 'CAST(NULL AS NVARCHAR(MAX))';
         $salesorderExpr = $this->hasEntryColumn('salesorder') ? 'MAX(e.salesorder)' : 'CAST(NULL AS NVARCHAR(MAX))';
+        $planQtyExpr = $this->hasEntryColumn('plan_qty_pcs') ? 'MAX(e.plan_qty_pcs)' : 'CAST(NULL AS decimal(18, 3))';
 
         return $this->entryBase($filters)
             ->leftJoin('grating_entry_steps as ges_flow', 'ges_flow.entry_id', '=', 'e.id')
@@ -1099,6 +1202,7 @@ class GratingPerformanceController extends Controller
                 'e.mfg_no',
                 DB::raw($projectExpr . ' as project'),
                 DB::raw($salesorderExpr . ' as salesorder'),
+                DB::raw($planQtyExpr . ' as plan_qty_pcs'),
                 'flow_step.id as step_id',
                 'flow_step.step_code',
                 'flow_step.step_name',
@@ -1119,6 +1223,92 @@ class GratingPerformanceController extends Controller
             ->orderBy('flow_step.step_code')
             ->orderBy('ge.name')
             ->limit(240)
+            ->get();
+    }
+
+    private function employeeTransactionDetails(array $filters)
+    {
+        $teamSize = $this->teamSizeSubquery();
+        $stepRollup = $this->stepRollupSubquery();
+        $fieldMfgRollup = $this->fieldMfgRollupSubquery();
+        $projectExpr = $this->hasEntryColumn('project') ? 'e.project' : 'CAST(NULL AS NVARCHAR(MAX))';
+        $salesorderExpr = $this->hasEntryColumn('salesorder') ? 'e.salesorder' : 'CAST(NULL AS NVARCHAR(MAX))';
+
+        return $this->entryBase($filters)
+            ->join('grating_entry_employees as gee_detail', 'gee_detail.entry_id', '=', 'e.id')
+            ->join('grating_employees as ge_detail', 'ge_detail.id', '=', 'gee_detail.employee_id')
+            ->leftJoinSub($teamSize, 'ts_detail', 'ts_detail.entry_id', '=', 'e.id')
+            ->leftJoinSub($stepRollup, 'sr_detail', 'sr_detail.entry_id', '=', 'e.id')
+            ->leftJoinSub($fieldMfgRollup, 'fmr_detail', 'fmr_detail.entry_id', '=', 'e.id')
+            ->select([
+                'e.id',
+                'e.work_date',
+                'e.mfg_no',
+                DB::raw($projectExpr . ' as project'),
+                DB::raw($salesorderExpr . ' as salesorder'),
+                'e.started_at',
+                'e.finished_at',
+                'e.duration_minutes',
+                'e.good_qty_pcs',
+                'e.bad_qty_pcs',
+                'e.good_qty_kg',
+                'e.bad_qty_kg',
+                'e.is_field_work',
+                'e.field_activity',
+                'e.notes',
+                'ge_detail.id as detail_employee_id',
+                'ge_detail.name as detail_employee_name',
+                DB::raw('CONVERT(varchar(10), e.work_date, 120) as work_day'),
+                DB::raw("COALESCE(sr_detail.step_names, s.step_name) as step_name"),
+                DB::raw("COALESCE(fmr_detail.field_mfgs, '') as field_mfgs"),
+                DB::raw('COALESCE(ts_detail.team_size, 1) as team_size'),
+                DB::raw('COALESCE(e.good_qty_pcs, 0) / NULLIF(COALESCE(ts_detail.team_size, 1), 0) as allocated_good_pcs'),
+                DB::raw('COALESCE(e.bad_qty_pcs, 0) / NULLIF(COALESCE(ts_detail.team_size, 1), 0) as allocated_bad_pcs'),
+            ])
+            ->orderBy('ge_detail.name')
+            ->orderBy('e.work_date')
+            ->orderBy('e.started_at')
+            ->limit(500)
+            ->get();
+    }
+
+    private function mfgTransactionDetails(array $filters)
+    {
+        $employeeRollup = $this->employeeRollupSubquery();
+        $projectExpr = $this->hasEntryColumn('project') ? 'e.project' : 'CAST(NULL AS NVARCHAR(MAX))';
+        $salesorderExpr = $this->hasEntryColumn('salesorder') ? 'e.salesorder' : 'CAST(NULL AS NVARCHAR(MAX))';
+
+        return $this->entryBase($filters)
+            ->leftJoin('grating_entry_steps as ges_detail', 'ges_detail.entry_id', '=', 'e.id')
+            ->join('grating_steps as detail_step', 'detail_step.id', '=', DB::raw('COALESCE(ges_detail.step_id, e.step_id)'))
+            ->leftJoinSub($employeeRollup, 'er_detail', 'er_detail.entry_id', '=', 'e.id')
+            ->where('e.mfg_no', '<>', 'FIELD')
+            ->select([
+                'e.id',
+                'e.work_date',
+                'e.mfg_no',
+                DB::raw($projectExpr . ' as project'),
+                DB::raw($salesorderExpr . ' as salesorder'),
+                'e.started_at',
+                'e.finished_at',
+                'e.duration_minutes',
+                'e.good_qty_pcs',
+                'e.bad_qty_pcs',
+                'e.good_qty_kg',
+                'e.bad_qty_kg',
+                'e.notes',
+                'detail_step.id as step_id',
+                'detail_step.step_code',
+                'detail_step.step_name',
+                DB::raw("COALESCE(er_detail.employee_names, '') as employee_names"),
+                DB::raw('COALESCE(er_detail.team_size, 0) as team_size'),
+            ])
+            ->orderBy('e.mfg_no')
+            ->orderBy('detail_step.sort_order')
+            ->orderBy('detail_step.step_code')
+            ->orderBy('e.work_date')
+            ->orderBy('e.started_at')
+            ->limit(500)
             ->get();
     }
 
@@ -1530,20 +1720,20 @@ class GratingPerformanceController extends Controller
     {
         $this->deactivateExpiredStudentEmployees();
 
-        return SqlServerDb::table('grating_employees')
-            ->when($activeOnly, fn($q) => $q->where('active', true))
-            ->orderBy('active', 'desc')
-            ->orderBy('name')
+        return $this->tableWithAuditNames('grating_employees')
+            ->when($activeOnly, fn($q) => $q->where('grating_employees.active', true))
+            ->orderBy('grating_employees.active', 'desc')
+            ->orderBy('grating_employees.name')
             ->get();
     }
 
     private function stepOptions(bool $activeOnly = true)
     {
-        return SqlServerDb::table('grating_steps')
-            ->when($activeOnly, fn($q) => $q->where('active', true))
-            ->orderBy('active', 'desc')
-            ->orderBy('sort_order')
-            ->orderBy('step_code')
+        return $this->tableWithAuditNames('grating_steps')
+            ->when($activeOnly, fn($q) => $q->where('grating_steps.active', true))
+            ->orderBy('grating_steps.active', 'desc')
+            ->orderBy('grating_steps.sort_order')
+            ->orderBy('grating_steps.step_code')
             ->get();
     }
 
@@ -1559,11 +1749,11 @@ class GratingPerformanceController extends Controller
 
     private function fieldActivityRows(bool $activeOnly = true)
     {
-        return SqlServerDb::table('grating_field_activities')
-            ->when($activeOnly, fn($q) => $q->where('active', true))
-            ->orderBy('active', 'desc')
-            ->orderBy('sort_order')
-            ->orderBy('activity_code')
+        return $this->tableWithAuditNames('grating_field_activities')
+            ->when($activeOnly, fn($q) => $q->where('grating_field_activities.active', true))
+            ->orderBy('grating_field_activities.active', 'desc')
+            ->orderBy('grating_field_activities.sort_order')
+            ->orderBy('grating_field_activities.activity_code')
             ->get();
     }
 
@@ -1573,12 +1763,33 @@ class GratingPerformanceController extends Controller
             return collect();
         }
 
-        return SqlServerDb::table('grating_projects')
-            ->when($activeOnly, fn($q) => $q->where('active', true))
-            ->orderBy('active', 'desc')
-            ->orderBy('sort_order')
-            ->orderBy('project_name')
+        return $this->tableWithAuditNames('grating_projects')
+            ->when($activeOnly, fn($q) => $q->where('grating_projects.active', true))
+            ->orderBy('grating_projects.active', 'desc')
+            ->orderBy('grating_projects.sort_order')
+            ->orderBy('grating_projects.project_name')
             ->get();
+    }
+
+    private function tableWithAuditNames(string $table)
+    {
+        $query = SqlServerDb::table($table)->select($table . '.*');
+
+        if ($this->hasTableColumn($table, 'created_by')) {
+            $query->leftJoin('users as creator_' . $table, 'creator_' . $table . '.id', '=', $table . '.created_by')
+                ->addSelect(DB::raw('creator_' . $table . '.name as created_by_name'));
+        } else {
+            $query->addSelect(DB::raw("CAST(NULL AS NVARCHAR(160)) as created_by_name"));
+        }
+
+        if ($this->hasTableColumn($table, 'updated_by')) {
+            $query->leftJoin('users as updater_' . $table, 'updater_' . $table . '.id', '=', $table . '.updated_by')
+                ->addSelect(DB::raw('updater_' . $table . '.name as updated_by_name'));
+        } else {
+            $query->addSelect(DB::raw("CAST(NULL AS NVARCHAR(160)) as updated_by_name"));
+        }
+
+        return $query;
     }
 
     private function employeeRollupSubquery()
@@ -1657,11 +1868,11 @@ class GratingPerformanceController extends Controller
             ->filter()
             ->unique('mfg_no')
             ->values()
-            ->map(fn($item) => array_merge($item, [
+            ->map(fn($item) => $this->withAudit('grating_entry_field_mfgs', array_merge($item, [
                 'entry_id' => $entryId,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]))
+            ])))
             ->all();
 
         SqlServerDb::table('grating_entry_field_mfgs')->where('entry_id', $entryId)->delete();
@@ -1768,7 +1979,7 @@ class GratingPerformanceController extends Controller
             }
         }
 
-        return array_merge($payload, $updating ? [] : ['created_at' => now()]);
+        return $this->withAudit('grating_employees', array_merge($payload, $updating ? [] : ['created_at' => now()]), $updating);
     }
 
     private function nextStudentEmployeeCode(): string
@@ -1822,7 +2033,7 @@ class GratingPerformanceController extends Controller
             $payload['target_pcs_per_hour'] = $validated['target_pcs_per_hour'] ?? null;
         }
 
-        return array_merge($payload, $updating ? [] : ['created_at' => now()]);
+        return $this->withAudit('grating_steps', array_merge($payload, $updating ? [] : ['created_at' => now()]), $updating);
     }
 
     private function fieldActivityExistsRule()
@@ -1843,13 +2054,13 @@ class GratingPerformanceController extends Controller
 
     private function fieldActivityPayload(array $validated, bool $updating = false): array
     {
-        return array_merge([
+        return $this->withAudit('grating_field_activities', array_merge([
             'activity_code' => strtoupper(trim($validated['activity_code'])),
             'activity_name' => $validated['activity_name'],
             'sort_order' => $validated['sort_order'] ?? 100,
             'active' => (bool) ($validated['active'] ?? false),
             'updated_at' => now(),
-        ], $updating ? [] : ['created_at' => now()]);
+        ], $updating ? [] : ['created_at' => now()]), $updating);
     }
 
     private function projectRules(): array
@@ -1864,13 +2075,13 @@ class GratingPerformanceController extends Controller
 
     private function projectPayload(array $validated, bool $updating = false): array
     {
-        return array_merge([
+        return $this->withAudit('grating_projects', array_merge([
             'project_name' => trim((string) $validated['project_name']),
             'salesorder' => $validated['salesorder'] ?? null,
             'sort_order' => $validated['sort_order'] ?? 100,
             'active' => (bool) ($validated['active'] ?? false),
             'updated_at' => now(),
-        ], $updating ? [] : ['created_at' => now()]);
+        ], $updating ? [] : ['created_at' => now()]), $updating);
     }
 
     private function avgFgGratingPricePerKg(): ?float
@@ -1927,6 +2138,31 @@ class GratingPerformanceController extends Controller
         return Schema::connection(SqlServerDb::connectionName())->hasTable('grating_entry_field_mfgs');
     }
 
+    private function hasDeleteLogTable(): bool
+    {
+        return Schema::connection(SqlServerDb::connectionName())->hasTable('grating_delete_logs');
+    }
+
+    private function logDeleteSnapshot(string $sourceTable, object $row, ?int $entryId = null): void
+    {
+        if (!$this->hasDeleteLogTable()) {
+            return;
+        }
+
+        $payload = get_object_vars($row);
+
+        SqlServerDb::table('grating_delete_logs')->insert([
+            'source_table' => $sourceTable,
+            'source_id' => isset($payload['id']) ? (string) $payload['id'] : null,
+            'entry_id' => $entryId,
+            'action' => 'DELETE',
+            'payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR),
+            'deleted_by' => auth()->id(),
+            'deleted_at' => now(),
+            'created_at' => now(),
+        ]);
+    }
+
     private function hasProjectTable(): bool
     {
         return Schema::connection(SqlServerDb::connectionName())->hasTable('grating_projects');
@@ -1937,12 +2173,42 @@ class GratingPerformanceController extends Controller
         if ($this->entryColumnAvailability === null) {
             $schema = Schema::connection(SqlServerDb::connectionName());
             $this->entryColumnAvailability = [];
-            foreach (['project', 'salesorder', 'plan_qty_pcs'] as $entryColumn) {
+            foreach (['project', 'salesorder', 'plan_qty_pcs', 'created_by', 'updated_by'] as $entryColumn) {
                 $this->entryColumnAvailability[$entryColumn] = $schema->hasColumn('grating_daily_entries', $entryColumn);
             }
         }
 
         return (bool) ($this->entryColumnAvailability[$column] ?? false);
+    }
+
+    private function hasTableColumn(string $table, string $column): bool
+    {
+        if ($this->tableColumnAvailability === null) {
+            $this->tableColumnAvailability = [];
+        }
+
+        $key = $table . '.' . $column;
+        if (!array_key_exists($key, $this->tableColumnAvailability)) {
+            $this->tableColumnAvailability[$key] = Schema::connection(SqlServerDb::connectionName())
+                ->hasColumn($table, $column);
+        }
+
+        return (bool) $this->tableColumnAvailability[$key];
+    }
+
+    private function withAudit(string $table, array $payload, bool $updating = false): array
+    {
+        $userId = auth()->id();
+
+        if (!$updating && $this->hasTableColumn($table, 'created_by')) {
+            $payload['created_by'] = $payload['created_by'] ?? $userId;
+        }
+
+        if ($this->hasTableColumn($table, 'updated_by')) {
+            $payload['updated_by'] = $userId;
+        }
+
+        return $payload;
     }
 
     private function deactivateExpiredStudentEmployees(): void
