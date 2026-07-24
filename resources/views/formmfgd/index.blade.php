@@ -193,10 +193,10 @@
                 <table class="table table-sm table-striped table-hover mfgd-table mb-0">
                     <thead>
                         <tr>
-                            <th>#</th><th>โรงงาน</th><th>วันที่</th><th>รายการเลขที่</th><th>รหัสสินค้า</th><th>ชื่อสินค้า</th>
+                            <th>#</th><th>โรงงาน</th><th>วันที่</th><th>รายการเลขที่</th>
                             <th class="text-end">จำนวนสั่งผลิต</th><th class="text-end">เบิกวัตถุดิบ</th><th class="text-end">ของดี</th>
                             <th class="text-end">ของเสีย</th><th class="text-end">% ของเสีย</th><th class="text-end">คืนวัตถุดิบ</th>
-                            <th class="text-end">Balance</th><th>ประเภทสินค้า</th><th>รหัสกลุ่มสินค้า</th><th>กลุ่มสินค้า</th>
+                            <th class="text-end">Balance</th><th>รหัสสินค้า</th><th>ชื่อสินค้า</th><th>ประเภทสินค้า</th><th>รหัสกลุ่มสินค้า</th><th>กลุ่มสินค้า</th>
                             <th>รหัสหมวดสินค้า</th><th>หมวดสินค้า</th><th>เลขที่คำสั่งขาย</th><th>รหัสลูกค้า</th>
                             <th>ชื่อลูกค้า</th><th>กำหนดส่ง</th><th>วันที่เบิก</th><th>Packaging</th>
                         </tr>
@@ -212,7 +212,6 @@
                                 <td><span class="badge {{ $row->site === 'Wire' ? 'text-bg-primary' : 'text-bg-success' }}">{{ $row->site }}</span></td>
                                 <td>{{ \Illuminate\Support\Str::of($row->document_date)->substr(0, 10) }}</td>
                                 <td><strong>{{ $row->workorder_no }}</strong></td>
-                                <td>{{ $row->part_no }}</td><td>{{ $row->part_name }}</td>
                                 <td class="text-end">{{ number_format($row->order_qty, 2) }}</td>
                                 <td class="text-end">{{ number_format($row->issued_qty, 2) }}</td>
                                 <td class="text-end">{{ number_format($row->good_qty, 2) }}</td>
@@ -220,6 +219,7 @@
                                 <td class="text-end {{ $rateClass }}">{{ number_format($rate, 2) }}%</td>
                                 <td class="text-end">{{ number_format($row->return_rm_qty, 2) }}</td>
                                 <td class="text-end">{{ number_format($row->balance_qty, 2) }}</td>
+                                <td>{{ $row->part_no }}</td><td>{{ $row->part_name }}</td>
                                 <td>{{ $row->part_type }}</td><td>{{ $row->group_code }}</td><td>{{ $row->group_name }}</td>
                                 <td>{{ $row->category_code }}</td><td>{{ $row->category_name }}</td><td>{{ $row->sales_order_no }}</td>
                                 <td>{{ $row->customer_code }}</td><td>{{ $row->customer_name }}</td>

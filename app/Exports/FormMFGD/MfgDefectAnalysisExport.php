@@ -21,8 +21,6 @@ class MfgDefectAnalysisExport implements FromArray, WithHeadings, ShouldAutoSize
             'โรงงาน',
             'วันที่',
             'รายการเลขที่',
-            'รหัสสินค้า',
-            'ชื่อสินค้า',
             'จำนวนสั่งผลิต',
             'เบิกวัตถุดิบ',
             'ของดี',
@@ -30,6 +28,8 @@ class MfgDefectAnalysisExport implements FromArray, WithHeadings, ShouldAutoSize
             'เปอร์เซ็นต์ของเสีย',
             'คืนวัตถุดิบ',
             'Balance',
+            'รหัสสินค้า',
+            'ชื่อสินค้า',
             'ประเภทสินค้า',
             'รหัสกลุ่มสินค้า',
             'กลุ่มสินค้า',
@@ -51,8 +51,6 @@ class MfgDefectAnalysisExport implements FromArray, WithHeadings, ShouldAutoSize
                 $row->site ?? '',
                 $this->dateText($row->document_date ?? null),
                 $row->workorder_no ?? '',
-                $row->part_no ?? '',
-                $row->part_name ?? '',
                 (float) ($row->order_qty ?? 0),
                 (float) ($row->issued_qty ?? 0),
                 (float) ($row->good_qty ?? 0),
@@ -60,6 +58,8 @@ class MfgDefectAnalysisExport implements FromArray, WithHeadings, ShouldAutoSize
                 (float) ($row->defect_pct ?? 0),
                 (float) ($row->return_rm_qty ?? 0),
                 (float) ($row->balance_qty ?? 0),
+                $row->part_no ?? '',
+                $row->part_name ?? '',
                 $row->part_type ?? '',
                 $row->group_code ?? '',
                 $row->group_name ?? '',
@@ -91,7 +91,7 @@ class MfgDefectAnalysisExport implements FromArray, WithHeadings, ShouldAutoSize
                         'startColor' => ['ARGB' => 'FF1E293B'],
                     ],
                 ]);
-                $sheet->getStyle("F2:L{$lastRow}")
+                $sheet->getStyle("D2:J{$lastRow}")
                     ->getNumberFormat()
                     ->setFormatCode('#,##0.00');
             },
