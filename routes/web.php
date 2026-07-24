@@ -25,6 +25,7 @@ use App\Http\Controllers\FormWOCR\WocrReviseController;
 use App\Models\FormWOCR\WocrDataFile;
 //Login
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DepartmentOrganizationController;
 //Admin
 use App\Http\Controllers\Admin\UserAdminController;
 use App\Http\Controllers\Admin\DepartmentAdminController;
@@ -188,6 +189,8 @@ Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
   ->name('dp.history');
 
 Route::view('/home', 'home')->name('home');
+Route::get('/organization', [DepartmentOrganizationController::class, 'index'])
+  ->name('organization.index');
 
 Route::prefix('/die-tracking')
   ->name('die.')
