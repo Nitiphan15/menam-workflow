@@ -12,6 +12,7 @@ return [
             ['icon' => 'fa-solid fa-right-to-bracket', 'text' => 'เข้าสู่ระบบ', 'route' => 'login'],
             ['icon' => 'fa-box', 'text' => 'Packaging',  'route' => 'pkg.packaging.usage'],
             ['icon' => 'fa-box', 'text' => 'Packaging Dashboard', 'route' => 'pkg.packaging.analysis'],
+            ['icon' => 'fa-chart-column', 'text' => 'MFG Defect Analysis', 'route' => 'mfg-defect.index'],
             [
                 'icon' => 'fa-triangle-exclamation',
                 'text' => 'Production Risk',

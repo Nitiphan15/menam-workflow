@@ -11,6 +11,7 @@ use App\Http\Controllers\FormPP\PlannerController;
 use App\Http\Controllers\FormPP\ReviseController;
 use App\Http\Controllers\FormPP\ViewController;
 use App\Http\Controllers\FormPP\PpDocboxController;
+use App\Http\Controllers\FormMFGD\MfgDefectAnalysisController;
 //PA
 use App\Http\Controllers\FormPA\PaMasterController;
 use App\Http\Controllers\FormPA\PaEvaluationController;
@@ -613,13 +614,19 @@ Route::prefix('accounting')
   });
 
 //ฟอร์มวางแผน
+Route::get('/mfg-defect', [MfgDefectAnalysisController::class, 'index'])
+  ->middleware('throttle:30,1')
+  ->name('mfg-defect.index');
+Route::get('/mfg-defect/export', [MfgDefectAnalysisController::class, 'export'])
+  ->middleware('throttle:5,1')
+  ->name('mfg-defect.export');
+
 Route::middleware(['auth', 'can:PP'])
   ->prefix('pp')
   ->name('pp.')
   ->group(function () {
     Route::get('/index',   [ProductionPlanController::class, 'index'])->name('index');
     Route::post('/store',  [ProductionPlanController::class, 'store'])->name('store');
-
     Route::get('/index/{id}/', [PlannerController::class, 'showPlanner'])->name('planner');
     Route::post('/action/{id}',  [PlannerController::class, 'planner_action'])->name('planner_action');
 
