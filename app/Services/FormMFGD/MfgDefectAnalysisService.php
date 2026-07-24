@@ -157,7 +157,12 @@ class MfgDefectAnalysisService
         }
 
         if (!empty($filters['prefix'])) {
-            $query->where('w.workordernumber', 'ilike', $filters['prefix'] . '%');
+            $prefix = ltrim((string) $filters['prefix'], '+');
+            $query->where(function ($builder) use ($prefix) {
+                $builder
+                    ->where('w.workordernumber', 'ilike', $prefix . '%')
+                    ->orWhere('w.workordernumber', 'ilike', '+' . $prefix . '%');
+            });
         }
 
         $rows = $query->get();
@@ -240,8 +245,8 @@ class MfgDefectAnalysisService
 
     private function mfgPrefix(string $workorder): string
     {
-        $workorder = strtoupper(trim($workorder));
+        $workorder = ltrim(strtoupper(trim($workorder)), '+');
 
-        return preg_match('/^[A-Z]/', $workorder, $matches) ? $matches[0] : '';
+        return preg_match('/^[A-Z]+/', $workorder, $matches) ? $matches[0] : '';
     }
 }

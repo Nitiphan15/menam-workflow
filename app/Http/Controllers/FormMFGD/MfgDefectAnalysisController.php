@@ -80,7 +80,7 @@ class MfgDefectAnalysisController extends Controller
                 ? null
                 : ($validated['date_to'] ?? ($hasExplicitDate ? null : Carbon::now()->toDateString())),
             'mfg' => strtoupper(trim((string) ($validated['mfg'] ?? ''))),
-            'prefix' => strtoupper(trim((string) ($validated['prefix'] ?? ''))),
+            'prefix' => ltrim(strtoupper(trim((string) ($validated['prefix'] ?? ''))), '+'),
             'site' => $validated['site'] ?? 'all',
             'all_dates' => $allDates,
             'per_page' => (int) ($validated['per_page'] ?? 50),
