@@ -58,7 +58,6 @@
                     <div class="col-6 col-md-2 col-lg-1">
                         <label class="form-label">ขึ้นต้นด้วย</label>
                         <input type="text" name="prefix" class="form-control text-uppercase" value="{{ $filters['prefix'] }}" placeholder="W / F / G">
-                        <div class="form-text">ไม่สนใจเครื่องหมาย + เช่น +W = W, +EX = EX</div>
                     </div>
                     <div class="col-6 col-md-3 col-lg-2">
                         <label class="form-label">โรงงาน</label>
