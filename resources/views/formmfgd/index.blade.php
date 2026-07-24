@@ -36,7 +36,7 @@
             <div class="alert alert-warning py-2">{{ session('warning') }}</div>
         @endif
 
-        @foreach ($errors as $error)
+        @foreach ($dataErrors as $error)
             <div class="alert alert-warning py-2">โหลดข้อมูลบางส่วนไม่สำเร็จ: {{ $error }}</div>
         @endforeach
 

@@ -36,7 +36,7 @@ class MfgDefectAnalysisController extends Controller
             'filters' => $filters,
             'summary' => $report['summary'],
             'prefixSummary' => $report['prefix_summary'],
-            'errors' => $report['errors'],
+            'dataErrors' => $report['errors'],
         ]);
     }
 
