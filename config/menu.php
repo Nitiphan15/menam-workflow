@@ -10,6 +10,7 @@ return [
         'guest' => [
             ['icon' => 'fa-solid fa-house',            'text' => 'หน้าหลัก', 'route' => 'home'],
             ['icon' => 'fa-solid fa-right-to-bracket', 'text' => 'เข้าสู่ระบบ', 'route' => 'login'],
+            ['icon' => 'fa-solid fa-sitemap', 'text' => 'Organization', 'route' => 'organization.index'],
             ['icon' => 'fa-box', 'text' => 'Packaging',  'route' => 'pkg.packaging.usage'],
             ['icon' => 'fa-box', 'text' => 'Packaging Dashboard', 'route' => 'pkg.packaging.analysis'],
             ['icon' => 'fa-chart-column', 'text' => 'MFG Defect Analysis', 'route' => 'mfg-defect.index'],
