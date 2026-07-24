@@ -55,9 +55,20 @@
                         <label class="form-label">MFG / เลขที่ผลิต</label>
                         <input type="text" name="mfg" class="form-control" value="{{ $filters['mfg'] }}" placeholder="เช่น W12345">
                     </div>
-                    <div class="col-6 col-md-2 col-lg-1">
+                    <div class="col-12 col-md-4 col-lg-2">
                         <label class="form-label">ขึ้นต้นด้วย</label>
-                        <input type="text" name="prefix" class="form-control text-uppercase" value="{{ $filters['prefix'] }}" placeholder="W / F / G">
+                        <input type="text" name="prefix" class="form-control text-uppercase" value="{{ $filters['prefix'] }}" placeholder="W,F,G,EX">
+                    </div>
+                    <div class="col-6 col-md-3 col-lg-2">
+                        <label class="form-label">ยอดผลิตขั้นต่ำ</label>
+                        <input type="number" name="min_output_qty" class="form-control" min="0" step="0.01" value="{{ $filters['min_output_qty'] ?: '' }}" placeholder="ของดี + ของเสีย">
+                    </div>
+                    <div class="col-6 col-md-3 col-lg-2">
+                        <label class="form-label">เรียงตาม</label>
+                        <select name="sort_by" class="form-select">
+                            <option value="defect_pct" @selected($filters['sort_by'] === 'defect_pct')>% ของเสีย</option>
+                            <option value="defect_qty" @selected($filters['sort_by'] === 'defect_qty')>จำนวนของเสีย</option>
+                        </select>
                     </div>
                     <div class="col-6 col-md-3 col-lg-2">
                         <label class="form-label">โรงงาน</label>
@@ -116,9 +127,17 @@
             <div class="col-12 col-xl-2">
                 @php $topPrefix = $prefixSummary->first(); @endphp
                 <div class="card mfgd-card mfgd-kpi danger h-100"><div class="card-body">
-                    <div class="label">Prefix เสียสูงสุด</div>
+                    <div class="label">Prefix สูงสุดตาม{{ $filters['sort_by'] === 'defect_qty' ? 'จำนวนของเสีย' : '% ของเสีย' }}</div>
                     <div class="value">{{ $topPrefix->prefix ?? '-' }}</div>
-                    <small class="text-muted">{{ isset($topPrefix) ? number_format($topPrefix->defect_pct, 2) . '%' : 'ไม่มีข้อมูล' }}</small>
+                    <small class="text-muted">
+                        @if (isset($topPrefix))
+                            {{ $filters['sort_by'] === 'defect_qty'
+                                ? number_format($topPrefix->defect_qty, 2)
+                                : number_format($topPrefix->defect_pct, 2) . '%' }}
+                        @else
+                            ไม่มีข้อมูล
+                        @endif
+                    </small>
                 </div></div>
             </div>
         </div>
@@ -126,7 +145,9 @@
         <div class="row g-3 mb-3">
             <div class="col-12 col-xl-5">
                 <div class="card mfgd-card h-100">
-                    <div class="card-header bg-white fw-semibold">อันดับ MFG Prefix ที่มี % ของเสียสูง</div>
+                    <div class="card-header bg-white fw-semibold">
+                        อันดับ MFG Prefix ตาม{{ $filters['sort_by'] === 'defect_qty' ? 'จำนวนของเสีย' : '% ของเสีย' }}
+                    </div>
                     <div class="table-responsive prefix-rank">
                         <table class="table table-sm table-hover mb-0">
                             <thead><tr><th>#</th><th>ขึ้นต้น</th><th class="text-end">WO</th><th class="text-end">ของดี</th><th class="text-end">ของเสีย</th><th class="text-end">% เสีย</th></tr></thead>
@@ -155,7 +176,8 @@
                         <ul class="mb-0 text-muted">
                             <li>แถวทั้งหมดรวมทั้ง WO ที่ Balance เป็นศูนย์หรือติดลบ เพื่อให้ตรวจย้อนหลังได้ครบ</li>
                             <li>สีแดงคือของเสียตั้งแต่ 5% ขึ้นไป สีส้มคือตั้งแต่ 1% แต่ต่ำกว่า 5%</li>
-                            <li>อันดับ Prefix คำนวณจากยอดของดีและของเสียรวมของทุก WO ในตัวกรองปัจจุบัน</li>
+                            <li>ยอดผลิตขั้นต่ำคำนวณจากของดี + ของเสียของแต่ละ WO และมีผลกับตาราง สรุป และ Excel</li>
+                            <li>อันดับ Prefix ใช้เกณฑ์ที่เลือกจากยอดรวมของทุก WO ในตัวกรองปัจจุบัน</li>
                         </ul>
                     </div>
                 </div>

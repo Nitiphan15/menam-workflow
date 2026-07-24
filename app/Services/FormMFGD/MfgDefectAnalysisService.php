@@ -37,25 +37,18 @@ class MfgDefectAnalysisService
         }
 
         $rows = $rows
-            ->sort(function ($a, $b) {
-                $rateCompare = ((float) $b->defect_pct) <=> ((float) $a->defect_pct);
-                if ($rateCompare !== 0) {
-                    return $rateCompare;
-                }
+            ->filter(function ($row) use ($filters) {
+                $outputQty = (float) $row->good_qty + (float) $row->defect_qty;
 
-                $defectCompare = ((float) $b->defect_qty) <=> ((float) $a->defect_qty);
-                if ($defectCompare !== 0) {
-                    return $defectCompare;
-                }
-
-                return strcmp((string) $a->workorder_no, (string) $b->workorder_no);
+                return $outputQty >= (float) ($filters['min_output_qty'] ?? 0);
             })
+            ->sort(fn($a, $b) => $this->compareDefects($a, $b, $filters['sort_by'] ?? 'defect_pct'))
             ->values();
 
         return [
             'rows' => $rows,
             'summary' => $this->summary($rows),
-            'prefix_summary' => $this->prefixSummary($rows),
+            'prefix_summary' => $this->prefixSummary($rows, $filters['sort_by'] ?? 'defect_pct'),
             'errors' => $errors,
         ];
     }
@@ -156,12 +149,15 @@ class MfgDefectAnalysisService
             $query->where('w.workordernumber', 'ilike', '%' . $filters['mfg'] . '%');
         }
 
-        if (!empty($filters['prefix'])) {
-            $prefix = ltrim((string) $filters['prefix'], '+');
-            $query->where(function ($builder) use ($prefix) {
-                $builder
-                    ->where('w.workordernumber', 'ilike', $prefix . '%')
-                    ->orWhere('w.workordernumber', 'ilike', '+' . $prefix . '%');
+        if (!empty($filters['prefixes'])) {
+            $query->where(function ($builder) use ($filters) {
+                foreach ($filters['prefixes'] as $prefix) {
+                    $builder->orWhere(function ($prefixQuery) use ($prefix) {
+                        $prefixQuery
+                            ->where('w.workordernumber', 'ilike', $prefix . '%')
+                            ->orWhere('w.workordernumber', 'ilike', '+' . $prefix . '%');
+                    });
+                }
             });
         }
 
@@ -214,7 +210,7 @@ class MfgDefectAnalysisService
         ];
     }
 
-    private function prefixSummary(Collection $rows): Collection
+    private function prefixSummary(Collection $rows, string $sortBy = 'defect_pct'): Collection
     {
         return $rows
             ->groupBy(fn($row) => $row->mfg_prefix ?: 'อื่น ๆ')
@@ -233,14 +229,25 @@ class MfgDefectAnalysisService
                 ];
             })
             ->filter(fn($item) => $item->output_qty > 0)
-            ->sort(function ($a, $b) {
-                $rateCompare = ((float) $b->defect_pct) <=> ((float) $a->defect_pct);
-
-                return $rateCompare !== 0
-                    ? $rateCompare
-                    : ((float) $b->defect_qty <=> (float) $a->defect_qty);
-            })
+            ->sort(fn($a, $b) => $this->compareDefects($a, $b, $sortBy))
             ->values();
+    }
+
+    private function compareDefects(object $a, object $b, string $sortBy): int
+    {
+        $primary = $sortBy === 'defect_qty' ? 'defect_qty' : 'defect_pct';
+        $secondary = $primary === 'defect_pct' ? 'defect_qty' : 'defect_pct';
+        $primaryCompare = ((float) $b->{$primary}) <=> ((float) $a->{$primary});
+
+        if ($primaryCompare !== 0) {
+            return $primaryCompare;
+        }
+
+        $secondaryCompare = ((float) $b->{$secondary}) <=> ((float) $a->{$secondary});
+
+        return $secondaryCompare !== 0
+            ? $secondaryCompare
+            : strcmp((string) ($a->workorder_no ?? $a->prefix ?? ''), (string) ($b->workorder_no ?? $b->prefix ?? ''));
     }
 
     private function mfgPrefix(string $workorder): string

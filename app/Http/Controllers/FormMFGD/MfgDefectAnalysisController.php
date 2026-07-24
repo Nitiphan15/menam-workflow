@@ -63,7 +63,9 @@ class MfgDefectAnalysisController extends Controller
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'mfg' => 'nullable|string|max:50',
-            'prefix' => 'nullable|string|max:10',
+            'prefix' => 'nullable|string|max:100',
+            'min_output_qty' => 'nullable|numeric|min:0',
+            'sort_by' => 'nullable|in:defect_pct,defect_qty',
             'site' => 'nullable|in:all,wire,plus',
             'all_dates' => 'nullable|boolean',
             'per_page' => 'nullable|integer|in:25,50,100',
@@ -71,6 +73,11 @@ class MfgDefectAnalysisController extends Controller
 
         $allDates = (bool) ($validated['all_dates'] ?? false);
         $hasExplicitDate = $request->filled('date_from') || $request->filled('date_to');
+        $prefixes = collect(preg_split('/[\s,]+/', strtoupper((string) ($validated['prefix'] ?? ''))))
+            ->map(fn($prefix) => ltrim(trim((string) $prefix), '+'))
+            ->filter(fn($prefix) => $prefix !== '')
+            ->unique()
+            ->values();
 
         return [
             'date_from' => $allDates
@@ -80,7 +87,10 @@ class MfgDefectAnalysisController extends Controller
                 ? null
                 : ($validated['date_to'] ?? ($hasExplicitDate ? null : Carbon::now()->toDateString())),
             'mfg' => strtoupper(trim((string) ($validated['mfg'] ?? ''))),
-            'prefix' => ltrim(strtoupper(trim((string) ($validated['prefix'] ?? ''))), '+'),
+            'prefix' => $prefixes->implode(','),
+            'prefixes' => $prefixes->all(),
+            'min_output_qty' => (float) ($validated['min_output_qty'] ?? 0),
+            'sort_by' => $validated['sort_by'] ?? 'defect_pct',
             'site' => $validated['site'] ?? 'all',
             'all_dates' => $allDates,
             'per_page' => (int) ($validated['per_page'] ?? 50),
