@@ -7,6 +7,7 @@ use App\Models\Po\PoAttached;
 use App\Models\Po\PoHeader;
 use App\Models\WF\WfFormAuthorize;
 use App\Services\Po\PoErpService;
+use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -154,11 +155,23 @@ class PoController extends Controller
         $currentStepNo = (int) ($po->workflow?->current_step_no ?? 0);
 
         $canPurchaseOperate = Gate::allows('POPUR');
-        $canSubmit = blank($po->workflow_id)
-            && $po->status_code === 'DRAFT'
+        $canSubmit = (
+                (blank($po->workflow_id) && $po->status_code === 'DRAFT')
+                || (
+                    !blank($po->workflow_id)
+                    && $po->status_code === 'REJECTED'
+                    && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_REJECTED
+                    && $currentStepNo === 1
+                )
+            )
             && $po->attachments->isNotEmpty()
             && $canPurchaseOperate;
         $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
+            && $canPurchaseOperate;
+        $canReopen = $po->status_code === 'CLOSED'
+            && !blank($po->workflow_id)
+            && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_CLOSED
+            && $currentStepNo === 999
             && $canPurchaseOperate;
         $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
         $canApprove = $po->workflow_id
@@ -232,6 +245,7 @@ class PoController extends Controller
             'canSubmit',
             'canEditAttachment',
             'canEditPdfOverride',
+            'canReopen',
             'canApprove',
             'pendingApprovers',
             'workflowHistories',

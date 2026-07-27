@@ -483,6 +483,21 @@
                                 data-bs-target="#rejectModal">
                                 Send Back / Reject
                             </button>
+                        @elseif ($canReopen)
+                            <div class="alert alert-warning">
+                                PO นี้อนุมัติครบแล้ว หากราคาเปลี่ยน สามารถยกเลิกผลอนุมัติเดิมเพื่อกลับไปแก้ไขไฟล์แนบ
+                                แล้วส่งอนุมัติใหม่ตั้งแต่ต้นได้
+                            </div>
+                            <form method="POST" action="{{ route('po.reopen', $po->id) }}"
+                                onsubmit="return confirm('ยืนยันยกเลิกผลอนุมัติเดิมและกลับไปแก้ไขไฟล์แนบใช่หรือไม่?')">
+                                @csrf
+                                <label class="form-label">เหตุผลที่ต้องอนุมัติใหม่</label>
+                                <textarea name="comment" class="form-control mb-3" rows="3" required
+                                    maxlength="1000" placeholder="เช่น มีการแก้ไขราคา"></textarea>
+                                <button class="btn btn-outline-danger w-100">
+                                    ยกเลิกผลอนุมัติและกลับไปแก้ไฟล์
+                                </button>
+                            </form>
                         @else
                             <div class="alert alert-info mb-0">เอกสารนี้ยังไม่มี action ที่ต้องทำสำหรับผู้ใช้ปัจจุบัน</div>
                         @endif
@@ -528,7 +543,7 @@
                                     'APPROVE', 'APPROVED' => 'text-bg-success',
                                     'REJECT', 'REJECTED', 'RETURN', 'CANCEL', 'CANCELLED' => 'text-bg-danger',
                                     'SUBMIT', 'PENDING' => 'text-bg-primary',
-                                    'SKIP', 'SKIPPED' => 'text-bg-warning',
+                                    'REOPEN', 'SKIP', 'SKIPPED' => 'text-bg-warning',
                                     'COMPLETE', 'CLOSED' => 'text-bg-secondary',
                                     default => 'text-bg-primary',
                                 };
