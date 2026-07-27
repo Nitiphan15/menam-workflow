@@ -40,6 +40,7 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
             Route::post('/remind-department-head', [PoApprovalController::class, 'remindDepartmentHead'])->name('remindDepartmentHead');
             Route::post('/notify-selected-step-three', [PoApprovalController::class, 'notifySelectedStepThree'])->name('notifySelectedStepThree');
             Route::post('/{id}/submit', [PoApprovalController::class, 'submit'])->name('submit');
+            Route::post('/{id}/reopen', [PoApprovalController::class, 'reopen'])->name('reopen');
             Route::post('/{id}/cancel', [PoApprovalController::class, 'cancel'])->name('cancel');
 
             Route::get('/{id}/edit', [PoController::class, 'edit'])->name('edit');

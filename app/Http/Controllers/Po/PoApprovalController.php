@@ -28,31 +28,45 @@ class PoApprovalController extends Controller
 
     public function submit(Request $request, $id)
     {
-        $po = PoHeader::query()->findOrFail($id);
-        abort_if($po->workflow_id, 422, 'PO already submitted');
+        $po = PoHeader::query()->with('workflow')->findOrFail($id);
+        $isResubmission = !blank($po->workflow_id)
+            && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_REJECTED;
+
+        abort_if($po->workflow_id && !$isResubmission, 422, 'PO already submitted');
         abort_if(!$po->attachments()->exists(), 422, 'Please attach document before submitting PO');
 
         $po = $this->erpService->syncHeaderFromErp($po->ordnumber, auth()->id(), $po->site);
-        $departmentId = $this->erpService->findDepartmentId($po->f1);
-        $submitterDepartmentId = (int) (auth()->user()?->department_id ?? 0);
+        if ($isResubmission) {
+            $wfId = (int) $po->workflow_id;
+            WorkflowEngine::resubmit(
+                wfId: $wfId,
+                actorUserId: (int) auth()->id(),
+                comment: $request->input('comment'),
+                initialStepNo: 2,
+                appCode: 'po',
+            );
+        } else {
+            $departmentId = $this->erpService->findDepartmentId($po->f1);
+            $submitterDepartmentId = (int) (auth()->user()?->department_id ?? 0);
 
-        $wfId = WorkflowEngine::submit(
-            appCode: 'po',
-            refType: PoHeader::class,
-            refId: $po->id,
-            options: [
-                'form_no' => $po->ordnumber,
-                'request_by_user_id' => (int) auth()->id(),
-                'context' => [
-                    'department_id' => $departmentId,
-                    'document_department_id' => $departmentId,
-                    'document_department_name' => (string) $po->f1,
-                    'submitter_department_id' => $submitterDepartmentId,
+            $wfId = WorkflowEngine::submit(
+                appCode: 'po',
+                refType: PoHeader::class,
+                refId: $po->id,
+                options: [
+                    'form_no' => $po->ordnumber,
+                    'request_by_user_id' => (int) auth()->id(),
+                    'context' => [
+                        'department_id' => $departmentId,
+                        'document_department_id' => $departmentId,
+                        'document_department_name' => (string) $po->f1,
+                        'submitter_department_id' => $submitterDepartmentId,
+                    ],
+                    'submit_comment' => $request->input('comment'),
+                    'initial_step_no' => 2,
                 ],
-                'submit_comment' => $request->input('comment'),
-                'initial_step_no' => 2,
-            ],
-        );
+            );
+        }
 
         $wf = WfForm::query()->find($wfId);
         $po->workflow_id = $wfId;
@@ -65,6 +79,39 @@ class PoApprovalController extends Controller
         $this->notifySubmittersOnSubmitted(collect([$po]));
 
         return redirect()->route('po.show', $po->id)->with('ok', 'ส่ง PO เข้า workflow และแจ้งผู้อนุมัติเรียบร้อยแล้ว');
+    }
+
+    public function reopen(Request $request, $id)
+    {
+        $data = $request->validate([
+            'comment' => 'required|string|max:1000',
+        ]);
+
+        $po = PoHeader::query()->with('workflow')->findOrFail($id);
+        abort_unless(
+            strtoupper((string) $po->status_code) === 'CLOSED'
+                && !blank($po->workflow_id)
+                && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_CLOSED
+                && (int) ($po->workflow?->current_step_no ?? 0) === 999,
+            422,
+            'Only a completed PO can be reopened'
+        );
+
+        WorkflowEngine::reopenCompleted(
+            wfId: (int) $po->workflow_id,
+            actorUserId: (int) auth()->id(),
+            reason: $data['comment'],
+            appCode: 'po',
+        );
+
+        $po->status_code = 'REJECTED';
+        $po->updated_at = now();
+        $po->updated_by = auth()->id();
+        $po->save();
+
+        return redirect()
+            ->route('po.show', $po->id)
+            ->with('ok', 'เปิด PO กลับมาแก้ไขไฟล์แนบแล้ว กรุณาแก้ไขเอกสารและส่งอนุมัติใหม่');
     }
 
     public function submitDepartment(Request $request)

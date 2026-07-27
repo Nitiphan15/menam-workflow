@@ -298,6 +298,7 @@ class PoErpService
             return [1 => null, 2 => null, 3 => null];
         }
 
+        $latestReopenId = $this->latestWorkflowReopenHistoryId($workflowId);
         $selects = [
             'h.step_no',
             'h.actor_user_id',
@@ -312,7 +313,9 @@ class PoErpService
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
             ->where('h.action_type', 'APPROVE')
+            ->when($latestReopenId, fn ($query) => $query->where('h.id', '>', $latestReopenId))
             ->orderBy('h.created_at')
+            ->orderBy('h.id')
             ->get($selects)
             ->map(fn ($row) => $this->decorateSignatureRow($row))
             ->keyBy('step_no');
@@ -335,6 +338,7 @@ class PoErpService
             ];
         }
 
+        $latestReopenId = $this->latestWorkflowReopenHistoryId($workflowId);
         $selects = [
             'h.step_no',
             'h.action_type',
@@ -350,7 +354,9 @@ class PoErpService
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
             ->whereIn('h.action_type', ['SUBMIT', 'APPROVE'])
+            ->when($latestReopenId, fn ($query) => $query->where('h.id', '>', $latestReopenId))
             ->orderBy('h.created_at')
+            ->orderBy('h.id')
             ->get($selects);
 
         $logs = $logs->map(fn ($row) => $this->decorateSignatureRow($row));
@@ -363,6 +369,16 @@ class PoErpService
             'authorized_by' => $approvals->firstWhere('step_no', 3),
             'po_confirmed_by' => null,
         ];
+    }
+
+    private function latestWorkflowReopenHistoryId(int $workflowId): ?int
+    {
+        $historyId = SqlServerDb::table('wf_action_histories')
+            ->where('wf_form_id', $workflowId)
+            ->where('action_type', 'REOPEN')
+            ->max('id');
+
+        return $historyId ? (int) $historyId : null;
     }
 
     public static function normalizeSource(?string $sourceSystem): ?string
