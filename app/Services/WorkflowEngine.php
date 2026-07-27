@@ -60,6 +60,73 @@ class WorkflowEngine
         });
     }
 
+    public static function resubmit(
+        int $wfId,
+        int $actorUserId,
+        ?string $comment = null,
+        int $initialStepNo = 1,
+        ?string $appCode = null
+    ): void {
+        $appCode = self::resolveAppCode($wfId, $appCode);
+
+        WorkflowDb::transaction($appCode, function () use ($wfId, $actorUserId, $comment, $initialStepNo, $appCode) {
+            $wf = WorkflowDb::table($appCode, 'wf_forms')->lockForUpdate()->find($wfId);
+            abort_unless($wf, 404);
+            abort_unless(
+                (string) $wf->form_status === self::ST_REJECTED && (int) $wf->current_step_no === 1,
+                422,
+                'Only a workflow returned for revision can be submitted again'
+            );
+
+            WorkflowDb::table($appCode, 'wf_action_histories')->insert([
+                'wf_form_id' => $wfId,
+                'step_no' => 1,
+                'actor_user_id' => $actorUserId,
+                'action_type' => 'SUBMIT',
+                'comment' => $comment ?: 'Resubmitted after revision',
+                'created_at' => now(),
+            ]);
+
+            $context = self::buildContextFromRef($wf);
+            self::moveToStep($wfId, max(1, $initialStepNo), $actorUserId, $context, [], $appCode);
+        });
+    }
+
+    public static function reopenCompleted(
+        int $wfId,
+        int $actorUserId,
+        string $reason,
+        ?string $appCode = null
+    ): void {
+        $appCode = self::resolveAppCode($wfId, $appCode);
+
+        WorkflowDb::transaction($appCode, function () use ($wfId, $actorUserId, $reason, $appCode) {
+            $wf = WorkflowDb::table($appCode, 'wf_forms')->lockForUpdate()->find($wfId);
+            abort_unless($wf, 404);
+            abort_unless(
+                (string) $wf->form_status === self::ST_CLOSED && (int) $wf->current_step_no === 999,
+                422,
+                'Only a completed workflow can be reopened'
+            );
+
+            WorkflowDb::table($appCode, 'wf_forms')->where('id', $wfId)->update([
+                'form_status' => self::ST_REJECTED,
+                'current_step_no' => 1,
+                'last_action_dt' => now(),
+                'updated_at' => now(),
+            ]);
+
+            WorkflowDb::table($appCode, 'wf_action_histories')->insert([
+                'wf_form_id' => $wfId,
+                'step_no' => 1,
+                'actor_user_id' => $actorUserId,
+                'action_type' => 'REOPEN',
+                'comment' => $reason,
+                'created_at' => now(),
+            ]);
+        });
+    }
+
     public static function approve(int $wfId, int $actorUserId, ?string $comment = null, ?string $appCode = null): void
     {
         $appCode = self::resolveAppCode($wfId, $appCode);
