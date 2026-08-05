@@ -144,6 +144,7 @@ Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::get('/dp/production-status/export', [ProductionStatusTrackingController::class, 'export'])->name('dp.production-status.export');
   Route::get('/dp/production-status/detail', [ProductionStatusTrackingController::class, 'detail'])->name('dp.production-status.detail');
   Route::post('/dp/production-status/confirm', [ProductionStatusTrackingController::class, 'confirm'])->name('dp.production-status.confirm');
+  Route::post('/dp/production-status/confirm/cancel', [ProductionStatusTrackingController::class, 'cancelConfirm'])->name('dp.production-status.confirm.cancel');
   Route::post('/dp/production-status/confirm-bulk', [ProductionStatusTrackingController::class, 'confirmBulk'])->name('dp.production-status.confirm.bulk');
   Route::get('/dp/production-status/confirm/history', [ProductionStatusTrackingController::class, 'confirmHistory'])->name('dp.production-status.confirm.history');
 });
@@ -659,6 +660,7 @@ Route::prefix('isr')
 
 Route::prefix('ssc')
   ->name('ssc.')
+  ->middleware(['auth', 'permission.any:SSC'])
   ->group(function () {
 
     Route::get('/reports/shotblast-spares', [ShotblastSpareController::class, 'index'])->name('index');
@@ -980,6 +982,8 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::post('/deadstock/config/create-baseline', [DeadstockReportController::class, 'createBaselineSnapshot'])->name('deadstock.create_baseline');
     Route::post('/deadstock/config/import-latest', [DeadstockReportController::class, 'importLatestSnapshot'])->name('deadstock.import_latest');
     Route::post('/deadstock/config/sync-current', [DeadstockReportController::class, 'syncCurrentDeadstock'])->name('deadstock.sync_current');
+    Route::post('/deadstock/config/sales-access', [DeadstockReportController::class, 'storeSalesAccess'])->name('deadstock.sales_access.store');
+    Route::delete('/deadstock/config/sales-access/{salesAccess}', [DeadstockReportController::class, 'destroySalesAccess'])->name('deadstock.sales_access.destroy');
 
     Route::get('/users/register',  [UserAdminController::class, 'index'])->name('users.register');
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');

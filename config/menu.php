@@ -26,6 +26,7 @@ return [
             ],
 
             ['icon' => 'fa-solid fa-clipboard-check',  'text' => 'Inspection', 'route' => 'isr.index'],
+            ['icon' => 'fa-solid fa-gears', 'text' => 'Critical Spare Parts', 'route' => 'ssc.index', 'permission' => 'SSC'],
             ['icon' => 'fa-solid fa-pen-to-square',    'text' => 'ทำแบบทดสอบ (User Test)', 'route'  => 'exam.select'],
             [
                 'icon' => 'fa-pen-to-square',
@@ -34,6 +35,15 @@ return [
                     ['icon' => 'fa fa-calendar', 'text' => 'เปิดใบขอแก้ไขใหม่', 'route' => 'wocr.index'],
                     ['icon' => 'fa fa-user', 'text' => 'เอกสารของฉัน', 'route' => 'wocr.mine'],
                     ['icon' => 'fa fa-folder-open', 'text' => 'เอกสารทั้งหมด', 'route' => 'wocr.all'],
+                ],
+            ],
+             [
+                'icon' => 'fa-boxes-stacked',
+                'text' => 'Deadstock',
+                // ไม่กำหนด permission: เปิดให้ทุกคนที่ login เห็น (ดูได้เหมือน guest, action ค่อยเช็ค auth)
+                'children' => [
+                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Dashboard', 'route' => 'deadstock.dashboard'],
+                    ['icon' => 'fa-clipboard-check', 'text' => 'Deadstock Monthly Review', 'route' => 'deadstock.review'],
                 ],
             ],
             [
@@ -53,8 +63,7 @@ return [
                     ['icon' => 'fa-calendar-check', 'text' => 'Order By Due Date', 'route' => 'wos.order_due_date'],
                     ['icon' => 'fa-table', 'text' => 'Delivery Volume', 'route' => 'wos.sales_unit_summary'],
                     ['icon' => 'fa-ranking-star', 'text' => 'Customer Ranking & Tier', 'route' => 'wos.customer_order_invoice.index'],
-                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Dashboard', 'route' => 'deadstock.dashboard'],
-                    ['icon' => 'fa-clipboard-check', 'text' => 'Deadstock Monthly Review', 'route' => 'deadstock.review'],
+
                 ],
             ],
 
@@ -277,10 +286,10 @@ return [
             [
                 'icon' => 'fa-chart-line',
                 'text' => 'Forecast',
-                'permission' => 'FC',
+                'permission' => ['FC', 'FC_PLN'],
                 'children' => [
                     ['icon' => 'fa-table', 'text' => 'Forecast', 'route' => 'fc.index', 'permission' => 'FC'],
-                    ['icon' => 'fa-users', 'text' => 'Sales Forecast', 'route' => 'fc.division', 'permission' => ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
+                    ['icon' => 'fa-users', 'text' => 'Sales Forecast', 'route' => 'fc.division', 'permission' => ['FC_PLN', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
                     ['icon' => 'fa-folder-open', 'text' => 'Sales Forecast Docs', 'route' => 'fc.division.documents', 'permission' => ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9']],
                     ['icon' => 'fa-user-check', 'text' => 'Sales Forecast Approval', 'route' => 'fc.division.approvals', 'permission' => 'FCAPPROVE'],
                     ['icon' => 'fa-list-check', 'text' => 'Planner Part Master', 'route' => 'fc.planner.master', 'permission' => 'FC_PLN'],
