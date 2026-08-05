@@ -1805,8 +1805,10 @@ class VariableCostService
 
     private function shouldExcludeWireChargedToPlus(array $filters, string $site): bool
     {
-        return Str::upper(trim($site)) === 'WIRE'
-            && Str::upper(trim((string) ($filters['site'] ?? ''))) === 'ALL';
+        // Temporarily disabled so Site = ALL shows the actual WIRE expenses.
+        // return Str::upper(trim($site)) === 'WIRE'
+        //     && Str::upper(trim((string) ($filters['site'] ?? ''))) === 'ALL';
+        return false;
     }
 
     private function wireChargedToPlusSqlClause(array $filters, string $site): array
