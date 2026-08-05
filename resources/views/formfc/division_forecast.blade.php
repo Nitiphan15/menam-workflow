@@ -666,7 +666,7 @@
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="10" data-sort-type="text">Supplier<span
                                             class="sort-ind"></span></th>
-                                    <th class="sortable" data-sort-col="11" data-sort-type="text">Remark<span
+                                    <th class="sortable" data-sort-col="11" data-sort-type="text">{{ !empty($isApprovalMode) ? 'Sales / Approval Remark' : 'Remark' }}<span
                                             class="sort-ind"></span></th>
                                     <th>History</th>
                                 </tr>
@@ -790,10 +790,25 @@
                                         </td>
 
                                         <td>
-                                            <input type="text" class="form-control form-control-sm"
-                                                name="{{ !empty($isApprovalMode) ? 'approval_remark' : 'row_remark' }}[{{ $r['row_key'] }}]"
-                                                value="{{ !empty($isApprovalMode) ? ($r['approval_remark'] ?? '') : ($r['row_remark'] ?? '') }}" placeholder="Remark"
-                                                @readonly((!empty($isSubmitted) && empty($isApprovalMode)) || (!empty($isApprovalMode) && empty($canApproveCurrentSubmission)))>
+                                            @if (!empty($isApprovalMode))
+                                                <div class="small text-muted mb-1">Sales Remark</div>
+                                                <div class="small bg-light border rounded px-2 py-1 mb-2 text-wrap">
+                                                    {{ filled($r['row_remark'] ?? null) ? $r['row_remark'] : '-' }}
+                                                </div>
+                                                <label class="small text-muted mb-1"
+                                                    for="approval-remark-{{ $loop->index }}">Approval Remark</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                    id="approval-remark-{{ $loop->index }}"
+                                                    name="approval_remark[{{ $r['row_key'] }}]"
+                                                    value="{{ $r['approval_remark'] ?? '' }}"
+                                                    placeholder="Approval Remark"
+                                                    @readonly(empty($canApproveCurrentSubmission))>
+                                            @else
+                                                <input type="text" class="form-control form-control-sm"
+                                                    name="row_remark[{{ $r['row_key'] }}]"
+                                                    value="{{ $r['row_remark'] ?? '' }}" placeholder="Remark"
+                                                    @readonly(!empty($isSubmitted))>
+                                            @endif
                                         </td>
 
                                         <td class="text-center">
