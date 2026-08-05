@@ -60,7 +60,16 @@
             white-space: nowrap;
         }
         .danger {
-            color: #ff0000;
+            color: #c62828;
+        }
+        .positive {
+            color: #15803d;
+        }
+        th.positive {
+            background: #dcfce7;
+        }
+        th.danger {
+            background: #fee2e2;
         }
         .total-row td {
             background: #ffff00;
@@ -72,12 +81,18 @@
             font-weight: 700;
             margin-top: 14px;
         }
-        .filter-box {
-            border: 1px solid #cbd5e1;
-            color: #475569;
-            font-size: 12px;
-            margin-top: 8px;
-            padding: 5px 7px;
+        .page-break {
+            page-break-before: always;
+        }
+        .performance-table th,
+        .performance-table td {
+            padding: 6px 4px;
+            font-size: 13px;
+        }
+        .performance-description {
+            color: #374151;
+            font-size: 14px;
+            margin: 0 0 10px;
         }
     </style>
 </head>
@@ -89,21 +104,16 @@
         $pct = fn($value) => $value === null ? '-' : number_format((float) $value, 2) . '%';
         $reportDate = $report['report_date'] ?? now();
         $targetMonth = $report['target_month_label'] ?? '';
-        $filters = $report['filters'] ?? [];
-        $filterParts = collect([
-            'Status: ' . ($filters['status'] ?? 'review'),
-            'Action: ' . ($filters['action_status'] ?? 'all'),
-            'Site: ' . ($filters['site'] ?? 'all'),
-            !empty($filters['customer']) ? 'Customer: ' . implode(', ', $filters['customer']) : null,
-            !empty($filters['sales']) ? 'Sales: ' . implode(', ', $filters['sales']) : null,
-            !empty($filters['reason_code']) ? 'Reason: ' . implode(', ', $filters['reason_code']) : null,
-            !empty($filters['serial']) ? 'Serial: ' . $filters['serial'] : null,
-        ])->filter()->implode(' | ');
+        $performance = $report['delivery_performance'] ?? [];
+        $performanceRows = $performance['rows'] ?? [];
+        $performanceTotal = $performance['totals'] ?? [];
+        $performanceMonth = $performance['target_month_label'] ?? '';
+        $performanceCutoff = $performance['cutoff_date'] ?? now();
     @endphp
 
     <div class="title">Deadstock Summary Report</div>
     <div class="meta">
-        Update {{ $reportDate->format('d/m/y') }} (อิงจากวันที่รับเข้า/as-of ล่าสุดของ Snapshot ที่เลือก)
+        Update {{ $reportDate->format('d/m/y') }} (Summary เดือนปัจจุบัน ไม่อิง Filter รายละเอียด)
         &nbsp;|&nbsp; Generated {{ ($generatedAt ?? now())->format('d/m/Y H:i') }}
     </div>
 
@@ -121,11 +131,11 @@
                 <th rowspan="2" style="width: 9%;">Grand<br>Total(KGS)</th>
             </tr>
             <tr>
-                <th>ส่งได้ภายใน<br>เดือน {{ $targetMonth }}</th>
-                <th>มีปัญหา<span class="danger">ไม่ได้ส่ง</span><br>ภายใน {{ $targetMonth }}</th>
+                <th class="positive">ส่งได้ภายใน<br>เดือน {{ $targetMonth }}</th>
+                <th class="danger">มีปัญหาไม่ได้ส่ง<br>ภายใน {{ $targetMonth }}</th>
                 <th>Total</th>
-                <th>ส่งได้ภายใน<br>เดือน {{ $targetMonth }}</th>
-                <th>มีปัญหา<span class="danger">ไม่ได้ส่ง</span><br>ภายใน {{ $targetMonth }}</th>
+                <th class="positive">ส่งได้ภายใน<br>เดือน {{ $targetMonth }}</th>
+                <th class="danger">มีปัญหาไม่ได้ส่ง<br>ภายใน {{ $targetMonth }}</th>
                 <th>Total</th>
             </tr>
         </thead>
@@ -134,10 +144,10 @@
                 <tr>
                     <td>{{ $row['label'] }}</td>
                     <td class="num">{{ $fmt($row['start_total'] ?? 0) }}</td>
-                    <td class="num">{{ $fmt(data_get($row, 'sales.within_month', 0)) }}</td>
+                    <td class="num positive">{{ $fmt(data_get($row, 'sales.within_month', 0)) }}</td>
                     <td class="num danger">{{ $fmt(data_get($row, 'sales.problem', 0)) }}</td>
                     <td class="num">{{ $fmt(data_get($row, 'sales.total', 0)) }}</td>
-                    <td class="num">{{ $fmt(data_get($row, 'factory.within_month', 0)) }}</td>
+                    <td class="num positive">{{ $fmt(data_get($row, 'factory.within_month', 0)) }}</td>
                     <td class="num danger">{{ $fmt(data_get($row, 'factory.problem', 0)) }}</td>
                     <td class="num">{{ $fmt(data_get($row, 'factory.total', 0)) }}</td>
                     <td class="num">{{ $fmt($row['grand_total'] ?? 0) }}</td>
@@ -147,10 +157,10 @@
             <tr class="total-row">
                 <td>{{ $total['label'] ?? 'TOTAL(KGS)' }}</td>
                 <td class="num">{{ $fmt($total['start_total'] ?? 0) }}</td>
-                <td class="num">{{ $fmt(data_get($total, 'sales.within_month', 0)) }}</td>
+                <td class="num positive">{{ $fmt(data_get($total, 'sales.within_month', 0)) }}</td>
                 <td class="num danger">{{ $fmt(data_get($total, 'sales.problem', 0)) }}</td>
                 <td class="num">{{ $fmt(data_get($total, 'sales.total', 0)) }}</td>
-                <td class="num">{{ $fmt(data_get($total, 'factory.within_month', 0)) }}</td>
+                <td class="num positive">{{ $fmt(data_get($total, 'factory.within_month', 0)) }}</td>
                 <td class="num danger">{{ $fmt(data_get($total, 'factory.problem', 0)) }}</td>
                 <td class="num">{{ $fmt(data_get($total, 'factory.total', 0)) }}</td>
                 <td class="num">{{ $fmt($total['grand_total'] ?? 0) }}</td>
@@ -162,6 +172,54 @@
     <div class="note">*งานปกติฝั่ง Sales หมายถึง WIP, Stock Grating, สินค้าที่ได้ส่งภายในเดือน</div>
     <div class="note">**งานปกติฝั่ง Factory หมายถึงงาน Stock FG, WIP, Stock Grating, สินค้าที่ได้ส่งภายในเดือน</div>
     <div class="note">% ที่ลดลง = (Start TOTAL - Grand Total) / Start TOTAL และจะแสดง "-" เมื่อ Start TOTAL เป็น 0</div>
-    <div class="filter-box">Filters: {{ $filterParts !== '' ? $filterParts : 'none' }}</div>
+
+    <div class="page-break"></div>
+
+    <div class="title">ผลการส่งตามกำหนดภายในเดือน {{ $performanceMonth }}</div>
+    <div class="meta">
+        Generated {{ ($generatedAt ?? now())->format('d/m/Y H:i') }}
+    </div>
+    <p class="performance-description">
+        เทียบรายการที่ “กำหนดส่งปัจจุบัน” อยู่ในเดือนเป้าหมาย กับรายการที่เคลียร์ภายใน
+        {{ $performanceCutoff->format('d/m/Y H:i') }}
+        โดยรายการที่ยังไม่เคลียร์และ Due Date หลังวันตัดยอดจะแสดงเป็น “ยังไม่ถึงกำหนด”
+    </p>
+
+    <table class="performance-table">
+        <thead>
+            <tr>
+                <th style="width: 16%;">ผู้รับผิดชอบ</th>
+                <th style="width: 17%;">Qty ที่แจ้งว่าจะส่ง (KGS)</th>
+                <th class="positive" style="width: 16%;">ส่งได้จริง (KGS)</th>
+                <th class="danger" style="width: 17%;">ส่งไม่ได้/ไม่ทัน (KGS)</th>
+                <th style="width: 17%;">ยังไม่ถึงกำหนด (KGS)</th>
+                <th class="positive" style="width: 17%;">% ส่งได้จริงของรายการที่ถึงกำหนด (KGS)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($performanceRows as $row)
+                <tr>
+                    <td class="left">{{ $row['label'] }}</td>
+                    <td class="num">{{ number_format((float) ($row['promised_qty'] ?? 0), 2) }}</td>
+                    <td class="num positive">{{ number_format((float) ($row['cleared_qty'] ?? 0), 2) }}</td>
+                    <td class="num danger">{{ number_format((float) ($row['not_cleared_qty'] ?? 0), 2) }}</td>
+                    <td class="num">{{ number_format((float) ($row['pending_qty'] ?? 0), 2) }}</td>
+                    <td class="positive">{{ $pct($row['qty_success_percent'] ?? null) }}</td>
+                </tr>
+            @endforeach
+            <tr class="total-row">
+                <td class="left">{{ $performanceTotal['label'] ?? 'รวม' }}</td>
+                <td class="num">{{ number_format((float) ($performanceTotal['promised_qty'] ?? 0), 2) }}</td>
+                <td class="num positive">{{ number_format((float) ($performanceTotal['cleared_qty'] ?? 0), 2) }}</td>
+                <td class="num danger">{{ number_format((float) ($performanceTotal['not_cleared_qty'] ?? 0), 2) }}</td>
+                <td class="num">{{ number_format((float) ($performanceTotal['pending_qty'] ?? 0), 2) }}</td>
+                <td class="positive">{{ $pct($performanceTotal['qty_success_percent'] ?? null) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">
+        * “ส่งได้จริง” หมายถึงรายการถูกเคลียร์ไม่เกินวันตัดยอด และเปอร์เซ็นต์คำนวณเฉพาะรายการที่ถึงกำหนดแล้ว
+    </div>
 </body>
 </html>

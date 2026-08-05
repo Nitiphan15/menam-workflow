@@ -9,6 +9,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use App\Models\Users\DeptRole;
+use App\Models\FormWOS\DeadstockUserSalesAccess;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\Auth\Access\Authorizable as AuthorizableContract;
 use Illuminate\Foundation\Auth\Access\Authorizable;
@@ -59,6 +60,11 @@ class User extends Authenticatable implements AuthorizableContract
     {
         return $this->belongsToMany(DeptRole::class, 'user_dept_roles', 'user_id', 'role_id')
             ->withPivot('department_id');
+    }
+
+    public function deadstockSalesAccesses()
+    {
+        return $this->hasMany(DeadstockUserSalesAccess::class, 'user_id');
     }
 
     public static function usernameFromName(?string $name): string

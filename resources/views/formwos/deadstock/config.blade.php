@@ -180,6 +180,96 @@
         </section>
 
         <section class="ds-config-card">
+            <h5 class="mb-2">Deadstock Sales Mapping</h5>
+            <p class="text-muted mb-3">
+                <code>DS_IMPORT</code> ใช้ Mapping นี้เพื่อจำกัด Sales ที่ Import ได้,
+                <code>DS_IMPORT_ALL</code> Import ได้ทุก Sales และ <code>DS_MANAGE_ALL</code> จัดการได้ทั้งหมด
+            </p>
+
+            <form class="row g-3 align-items-end" method="post" action="{{ route('adminweb.deadstock.sales_access.store') }}">
+                @csrf
+                <div class="col-12 col-lg-5">
+                    <label class="form-label">User</label>
+                    <select class="form-select" name="user_id" required>
+                        <option value="">เลือก User</option>
+                        @foreach ($salesAccessUsers as $accessUser)
+                            <option value="{{ $accessUser->id }}" @selected((string) old('user_id') === (string) $accessUser->id)>
+                                {{ $accessUser->name }} ({{ $accessUser->username }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-12 col-lg-3">
+                    <label class="form-label">Sales</label>
+                    <select class="form-select" name="salesperson_key" required>
+                        <option value="">เลือก Sales</option>
+                        @foreach ($salesAccessOptions as $salespersonKey => $salespersonLabel)
+                            <option value="{{ $salespersonKey }}" @selected(old('salesperson_key') === $salespersonKey)>
+                                {{ $salespersonKey }} - {{ $salespersonLabel }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-12 col-lg-2">
+                    <div class="form-check">
+                        <input type="hidden" name="can_import" value="0">
+                        <input class="form-check-input" id="ds-can-import" type="checkbox" name="can_import" value="1" @checked(old('can_import', '1'))>
+                        <label class="form-check-label" for="ds-can-import">Import</label>
+                    </div>
+                    <div class="form-check">
+                        <input type="hidden" name="can_edit" value="0">
+                        <input class="form-check-input" id="ds-can-edit" type="checkbox" name="can_edit" value="1" @checked(old('can_edit', '1'))>
+                        <label class="form-check-label" for="ds-can-edit">แก้ไขรายแถว</label>
+                    </div>
+                </div>
+                <div class="col-12 col-lg-2">
+                    <button class="btn btn-primary w-100" type="submit">
+                        <i class="fa fa-plus me-1"></i> เพิ่ม/อัปเดต
+                    </button>
+                </div>
+            </form>
+
+            <div class="table-responsive mt-4">
+                <table class="table table-sm table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Sales</th>
+                            <th class="text-center">Import</th>
+                            <th class="text-center">แก้ไข</th>
+                            <th class="text-end">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse ($salesAccesses as $access)
+                            <tr>
+                                <td>
+                                    {{ $access->user?->name ?: '-' }}
+                                    <div class="text-muted small">{{ $access->user?->username ?: 'User ID '.$access->user_id }}</div>
+                                </td>
+                                <td>{{ $access->salesperson_key }} - {{ $salesAccessOptions[$access->salesperson_key] ?? $access->salesperson_key }}</td>
+                                <td class="text-center">{{ $access->can_import ? '✓' : '-' }}</td>
+                                <td class="text-center">{{ $access->can_edit ? '✓' : '-' }}</td>
+                                <td class="text-end">
+                                    <form method="post" action="{{ route('adminweb.deadstock.sales_access.destroy', $access) }}"
+                                        onsubmit="return confirm('ลบ Sales Mapping นี้?');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">ลบ</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td class="text-center text-muted" colspan="5">ยังไม่มี Sales Mapping</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="ds-config-card">
             <h5 class="mb-2">Manual run snapshot ล่าสุด</h5>
             <p class="text-muted mb-3">
                 ใช้เมื่อมีไฟล์ <code>deadstock_items_*.json</code> อยู่แล้วและต้องการนำเข้า snapshot จาก <code>mail-daily</code> พร้อมเทียบข้อมูลปัจจุบันทันที

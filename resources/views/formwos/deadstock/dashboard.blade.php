@@ -270,22 +270,22 @@
         $clearedQty = (float) ($reviewSummary->cleared_qty ?? 0);
         $snapshotQty = (float) ($reviewSummary->snapshot_qty ?? 0);
         $currentTotalQty = (float) ($reviewSummary->current_total_qty ?? 0);
-        $noActionItems = (int) ($reviewSummary->no_action_items ?? 0);
-        $dueFollowUpItems = (int) ($reviewSummary->due_follow_up_items ?? 0);
-        $closedActionItems = (int) ($reviewSummary->closed_action_items ?? 0);
+        $notFollowedUpItems = (int) ($reviewSummary->not_followed_up_items ?? 0);
+        $waitingFollowUpItems = (int) ($reviewSummary->waiting_follow_up_items ?? 0);
+        $inProgressItems = (int) ($reviewSummary->in_progress_items ?? 0);
         $qtyClearRate = $snapshotQty > 0 ? ($clearedQty / $snapshotQty) * 100 : 0;
         $lastCheckedAt = !empty($reviewSummary?->last_checked_at)
             ? \Carbon\Carbon::parse($reviewSummary->last_checked_at)->format('d/m/Y H:i')
             : null;
         $reviewMonthQuery = $reviewMonth ? ['month_ids' => [(int) $reviewMonth->id]] : [];
-        $reviewDetailQuery = $reviewMonthQuery + ['status' => 'all'];
+        $reviewDetailQuery = $reviewMonthQuery + ['status' => 'review'];
         $reviewDetailUrl = fn(array $params = []) => route('deadstock.review', $reviewDetailQuery + $params);
         $activeLink = route('deadstock.review', $reviewMonthQuery + ['status' => 'active']);
-        $changedLink = route('deadstock.review', $reviewMonthQuery + ['status' => 'changed']);
+        $changedLink = route('deadstock.review', $reviewMonthQuery + ['status' => 'review']);
         $clearedLink = route('deadstock.review', $reviewMonthQuery + ['status' => 'cleared']);
-        $noActionLink = route('deadstock.review', $reviewMonthQuery + ['action_status' => 'no_action']);
-        $dueFollowUpLink = route('deadstock.review', $reviewMonthQuery + ['action_status' => 'due_follow_up']);
-        $closedActionLink = route('deadstock.review', $reviewMonthQuery + ['action_status' => 'closed']);
+        $notFollowedUpLink = route('deadstock.review', $reviewMonthQuery + ['action_status' => 'open']);
+        $waitingFollowUpLink = route('deadstock.review', $reviewMonthQuery + ['action_status' => 'waiting_follow_up']);
+        $inProgressLink = route('deadstock.review', $reviewMonthQuery + ['action_status' => 'in_progress']);
     @endphp
 
     <div class="container-fluid py-3">
@@ -375,21 +375,21 @@
                                     <div class="deadstock-kpi-value">{{ number_format($currentTotalQty, 2) }}</div>
                                 </div>
                                 <div class="col-6 col-xl-3">
-                                    <a class="deadstock-kpi-link" href="{{ $noActionLink }}">
-                                        <div class="deadstock-kpi-label">ยังไม่มีงานติดตาม</div>
-                                        <div class="deadstock-kpi-value">{{ number_format($noActionItems) }}</div>
+                                    <a class="deadstock-kpi-link" href="{{ $notFollowedUpLink }}">
+                                        <div class="deadstock-kpi-label">ยังไม่ได้ติดตาม</div>
+                                        <div class="deadstock-kpi-value">{{ number_format($notFollowedUpItems) }}</div>
                                     </a>
                                 </div>
                                 <div class="col-6 col-xl-3">
-                                    <a class="deadstock-kpi-link" href="{{ $dueFollowUpLink }}">
-                                        <div class="deadstock-kpi-label">ถึงวันติดตาม</div>
-                                        <div class="deadstock-kpi-value">{{ number_format($dueFollowUpItems) }}</div>
+                                    <a class="deadstock-kpi-link" href="{{ $waitingFollowUpLink }}">
+                                        <div class="deadstock-kpi-label">กำลังติดตาม รอคำตอบจากลูกค้า</div>
+                                        <div class="deadstock-kpi-value">{{ number_format($waitingFollowUpItems) }}</div>
                                     </a>
                                 </div>
                                 <div class="col-6 col-xl-3">
-                                    <a class="deadstock-kpi-link" href="{{ $closedActionLink }}">
-                                        <div class="deadstock-kpi-label">ปิดการติดตามแล้ว</div>
-                                        <div class="deadstock-kpi-value">{{ number_format($closedActionItems) }}</div>
+                                    <a class="deadstock-kpi-link" href="{{ $inProgressLink }}">
+                                        <div class="deadstock-kpi-label">มีกำหนดส่งมอบแล้ว</div>
+                                        <div class="deadstock-kpi-value">{{ number_format($inProgressItems) }}</div>
                                     </a>
                                 </div>
                             </div>

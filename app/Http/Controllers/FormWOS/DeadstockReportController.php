@@ -9,15 +9,22 @@ use App\Models\FormWOS\DeadstockItemReview;
 use App\Models\FormWOS\DeadstockItemReviewLog;
 use App\Models\FormWOS\DeadstockSnapshotItem;
 use App\Models\FormWOS\DeadstockSnapshotMonth;
+use App\Models\FormWOS\DeadstockUserSalesAccess;
+use App\Models\Users\User;
 use App\Services\FormWOS\DeadstockReviewService;
 use App\Services\FormWOS\DeadstockSnapshotImportService;
+use App\Support\FormWOS\DeadstockCompareStatus;
 use App\Support\FormWOS\DeadstockReasonMap;
+use App\Support\FormWOS\DeadstockReviewStatus;
+use App\Support\FormWOS\DeadstockSalesAccess;
+use App\Support\FormWOS\DeadstockSalesMap;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
@@ -68,8 +75,6 @@ class DeadstockReportController extends Controller
             ->orderByDesc('recv_date')
             ->first();
 
-        $today = now('Asia/Bangkok')->toDateString();
-
         $reviewSummary = $reviewMonth
             ? DeadstockSnapshotItem::query()
                 ->leftJoin('ds_item_reviews as r', 'r.snapshot_item_id', '=', 'ds_snapshot_items.id')
@@ -85,9 +90,9 @@ class DeadstockReportController extends Controller
                 ->selectRaw("SUM(CASE WHEN compare_status = 'cleared' THEN snapshot_qty ELSE 0 END) AS cleared_qty")
                 ->selectRaw('SUM(snapshot_qty) AS snapshot_qty')
                 ->selectRaw("SUM(CASE WHEN compare_status = 'cleared' THEN 0 ELSE COALESCE(current_qty, snapshot_qty) END) AS current_total_qty")
-                ->selectRaw("SUM(CASE WHEN compare_status IN ('pending', 'active', 'changed') AND (r.id IS NULL OR (COALESCE(r.review_status, 'open') = 'open' AND r.review_detail IS NULL AND r.corrective_action IS NULL AND r.preventive_action IS NULL AND r.sales_remark IS NULL AND r.next_follow_up_date IS NULL)) THEN 1 ELSE 0 END) AS no_action_items")
-                ->selectRaw("SUM(CASE WHEN r.next_follow_up_date IS NOT NULL AND r.next_follow_up_date <= ? AND COALESCE(r.review_status, 'open') <> 'closed' THEN 1 ELSE 0 END) AS due_follow_up_items", [$today])
-                ->selectRaw("SUM(CASE WHEN r.review_status = 'closed' THEN 1 ELSE 0 END) AS closed_action_items")
+                ->selectRaw("SUM(CASE WHEN COALESCE(r.review_status, 'open') = 'open' THEN 1 ELSE 0 END) AS not_followed_up_items")
+                ->selectRaw("SUM(CASE WHEN r.review_status IN ('waiting_follow_up', 'waiting_sales', 'waiting_customer', 'waiting_delivery', 'not_delivered_current_month') THEN 1 ELSE 0 END) AS waiting_follow_up_items")
+                ->selectRaw("SUM(CASE WHEN r.review_status IN ('in_progress', 'follow_up', 'closed') THEN 1 ELSE 0 END) AS in_progress_items")
                 ->selectRaw('MAX(ds_snapshot_items.last_checked_at) AS last_checked_at')
                 ->first()
             : null;
@@ -207,7 +212,58 @@ class DeadstockReportController extends Controller
                 ?? $rawSnapshots->first()['as_of']
                 ?? $rawSnapshots->first()['_date']
                 ?? null,
+            'salesAccesses' => DeadstockUserSalesAccess::query()
+                ->with('user:id,username,name')
+                ->orderBy('salesperson_key')
+                ->orderBy('user_id')
+                ->get(),
+            'salesAccessUsers' => User::query()
+                ->where('is_active', 1)
+                ->orderBy('name')
+                ->get(['id', 'username', 'name']),
+            'salesAccessOptions' => DeadstockSalesMap::accessOptions(),
         ]);
+    }
+
+    public function storeSalesAccess(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer'],
+            'salesperson_key' => ['required', 'string', Rule::in(array_keys(DeadstockSalesMap::accessOptions()))],
+            'can_import' => ['nullable', 'boolean'],
+            'can_edit' => ['nullable', 'boolean'],
+        ]);
+
+        abort_unless(User::query()->whereKey($validated['user_id'])->where('is_active', 1)->exists(), 422, 'ไม่พบ User ที่ Active');
+
+        $canImport = $request->boolean('can_import');
+        $canEdit = $request->boolean('can_edit');
+
+        if (!$canImport && !$canEdit) {
+            return back()->withErrors(['salesperson_key' => 'กรุณาเลือกอย่างน้อยหนึ่งสิทธิ์: Import หรือแก้ไข']);
+        }
+
+        $access = DeadstockUserSalesAccess::query()->firstOrNew([
+            'user_id' => (int) $validated['user_id'],
+            'salesperson_key' => strtoupper($validated['salesperson_key']),
+        ]);
+
+        $access->fill([
+            'can_import' => $canImport,
+            'can_edit' => $canEdit,
+            'is_active' => true,
+            'updated_by' => $request->user()->id,
+            'created_by' => $access->created_by ?: $request->user()->id,
+        ])->save();
+
+        return back()->with('success', 'บันทึก Deadstock Sales Mapping แล้ว');
+    }
+
+    public function destroySalesAccess(DeadstockUserSalesAccess $salesAccess): RedirectResponse
+    {
+        $salesAccess->delete();
+
+        return back()->with('success', 'ลบ Deadstock Sales Mapping แล้ว');
     }
 
     public function review(Request $request): View
@@ -224,24 +280,28 @@ class DeadstockReportController extends Controller
             || $request->has('month_ids');
         $selectedMonth = $selectedMonths->first() ?? ($hasMonthFilter ? null : $months->first());
         [$monthFrom, $monthTo] = $this->selectedMonthRange($request, $selectedMonths);
-        $status = trim((string) $request->query('status', 'review'));
-        $actionStatus = trim((string) $request->query('action_status', 'all'));
+        $status = $this->deadstockListStatus($request->query('status', DeadstockCompareStatus::DEFAULT));
+        $rawActionStatus = trim((string) $request->query('action_status', 'all'));
+        $actionStatus = $rawActionStatus === 'all'
+            ? 'all'
+            : (DeadstockReviewStatus::normalize($rawActionStatus) ?? 'all');
         $siteFilter = trim((string) $request->query('site', $request->query('company', 'all')));
         $customerFilter = $this->normalizeMultiFilter($request->query('customer', []));
-        $salesFilter = $this->normalizeMultiFilter($request->query('sales', []));
+        $salesDivisionFilter = $this->normalizeMultiFilter($request->query('sales_division', []));
         $reasonFilter = $this->normalizeMultiFilter($request->query('reason_code', []));
         $codeGroup = strtoupper(trim((string) $request->query('code_group', '')));
         $serialFilter = trim((string) $request->query('serial', ''));
         $sort = trim((string) $request->query('sort', 'qty_desc'));
 
-        $today = now('Asia/Bangkok')->toDateString();
         $baseFilters = [
             'month_ids' => $selectedMonthIds,
+            'month_from' => $monthFrom,
+            'month_to' => $monthTo,
             'status' => $status,
             'action_status' => $actionStatus,
             'site' => $siteFilter,
             'customer' => $customerFilter,
-            'sales' => $salesFilter,
+            'sales_division' => $salesDivisionFilter,
             'reason_code' => $reasonFilter,
             'code_group' => $codeGroup,
             'serial' => $serialFilter,
@@ -274,9 +334,9 @@ class DeadstockReportController extends Controller
             ->selectRaw("SUM(CASE WHEN compare_status = 'changed' THEN 1 ELSE 0 END) AS changed_items")
             ->selectRaw("SUM(CASE WHEN compare_status = 'cleared' THEN 1 ELSE 0 END) AS cleared_items")
             ->selectRaw("SUM(CASE WHEN compare_status = 'pending' THEN 1 ELSE 0 END) AS pending_items")
-            ->selectRaw("SUM(CASE WHEN compare_status IN ('pending', 'active', 'changed') AND (r.id IS NULL OR (COALESCE(r.review_status, 'open') = 'open' AND r.review_detail IS NULL AND r.corrective_action IS NULL AND r.preventive_action IS NULL AND r.sales_remark IS NULL AND r.next_follow_up_date IS NULL)) THEN 1 ELSE 0 END) AS no_action_items")
-            ->selectRaw("SUM(CASE WHEN r.next_follow_up_date IS NOT NULL AND r.next_follow_up_date <= ? AND COALESCE(r.review_status, 'open') <> 'closed' THEN 1 ELSE 0 END) AS due_follow_up_items", [$today])
-            ->selectRaw("SUM(CASE WHEN r.review_status = 'closed' THEN 1 ELSE 0 END) AS closed_action_items")
+            ->selectRaw("SUM(CASE WHEN COALESCE(r.review_status, 'open') = 'open' THEN 1 ELSE 0 END) AS not_followed_up_items")
+            ->selectRaw("SUM(CASE WHEN r.review_status IN ('waiting_follow_up', 'waiting_sales', 'waiting_customer', 'waiting_delivery', 'not_delivered_current_month') THEN 1 ELSE 0 END) AS waiting_follow_up_items")
+            ->selectRaw("SUM(CASE WHEN r.review_status IN ('in_progress', 'follow_up', 'closed') THEN 1 ELSE 0 END) AS in_progress_items")
             ->selectRaw("SUM(CASE WHEN ds_snapshot_items.last_checked_at IS NOT NULL THEN 1 ELSE 0 END) AS checked_items")
             ->selectRaw("SUM(CASE WHEN r.id IS NOT NULL THEN 1 ELSE 0 END) AS reviewed_items")
             ->selectRaw('MAX(ds_snapshot_items.last_checked_at) AS last_checked_at')
@@ -287,22 +347,10 @@ class DeadstockReportController extends Controller
         $compareHealth = $this->deadstockCompareHealth($summary, $selectedMonth);
 
         $siteOptions = ['WIRE' => 'WIRE', 'PLUS' => 'PLUS'];
-        $salesOptions = collect();
         $customerOptions = collect();
         $reasonOptions = collect();
 
         if ($selectedMonthIds !== []) {
-            $salesOptionsQuery = DeadstockSnapshotItem::query()
-                ->whereIn('snapshot_month_id', $selectedMonthIds);
-            $this->applyDeadstockSiteFilter($salesOptionsQuery, $siteFilter);
-            $salesOptions = $salesOptionsQuery
-                ->whereNotNull('salesperson_name')
-                ->where('salesperson_name', '<>', '')
-                ->select('salesperson_name')
-                ->distinct()
-                ->orderBy('salesperson_name')
-                ->pluck('salesperson_name');
-
             $customerOptionsQuery = DeadstockSnapshotItem::query()
                 ->whereIn('snapshot_month_id', $selectedMonthIds);
             $this->applyDeadstockSiteFilter($customerOptionsQuery, $siteFilter);
@@ -347,8 +395,8 @@ class DeadstockReportController extends Controller
             'siteOptions' => $siteOptions,
             'customerFilter' => $customerFilter,
             'customerOptions' => $customerOptions,
-            'salesFilter' => $salesFilter,
-            'salesOptions' => $salesOptions,
+            'salesDivisionFilter' => $salesDivisionFilter,
+            'salesDivisionOptions' => DeadstockSalesMap::divisionOptions(),
             'reasonFilter' => $reasonFilter,
             'reasonOptions' => $reasonOptions,
             'serialFilter' => $serialFilter,
@@ -366,29 +414,29 @@ class DeadstockReportController extends Controller
     {
         $months = $this->deadstockReviewMonths();
         $monthIds = $this->selectedMonthIds($request, $months);
+        $selectedMonths = $months
+            ->filter(fn(DeadstockSnapshotMonth $month) => in_array((int) $month->id, $monthIds, true))
+            ->values();
+        [$monthFrom, $monthTo] = $this->selectedMonthRange($request, $selectedMonths);
         $filename = 'deadstock_review_' . now('Asia/Bangkok')->format('Ymd_His') . '.xlsx';
 
-        return Excel::download(new DeadstockReviewExport([
-            'month_ids' => $monthIds,
-            'status' => trim((string) $request->query('status', 'review')),
-            'action_status' => trim((string) $request->query('action_status', 'all')),
-            'site' => trim((string) $request->query('site', $request->query('company', 'all'))),
-            'customer' => $this->normalizeMultiFilter($request->query('customer', [])),
-            'sales' => $this->normalizeMultiFilter($request->query('sales', [])),
-            'reason_code' => $this->normalizeMultiFilter($request->query('reason_code', [])),
-            'code_group' => strtoupper(trim((string) $request->query('code_group', ''))),
-            'serial' => trim((string) $request->query('serial', '')),
-            'sort' => trim((string) $request->query('sort', 'qty_desc')),
-            'month_from' => trim((string) $request->query('month_from', '')),
-            'month_to' => trim((string) $request->query('month_to', '')),
-        ]), $filename);
+        return Excel::download(
+            new DeadstockReviewExport($this->deadstockExportFilters($request, $monthIds, $monthFrom, $monthTo)),
+            $filename
+        );
     }
 
     public function exportSummaryPdf(Request $request)
     {
         $months = $this->deadstockReviewMonths();
         $monthIds = $this->selectedMonthIds($request, $months);
-        $report = $this->buildDeadstockSummaryReport($request, $months, $monthIds);
+        $selectedMonths = $months
+            ->filter(fn(DeadstockSnapshotMonth $month) => in_array((int) $month->id, $monthIds, true))
+            ->values();
+        [$monthFrom, $monthTo] = $this->selectedMonthRange($request, $selectedMonths);
+        $report = $this->buildDeadstockSummaryReport(
+            $this->deadstockExportFilters($request, $monthIds, $monthFrom, $monthTo)
+        );
 
         $pdf = Pdf::loadView('pdf.deadstock-summary', [
             'report' => $report,
@@ -398,189 +446,34 @@ class DeadstockReportController extends Controller
         return $pdf->download('deadstock_summary_' . now('Asia/Bangkok')->format('Ymd_His') . '.pdf');
     }
 
-    private function buildDeadstockSummaryReport(Request $request, Collection $months, array $monthIds): array
+    private function buildDeadstockSummaryReport(array $filters = []): array
     {
-        $selectedMonths = $months
-            ->filter(fn(DeadstockSnapshotMonth $month) => in_array((int) $month->id, $monthIds, true))
-            ->values();
-        $reportDate = $selectedMonths
-            ->map(fn(DeadstockSnapshotMonth $month) => $month->recv_date ?? $month->as_of_date ?? $month->snapshot_month)
-            ->filter()
-            ->sort()
-            ->last()
-            ?? $this->reportDateFromMonthRequest($request)
-            ?? now('Asia/Bangkok');
+        return (new DeadstockReviewExport($filters))->summaryReport();
+    }
 
-        $reportDate = $reportDate instanceof Carbon ? $reportDate->copy() : Carbon::parse($reportDate);
-        $reportYear = (int) $reportDate->year;
-        $targetMonth = $reportDate->copy()->startOfMonth();
-        $historicalStart = Carbon::create($reportYear - 3, 1, 1)->startOfDay();
-        $yearStart = Carbon::create($reportYear, 1, 1)->startOfDay();
-        $currentMonthStart = $reportDate->copy()->startOfMonth();
-        $previousMonthEnd = $currentMonthStart->copy()->subDay();
-
-        $rows = [
-            'older' => $this->blankDeadstockSummaryRow('<= ' . $yearStart->copy()->subYears(3)->subDay()->format('d/m/Y')),
-            'history' => $this->blankDeadstockSummaryRow(($reportYear - 3) . '-' . ($reportYear - 1)),
-            'year_to_previous' => $this->blankDeadstockSummaryRow(
-                $currentMonthStart->month > 1
-                    ? 'Jan-' . $previousMonthEnd->format('M Y')
-                    : 'Jan ' . $reportYear
-            ),
-            'current_month' => $this->blankDeadstockSummaryRow($reportDate->format('F-Y')),
-        ];
-
-        $filters = [
+    private function deadstockExportFilters(
+        Request $request,
+        array $monthIds,
+        string $monthFrom,
+        string $monthTo
+    ): array
+    {
+        return [
             'month_ids' => $monthIds,
-            'status' => trim((string) $request->query('status', 'review')),
-            'action_status' => trim((string) $request->query('action_status', 'all')),
+            'status' => $this->deadstockListStatus($request->query('status', DeadstockCompareStatus::DEFAULT)),
+            'action_status' => (($rawActionStatus = trim((string) $request->query('action_status', 'all'))) === 'all')
+                ? 'all'
+                : (DeadstockReviewStatus::normalize($rawActionStatus) ?? 'all'),
             'site' => trim((string) $request->query('site', $request->query('company', 'all'))),
             'customer' => $this->normalizeMultiFilter($request->query('customer', [])),
-            'sales' => $this->normalizeMultiFilter($request->query('sales', [])),
+            'sales_division' => $this->normalizeMultiFilter($request->query('sales_division', [])),
             'reason_code' => $this->normalizeMultiFilter($request->query('reason_code', [])),
             'code_group' => strtoupper(trim((string) $request->query('code_group', ''))),
             'serial' => trim((string) $request->query('serial', '')),
+            'sort' => trim((string) $request->query('sort', 'qty_desc')),
+            'month_from' => $monthFrom,
+            'month_to' => $monthTo,
         ];
-
-        $items = DeadstockSnapshotItem::query()
-            ->with(['latestCompareLog', 'review'])
-            ->when($monthIds !== [], fn($query) => $query->whereIn('snapshot_month_id', $monthIds), fn($query) => $query->whereRaw('1 = 0'));
-
-        $this->applyDeadstockFilters($items, $filters, false);
-
-        foreach ($items->get() as $item) {
-            $purchaseDate = $item->purchase_date instanceof Carbon ? $item->purchase_date : null;
-            $bucket = $this->deadstockSummaryBucket($purchaseDate, $historicalStart, $yearStart, $currentMonthStart);
-            $snapshotQty = (float) $item->snapshot_qty;
-            $openQty = (string) $item->compare_status === 'cleared'
-                ? 0.0
-                : (float) ($item->current_qty ?? $item->snapshot_qty);
-
-            if ($purchaseDate && $purchaseDate->lt($yearStart)) {
-                $rows[$bucket]['start_total'] += $snapshotQty;
-            }
-
-            $code = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
-            $owner = str_starts_with($code, 'SS') ? 'sales' : (str_starts_with($code, 'FF') ? 'factory' : null);
-
-            if ($owner === null) {
-                continue;
-            }
-
-            $slot = $this->deadstockSummarySlot($item->review?->revised_due_date, $targetMonth);
-            $rows[$bucket][$owner][$slot] += $openQty;
-        }
-
-        $totals = $this->blankDeadstockSummaryRow('TOTAL(KGS)');
-
-        foreach ($rows as &$row) {
-            $row = $this->finalizeDeadstockSummaryRow($row);
-
-            foreach (['start_total', 'grand_total'] as $key) {
-                $totals[$key] += $row[$key];
-            }
-
-            foreach (['sales', 'factory'] as $owner) {
-                foreach (['within_month', 'problem', 'total'] as $key) {
-                    $totals[$owner][$key] += $row[$owner][$key];
-                }
-            }
-        }
-        unset($row);
-
-        $totals = $this->finalizeDeadstockSummaryRow($totals);
-
-        return [
-            'rows' => array_values($rows),
-            'totals' => $totals,
-            'report_date' => $reportDate,
-            'target_month_label' => $targetMonth->format('F'),
-            'start_label' => 'Start 1/1/' . $reportDate->format('y') . ' TOTAL (KGS)',
-            'selected_months' => $selectedMonths,
-            'filters' => [
-                'site' => $filters['site'],
-                'customer' => $filters['customer'],
-                'sales' => $filters['sales'],
-                'reason_code' => $filters['reason_code'],
-                'code_group' => $filters['code_group'],
-                'serial' => $filters['serial'],
-                'status' => $filters['status'],
-                'action_status' => $filters['action_status'],
-            ],
-        ];
-    }
-
-    private function blankDeadstockSummaryRow(string $label): array
-    {
-        return [
-            'label' => $label,
-            'start_total' => 0.0,
-            'sales' => [
-                'within_month' => 0.0,
-                'problem' => 0.0,
-                'total' => 0.0,
-            ],
-            'factory' => [
-                'within_month' => 0.0,
-                'problem' => 0.0,
-                'total' => 0.0,
-            ],
-            'grand_total' => 0.0,
-            'decrease_percent' => null,
-        ];
-    }
-
-    private function finalizeDeadstockSummaryRow(array $row): array
-    {
-        $row['sales']['total'] = $row['sales']['within_month'] + $row['sales']['problem'];
-        $row['factory']['total'] = $row['factory']['within_month'] + $row['factory']['problem'];
-        $row['grand_total'] = $row['sales']['total'] + $row['factory']['total'];
-        $row['decrease_percent'] = $row['start_total'] > 0
-            ? (($row['start_total'] - $row['grand_total']) / $row['start_total']) * 100
-            : null;
-
-        return $row;
-    }
-
-    private function deadstockSummarySlot($revisedDueDate, Carbon $targetMonth): string
-    {
-        if (!$revisedDueDate) {
-            return 'problem';
-        }
-
-        $date = $revisedDueDate instanceof Carbon
-            ? $revisedDueDate->copy()
-            : Carbon::parse($revisedDueDate);
-
-        return $date->isSameMonth($targetMonth) ? 'within_month' : 'problem';
-    }
-
-    private function deadstockSummaryBucket(?Carbon $purchaseDate, Carbon $historicalStart, Carbon $yearStart, Carbon $currentMonthStart): string
-    {
-        if (!$purchaseDate) {
-            return 'older';
-        }
-
-        if ($purchaseDate->lt($historicalStart)) {
-            return 'older';
-        }
-
-        if ($purchaseDate->lt($yearStart)) {
-            return 'history';
-        }
-
-        if ($purchaseDate->lt($currentMonthStart)) {
-            return 'year_to_previous';
-        }
-
-        return 'current_month';
-    }
-
-    private function reportDateFromMonthRequest(Request $request): ?Carbon
-    {
-        $monthValue = trim((string) ($request->query('month_to') ?: $request->query('month_from')));
-
-        return $monthValue !== '' ? Carbon::parse($monthValue . '-01')->endOfMonth() : null;
     }
 
     private function selectedMonthIds(Request $request, Collection $months): array
@@ -724,20 +617,25 @@ class DeadstockReportController extends Controller
 
     private function applyDeadstockFilters($query, array $filters, bool $joinedReview): void
     {
-        $status = trim((string) ($filters['status'] ?? 'review'));
+        $status = trim((string) ($filters['status'] ?? DeadstockCompareStatus::DEFAULT));
+        $compareStatuses = DeadstockCompareStatus::valuesForFilter($status);
         $actionStatus = trim((string) ($filters['action_status'] ?? 'all'));
         $siteFilter = trim((string) ($filters['site'] ?? $filters['company'] ?? 'all'));
         $customerFilter = $this->normalizeMultiFilter($filters['customer'] ?? []);
-        $salesFilter = $this->normalizeMultiFilter($filters['sales'] ?? []);
+        $salesDivisionFilter = $this->normalizeMultiFilter($filters['sales_division'] ?? []);
         $reasonFilter = $this->normalizeMultiFilter($filters['reason_code'] ?? []);
         $codeGroup = strtoupper(trim((string) ($filters['code_group'] ?? '')));
         $serialFilter = trim((string) ($filters['serial'] ?? ''));
+        $purchaseFrom = $this->monthBoundary($filters['month_from'] ?? null);
+        $purchaseTo = $this->monthBoundary($filters['month_to'] ?? null)?->endOfMonth();
 
         $this->applyDeadstockSiteFilter($query, $siteFilter);
 
         $query
+            ->when($purchaseFrom, fn($q) => $q->whereDate('purchase_date', '>=', $purchaseFrom->toDateString()))
+            ->when($purchaseTo, fn($q) => $q->whereDate('purchase_date', '<=', $purchaseTo->toDateString()))
             ->when($customerFilter !== [], fn($q) => $q->whereIn('customer_name', $customerFilter))
-            ->when($salesFilter !== [], fn($q) => $q->whereIn('salesperson_name', $salesFilter))
+            ->when($salesDivisionFilter !== [], fn($q) => $q->whereIn('salesperson_name', DeadstockSalesMap::rawValuesForDivisions($salesDivisionFilter)))
             ->when($reasonFilter !== [], fn($q) => $this->applyDeadstockReasonFilter($q, $reasonFilter))
             ->when(in_array($codeGroup, ['FF', 'SS'], true), fn($q) => $q->where('deadstock_code', 'like', $codeGroup . '%'))
             ->when($serialFilter !== '', function ($q) use ($serialFilter) {
@@ -748,59 +646,26 @@ class DeadstockReportController extends Controller
                         ->orWhere('transaction_number', 'like', $keyword);
                 });
             })
-            ->when($status === 'review', fn($q) => $q->whereIn('compare_status', ['pending', 'active', 'changed']))
-            ->when(!in_array($status, ['review', 'all', ''], true), fn($q) => $q->where('compare_status', $status));
+            ->when($compareStatuses !== [], fn($q) => $q->whereIn('compare_status', $compareStatuses));
 
-        if ($actionStatus === 'no_action') {
-            $query->whereIn('compare_status', ['pending', 'active', 'changed']);
+        $reviewStatuses = DeadstockReviewStatus::valuesForFilter($actionStatus);
+        if ($reviewStatuses !== []) {
+            if ($joinedReview) {
+                if ($actionStatus === DeadstockReviewStatus::NOT_FOLLOWED_UP) {
+                    $query->whereRaw("COALESCE(r.review_status, 'open') = 'open'");
+                } else {
+                    $query->whereIn('r.review_status', $reviewStatuses);
+                }
+            } else {
+                $query->where(function ($nested) use ($actionStatus, $reviewStatuses) {
+                    if ($actionStatus === DeadstockReviewStatus::NOT_FOLLOWED_UP) {
+                        $nested->whereDoesntHave('review')
+                            ->orWhereHas('review', fn($reviewQuery) => $reviewQuery->where('review_status', 'open'));
+                        return;
+                    }
 
-            if ($joinedReview) {
-                $query->where(function ($nested) {
-                    $nested->whereNull('r.id')
-                        ->orWhere(function ($reviewQuery) {
-                            $reviewQuery
-                                ->whereRaw("COALESCE(r.review_status, 'open') = 'open'")
-                                ->whereNull('r.corrective_action')
-                                ->whereNull('r.review_detail')
-                                ->whereNull('r.preventive_action')
-                                ->whereNull('r.sales_remark')
-                                ->whereNull('r.next_follow_up_date');
-                        });
+                    $nested->whereHas('review', fn($reviewQuery) => $reviewQuery->whereIn('review_status', $reviewStatuses));
                 });
-            } else {
-                $query->where(function ($nested) {
-                    $nested->whereDoesntHave('review')
-                        ->orWhereHas('review', function ($reviewQuery) {
-                            $reviewQuery
-                                ->whereRaw("COALESCE(review_status, 'open') = 'open'")
-                                ->whereNull('corrective_action')
-                                ->whereNull('review_detail')
-                                ->whereNull('preventive_action')
-                                ->whereNull('sales_remark')
-                                ->whereNull('next_follow_up_date');
-                        });
-                });
-            }
-        } elseif ($actionStatus === 'due_follow_up') {
-            $today = now('Asia/Bangkok')->toDateString();
-
-            if ($joinedReview) {
-                $query->whereNotNull('r.next_follow_up_date')
-                    ->where('r.next_follow_up_date', '<=', $today)
-                    ->whereRaw("COALESCE(r.review_status, 'open') <> 'closed'");
-            } else {
-                $query->whereHas('review', function ($reviewQuery) use ($today) {
-                    $reviewQuery
-                        ->whereNotNull('next_follow_up_date')
-                        ->where('next_follow_up_date', '<=', $today)
-                        ->whereRaw("COALESCE(review_status, 'open') <> 'closed'");
-                });
-            }
-        } elseif (!in_array($actionStatus, ['all', ''], true)) {
-            if ($joinedReview) {
-                $query->where('r.review_status', $actionStatus);
-            } else {
-                $query->whereHas('review', fn($reviewQuery) => $reviewQuery->where('review_status', $actionStatus));
             }
         }
     }
@@ -912,6 +777,12 @@ class DeadstockReportController extends Controller
 
     public function saveReview(Request $request, DeadstockSnapshotItem $item): RedirectResponse
     {
+        abort_unless(
+            DeadstockSalesAccess::canManage($request->user(), $item->salesperson_name),
+            403,
+            'ไม่มีสิทธิ์บันทึกรายการ Deadstock ของ Sales นี้'
+        );
+
         $validated = $request->validate([
             'revised_due_date' => ['nullable', 'date'],
             'next_follow_up_date' => ['nullable', 'date'],
@@ -919,12 +790,14 @@ class DeadstockReportController extends Controller
             'corrective_action' => ['nullable', 'string', 'max:5000'],
             'preventive_action' => ['nullable', 'string', 'max:5000'],
             'sales_remark' => ['nullable', 'string', 'max:5000'],
-            'review_status' => ['required', 'in:open,waiting_sales,waiting_customer,waiting_delivery,not_delivered_current_month,follow_up,closed'],
+            'review_status' => ['required', 'in:open,waiting_follow_up,in_progress'],
+            'no_revised_due' => ['nullable', 'boolean'],
         ]);
 
-        if (($validated['review_status'] ?? '') === 'not_delivered_current_month') {
+        if (!empty($validated['no_revised_due'])) {
             $validated['revised_due_date'] = null;
         }
+        unset($validated['no_revised_due']);
 
         $reviewStatusMaxLength = $this->deadstockReviewStatusMaxLength();
         if (strlen((string) $validated['review_status']) > $reviewStatusMaxLength) {
@@ -933,25 +806,10 @@ class DeadstockReportController extends Controller
                 ->withInput();
         }
 
-        $hasActionNote = collect([
-            $validated['review_detail'] ?? null,
-            $validated['corrective_action'] ?? null,
-            $validated['preventive_action'] ?? null,
-            $validated['sales_remark'] ?? null,
-        ])->contains(fn($value) => trim((string) $value) !== '');
-
-        if (in_array($validated['review_status'], ['waiting_sales', 'waiting_customer', 'waiting_delivery', 'follow_up'], true)
+        if ($validated['review_status'] === DeadstockReviewStatus::WAITING
             && empty($validated['next_follow_up_date'])) {
             return back()
-                ->withErrors(['next_follow_up_date' => 'กรุณาระบุวันติดตามถัดไปเมื่อสถานะงานยังต้องติดตามต่อ'])
-                ->withInput();
-        }
-
-        if ($validated['review_status'] === 'closed'
-            && in_array($item->compare_status, ['active', 'changed'], true)
-            && !$hasActionNote) {
-            return back()
-                ->withErrors(['corrective_action' => 'กรุณาระบุ action หรือ remark ก่อนปิดรายการที่ยังค้างหรือเปลี่ยนแปลง'])
+                ->withErrors(['next_follow_up_date' => 'กรุณาระบุวันติดตามถัดไปเมื่อเลือกสถานะกำลังติดตาม รอคำตอบจากลูกค้า'])
                 ->withInput();
         }
 
@@ -976,6 +834,12 @@ class DeadstockReportController extends Controller
 
     public function downloadReviewImportTemplate(): BinaryFileResponse
     {
+        abort_unless(
+            DeadstockSalesAccess::canImportAny(auth()->user()),
+            403,
+            'ไม่มีสิทธิ์ Import Deadstock'
+        );
+
         $headers = [
             'วันรับเข้า Stock',
             'statustime',
@@ -1023,6 +887,12 @@ class DeadstockReportController extends Controller
 
     public function importReviewExcel(Request $request): RedirectResponse
     {
+        abort_unless(
+            DeadstockSalesAccess::canImportAny($request->user()),
+            403,
+            'ไม่มีสิทธิ์ Import Deadstock'
+        );
+
         $validated = $request->validate([
             'review_file' => ['required', 'file', 'mimes:xlsx,xls,csv', 'max:10240'],
             'dry_run' => ['nullable', 'boolean'],
@@ -1052,6 +922,7 @@ class DeadstockReportController extends Controller
             'empty' => 0,
             'unmatched' => 0,
             'error' => 0,
+            'unauthorized' => 0,
         ];
         $unmatchedRows = [];
         $importErrors = [];
@@ -1062,7 +933,7 @@ class DeadstockReportController extends Controller
 
         foreach ($rows as $row) {
             $stats['read']++;
-            $payload = $this->deadstockReviewPayloadFromImportRow($row);
+            $payload = $this->deadstockReviewPayloadFromImportRow($row, $now);
 
             if ($payload === []) {
                 $stats['empty']++;
@@ -1084,6 +955,14 @@ class DeadstockReportController extends Controller
             }
 
             foreach ($items as $item) {
+                if (!DeadstockSalesAccess::canImport($request->user(), $item->salesperson_name)) {
+                    $stats['unauthorized']++;
+                    $importErrors[] = $this->deadstockImportRowLabel($row)
+                        . ' ไม่มีสิทธิ์บันทึก Sales '
+                        . DeadstockSalesMap::label($item->salesperson_name);
+                    continue;
+                }
+
                 if (isset($seenItemIds[$item->id])) {
                     $stats['duplicate']++;
                     continue;
@@ -1131,10 +1010,10 @@ class DeadstockReportController extends Controller
             }
         }
 
-        $message = "Import Excel สำเร็จ: อ่าน {$stats['read']} row, บันทึก {$stats['saved']} row, เพิ่มใหม่ {$stats['created']} row, แก้ไข {$stats['updated']} row, ข้อมูลเดิมไม่เปลี่ยน {$stats['unchanged']} row, ไม่พบข้อมูล {$stats['unmatched']} row, ข้ามซ้ำ {$stats['duplicate']} row, ข้ามว่าง {$stats['empty']} row";
+        $message = "Import Excel สำเร็จ: อ่าน {$stats['read']} row, บันทึก {$stats['saved']} row, เพิ่มใหม่ {$stats['created']} row, แก้ไข {$stats['updated']} row, ข้อมูลเดิมไม่เปลี่ยน {$stats['unchanged']} row, ไม่มีสิทธิ์ {$stats['unauthorized']} row, ไม่พบข้อมูล {$stats['unmatched']} row, ข้ามซ้ำ {$stats['duplicate']} row, ข้ามว่าง {$stats['empty']} row";
 
         if ($dryRun) {
-            $message = "Dry run Import Excel: อ่าน {$stats['read']} row, ถ้ารันจริงจะบันทึก {$stats['saved']} row, เพิ่มใหม่ {$stats['created']} row, แก้ไข {$stats['updated']} row, ข้อมูลเดิมไม่เปลี่ยน {$stats['unchanged']} row, ไม่พบข้อมูล {$stats['unmatched']} row, ข้ามซ้ำ {$stats['duplicate']} row, ข้ามว่าง {$stats['empty']} row (ยังไม่บันทึกลงฐานข้อมูล)";
+            $message = "Dry run Import Excel: อ่าน {$stats['read']} row, ถ้ารันจริงจะบันทึก {$stats['saved']} row, เพิ่มใหม่ {$stats['created']} row, แก้ไข {$stats['updated']} row, ข้อมูลเดิมไม่เปลี่ยน {$stats['unchanged']} row, ไม่มีสิทธิ์ {$stats['unauthorized']} row, ไม่พบข้อมูล {$stats['unmatched']} row, ข้ามซ้ำ {$stats['duplicate']} row, ข้ามว่าง {$stats['empty']} row (ยังไม่บันทึกลงฐานข้อมูล)";
         }
 
         if ($stats['error'] > 0) {
@@ -1299,7 +1178,7 @@ class DeadstockReportController extends Controller
         return $map;
     }
 
-    private function deadstockReviewPayloadFromImportRow(array $row): array
+    private function deadstockReviewPayloadFromImportRow(array $row, ?Carbon $importedAt = null): array
     {
         $payload = [];
         $revisedDueDate = $this->deadstockImportDate($row['revised_due_date'] ?? null);
@@ -1313,14 +1192,6 @@ class DeadstockReportController extends Controller
             $payload['revised_due_date'] = $revisedDueDate;
         }
 
-        if ($nextFollowUpDate) {
-            $payload['next_follow_up_date'] = $nextFollowUpDate;
-        }
-
-        if ($reviewStatus) {
-            $payload['review_status'] = $reviewStatus;
-        }
-
         foreach ([
             'review_detail',
             'corrective_action',
@@ -1332,6 +1203,33 @@ class DeadstockReportController extends Controller
             if ($value !== null) {
                 $payload[$key] = $value;
             }
+        }
+
+        $hasTrackingDetail = collect([
+            $payload['review_detail'] ?? null,
+            $payload['corrective_action'] ?? null,
+            $payload['preventive_action'] ?? null,
+            $payload['sales_remark'] ?? null,
+        ])->contains(fn($value) => trim((string) $value) !== '');
+
+        if (!$reviewStatus && $hasTrackingDetail) {
+            $reviewStatus = DeadstockReviewStatus::IN_PROGRESS;
+        }
+
+        if ($reviewStatus) {
+            $payload['review_status'] = $reviewStatus;
+        }
+
+        if ($nextFollowUpDate) {
+            $payload['next_follow_up_date'] = $nextFollowUpDate;
+        } elseif (in_array($reviewStatus, [
+            DeadstockReviewStatus::WAITING,
+            DeadstockReviewStatus::IN_PROGRESS,
+        ], true)) {
+            $payload['next_follow_up_date'] = ($importedAt ?? now('Asia/Bangkok'))
+                ->copy()
+                ->endOfMonth()
+                ->toDateString();
         }
 
         return $payload;
@@ -1523,28 +1421,7 @@ class DeadstockReportController extends Controller
 
     private function normalizeDeadstockReviewStatus(?string $status): ?string
     {
-        if ($status === null) {
-            return null;
-        }
-
-        $key = $this->normalizeDeadstockImportHeader($status);
-
-        return [
-            'open' => 'open',
-            'ยังไม่เริ่ม' => 'open',
-            'waitingsales' => 'waiting_sales',
-            'รอsales' => 'waiting_sales',
-            'waitingcustomer' => 'waiting_customer',
-            'รอลูกค้า' => 'waiting_customer',
-            'waitingdelivery' => 'waiting_delivery',
-            'รอจัดส่ง' => 'waiting_delivery',
-            'notdeliveredcurrentmonth' => 'not_delivered_current_month',
-            'ยังไม่ได้ส่งมอบเดือนปัจจุบัน' => 'not_delivered_current_month',
-            'followup' => 'follow_up',
-            'ต้องติดตามต่อ' => 'follow_up',
-            'closed' => 'closed',
-            'ปิดแล้ว' => 'closed',
-        ][$key] ?? null;
+        return DeadstockReviewStatus::normalize($status);
     }
 
     public function compareMonth(
@@ -1572,7 +1449,7 @@ class DeadstockReportController extends Controller
 
         if ($months->isEmpty()) {
             return redirect()
-                ->route('deadstock.review', ['month_id' => $month->id, 'status' => 'all'])
+                ->route('deadstock.review', ['month_id' => $month->id, 'status' => 'review'])
                 ->with('error', 'ยังไม่พบ Snapshot ที่มีรายการสำหรับเทียบข้อมูล');
         }
 
@@ -1587,9 +1464,14 @@ class DeadstockReportController extends Controller
         return redirect()
             ->route('deadstock.review', [
                 'month_ids' => $months->pluck('id')->map(fn($id) => (int) $id)->all(),
-                'status' => 'all',
+                'status' => 'review',
             ])
             ->with('success', "เทียบ Snapshot {$months->count()} เดือนแล้ว: คงค้าง {$totalCounts['active']} / เปลี่ยนแปลง {$totalCounts['changed']} / เคลียร์แล้ว {$totalCounts['cleared']}");
+    }
+
+    private function deadstockListStatus($status): string
+    {
+        return DeadstockCompareStatus::normalizePublic($status);
     }
 
     public function importLatestSnapshot(
