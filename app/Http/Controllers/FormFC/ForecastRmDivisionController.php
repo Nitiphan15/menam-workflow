@@ -10,6 +10,7 @@ use App\Services\WorkflowEngine;
 use App\Support\WorkflowDb;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -163,6 +164,34 @@ class ForecastRmDivisionController extends Controller
     private function allSalesCodes(): array
     {
         return ['D1', 'D2', 'D3', 'D5', 'D6', 'D7', 'D9'];
+    }
+
+    private function isPlanningDivisionViewer(): bool
+    {
+        $user = auth()->user();
+
+        return $user
+            && method_exists($user, 'hasRoleCode')
+            && $user->hasRoleCode('FC_PLN');
+    }
+
+    private function planningDivisionCodes(): array
+    {
+        return ['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9'];
+    }
+
+    private function requestedPlanningDivisions(Request $request): array
+    {
+        $requested = $request->query('divisions', $request->query('division', []));
+
+        $selected = collect(is_array($requested) ? $requested : [$requested])
+            ->map(fn($division) => $this->normalizeSalesCode((string) $division))
+            ->filter(fn($division) => $division && in_array($division, $this->planningDivisionCodes(), true))
+            ->unique()
+            ->values()
+            ->all();
+
+        return $selected ?: $this->planningDivisionCodes();
     }
 
     private function normalizeSalesCode(?string $code): ?string
@@ -2043,7 +2072,154 @@ class ForecastRmDivisionController extends Controller
 
     public function index(Request $request)
     {
+        if ($this->isPlanningDivisionViewer()) {
+            return $this->renderPlanningDivisionOverview($request);
+        }
+
         return $this->renderForecastPage($request, false);
+    }
+
+    private function renderPlanningDivisionOverview(Request $request)
+    {
+        $this->userOr403();
+
+        $baseMonth = now('Asia/Bangkok')->startOfMonth();
+        $forecastBaseMonth = $baseMonth->toDateString();
+        $selectedDivisions = $this->requestedPlanningDivisions($request);
+        $search = trim((string) $request->query('q', ''));
+        $futureMonths = collect(range(1, 6))
+            ->map(fn($offset) => (clone $baseMonth)->addMonths($offset));
+        $futureYm = $futureMonths->map(fn($month) => $month->format('Y-m'))->all();
+        $futureLabels = $futureMonths->map(fn($month) => $month->format('M-y'))->all();
+
+        $forecastRows = DB::connection($this->fcConn)
+            ->table('fc_rm_division_forecast')
+            ->whereDate('forecast_base_month', $forecastBaseMonth)
+            ->whereIn('sales_code', $selectedDivisions)
+            ->where('is_selected', 1)
+            ->orderBy('sales_code')
+            ->orderBy('customer_name')
+            ->orderBy('fg_partnumber')
+            ->orderBy('forecast_month')
+            ->get();
+
+        $approvalRows = collect();
+        if ($this->approvalTableAvailable()) {
+            $approvalRows = DB::connection($this->fcConn)
+                ->table($this->divisionApprovalTable)
+                ->whereDate('forecast_base_month', $forecastBaseMonth)
+                ->whereIn('sales_code', $selectedDivisions)
+                ->get()
+                ->keyBy(fn($row) => strtoupper(trim((string) $row->sales_code))
+                    . '|' . (int) $row->customer_id
+                    . '|' . strtoupper(trim((string) $row->fg_partnumber)));
+        }
+
+        $rows = $forecastRows
+            ->groupBy(fn($row) => strtoupper(trim((string) $row->sales_code))
+                . '|' . (int) $row->customer_id
+                . '|' . strtoupper(trim((string) $row->fg_partnumber)))
+            ->map(function ($group, $key) use ($futureYm, $approvalRows) {
+                $first = $group->first();
+                $forecastByMonth = array_fill_keys($futureYm, 0.0);
+
+                foreach ($group as $item) {
+                    try {
+                        $ym = Carbon::parse($item->forecast_month)->format('Y-m');
+                    } catch (\Throwable $e) {
+                        continue;
+                    }
+
+                    if (array_key_exists($ym, $forecastByMonth)) {
+                        $forecastByMonth[$ym] += (float) ($item->forecast_qty ?? 0);
+                    }
+                }
+
+                $approval = $approvalRows->get($key);
+
+                return [
+                    'sales_code' => strtoupper(trim((string) $first->sales_code)),
+                    'customer_id' => (int) $first->customer_id,
+                    'customer_name' => (string) ($first->customer_name ?? '-'),
+                    'fg_partnumber' => strtoupper(trim((string) $first->fg_partnumber)),
+                    'fg_description' => (string) ($first->fg_description ?? ''),
+                    'rm_partnumber' => strtoupper(trim((string) ($first->rm_partnumber ?? ''))),
+                    'history_avg6' => (float) ($first->history_avg6 ?? 0),
+                    'k_factor' => (float) ($first->k_factor ?? 0),
+                    'supplier_code' => (string) ($first->supplier_code ?? ''),
+                    'supplier_name' => (string) ($first->supplier_name ?? ''),
+                    'row_remark' => (string) ($first->row_remark ?? ''),
+                    'forecast_by_month' => $forecastByMonth,
+                    'approval_forecast_1m' => $approval ? (float) $approval->approval_forecast_1m : null,
+                    'approval_forecast_6m' => $approval ? (float) $approval->approval_forecast_6m : null,
+                    'approval_remark' => $approval ? (string) ($approval->approval_remark ?? '') : '',
+                ];
+            })
+            ->values();
+
+        if ($search !== '') {
+            $needle = mb_strtoupper($search);
+            $rows = $rows->filter(function (array $row) use ($needle) {
+                $haystack = mb_strtoupper(implode(' ', [
+                    $row['sales_code'],
+                    $row['customer_id'],
+                    $row['customer_name'],
+                    $row['fg_partnumber'],
+                    $row['fg_description'],
+                    $row['rm_partnumber'],
+                    $row['supplier_code'],
+                    $row['supplier_name'],
+                    $row['row_remark'],
+                ]));
+
+                return str_contains($haystack, $needle);
+            })->values();
+        }
+
+        $submissionStatuses = collect($selectedDivisions)->mapWithKeys(fn($division) => [$division => null]);
+        if ($this->submissionTableAvailable()) {
+            $submissionStatuses = $submissionStatuses->merge(
+                DB::connection($this->fcConn)
+                    ->table($this->divisionSubmissionTable)
+                    ->whereDate('forecast_base_month', $forecastBaseMonth)
+                    ->whereIn('sales_code', $selectedDivisions)
+                    ->pluck('status', 'sales_code')
+                    ->mapWithKeys(fn($status, $division) => [strtoupper((string) $division) => strtoupper((string) $status)])
+            );
+        }
+
+        $firstForecastMonth = $futureYm[0] ?? null;
+        $kpi = [
+            'items' => $rows->count(),
+            'forecast_1m_sum' => (float) $rows->sum(fn($row) => $firstForecastMonth
+                ? ($row['forecast_by_month'][$firstForecastMonth] ?? 0)
+                : 0),
+            'approved_1m_sum' => (float) $rows->sum(fn($row) => $row['approval_forecast_1m']
+                ?? ($firstForecastMonth ? ($row['forecast_by_month'][$firstForecastMonth] ?? 0) : 0)),
+        ];
+
+        $perPage = 100;
+        $page = max(1, (int) $request->query('page', 1));
+        $paginatedRows = new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        return view('formfc.division_forecast_planning', [
+            'rows' => $paginatedRows,
+            'allDivisions' => $this->planningDivisionCodes(),
+            'selectedDivisions' => $selectedDivisions,
+            'divisionLabels' => $this->divisionLabels,
+            'submissionStatuses' => $submissionStatuses,
+            'forecastBaseMonth' => $forecastBaseMonth,
+            'futureYm' => $futureYm,
+            'futureLabels' => $futureLabels,
+            'search' => $search,
+            'kpi' => $kpi,
+        ]);
     }
 
     private function documentListMonth(Request $request): string
