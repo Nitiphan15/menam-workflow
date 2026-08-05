@@ -13,6 +13,11 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 
 class ShotblastSpareController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware(['auth', 'permission.any:SSC']);
+    }
+
     // CPA code ที่ต้องการดึง
     protected array $partnumbers = [
         'IB0002067B',

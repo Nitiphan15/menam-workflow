@@ -59,6 +59,7 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('VCM',      fn(User $u) => $u->hasRoleCode(['VCM']));
         Gate::define('VCC',      fn(User $u) => $u->hasRoleCode(['VCC']));
         Gate::define('ISR',      fn(User $u) => $u->hasRoleCode(['ISR']));
+        Gate::define('SSC',      fn(User $u) => $u->hasRoleCode(['SSC']));
         Gate::define('D1',      fn(User $u) => $u->hasRoleCode(['D1']));
         Gate::define('D2',      fn(User $u) => $u->hasRoleCode(['D2']));
         Gate::define('D3',      fn(User $u) => $u->hasRoleCode(['D3']));
