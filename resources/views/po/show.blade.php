@@ -104,6 +104,17 @@
             font-size: 0.84rem;
         }
 
+        .po-lines-card .table thead th {
+            background: #b7ead4;
+            color: #0f172a;
+            vertical-align: middle;
+        }
+
+        .po-lines-card .po-number-cell {
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
         .po-pdf-edit-card {
             border: 1px solid #dbe4f0;
             border-radius: 10px;
@@ -253,11 +264,14 @@
                     </div>
                     <div class="table-responsive">
                         <table class="table table-bordered align-middle mb-0">
-                            <thead class="table-light">
+                            <thead>
                                 <tr>
-                                    <th style="width: 70px;">No.</th>
+                                    <th class="text-center" style="width: 60px;">NO.</th>
                                     <th>Description</th>
-                                    <th class="text-end" style="width: 140px;">Qty</th>
+                                    <th class="text-end" style="width: 110px;">Qty</th>
+                                    <th class="text-center" style="width: 100px;">UOM</th>
+                                    <th class="text-end" style="width: 135px;">Unit Cost</th>
+                                    <th class="text-end" style="width: 155px;">Extended Price</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -265,11 +279,14 @@
                                     <tr>
                                         <td class="text-center">{{ $index + 1 }}</td>
                                         <td>{{ $row->description }}</td>
-                                        <td class="text-end">{{ number_format((float) $row->qty, 2) }}</td>
+                                        <td class="text-end po-number-cell">{{ number_format((float) $row->qty, 2) }}</td>
+                                        <td class="text-center">{{ $row->item_unit ?: ($row->item_unit_code ?: '-') }}</td>
+                                        <td class="text-end po-number-cell">{{ number_format((float) $row->sellprice, 3) }}</td>
+                                        <td class="text-end po-number-cell">{{ number_format((float) $row->extended_price, 2) }}</td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="3" class="text-center text-muted">ไม่พบรายการย่อยจาก ERP</td>
+                                        <td colspan="6" class="text-center text-muted">ไม่พบรายการย่อยจาก ERP</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -472,10 +489,29 @@
                             <div class="alert alert-warning mb-0">เอกสารนี้ยังไม่มี attachment
                                 จึงยังส่งเข้าระบบอนุมัติไม่ได้</div>
                         @elseif ($canApprove)
-                            <form method="POST" action="{{ route('po.approve', $po->id) }}" class="mb-2">
+                            <form method="POST" action="{{ route('po.approve', $po->id) }}" class="mb-2"
+                                enctype="multipart/form-data">
                                 @csrf
                                 <label class="form-label">Approve Comment</label>
                                 <textarea name="comment" class="form-control mb-3" rows="3"></textarea>
+
+                                @if ($canAppendApprovalAttachment)
+                                    <div class="mb-3">
+                                        <label class="form-label">เพิ่มไฟล์แนบก่อนอนุมัติ (ถ้ามี)</label>
+                                        <input type="file" name="files[]"
+                                            class="form-control {{ $errors->has('files') || $errors->has('files.*') ? 'is-invalid' : '' }}"
+                                            multiple>
+                                        @if ($errors->has('files') || $errors->has('files.*'))
+                                            <div class="invalid-feedback">
+                                                {{ $errors->first('files') ?: $errors->first('files.*') }}
+                                            </div>
+                                        @endif
+                                        <div class="form-text">
+                                            ไฟล์ใหม่จะเพิ่มต่อท้ายรายการเดิม ไม่ลบหรือแทนที่ไฟล์ที่แนบไว้แล้ว
+                                        </div>
+                                    </div>
+                                @endif
+
                                 <button class="btn btn-primary w-100">Approve</button>
                             </form>
 

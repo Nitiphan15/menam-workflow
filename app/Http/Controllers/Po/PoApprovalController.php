@@ -8,6 +8,8 @@ use App\Mail\PoNeedsApprovalMail;
 use App\Mail\PoSubmittedNotificationMail;
 use App\Models\Po\PoHeader;
 use App\Models\WF\WfForm;
+use App\Models\WF\WfFormAuthorize;
+use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
 use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
@@ -19,7 +21,10 @@ class PoApprovalController extends Controller
 {
     private const PO_MAIL_BCC = 'itprogramming@menamstainless.co.th';
 
-    public function __construct(private readonly PoErpService $erpService) {}
+    public function __construct(
+        private readonly PoErpService $erpService,
+        private readonly PoAttachmentService $attachmentService,
+    ) {}
 
     public function submit(Request $request, $id)
     {
@@ -214,10 +219,40 @@ class PoApprovalController extends Controller
 
     public function approve(Request $request, $id)
     {
+        $request->validate([
+            'comment' => 'nullable|string|max:1000',
+            'files' => 'nullable|array',
+            'files.*' => 'file|max:20480',
+        ]);
+
         $po = PoHeader::query()->with('workflow')->findOrFail($id);
         abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
         $stepBeforeApprove = (int) ($po->workflow?->current_step_no ?? 0);
+
+        if ($request->hasFile('files')) {
+            abort_unless($stepBeforeApprove === 2, 422, 'Attachments can only be added while approving step 2');
+
+            $isCurrentApprover = SqlServerDb::table('wf_form_authorizes as wa')
+                ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
+                ->where('wa.wf_form_id', $po->workflow_id)
+                ->where('wa.approver_user_id', auth()->id())
+                ->where(function ($query) {
+                    $query->whereNull('wa.status')
+                        ->orWhere('wa.status', WfFormAuthorize::ST_PENDING);
+                })
+                ->whereColumn('wa.step_no', 'wf.current_step_no')
+                ->exists();
+
+            abort_unless($isCurrentApprover, 403, 'You are not authorized to add attachments at this approval step');
+
+            $this->attachmentService->append(
+                $po,
+                $request->file('files', []),
+                [],
+                (int) auth()->id(),
+            );
+        }
 
         WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
 

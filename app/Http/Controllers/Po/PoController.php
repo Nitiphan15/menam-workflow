@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Po;
 
 use App\Http\Controllers\Controller;
-use App\Models\Po\PoAttached;
 use App\Models\Po\PoHeader;
 use App\Models\WF\WfFormAuthorize;
+use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\Storage;
 
 class PoController extends Controller
 {
-    public function __construct(private readonly PoErpService $erpService)
-    {
-    }
+    public function __construct(
+        private readonly PoErpService $erpService,
+        private readonly PoAttachmentService $attachmentService,
+    ) {}
 
     public function index(Request $request)
     {
@@ -173,6 +174,7 @@ class PoController extends Controller
                 ->whereColumn('wa.step_no', 'wf.current_step_no')
                 ->exists()
             : false;
+        $canAppendApprovalAttachment = $canApprove && $currentStepNo === 2;
         $pendingApprovers = $po->workflow_id
             ? SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
@@ -233,6 +235,7 @@ class PoController extends Controller
             'canEditAttachment',
             'canEditPdfOverride',
             'canApprove',
+            'canAppendApprovalAttachment',
             'pendingApprovers',
             'workflowHistories',
             'workflowRemarks',
@@ -308,42 +311,13 @@ class PoController extends Controller
         $po->updated_by = auth()->id();
         $po->save();
 
-        if ($request->hasFile('files')) {
-            $today = now();
-            $dir = "po/{$today->year}/{$today->format('m')}/{$today->format('d')}";
-            $safePoNo = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $po->ordnumber);
-            $existingFileCount = $po->attachments()->count();
-
-            foreach ($request->file('files') as $index => $file) {
-                if (!$file || !$file->isValid()) {
-                    continue;
-                }
-
-                $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'file');
-                $sequence = $existingFileCount + $index + 1;
-                $fileName = sprintf('%s_%02d.%s', $safePoNo, $sequence, $extension);
-                $candidate = "{$dir}/{$fileName}";
-
-                while (Storage::disk('public')->exists($candidate)) {
-                    $sequence++;
-                    $fileName = sprintf('%s_%02d.%s', $safePoNo, $sequence, $extension);
-                    $candidate = "{$dir}/{$fileName}";
-                }
-
-                $stored = $file->storeAs($dir, $fileName, 'public');
-
-                PoAttached::query()->create([
-                    'po_header_id' => $po->id,
-                    'file_name' => $fileName,
-                    'file_path' => $stored,
-                    'file_ext' => $file->getClientOriginalExtension(),
-                    'mime_type' => $file->getClientMimeType(),
-                    'file_size' => $file->getSize(),
-                    'remark' => $request->input("file_remark.{$index}"),
-                    'created_at' => now(),
-                    'created_by' => auth()->id(),
-                ]);
-            }
+        if ($canEditAttachment && $request->hasFile('files')) {
+            $this->attachmentService->append(
+                $po,
+                $request->file('files', []),
+                $request->input('file_remark', []),
+                (int) auth()->id(),
+            );
         }
 
         return redirect()->route('po.show', $po->id)->with('ok', 'บันทึกข้อมูล PO เรียบร้อยแล้ว');
