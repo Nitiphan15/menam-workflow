@@ -27,7 +27,11 @@
         $otherCode = 'OTHER';
         $sbl = (string) old('lines.0.sell_by_line', $ln0['sell_by_line'] ?? '0');
         $isSales8User = auth()->check() && in_array((int) auth()->id(), [50, 51], true);
-        if ($isSales8User) {
+        $piecePartNumbers = $piecePartNumbers ?? ['SP-001'];
+        $initialPartNumber = strtoupper(trim((string) old('lines.0.part_no', $ln0['part_no'] ?? '')));
+        $isPiecePart = in_array($initialPartNumber, $piecePartNumbers, true);
+        $isPieceSale = $isSales8User || $isPiecePart;
+        if ($isPieceSale) {
             $sbl = '1';
         }
         $editMailSentRevisions = $editMailSentRevisions ?? [];
@@ -221,7 +225,7 @@
                         @if ($isSales8User)
                             <input type="hidden" name="lines[0][sell_by_line]" value="1">
                         @else
-                            <div class="dp-col-12">
+                            <div class="dp-col-12 {{ $isPiecePart ? 'd-none' : '' }}" id="sellByLineChoiceWrap">
                                 <label class="form-label">ขายแบบระบุเส้น</label>
                                 <div class="dp-radio-row">
                                     <label class="dp-radio">
@@ -239,12 +243,12 @@
                         @endif
 
                         <div class="dp-col-6 {{ $sbl === '1' ? '' : 'd-none' }}" id="sellByLineQtyWrap">
-                            <label class="form-label">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }} <span class="text-danger">*</span></label>
+                            <label class="form-label"><span id="sellByLineQtyLabel">{{ $isPieceSale ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }}</span> <span class="text-danger">*</span></label>
                             <input type="number" min="1" step="1" id="sellByLineQty"
                                 name="lines[0][sell_by_line_qty]"
                                 value="{{ old('lines.0.sell_by_line_qty', $ln0['sell_by_line_qty'] ?? '') }}"
                                 class="form-control dp-input @error('lines.0.sell_by_line_qty') is-invalid @enderror"
-                                placeholder="{{ $isSales8User ? 'กรอกจำนวนชิ้น' : 'กรอกจำนวนเส้น' }}">
+                                placeholder="{{ $isPieceSale ? 'กรอกจำนวนชิ้น' : 'กรอกจำนวนเส้น' }}">
                             @error('lines.0.sell_by_line_qty')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
@@ -255,11 +259,11 @@
                             <div id="qtyCalcHint" class="form-text text-primary d-none"></div>
                             <div id="qtyCalcError" class="form-text text-danger d-none"></div>
                         @else
-                            <div class="dp-col-4">
+                            <div class="dp-col-4 {{ $isPiecePart ? 'd-none' : '' }}" id="qtyKgWrap">
                                 <label class="form-label">จำนวน (KG) <span class="text-danger">*</span></label>
                                 <input type="number" inputmode="decimal" step="0.001" min="0"
                                     class="form-control dp-input @error('lines.0.qty_kg') is-invalid @enderror" id="qtyKg"
-                                    name="lines[0][qty_kg]" value="{{ old('lines.0.qty_kg', $ln0['qty_kg'] ?? '') }}"
+                                    name="lines[0][qty_kg]" value="{{ $isPiecePart ? '0' : old('lines.0.qty_kg', $ln0['qty_kg'] ?? '') }}"
                                     placeholder="เช่น 1000">
                                 @error('lines.0.qty_kg')
                                     <div class="invalid-feedback">{{ $message }}</div>
@@ -576,6 +580,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const isSales8User = @json($isSales8User);
+            const piecePartNumbers = @json(array_values($piecePartNumbers));
             const continueSameSo = @json(session('dp_continue_same_so'));
 
             (function editModeToggle() {
@@ -811,9 +816,48 @@
             const qtyCalcError = document.getElementById('qtyCalcError');
             const yesRadio = document.querySelector('input[name="lines[0][sell_by_line]"][value="1"]');
             const noRadio = document.querySelector('input[name="lines[0][sell_by_line]"][value="0"]');
+            const sellByLineChoiceWrap = document.getElementById('sellByLineChoiceWrap');
+            const sellByLineQtyLabel = document.getElementById('sellByLineQtyLabel');
+            const qtyKgWrap = document.getElementById('qtyKgWrap');
 
             let maxQtyAllowed = 0;
             let qtySource = '';
+
+            function isPiecePart() {
+                const partNo = document.getElementById('partNo')?.value?.trim().toUpperCase() || '';
+                return piecePartNumbers.includes(partNo);
+            }
+
+            function isPieceSale() {
+                return isSales8User || isPiecePart();
+            }
+
+            function syncPieceSaleUi() {
+                if (isSales8User) return;
+
+                const pieceSale = isPiecePart();
+                sellByLineChoiceWrap?.classList.toggle('d-none', pieceSale);
+                qtyKgWrap?.classList.toggle('d-none', pieceSale);
+
+                if (sellByLineQtyLabel) {
+                    sellByLineQtyLabel.textContent = pieceSale ? 'จำนวนชิ้น' : 'Qty ระบุเส้น';
+                }
+                if (sellByLineQtyInput) {
+                    sellByLineQtyInput.placeholder = pieceSale ? 'กรอกจำนวนชิ้น' : 'กรอกจำนวนเส้น';
+                }
+
+                if (pieceSale) {
+                    if (sellByLineChoiceWrap) sellByLineChoiceWrap.dataset.pieceForced = '1';
+                    if (yesRadio) yesRadio.checked = true;
+                    if (sellByLineQtyInput) sellByLineQtyInput.disabled = false;
+                    if (qtyKg) qtyKg.value = '0';
+                    document.getElementById('sellByLineQtyWrap')?.classList.remove('d-none');
+                } else if (sellByLineChoiceWrap?.dataset.pieceForced === '1') {
+                    delete sellByLineChoiceWrap.dataset.pieceForced;
+                    if (noRadio) noRadio.checked = true;
+                    if (sellByLineQtyInput) sellByLineQtyInput.value = '';
+                }
+            }
 
             function setQtyLimit(maxQty, source) {
                 maxQtyAllowed = toNum(maxQty);
@@ -833,6 +877,12 @@
 
             function validateQtyInput() {
                 if (!qtyKg) return true;
+
+                if (isPieceSale()) {
+                    qtyKg.value = '0';
+                    qtyKg.setCustomValidity('');
+                    return true;
+                }
 
                 const current = toNum(qtyKg.value);
 
@@ -874,13 +924,13 @@
             }
 
             function isSellByLineYes() {
-                if (isSales8User) return true;
+                if (isPieceSale()) return true;
                 const checked = document.querySelector('input[name="lines[0][sell_by_line]"]:checked');
                 return checked && checked.value === '1';
             }
 
             function canSellByLine() {
-                if (isSales8User) return true;
+                if (isPieceSale()) return true;
                 return !!(kgPerLineInput && kgPerLineInput.value && parseFloat(kgPerLineInput.value) > 0);
             }
 
@@ -891,7 +941,8 @@
             }
 
             function syncSellByLineAvailability() {
-                if (isSales8User) {
+                syncPieceSaleUi();
+                if (isPieceSale()) {
                     if (yesRadio) yesRadio.checked = true;
                     setCalcError('');
                     return;
@@ -926,7 +977,7 @@
             function recalcSellByLineQtyToKg() {
                 if (!qtyKg || !sellByLineQtyInput || !kgPerLineInput) return;
 
-                if (isSales8User) {
+                if (isPieceSale()) {
                     if (!qtyKg.value) {
                         qtyKg.value = '0';
                     }
@@ -1009,6 +1060,7 @@
                     );
 
                     kgPerLine.value = found?.kg_per_line ?? '';
+                    syncPieceSaleUi();
                     syncSellByLineAvailability();
                     recalcSellByLineQtyToKg();
                 } catch (e) {
@@ -1251,7 +1303,7 @@
                     await hydratePartCalcByPartNo(it.part_number || '');
 
                     const soQty = toNum(it.ordered_qty ?? it.qty ?? it.so_qty ?? 0);
-                    if (isSales8User) {
+                    if (isPieceSale()) {
                         if (sellByLineQtyInput && soQty > 0) sellByLineQtyInput.value = String(Math.round(soQty));
                         if (qtyKg) qtyKg.value = '0';
                     } else if (qtyKg && !isSellByLineYes()) {
@@ -1542,7 +1594,7 @@
                     }
 
                     const mfgQty = toNum(it.qty ?? 0);
-                    if (isSales8User) {
+                    if (isPieceSale()) {
                         if (sellByLineQtyInput && mfgQty > 0) sellByLineQtyInput.value = String(Math.round(mfgQty));
                         if (qtyKg) qtyKg.value = '0';
                     } else if (qtyKg && !isSellByLineYes()) {

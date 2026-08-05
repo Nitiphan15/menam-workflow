@@ -82,6 +82,54 @@ class DeliveryConfirmationService
         return $row;
     }
 
+    public function cancel(
+        string $mfgNo,
+        ?string $site,
+        ?string $reason
+    ): DeliveryConfirmation {
+        $mfgNo = $this->normalizeMfgNo($mfgNo);
+        $site = strtoupper(trim((string) $site));
+        $reason = trim((string) $reason);
+
+        if ($mfgNo === '') {
+            throw ValidationException::withMessages(['mfg_no' => 'MFG No. is required.']);
+        }
+        if ($reason === '') {
+            throw ValidationException::withMessages(['reason' => 'กรุณาระบุเหตุผลที่ยกเลิกการยืนยัน']);
+        }
+
+        return DB::connection('sqlsrv_menam')->transaction(function () use ($mfgNo, $site, $reason) {
+            $latest = DeliveryConfirmation::query()
+                ->where('mfg_no', $mfgNo)
+                ->where('site', $site)
+                ->orderByDesc('id')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$latest || !DeliveryConfirmation::isActiveStatus($latest->confirmation_status)) {
+                throw ValidationException::withMessages([
+                    'mfg_no' => 'รายการนี้ไม่มี Delivery Confirmation ที่ยังใช้งานอยู่',
+                ]);
+            }
+
+            $user = Auth::user();
+
+            return DeliveryConfirmation::create([
+                'mfg_no' => $mfgNo,
+                'site' => $site,
+                'so_number' => $latest->so_number,
+                'confirmation_status' => DeliveryConfirmation::STATUS_CANCELLED,
+                'original_ship_date' => $latest->original_ship_date?->toDateString(),
+                'new_delivery_date' => null,
+                'remark' => mb_substr($reason, 0, 500),
+                'confirmed_by_id' => $user?->id,
+                'confirmed_by_login' => $user?->login ?? $user?->username ?? null,
+                'confirmed_by_name' => $user?->name ?? null,
+                'confirmed_at' => now(),
+            ]);
+        });
+    }
+
     /**
      * Latest confirmation per (mfg_no, site).
      * Returns map keyed by "SITE|MFG" => stdClass with the row columns.
@@ -172,7 +220,8 @@ class DeliveryConfirmationService
 
         foreach ($normalized as $it) {
             $key = $it['site'] . '|' . $it['mfg_no'];
-            if ($existing->has($key)) {
+            $latest = $existing->get($key);
+            if ($latest && DeliveryConfirmation::isActiveStatus($latest->confirmation_status ?? null)) {
                 $skipped++;
                 continue;
             }

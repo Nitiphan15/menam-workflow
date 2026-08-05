@@ -11,6 +11,7 @@ class DeliveryConfirmation extends Model
 
     public const STATUS_CONFIRM = 'CONFIRM';
     public const STATUS_POSTPONE = 'POSTPONE';
+    public const STATUS_CANCELLED = 'CANCELLED';
 
     public $timestamps = true;
 
@@ -39,6 +40,7 @@ class DeliveryConfirmation extends Model
         return match (strtoupper((string) $status)) {
             self::STATUS_CONFIRM => 'Confirm Delivery',
             self::STATUS_POSTPONE => 'Request Postpone',
+            self::STATUS_CANCELLED => 'ยกเลิกการยืนยัน',
             default => '-',
         };
     }
@@ -48,7 +50,16 @@ class DeliveryConfirmation extends Model
         return match (strtoupper((string) $status)) {
             self::STATUS_CONFIRM => 'success',
             self::STATUS_POSTPONE => 'warning',
+            self::STATUS_CANCELLED => 'danger',
             default => 'light text-dark border',
         };
+    }
+
+    public static function isActiveStatus(?string $status): bool
+    {
+        return in_array(strtoupper((string) $status), [
+            self::STATUS_CONFIRM,
+            self::STATUS_POSTPONE,
+        ], true);
     }
 }

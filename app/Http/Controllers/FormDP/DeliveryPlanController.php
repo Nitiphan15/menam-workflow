@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\FormDP;
 
 use App\Http\Controllers\Controller;
+use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -219,7 +220,8 @@ class DeliveryPlanController extends Controller
 
             $editQtyKg = $this->toNumberOrNull($row->qty ?? null);
             $editLineQty = $this->toNumberOrNull($row->line_qty ?? null);
-            if (!$isSales8User && $editQtyKg !== null && $editQtyKg <= 0) {
+            $isPieceSale = $isSales8User || PieceSalePolicy::appliesTo($row->part_number ?? null);
+            if (!$isPieceSale && $editQtyKg !== null && $editQtyKg <= 0) {
                 $editQtyKg = null;
             }
 
@@ -305,7 +307,9 @@ class DeliveryPlanController extends Controller
             ->table('attach_docs_master')->where('active', 1)->orderBy('id')
             ->get()->map(fn($x) => (array)$x)->values()->all();
 
-        return view('formdp.index', compact('day', 'rows', 'lines', 'header', 'attachMasters', 'isEdit', 'editMailSentRevisions'));
+        $piecePartNumbers = PieceSalePolicy::PART_NUMBERS;
+
+        return view('formdp.index', compact('day', 'rows', 'lines', 'header', 'attachMasters', 'isEdit', 'editMailSentRevisions', 'piecePartNumbers'));
     }
 
     /* =========================================================
@@ -332,6 +336,8 @@ class DeliveryPlanController extends Controller
             ? (auth()->user()->login ?? auth()->user()->id ?? auth()->user()->name ?? 'system')
             : 'system';
         $isSales8User = $this->isSales8User();
+        $firstLine = $request->input('lines.0', []);
+        $isPieceSale = $isSales8User || PieceSalePolicy::appliesTo($firstLine['part_no'] ?? null);
 
 
         $rules = [
@@ -360,7 +366,7 @@ class DeliveryPlanController extends Controller
             'lines.*.sell_by_line_qty' => ['nullable', 'integer', 'min:1'],
         ];
 
-        if ($isSales8User) {
+        if ($isPieceSale) {
             $rules['lines.*.qty_kg'] = ['nullable', 'numeric', 'min:0'];
             $rules['lines.*.sell_by_line_qty'] = ['required', 'integer', 'min:1'];
         }
@@ -383,13 +389,12 @@ class DeliveryPlanController extends Controller
             'lines.*.sell_by_line_qty.min' => 'Qty ระบุเส้นต้องมากกว่า 0',
         ];
 
-        $firstLine = $request->input('lines.0', []);
         $deliveryMode = strtoupper(trim((string)($firstLine['mode'] ?? 'SO')));
         $deliveryMode = in_array($deliveryMode, ['SO', 'ACID', 'SPECIAL'], true) ? $deliveryMode : 'SO';
 
         $sellByLineInput = (string)($firstLine['sell_by_line'] ?? '0');
         $isSellByLine = ($sellByLineInput === '1' || strtolower($sellByLineInput) === 'true');
-        if ($isSales8User) {
+        if ($isPieceSale) {
             $isSellByLine = true;
         }
 
@@ -397,7 +402,7 @@ class DeliveryPlanController extends Controller
         $lineQtyInput = $this->toNumberOrNull($firstLine['sell_by_line_qty'] ?? null);
 
         if (
-            !$isSales8User &&
+            !$isPieceSale &&
             trim((string)($firstLine['id'] ?? '')) !== '' &&
             ($qtyKgInput === null || $qtyKgInput <= 0)
         ) {
@@ -460,7 +465,7 @@ class DeliveryPlanController extends Controller
                 : 'lines.0.qty_kg';
 
             $maxErrorText = $isSellByLine
-                ? 'Qty ' . ($isSales8User ? 'ชิ้น' : 'ระบุเส้น') . ' ห้ามเกิน ' . number_format((float)$maxAllowed, 0) . ' ' . ($isSales8User ? 'ชิ้น' : 'เส้น')
+                ? 'Qty ' . ($isPieceSale ? 'ชิ้น' : 'ระบุเส้น') . ' ห้ามเกิน ' . number_format((float)$maxAllowed, 0) . ' ' . ($isPieceSale ? 'ชิ้น' : 'เส้น')
                 : 'จำนวน KG ห้ามเกิน ' . number_format((float)$maxAllowed, 3) . ' KG';
 
             return back()
@@ -601,7 +606,8 @@ class DeliveryPlanController extends Controller
 
                 $sellByLine = (string)($ln['sell_by_line'] ?? '0');
                 $sellByLine = ($sellByLine === '1' || strtolower($sellByLine) === 'true') ? 1 : 0;
-                if ($isSales8User) {
+                $isPieceSale = $isSales8User || PieceSalePolicy::appliesTo($ln['part_no'] ?? null);
+                if ($isPieceSale) {
                     $sellByLine = 1;
                 }
 
@@ -612,7 +618,7 @@ class DeliveryPlanController extends Controller
 
                 $qtyKg = $this->toNumberOrNull($ln['qty_kg'] ?? null);
 
-                if ($isSales8User) {
+                if ($isPieceSale) {
                     if ($sellByLineQty === null || $sellByLineQty <= 0) {
                         throw new \RuntimeException('กรุณากรอกจำนวนชิ้น');
                     }

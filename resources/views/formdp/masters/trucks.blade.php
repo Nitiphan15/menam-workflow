@@ -40,7 +40,7 @@
                     </div>
                     <div class="col-md-1">
                         <label class="form-label small mb-1">Max (ตัน)</label>
-                        <input type="number" step="0.001" min="0" class="form-control form-control-sm"
+                        <input type="number" step="0.1" min="0" class="form-control form-control-sm"
                             name="max_load_ton" placeholder="0 = ไม่ระบุ">
                         <div class="form-text small">0 = ไม่ระบุ Max Load</div>
                     </div>
@@ -147,11 +147,11 @@
                                     </td>
                                     <td><input class="form-control form-control-sm jsDriverPhone" name="driver_phone"
                                             form="{{ $editFormId }}" value="{{ $row->driver_phone }}"></td>
-                                    <td><input type="number" step="0.001" min="0"
+                                    <td><input type="number" step="0.1" min="0"
                                             class="form-control form-control-sm text-end" name="max_load_ton"
                                             form="{{ $editFormId }}"
                                             placeholder="0 = ไม่ระบุ"
-                                            value="{{ number_format(((float) ($row->max_load ?? 0)) / 1000, 3, '.', '') }}">
+                                            value="{{ number_format(((float) ($row->max_load ?? 0)) / 1000, 1, '.', '') }}">
                                     </td>
                                     <td><input type="number" step="0.01" min="0"
                                             class="form-control form-control-sm text-end" name="car_length"

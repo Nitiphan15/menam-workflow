@@ -124,6 +124,42 @@ class ProductionStatusTrackingController extends Controller
         ]);
     }
 
+    public function cancelConfirm(Request $request, DeliveryConfirmationService $service)
+    {
+        $validated = $request->validate([
+            'mfg_no' => ['required', 'string', 'max:80'],
+            'site' => ['nullable', 'string', 'max:10'],
+            'reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        try {
+            $row = $service->cancel(
+                $validated['mfg_no'],
+                $validated['site'] ?? null,
+                $validated['reason']
+            );
+        } catch (ValidationException $e) {
+            return response()->json([
+                'ok' => false,
+                'message' => collect($e->errors())->flatten()->first() ?? 'ข้อมูลไม่ถูกต้อง',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'ยกเลิก Delivery Confirmation เรียบร้อย',
+            'data' => [
+                'confirmation_status' => $row->confirmation_status,
+                'status_label' => \App\Models\FormDP\DeliveryConfirmation::statusLabel($row->confirmation_status),
+                'badge_class' => \App\Models\FormDP\DeliveryConfirmation::statusBadgeClass($row->confirmation_status),
+                'confirmed_at' => $row->confirmed_at?->format('Y-m-d H:i'),
+                'confirmed_by_name' => $row->confirmed_by_name,
+                'remark' => $row->remark,
+            ],
+        ]);
+    }
+
     public function confirmHistory(Request $request, DeliveryConfirmationService $service)
     {
         $mfgNo = trim((string) $request->query('mfg_no', ''));

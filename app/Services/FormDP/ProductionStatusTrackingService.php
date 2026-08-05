@@ -21,12 +21,28 @@ class ProductionStatusTrackingService
         'PLUS' => 'pgsqlmfgp',
     ];
 
+    /** Stock FG is a shared pool, so every row must include both companies. */
+    private const STOCK_FG_CONNECTIONS = ['pgsqlw', 'pgsqlp'];
+
     public function getDashboardData(array $filters, int $perPage, int $page): array
     {
         $dataError = null;
 
         try {
-            $rows = $this->fetchProductionRows($filters)
+            $sourceRows = $this->fetchProductionRows($filters)->values();
+            $processFilters = array_merge($filters, ['process_filter' => '']);
+            $processOptions = $sourceRows
+                ->filter(fn($row) => $this->passesFilters($row, $processFilters))
+                ->groupBy(fn($row) => trim((string) ($row->current_process ?? '')) ?: 'Unknown')
+                ->map(fn($items, $process) => [
+                    'value' => $process,
+                    'label' => $process,
+                    'count' => $items->count(),
+                ])
+                ->sortBy('label', SORT_NATURAL | SORT_FLAG_CASE)
+                ->values();
+
+            $rows = $sourceRows
                 ->filter(fn($row) => $this->passesFilters($row, $filters))
                 ->sortBy($this->inquiryLikeSort())
                 ->values();
@@ -34,6 +50,7 @@ class ProductionStatusTrackingService
             $this->attachDeliveryConfirmations($rows);
         } catch (\Throwable $e) {
             $rows = collect();
+            $processOptions = collect();
             $dataError = $e->getMessage();
         }
 
@@ -58,6 +75,7 @@ class ProductionStatusTrackingService
             'perPage' => $perPage,
             'dataError' => $dataError ? $this->friendlyConnectionError($dataError) : null,
             'usingDemoData' => $dataError !== null,
+            'processOptions' => $processOptions,
             'siteOptions' => [
                 ['value' => '', 'label' => 'All sites'],
                 ['value' => 'WIRE', 'label' => 'Wire'],
@@ -578,7 +596,7 @@ class ProductionStatusTrackingService
     {
         $partNumbers = $deliveryRows
             ->pluck('part_number')
-            ->map(fn($value) => trim((string) $value))
+            ->map(fn($value) => strtoupper(trim((string) $value)))
             ->filter()
             ->unique()
             ->values();
@@ -588,19 +606,19 @@ class ProductionStatusTrackingService
         }
 
         $stockMap = [];
-        foreach (['pgsqlw', 'pgsqlp'] as $connection) {
+        foreach (self::STOCK_FG_CONNECTIONS as $connection) {
             try {
                 $stockRows = DB::connection($connection)
                     ->table('parts as p')
                     ->join('serializeunits as su', 'su.parts_id', '=', 'p.id')
                     ->join('serializeunitsmvmt as sus', 'sus.su_id', '=', 'su.id')
-                    ->whereIn('p.partnumber', $partNumbers->all())
-                    ->groupBy('p.partnumber')
-                    ->selectRaw('p.partnumber, SUM(CASE WHEN su.onhand THEN sus.qty ELSE 0 END) AS balance_qty')
+                    ->whereIn(DB::raw('UPPER(BTRIM(p.partnumber))'), $partNumbers->all())
+                    ->groupByRaw('UPPER(BTRIM(p.partnumber))')
+                    ->selectRaw('UPPER(BTRIM(p.partnumber)) AS part_key, SUM(CASE WHEN su.onhand THEN sus.qty ELSE 0 END) AS balance_qty')
                     ->get();
 
                 foreach ($stockRows as $stockRow) {
-                    $partNumber = trim((string) ($stockRow->partnumber ?? ''));
+                    $partNumber = strtoupper(trim((string) ($stockRow->part_key ?? '')));
                     if ($partNumber === '') {
                         continue;
                     }
@@ -615,7 +633,7 @@ class ProductionStatusTrackingService
         }
 
         return $deliveryRows->each(function ($row) use ($stockMap) {
-            $partNumber = trim((string) ($row->part_number ?? ''));
+            $partNumber = strtoupper(trim((string) ($row->part_number ?? '')));
             $row->stock_fg = $stockMap[$partNumber] ?? 0.0;
         });
     }

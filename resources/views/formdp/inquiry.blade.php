@@ -1390,7 +1390,7 @@
                         @if ($isSales8User)
                             <input type="hidden" name="duplicate_sell_by_line" id="duplicateSellByLine" value="1">
                         @else
-                            <div class="mt-3">
+                            <div class="mt-3" id="duplicateSellByLineChoiceWrap">
                                 <label class="form-label fw-semibold">ขายแบบระบุเส้น</label>
                                 <div class="d-flex gap-3 flex-wrap">
                                     <label class="form-check mb-0">
@@ -1409,7 +1409,7 @@
 
                         <div class="row g-3 mt-1">
                             <div class="col-md-6" id="duplicateLineQtyWrap">
-                                <label class="form-label fw-semibold">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }}
+                                <label class="form-label fw-semibold"><span id="duplicateLineQtyLabel">{{ $isSales8User ? 'จำนวนชิ้น' : 'Qty ระบุเส้น' }}</span>
                                     <span class="text-danger">*</span></label>
                                 <input type="number" min="1" step="1" class="form-control"
                                     name="duplicate_line_qty" id="duplicateLineQty">
@@ -2140,6 +2140,7 @@
         };
         window.DP_INQUIRY = {
             docMap: @json($docMap),
+            piecePartNumbers: @json(\App\Support\FormDP\PieceSalePolicy::PART_NUMBERS),
             duplicateContinue: @json(session('dp_duplicate_continue')),
             routes: {
                 history: @json(route('dp.inquiry.history', ['ordId' => '__ID__'])),

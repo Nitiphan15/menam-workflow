@@ -8,6 +8,7 @@ use App\Mail\AssignedTruckBoardMail;
 use App\Mail\DeliveryPlanMail;
 use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
+use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -32,6 +33,7 @@ class DeliveryPlanInquiryController extends Controller
         'SALES_CAR' => 'รถเซลล์',
         'WEIGHT_REQUEST' => 'งานขอน้ำหนัก',
         'POSTPONED' => 'งานเลื่อน',
+        'BILL' => 'งานเปิดบิล',
     ];
 
     private function conn()
@@ -2416,6 +2418,10 @@ class DeliveryPlanInquiryController extends Controller
 
             $sellByLine = (string) ($data['duplicate_sell_by_line'] ?? ($row->sell_by_line ?? '0'));
             $sellByLine = ($sellByLine === '1' || strtolower($sellByLine) === 'true') ? 1 : 0;
+            $isPieceSale = $this->isSales8User() || PieceSalePolicy::appliesTo($row->part_number ?? null);
+            if ($isPieceSale) {
+                $sellByLine = 1;
+            }
             $lineQty = $sellByLine === 1 && ($data['duplicate_line_qty'] ?? null) !== null
                 ? (int) $data['duplicate_line_qty']
                 : null;
@@ -2424,8 +2430,7 @@ class DeliveryPlanInquiryController extends Controller
                 ->where('partnumber', $row->part_number ?? '')
                 ->value('id');
 
-            if ($this->isSales8User()) {
-                $sellByLine = 1;
+            if ($isPieceSale) {
                 if ($lineQty === null || $lineQty <= 0) {
                     throw ValidationException::withMessages([
                         'duplicate_line_qty' => ['กรุณากรอกจำนวนชิ้น'],

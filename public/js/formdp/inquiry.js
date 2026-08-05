@@ -2651,6 +2651,8 @@
     const sellByLineEl = byId("duplicateSellByLine");
     const lineQtyEl = byId("duplicateLineQty");
     const lineQtyWrapEl = byId("duplicateLineQtyWrap");
+    const lineQtyLabelEl = byId("duplicateLineQtyLabel");
+    const sellByLineChoiceWrapEl = byId("duplicateSellByLineChoiceWrap");
     const partsIdEl = byId("duplicatePartsId");
     const soNumberEl = byId("duplicateSoNumber");
     const customerIdEl = byId("duplicateCustomerId");
@@ -2676,6 +2678,22 @@
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
     let mfgDebounce = null;
     let mfgItems = [];
+    const piecePartNumbers = Array.isArray(CONFIG.piecePartNumbers)
+        ? CONFIG.piecePartNumbers.map((value) => String(value).trim().toUpperCase())
+        : [];
+
+    function isPiecePart(partNumber) {
+        return piecePartNumbers.includes(String(partNumber || "").trim().toUpperCase());
+    }
+
+    function syncPieceSale(partNumber) {
+        const forcedPieceUser = !sellByLineChoiceWrapEl && sellByLineEl?.value === "1";
+        const pieceSale = forcedPieceUser || isPiecePart(partNumber);
+        sellByLineChoiceWrapEl?.classList.toggle("d-none", pieceSale);
+        if (lineQtyLabelEl)
+            lineQtyLabelEl.textContent = pieceSale ? "จำนวนชิ้น" : "Qty ระบุเส้น";
+        return pieceSale;
+    }
 
     function esc(value) {
         return String(value ?? "")
@@ -2849,7 +2867,8 @@
             windowTimeEl.value = btn.dataset.windowTime || "08:00";
         if (mfgEl) mfgEl.value = btn.dataset.mfg || "";
         if (qtyEl) qtyEl.value = btn.dataset.qty || "";
-        setSellByLine(btn.dataset.sellByLine === "1" ? "1" : "0");
+        const pieceSale = syncPieceSale(btn.dataset.part || "");
+        setSellByLine(pieceSale || btn.dataset.sellByLine === "1" ? "1" : "0");
         if (lineQtyEl) lineQtyEl.value = btn.dataset.lineQty || "";
         if (addressEl) addressEl.value = btn.dataset.address || "";
         if (telEl) telEl.value = btn.dataset.tel || "";

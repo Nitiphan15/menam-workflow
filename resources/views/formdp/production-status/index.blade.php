@@ -74,16 +74,21 @@
 
             return array_merge($query, ['delivery_type' => $value]);
         };
-        $hasActiveFilters =
-            !empty($filters['keyword']) ||
+        $clearQuickActionQuery = request()->except([
+            'page',
+            'process_filter',
+            'site',
+            'delivery_type',
+            'completion_filter',
+            'status_filter',
+            'confirmation_filter',
+        ]);
+        $hasActiveQuickActionFilters =
             !empty($filters['site']) ||
-            !empty($filters['risk_status']) ||
             !empty($filters['process_filter']) ||
             $deliveryTypeFilterValue !== 'ALL' ||
-            ($filters['delivery_status'] ?? 'NEW') !== 'NEW' ||
             ($filters['completion_filter'] ?? 'all') !== 'all' ||
             ($filters['status_filter'] ?? 'all') !== 'all' ||
-            ($filters['movement_filter'] ?? 'all') !== 'all' ||
             $confirmationFilterValue !== 'all';
     @endphp
 
@@ -1122,10 +1127,11 @@
             $pstTh = fn($k) => $pstLabelTh[$k] ?? $k;
         @endphp
         <div class="pst-board">
-            <div class="pst-lane">
-                <div class="pst-lane-head">
+            <details class="pst-lane pst-collapsible" data-storage-key="pst-production-overview-open" open>
+                <summary class="pst-lane-head pst-collapsible-summary">
                     <span>ภาพรวมการผลิต</span>
-                </div>
+                    <i class="fas fa-chevron-down pst-collapsible-icon ms-2"></i>
+                </summary>
                 <div class="pst-lane-body">
                     {{-- status tiles (ล่าช้า / ทันกำหนด / เสร็จแล้ว) ซ้ำกับ HEALTH+Movement Filter จึงตัดออก --}}
                     <div class="pst-band-grid" style="margin-top:0;">
@@ -1215,7 +1221,7 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </details>
 
             @php
                 $watchOpenItems = $watchlist->filter(function ($it) {
@@ -1230,17 +1236,20 @@
                     default => 'ต้องดำเนินการ',
                 };
             @endphp
-            <div class="pst-lane">
-                <div class="pst-lane-head">
+            <details class="pst-lane pst-collapsible" data-storage-key="pst-action-queue-open" open>
+                <summary class="pst-lane-head pst-collapsible-summary">
                     <span>คิวที่ต้องดำเนินการ
                         @if ($watchOpenCount > 0)
                             <span class="badge bg-light text-muted border ms-1">{{ number_format($watchOpenCount) }}</span>
                         @endif
                     </span>
-                    <a class="btn btn-sm {{ $statusFilterActive === 'delayed' ? 'btn-danger' : 'btn-outline-danger' }}"
-                        href="{{ route('dp.production-status', $statusQuery('delayed')) }}"
-                        title="กรองเฉพาะรายการล่าช้า">{{ $actionQueueLabel }}</a>
-                </div>
+                    <span class="d-flex align-items-center gap-2">
+                        <a class="btn btn-sm {{ $statusFilterActive === 'delayed' ? 'btn-danger' : 'btn-outline-danger' }}"
+                            href="{{ route('dp.production-status', $statusQuery('delayed')) }}"
+                            title="กรองเฉพาะรายการล่าช้า" onclick="event.stopPropagation()">{{ $actionQueueLabel }}</a>
+                        <i class="fas fa-chevron-down pst-collapsible-icon"></i>
+                    </span>
+                </summary>
                 <div class="pst-lane-body pst-watch-scroll">
                     <div class="pst-watch">
                         @forelse ($watchlist as $item)
@@ -1272,15 +1281,18 @@
                         @endforelse
                     </div>
                 </div>
-            </div>
+            </details>
         </div>
 
         @if ($divisionSummary->count() > 1)
-        <div class="pst-lane mb-3">
-            <div class="pst-lane-head">
+        <details class="pst-lane mb-3 pst-collapsible" data-storage-key="pst-division-summary-open" open>
+            <summary class="pst-lane-head pst-collapsible-summary">
                 <span>สรุปตาม Division</span>
-                <span class="pst-muted">สรุปปัญหาแยกตาม Division</span>
-            </div>
+                <span class="d-flex align-items-center gap-2">
+                    <span class="pst-muted">สรุปปัญหาแยกตาม Division</span>
+                    <i class="fas fa-chevron-down pst-collapsible-icon"></i>
+                </span>
+            </summary>
             <div class="pst-lane-body">
                 <div class="pst-division-wrap">
                     <div class="pst-division-row header">
@@ -1361,21 +1373,25 @@
                     @endforelse
                 </div>
             </div>
-        </div>
+        </details>
         @endif
 
-        <div class="pst-lane mb-3">
-            <div class="pst-lane-head">
+        <details class="pst-lane mb-3 pst-collapsible" data-storage-key="pst-process-summary-open" open>
+            <summary class="pst-lane-head pst-collapsible-summary">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span>งานในแต่ละขั้นตอน</span>
                     @if (!empty($filters['process_filter']))
                         <span class="badge bg-primary">{{ $filters['process_filter'] }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
-                            href="{{ route('dp.production-status', $clearProcessQuery) }}">ล้าง</a>
+                            href="{{ route('dp.production-status', $clearProcessQuery) }}"
+                            onclick="event.stopPropagation()">ล้าง</a>
                     @endif
                 </div>
-                <span class="pst-muted">กดเพื่อกรองเฉพาะขั้นตอน</span>
-            </div>
+                <span class="d-flex align-items-center gap-2">
+                    <span class="pst-muted">กดเพื่อกรองเฉพาะขั้นตอน</span>
+                    <i class="fas fa-chevron-down pst-collapsible-icon"></i>
+                </span>
+            </summary>
             <div class="pst-lane-body">
                 @forelse ($processSummary as $process)
                     @php
@@ -1402,12 +1418,33 @@
                     <div class="text-muted text-center py-3">ไม่มีข้อมูลขั้นตอน</div>
                 @endforelse
             </div>
-        </div>
+        </details>
 
         <div class="pst-panel">
             <div class="pst-head">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span>Dashboard Summary</span>
+                    <form method="GET" action="{{ route('dp.production-status') }}"
+                        class="d-inline-flex align-items-center gap-1" title="Quick action: กรองตามสถานีงาน">
+                        @foreach (request()->except(['page', 'process_filter']) as $name => $value)
+                            @if (is_scalar($value))
+                                <input type="hidden" name="{{ $name }}" value="{{ $value }}">
+                            @endif
+                        @endforeach
+                        <label for="pstQuickProcessFilter" class="small text-nowrap mb-0">
+                            <i class="fas fa-filter me-1"></i>สถานีงาน
+                        </label>
+                        <select id="pstQuickProcessFilter" name="process_filter"
+                            class="form-select form-select-sm" style="width:190px" onchange="this.form.submit()">
+                            <option value="">ทุกสถานีงาน</option>
+                            @foreach ($processOptions ?? [] as $processOption)
+                                <option value="{{ $processOption['value'] }}"
+                                    @selected(($filters['process_filter'] ?? '') === $processOption['value'])>
+                                    {{ $processOption['label'] }} ({{ number_format($processOption['count']) }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </form>
                     @if (!empty($filters['process_filter']))
                         <span class="badge bg-primary">ขั้นตอน: {{ $filters['process_filter'] }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
@@ -1469,10 +1506,10 @@
                         <i class="fas fa-calendar-xmark me-1"></i> ขอเลื่อนส่ง
                         <span class="ms-1">{{ number_format($summary['postpone'] ?? 0) }}</span>
                     </a>
-                    @if ($hasActiveFilters)
+                    @if ($hasActiveQuickActionFilters)
                         <a class="btn btn-sm btn-outline-secondary"
-                            href="{{ route('dp.production-status') }}"
-                            title="ล้างตัวกรองทั้งหมด">
+                            href="{{ route('dp.production-status', $clearQuickActionQuery) }}"
+                            title="ล้างเฉพาะตัวกรอง Quick Action โดยคงตัวกรองหลักไว้">
                             <i class="fas fa-xmark me-1"></i> ยกเลิก Filter
                         </a>
                     @endif
@@ -1541,7 +1578,10 @@
                             <th class="pst-customer">ลูกค้า</th>
                             <th class="pst-item">สินค้า</th>
                             <th class="num">จำนวนส่ง</th>
-                            <th class="num">Stock FG</th>
+                            <th class="num" title="ยอด Stock FG รวมจาก WIRE และ PLUS ซึ่งใช้ร่วมกัน">
+                                Stock FG
+                                <div class="pst-muted small text-nowrap">WIRE + PLUS</div>
+                            </th>
                             <th>Sale By</th>
                             <th>วันส่งตามแผน</th>
                             <th>Due Date</th>
@@ -1713,12 +1753,14 @@
                                     $origShip = !empty($row->ship_date)
                                         ? \Carbon\Carbon::parse($row->ship_date)->format('Y-m-d')
                                         : '';
+                                    $confIsActive = \App\Models\FormDP\DeliveryConfirmation::isActiveStatus($confStatus);
                                 @endphp
                                 <td class="pst-confirm">
                                     <form class="pst-confirm-form d-flex flex-column gap-1"
                                         data-mfg="{{ $row->mfg_no }}" data-site="{{ $row->site }}"
                                         data-so="{{ $row->so_number ?? '' }}" data-orig-ship="{{ $origShip }}"
-                                        data-saved="{{ $confStatus ? '1' : '0' }}">
+                                        data-saved="{{ $confIsActive ? '1' : '0' }}"
+                                        data-active="{{ $confIsActive ? '1' : '0' }}">
                                         <div class="d-flex align-items-center gap-1 flex-wrap">
                                             <select class="form-select form-select-sm pst-confirm-status"
                                                 style="width:130px;flex:0 0 130px;">
@@ -1741,6 +1783,12 @@
                                                 class="btn btn-sm btn-outline-secondary pst-confirm-history"
                                                 title="ประวัติ">
                                                 <i class="fas fa-clock-rotate-left"></i>
+                                            </button>
+                                            <button type="button"
+                                                class="btn btn-sm btn-outline-danger pst-confirm-cancel"
+                                                title="ยกเลิก Delivery Confirmation"
+                                                style="{{ $confIsActive ? '' : 'display:none;' }}">
+                                                <i class="fas fa-rotate-left"></i>
                                             </button>
                                         </div>
                                         <input type="text" class="form-control form-control-sm pst-confirm-remark"
@@ -1838,9 +1886,18 @@
     <script>
         (function() {
             const SAVE_URL = @json(route('dp.production-status.confirm'));
+            const CANCEL_URL = @json(route('dp.production-status.confirm.cancel'));
             const BULK_URL = @json(route('dp.production-status.confirm.bulk'));
             const HIST_URL = @json(route('dp.production-status.confirm.history'));
             const CSRF = @json(csrf_token());
+
+            const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            } [c]));
 
             function notify(msg, ok) {
                 if (window.Swal) {
@@ -2081,6 +2138,7 @@
                 const dateInp = form.querySelector('.pst-confirm-date');
                 const saveBtn = form.querySelector('.pst-confirm-save');
                 const histBtn = form.querySelector('.pst-confirm-history');
+                const cancelBtn = form.querySelector('.pst-confirm-cancel');
                 const display = form.querySelector('.pst-confirm-status-display');
 
                 select.addEventListener('change', function() {
@@ -2114,13 +2172,6 @@
                         return day + '/' + m + '/' + y;
                     };
 
-                    const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
-                        '&': '&amp;',
-                        '<': '&lt;',
-                        '>': '&gt;',
-                        '"': '&quot;',
-                        "'": '&#39;'
-                    } [c]));
                     const remarkLine = remark ?
                         '<div class="mt-2"><b>หมายเหตุ:</b> ' + escapeHtml(remark) + '</div>' :
                         '';
@@ -2228,6 +2279,8 @@
                             }
                             display.innerHTML = html;
                             form.dataset.saved = '1';
+                            form.dataset.active = '1';
+                            if (cancelBtn) cancelBtn.style.display = '';
                             refreshPendingCount();
                         })
                         .catch(() => {
@@ -2238,6 +2291,102 @@
                             saveBtn.disabled = false;
                         });
                 });
+
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', async function() {
+                        if (form.dataset.active !== '1') {
+                            notify('รายการนี้ไม่มี Delivery Confirmation ที่ยังใช้งานอยู่', false);
+                            return;
+                        }
+
+                        let reason = null;
+                        if (window.Swal) {
+                            const result = await Swal.fire({
+                                title: 'ยกเลิก Delivery Confirmation',
+                                html: '<div class="text-start mb-2"><b>MFG:</b> ' +
+                                    escapeHtml(form.dataset.mfg || '-') +
+                                    '</div><div class="text-start text-danger small">ระบบจะเก็บรายการยกเลิกไว้ในประวัติ</div>',
+                                input: 'textarea',
+                                inputLabel: 'เหตุผลที่ยกเลิก',
+                                inputPlaceholder: 'กรุณาระบุเหตุผล...',
+                                inputAttributes: {
+                                    maxlength: 500,
+                                    required: true
+                                },
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonText: 'ยืนยันยกเลิก',
+                                cancelButtonText: 'กลับ',
+                                confirmButtonColor: '#dc3545',
+                                reverseButtons: true,
+                                heightAuto: false,
+                                scrollbarPadding: false,
+                                inputValidator: value => !String(value || '').trim() ?
+                                    'กรุณาระบุเหตุผลที่ยกเลิก' : null,
+                            });
+                            if (!result.isConfirmed) return;
+                            reason = String(result.value || '').trim();
+                        } else {
+                            reason = window.prompt('กรุณาระบุเหตุผลที่ยกเลิก Delivery Confirmation');
+                            if (reason === null) return;
+                            reason = reason.trim();
+                            if (!reason) {
+                                notify('กรุณาระบุเหตุผลที่ยกเลิก', false);
+                                return;
+                            }
+                        }
+
+                        cancelBtn.disabled = true;
+                        const fd = new FormData();
+                        fd.append('_token', CSRF);
+                        fd.append('mfg_no', form.dataset.mfg || '');
+                        fd.append('site', form.dataset.site || '');
+                        fd.append('reason', reason);
+
+                        fetch(CANCEL_URL, {
+                                method: 'POST',
+                                body: fd,
+                                headers: {
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'Accept': 'application/json'
+                                },
+                                credentials: 'same-origin'
+                            })
+                            .then(r => r.json().then(j => ({
+                                status: r.status,
+                                json: j
+                            })))
+                            .then(({ json }) => {
+                                if (!json.ok) {
+                                    notify(json.message || 'ยกเลิกไม่สำเร็จ', false);
+                                    return;
+                                }
+                                const d = json.data || {};
+                                display.innerHTML =
+                                    '<span class="badge bg-' + (d.badge_class || 'danger') + '">' +
+                                    escapeHtml(d.status_label || 'ยกเลิกการยืนยัน') + '</span>' +
+                                    (d.confirmed_at ? '<div class="pst-muted small">บันทึก ' +
+                                        escapeHtml(d.confirmed_at) + (d.confirmed_by_name ? ' โดย ' +
+                                            escapeHtml(d.confirmed_by_name) : '') + '</div>' : '') +
+                                    '<div class="pst-muted small"><i class="fas fa-comment me-1"></i>' +
+                                    escapeHtml(d.remark || reason) + '</div>' +
+                                    '<div class="pst-muted small">กลับไปรอวางแผนยืนยัน</div>';
+                                form.dataset.saved = '0';
+                                form.dataset.active = '0';
+                                cancelBtn.style.display = 'none';
+                                select.value = 'CONFIRM';
+                                dateInp.value = '';
+                                dateInp.style.display = 'none';
+                                if (remarkInp) remarkInp.value = '';
+                                refreshPendingCount();
+                                notify(json.message || 'ยกเลิกเรียบร้อย', true);
+                            })
+                            .catch(() => notify('เกิดข้อผิดพลาดในการยกเลิก', false))
+                            .finally(() => {
+                                cancelBtn.disabled = false;
+                            });
+                    });
+                }
 
                 // refresh pending count when status changes (e.g. switched to POSTPONE → no longer "pending bulk")
                 select.addEventListener('change', refreshPendingCount);
@@ -2372,6 +2521,9 @@
                             // Mark forms as saved + update display inline
                             forms.forEach(f => {
                                 f.dataset.saved = '1';
+                                f.dataset.active = '1';
+                                const cancel = f.querySelector('.pst-confirm-cancel');
+                                if (cancel) cancel.style.display = '';
                                 const disp = f.querySelector('.pst-confirm-status-display');
                                 if (disp) {
                                     disp.innerHTML =
@@ -2394,7 +2546,7 @@
             refreshPendingCount();
         })();
 
-        // Persist collapsible panels (Data Quality / Movement Filter) state in localStorage
+        // Persist collapsible panel state in localStorage
         (function () {
             document.querySelectorAll('details.pst-collapsible[data-storage-key]').forEach(function (el) {
                 const key = el.getAttribute('data-storage-key');
