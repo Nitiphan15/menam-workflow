@@ -1546,7 +1546,12 @@
                             <th>วันส่งตามแผน</th>
                             <th>Due Date</th>
                             <th>ขั้นตอนปัจจุบัน</th>
-                            <th>ความคืบหน้า</th>
+                            <th>
+                                <span class="d-inline-flex align-items-center gap-1">
+                                    ความคืบหน้า
+                                    @include('formdp.production-status.partials.weight-tolerance-help')
+                                </span>
+                            </th>
                             <th>เคลื่อนไหวล่าสุด</th>
                             <th>ขั้นตอนที่เหลือ</th>
                             <th>สถานะ DP</th>

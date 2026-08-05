@@ -4,6 +4,7 @@ namespace App\Services\FormDP;
 
 use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
+use App\Support\FormDP\ProductionWeightTolerance;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -882,7 +883,17 @@ JOIN LATERAL (
   ) received_step
   WHERE (
     COALESCE(wo.qty, 0) > 0
-    AND COALESCE(received_step.received_qty, 0) >= (COALESCE(wo.qty, 0) * 0.98)
+    AND COALESCE(received_step.received_qty, 0) >= (
+      COALESCE(wo.qty, 0) * (1 - CASE
+        WHEN COALESCE(wo.qty, 0) < 100 THEN 0.10
+        WHEN COALESCE(wo.qty, 0) < 500 THEN 0.05
+        WHEN COALESCE(wo.qty, 0) < 1000 THEN 0.04
+        WHEN COALESCE(wo.qty, 0) < 5000 THEN 0.03
+        WHEN COALESCE(wo.qty, 0) < 10000 THEN 0.025
+        WHEN COALESCE(wo.qty, 0) < 20000 THEN 0.02
+        ELSE 0.015
+      END)
+    )
   ) OR (
     COALESCE(wo.qty, 0) <= 0
     AND COALESCE(received_step.received_qty, 0) > 0
@@ -911,7 +922,17 @@ LEFT JOIN LATERAL (
       GROUP BY wr.workseq, wr.workcenter_id
       HAVING (
         COALESCE(wo.qty, 0) > 0
-        AND COALESCE(SUM(wr.qty), 0) >= (COALESCE(wo.qty, 0) * 0.98)
+        AND COALESCE(SUM(wr.qty), 0) >= (
+          COALESCE(wo.qty, 0) * (1 - CASE
+            WHEN COALESCE(wo.qty, 0) < 100 THEN 0.10
+            WHEN COALESCE(wo.qty, 0) < 500 THEN 0.05
+            WHEN COALESCE(wo.qty, 0) < 1000 THEN 0.04
+            WHEN COALESCE(wo.qty, 0) < 5000 THEN 0.03
+            WHEN COALESCE(wo.qty, 0) < 10000 THEN 0.025
+            WHEN COALESCE(wo.qty, 0) < 20000 THEN 0.02
+            ELSE 0.015
+          END)
+        )
       ) OR (
         COALESCE(wo.qty, 0) <= 0
         AND COALESCE(SUM(wr.qty), 0) > 0
@@ -1014,7 +1035,17 @@ SELECT
   r.receivestamp                            AS received_time,
 
   CASE
-    WHEN COALESCE(r.qty, 0) >= (COALESCE(wo.qty, 0) * 0.98) AND COALESCE(wo.qty, 0) > 0 THEN 'Completed'
+    WHEN COALESCE(r.qty, 0) >= (
+      COALESCE(wo.qty, 0) * (1 - CASE
+        WHEN COALESCE(wo.qty, 0) < 100 THEN 0.10
+        WHEN COALESCE(wo.qty, 0) < 500 THEN 0.05
+        WHEN COALESCE(wo.qty, 0) < 1000 THEN 0.04
+        WHEN COALESCE(wo.qty, 0) < 5000 THEN 0.03
+        WHEN COALESCE(wo.qty, 0) < 10000 THEN 0.025
+        WHEN COALESCE(wo.qty, 0) < 20000 THEN 0.02
+        ELSE 0.015
+      END)
+    ) AND COALESCE(wo.qty, 0) > 0 THEN 'Completed'
     WHEN COALESCE(wo.qty, 0) <= 0 AND COALESCE(r.qty, 0) > 0 THEN 'Completed'
     WHEN COALESCE(r.qty, 0) > 0 THEN 'In Progress'
     ELSE 'Pending'
@@ -1483,15 +1514,7 @@ SQL;
 
     private function isStepQuantityComplete(float $receivedQty, float $targetQty): bool
     {
-        if ($receivedQty <= 0) {
-            return false;
-        }
-
-        if ($targetQty <= 0) {
-            return true;
-        }
-
-        return $receivedQty >= ($targetQty * 0.98);
+        return ProductionWeightTolerance::isComplete($receivedQty, $targetQty);
     }
 
     private function passesFilters(object $row, array $filters): bool

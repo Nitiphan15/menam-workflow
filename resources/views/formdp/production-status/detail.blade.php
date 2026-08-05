@@ -229,7 +229,10 @@
 
         <div class="pst-panel">
             <div class="pst-head">
-                <span>ขั้นตอนการผลิต</span>
+                <span class="d-inline-flex align-items-center gap-1">
+                    ขั้นตอนการผลิต
+                    @include('formdp.production-status.partials.weight-tolerance-help')
+                </span>
                 <span class="pst-meta">{{ $steps->count() }} step(s)</span>
             </div>
             <div class="table-responsive">
