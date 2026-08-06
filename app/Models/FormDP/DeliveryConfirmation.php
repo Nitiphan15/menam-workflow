@@ -12,6 +12,7 @@ class DeliveryConfirmation extends Model
     public const STATUS_CONFIRM = 'CONFIRM';
     public const STATUS_POSTPONE = 'POSTPONE';
     public const STATUS_CANCELLED = 'CANCELLED';
+    public const STATUS_RECONFIRM = 'RECONFIRM';
 
     public $timestamps = true;
 
@@ -41,6 +42,7 @@ class DeliveryConfirmation extends Model
             self::STATUS_CONFIRM => 'Confirm Delivery',
             self::STATUS_POSTPONE => 'Request Postpone',
             self::STATUS_CANCELLED => 'ยกเลิกการยืนยัน',
+            self::STATUS_RECONFIRM => 'รอคอนเฟิร์มใหม่',
             default => '-',
         };
     }
@@ -51,6 +53,7 @@ class DeliveryConfirmation extends Model
             self::STATUS_CONFIRM => 'success',
             self::STATUS_POSTPONE => 'warning',
             self::STATUS_CANCELLED => 'danger',
+            self::STATUS_RECONFIRM => 'secondary',
             default => 'light text-dark border',
         };
     }
