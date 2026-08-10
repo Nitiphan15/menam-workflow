@@ -209,6 +209,12 @@ class PoDepartmentApproverResolverTest extends TestCase
             ['id' => 87, 'code' => 'GT', 'name' => 'Grating', 'is_active' => 1],
             ['id' => 88, 'code' => 'IM', 'name' => 'ขายในประเทศ', 'is_active' => 1],
             ['id' => 89, 'code' => 'EP', 'name' => 'ขายต่างประเทศ', 'is_active' => 1],
+            ['id' => 90, 'code' => 'ANL', 'name' => 'อันนีล', 'is_active' => 1],
+            ['id' => 91, 'code' => 'PN', 'name' => 'วางแผน', 'is_active' => 1],
+            ['id' => 92, 'code' => 'SE', 'name' => 'ความปลอดภัยและสิ่งแวดล้อม', 'is_active' => 1],
+            ['id' => 93, 'code' => 'AC', 'name' => 'บัญชี', 'is_active' => 1],
+            ['id' => 94, 'code' => 'FN', 'name' => 'การเงิน', 'is_active' => 1],
+            ['id' => 95, 'code' => 'AM', 'name' => 'ยานยนต์', 'is_active' => 1],
         ]);
 
         $this->assertSame(80, PoErpService::resolveDepartmentId('Bar1 - k.ชวลิต'));
@@ -221,6 +227,56 @@ class PoDepartmentApproverResolverTest extends TestCase
         $this->assertSame(87, PoErpService::resolveDepartmentId('W&F-k.อรุณี'));
         $this->assertSame(88, PoErpService::resolveDepartmentId('Sale - k.Wilawan'));
         $this->assertSame(89, PoErpService::resolveDepartmentId('Export-K.Sarun'));
+        $this->assertSame(90, PoErpService::resolveDepartmentId('Anneal-k.Operator'));
+        $this->assertSame(91, PoErpService::resolveDepartmentId('Planning-k.Planner'));
+        $this->assertSame(92, PoErpService::resolveDepartmentId('Safety-k.Officer'));
+        $this->assertSame(93, PoErpService::resolveDepartmentId('Account-k.Accountant'));
+        $this->assertSame(94, PoErpService::resolveDepartmentId('Finance-k.Finance'));
+        $this->assertSame(95, PoErpService::resolveDepartmentId('Automotive-k.Driver'));
+    }
+
+    public function test_export_department_resolves_preeyapan_from_position_rule(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            'id' => 100,
+            'code' => 'EP',
+            'name' => 'ขายต่างประเทศ',
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('users')->insert([
+            'id' => 1001,
+            'department_id' => 100,
+            'username' => 'preeyapan_t',
+            'name' => 'Preeyapan',
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_roles')->insert([
+            'id' => 1002,
+            'department_id' => 100,
+            'name' => 'Manager',
+            'level_no' => 3,
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_role_users')->insert([
+            'department_role_id' => 1002,
+            'user_id' => 1001,
+            'is_primary' => 1,
+            'start_date' => now()->subDay()->toDateString(),
+        ]);
+
+        $result = ApproverResolver::resolve(
+            (object) [
+                'source_type' => 'ROLE',
+                'source_ref_id' => null,
+                'department_scoped' => 1,
+                'condition_expr' => json_encode(['role_in' => ['Manager']]),
+            ],
+            (object) ['app_code' => 'po', 'current_step_no' => 3, 'request_by_user_id' => 0],
+            ['document_department_id' => 100, 'workflow_step_no' => 3, 'originator_id' => 0],
+            [],
+        );
+
+        $this->assertSame([1001], $result->all());
     }
 
     public function test_additional_approvers_are_returned_in_configured_sequence(): void

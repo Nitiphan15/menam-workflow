@@ -262,6 +262,7 @@ VALUES
     (N'SQR', N'jittinan_k'),
     (N'MKT', N'theerarat_k'),
     (N'SE',  N'chacrit@menamstainless.co.th'),
+    (N'IT',  N'Robert Sammayo'),
     (N'ENG', N'panya_k'),
     (N'EE',  N'panya_k'),
     (N'ME',  N'panya_k');
@@ -280,7 +281,9 @@ IF EXISTS (
     SELECT 1
     FROM @ApproverSeed AS seed
     LEFT JOIN dbo.users AS approver
-      ON (approver.username = seed.approver_key OR LOWER(approver.email) = LOWER(seed.approver_key))
+      ON (approver.username = seed.approver_key
+          OR LOWER(approver.email) = LOWER(seed.approver_key)
+          OR approver.name = seed.approver_key)
      AND approver.is_active = 1
     WHERE approver.id IS NULL
 )
@@ -293,7 +296,9 @@ USING (
     FROM @ApproverSeed AS seed
     JOIN dbo.departments AS department ON department.code = seed.department_code
     JOIN dbo.users AS approver
-      ON (approver.username = seed.approver_key OR LOWER(approver.email) = LOWER(seed.approver_key))
+      ON (approver.username = seed.approver_key
+          OR LOWER(approver.email) = LOWER(seed.approver_key)
+          OR approver.name = seed.approver_key)
      AND approver.is_active = 1
 ) AS source
    ON target.department_id = source.department_id
@@ -375,13 +380,16 @@ VALUES
     (N'thanin_p'),
     (N'assadaporn_m'),
     (N'jiraporn_k'),
-    (N'chacrit@menamstainless.co.th');
+    (N'chacrit@menamstainless.co.th'),
+    (N'Robert Sammayo');
 
 IF EXISTS (
     SELECT 1
     FROM @PoUsers AS target_user
     LEFT JOIN dbo.users AS user_row
-      ON (user_row.username = target_user.approver_key OR LOWER(user_row.email) = LOWER(target_user.approver_key))
+      ON (user_row.username = target_user.approver_key
+          OR LOWER(user_row.email) = LOWER(target_user.approver_key)
+          OR user_row.name = target_user.approver_key)
      AND user_row.is_active = 1
      AND user_row.department_id IS NOT NULL
     WHERE user_row.id IS NULL
@@ -392,7 +400,9 @@ INSERT INTO dbo.user_dept_roles (user_id, department_id, role_id)
 SELECT user_row.id, user_row.department_id, @PoRoleId
 FROM @PoUsers AS target_user
 JOIN dbo.users AS user_row
-  ON (user_row.username = target_user.approver_key OR LOWER(user_row.email) = LOWER(target_user.approver_key))
+  ON (user_row.username = target_user.approver_key
+      OR LOWER(user_row.email) = LOWER(target_user.approver_key)
+      OR user_row.name = target_user.approver_key)
  AND user_row.is_active = 1
 WHERE NOT EXISTS (
     SELECT 1
@@ -436,6 +446,6 @@ JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
 WHERE department.code IN (
     N'SH1',N'CG',N'SB',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',
-    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'GT',N'SQR',N'MKT',N'SE',N'ENG',N'EE',N'ME'
+    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'GT',N'SQR',N'MKT',N'SE',N'IT',N'ENG',N'EE',N'ME'
 )
 ORDER BY department.code, mapping.sequence_no;
