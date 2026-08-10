@@ -34,6 +34,8 @@ class PoErpService
         'PLANNING' => ['PN'],
         'ACCOUNT' => ['AC'],
         'FINANCE' => ['FN'],
+        'PURCHASE' => ['P'],
+        'STORE' => ['S'],
         'SALE' => ['IM', 'IP', 'ขายในประเทศ', 'DOMESTIC', 'SL02'],
         'EXPORT' => ['EP', 'ขายต่างประเทศ', 'EXPORT', 'SL01'],
     ];

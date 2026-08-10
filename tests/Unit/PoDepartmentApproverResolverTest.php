@@ -215,6 +215,11 @@ class PoDepartmentApproverResolverTest extends TestCase
             ['id' => 93, 'code' => 'AC', 'name' => 'บัญชี', 'is_active' => 1],
             ['id' => 94, 'code' => 'FN', 'name' => 'การเงิน', 'is_active' => 1],
             ['id' => 95, 'code' => 'AM', 'name' => 'ยานยนต์', 'is_active' => 1],
+            ['id' => 96, 'code' => 'PS', 'name' => 'จัดซื้อและสโตร์', 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 97, 'parent_id' => 96, 'code' => 'P', 'name' => 'จัดซื้อ', 'is_active' => 1],
+            ['id' => 98, 'parent_id' => 96, 'code' => 'S', 'name' => 'Store', 'is_active' => 1],
         ]);
 
         $this->assertSame(80, PoErpService::resolveDepartmentId('Bar1 - k.ชวลิต'));
@@ -233,6 +238,8 @@ class PoDepartmentApproverResolverTest extends TestCase
         $this->assertSame(93, PoErpService::resolveDepartmentId('Account-k.Accountant'));
         $this->assertSame(94, PoErpService::resolveDepartmentId('Finance-k.Finance'));
         $this->assertSame(95, PoErpService::resolveDepartmentId('Automotive-k.Driver'));
+        $this->assertSame(97, PoErpService::resolveDepartmentId('Purchase-k.Buyer'));
+        $this->assertSame(98, PoErpService::resolveDepartmentId('Store-k.Storekeeper'));
     }
 
     public function test_export_department_resolves_preeyapan_from_position_rule(): void
