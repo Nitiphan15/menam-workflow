@@ -143,9 +143,9 @@ VALUES
     (N'Q',   N'utis_j'),
     (N'QA',  N'utis_j'),
     (N'QC',  N'utis_j'),
-    -- Research and Development group; Die Dressing moves off Jittinan
-    (N'RD',  N'kitpon_s'),
-    (N'R',   N'kitpon_s'),
+    -- Research and Development routes to Thatree; Die Dressing routes to Kitpon
+    (N'RD',  N'thatree_k'),
+    (N'R',   N'thatree_k'),
     (N'DD',  N'kitpon_s');
 
 IF EXISTS (
