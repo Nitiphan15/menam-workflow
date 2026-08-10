@@ -312,6 +312,11 @@ class WorkflowEngine
                 $approvers = $approvers->merge($ruleApprovers->unique()->values());
             }
         }
+
+        $additionalApprovers = ApproverResolver::poAdditionalDepartmentApprovers($wf, $stepContext)
+            ->reject(fn ($userId) => $approvers->contains($userId))
+            ->values();
+        $approvers = $approvers->merge($additionalApprovers);
         $allowDuplicateApprovers = strtolower((string) ($wf->app_code ?? '')) === 'po';
         $approvers = $allowDuplicateApprovers
             ? $approvers->filter()->values()

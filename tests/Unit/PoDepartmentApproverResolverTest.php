@@ -40,6 +40,7 @@ class PoDepartmentApproverResolverTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('department_id');
             $table->unsignedBigInteger('approver_user_id');
+            $table->unsignedInteger('sequence_no')->default(1);
             $table->boolean('is_active')->default(true);
         });
         $schema->create('po_department_alias_approvers', function (Blueprint $table) {
@@ -152,5 +153,32 @@ class PoDepartmentApproverResolverTest extends TestCase
 
         $this->assertSame(50, PoErpService::resolveDepartmentId('Drawing'));
         $this->assertSame(51, PoErpService::resolveDepartmentId('R&D - Tooling'));
+    }
+
+    public function test_additional_approvers_are_returned_in_configured_sequence(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            'id' => 60,
+            'parent_id' => null,
+            'code' => 'SPECIAL',
+            'name' => 'Special Department',
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('users')->insert([
+            ['id' => 601, 'is_active' => 1],
+            ['id' => 602, 'is_active' => 1],
+            ['id' => 603, 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('po_department_approvers')->insert([
+            ['department_id' => 60, 'approver_user_id' => 601, 'sequence_no' => 1, 'is_active' => 1],
+            ['department_id' => 60, 'approver_user_id' => 603, 'sequence_no' => 3, 'is_active' => 1],
+            ['department_id' => 60, 'approver_user_id' => 602, 'sequence_no' => 2, 'is_active' => 1],
+        ]);
+
+        $workflow = (object) ['app_code' => 'po', 'current_step_no' => 3];
+        $context = ['document_department_id' => 60, 'workflow_step_no' => 3];
+
+        $this->assertSame([601], ApproverResolver::poDepartmentApprovers($workflow, $context)->all());
+        $this->assertSame([602, 603], ApproverResolver::poAdditionalDepartmentApprovers($workflow, $context)->all());
     }
 }

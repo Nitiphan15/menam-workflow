@@ -1,8 +1,6 @@
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
-BEGIN TRANSACTION;
-
 IF OBJECT_ID(N'dbo.po_department_approvers', N'U') IS NULL
 BEGIN
     CREATE TABLE dbo.po_department_approvers (
@@ -10,18 +8,62 @@ BEGIN
             CONSTRAINT PK_po_department_approvers PRIMARY KEY,
         department_id BIGINT NOT NULL,
         approver_user_id BIGINT NOT NULL,
+        sequence_no INT NOT NULL
+            CONSTRAINT DF_po_department_approvers_sequence_no DEFAULT (1),
         is_active BIT NOT NULL
             CONSTRAINT DF_po_department_approvers_is_active DEFAULT (1),
         created_at DATETIME2 NOT NULL
             CONSTRAINT DF_po_department_approvers_created_at DEFAULT (SYSDATETIME()),
         updated_at DATETIME2 NOT NULL
             CONSTRAINT DF_po_department_approvers_updated_at DEFAULT (SYSDATETIME()),
-        CONSTRAINT UX_po_department_approvers_department UNIQUE (department_id)
+        CONSTRAINT UX_po_department_approvers_department_sequence UNIQUE (department_id, sequence_no),
+        CONSTRAINT UX_po_department_approvers_department_user UNIQUE (department_id, approver_user_id)
     );
 
     CREATE INDEX IX_po_department_approvers_user_active
         ON dbo.po_department_approvers (approver_user_id, is_active);
 END;
+
+IF COL_LENGTH(N'dbo.po_department_approvers', N'sequence_no') IS NULL
+BEGIN
+    ALTER TABLE dbo.po_department_approvers
+        ADD sequence_no INT NOT NULL
+            CONSTRAINT DF_po_department_approvers_sequence_no DEFAULT (1) WITH VALUES;
+END;
+
+GO
+
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+IF EXISTS (
+    SELECT 1
+    FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.po_department_approvers')
+      AND name = N'UX_po_department_approvers_department'
+)
+    ALTER TABLE dbo.po_department_approvers
+        DROP CONSTRAINT UX_po_department_approvers_department;
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.po_department_approvers')
+      AND name = N'UX_po_department_approvers_department_sequence'
+)
+    ALTER TABLE dbo.po_department_approvers
+        ADD CONSTRAINT UX_po_department_approvers_department_sequence
+            UNIQUE (department_id, sequence_no);
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.po_department_approvers')
+      AND name = N'UX_po_department_approvers_department_user'
+)
+    ALTER TABLE dbo.po_department_approvers
+        ADD CONSTRAINT UX_po_department_approvers_department_user
+            UNIQUE (department_id, approver_user_id);
 
 IF OBJECT_ID(N'dbo.po_department_alias_approvers', N'U') IS NULL
 BEGIN
@@ -39,6 +81,13 @@ BEGIN
         CONSTRAINT UX_po_department_alias_approvers_alias UNIQUE (alias_key)
     );
 END;
+
+GO
+
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION;
 
 DECLARE @ProductionDepartmentId INT = (
     SELECT TOP (1) id
@@ -60,6 +109,31 @@ DECLARE @SalesMarketingDepartmentId INT = (
 IF @SalesMarketingDepartmentId IS NULL
     THROW 51008, 'Active SM - Sales and Marketing department was not found.', 1;
 
+MERGE dbo.departments AS target
+USING (
+    SELECT N'ENG' AS code, N'วิศวกรรม' AS name
+) AS source
+   ON target.code = source.code
+WHEN MATCHED THEN
+    UPDATE SET
+        target.name = source.name,
+        target.parent_id = NULL,
+        target.is_active = 1,
+        target.updated_at = SYSDATETIME()
+WHEN NOT MATCHED THEN
+    INSERT (code, name, parent_id, is_active, created_at, updated_at)
+    VALUES (source.code, source.name, NULL, 1, SYSDATETIME(), SYSDATETIME());
+
+DECLARE @EngineeringDepartmentId INT = (
+    SELECT TOP (1) id
+    FROM dbo.departments
+    WHERE code = N'ENG' AND is_active = 1
+    ORDER BY id
+);
+
+IF @EngineeringDepartmentId IS NULL
+    THROW 51010, 'Active ENG - Engineering department was not found.', 1;
+
 DECLARE @DepartmentSeed TABLE (
     code NVARCHAR(50) NOT NULL PRIMARY KEY,
     name NVARCHAR(255) NOT NULL,
@@ -75,7 +149,8 @@ VALUES
     (N'CO2', N'CO2',         @ProductionDepartmentId),
     (N'CT',  N'Coating',     @ProductionDepartmentId),
     (N'SQR', N'รีดเหลี่ยม',  @ProductionDepartmentId),
-    (N'MKT', N'การตลาด',     @SalesMarketingDepartmentId);
+    (N'MKT', N'การตลาด',     @SalesMarketingDepartmentId),
+    (N'ME',  N'วิศวกรรมเครื่องกล', @EngineeringDepartmentId);
 
 IF EXISTS (
     SELECT 1
@@ -105,6 +180,12 @@ WHEN MATCHED THEN
 WHEN NOT MATCHED THEN
     INSERT (code, name, parent_id, is_active, created_at, updated_at)
     VALUES (source.code, source.name, source.parent_id, 1, SYSDATETIME(), SYSDATETIME());
+
+UPDATE dbo.departments
+SET parent_id = @EngineeringDepartmentId,
+    updated_at = SYSDATETIME()
+WHERE code = N'EE'
+  AND is_active = 1;
 
 DECLARE @RoleSeed TABLE (
     code NVARCHAR(50) NOT NULL PRIMARY KEY,
@@ -179,7 +260,10 @@ VALUES
     (N'DD',  N'kitpon_s'),
     (N'SQR', N'jittinan_k'),
     (N'MKT', N'theerarat_k'),
-    (N'SE',  N'chacrit@menamstainless.co.th');
+    (N'SE',  N'chacrit@menamstainless.co.th'),
+    (N'ENG', N'panya_k'),
+    (N'EE',  N'panya_k'),
+    (N'ME',  N'panya_k');
 
 IF EXISTS (
     SELECT 1
@@ -212,14 +296,15 @@ USING (
      AND approver.is_active = 1
 ) AS source
    ON target.department_id = source.department_id
+  AND target.sequence_no = 1
 WHEN MATCHED THEN
     UPDATE SET
         target.approver_user_id = source.approver_user_id,
         target.is_active = 1,
         target.updated_at = SYSDATETIME()
 WHEN NOT MATCHED THEN
-    INSERT (department_id, approver_user_id, is_active, created_at, updated_at)
-    VALUES (source.department_id, source.approver_user_id, 1, SYSDATETIME(), SYSDATETIME());
+    INSERT (department_id, approver_user_id, sequence_no, is_active, created_at, updated_at)
+    VALUES (source.department_id, source.approver_user_id, 1, 1, SYSDATETIME(), SYSDATETIME());
 
 DECLARE @ToolingApproverId BIGINT = (
     SELECT TOP (1) id
@@ -250,7 +335,8 @@ WHEN NOT MATCHED THEN
 DELETE mapping
 FROM dbo.po_department_approvers AS mapping
 JOIN dbo.departments AS department ON department.id = mapping.department_id
-WHERE department.code IN (N'PN', N'HR');
+WHERE department.code IN (N'PN', N'HR')
+  AND mapping.sequence_no = 1;
 
 DECLARE @PoRoleId INT = (
     SELECT TOP (1) id
@@ -261,6 +347,17 @@ DECLARE @PoRoleId INT = (
 
 IF @PoRoleId IS NULL
     THROW 51006, 'Active PO web permission was not found.', 1;
+
+MERGE dbo.dept_roles AS target
+USING (
+    SELECT N'POM' AS code, N'PO Approver Master' AS name
+) AS source
+   ON target.code = source.code
+WHEN MATCHED THEN
+    UPDATE SET target.name = source.name, target.is_active = 1
+WHEN NOT MATCHED THEN
+    INSERT (code, name, is_active)
+    VALUES (source.code, source.name, 1);
 
 DECLARE @PoUsers TABLE (approver_key NVARCHAR(255) NOT NULL PRIMARY KEY);
 
@@ -331,12 +428,13 @@ SELECT department.code AS department_code,
        department.name AS department_name,
        approver.username AS approver_username,
        approver.email AS approver_email,
+       mapping.sequence_no,
        mapping.is_active
 FROM dbo.po_department_approvers AS mapping
 JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
 WHERE department.code IN (
     N'SH1',N'CG',N'SB',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',
-    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'SQR',N'MKT',N'SE'
+    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'SQR',N'MKT',N'SE',N'ENG',N'EE',N'ME'
 )
-ORDER BY department.code;
+ORDER BY department.code, mapping.sequence_no;

@@ -133,8 +133,50 @@ class ApproverResolver
             $approvers = WorkflowDb::table($appCode, self::PO_DEPARTMENT_APPROVER_TABLE . ' as pda')
                 ->join('users as u', 'u.id', '=', 'pda.approver_user_id')
                 ->where('pda.department_id', $candidateDepartmentId)
+                ->where('pda.sequence_no', 1)
                 ->where('pda.is_active', 1)
                 ->where('u.is_active', 1)
+                ->orderBy('pda.id')
+                ->pluck('u.id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($approvers->isNotEmpty()) {
+                return $approvers;
+            }
+        }
+
+        return collect();
+    }
+
+    /**
+     * Additional FormPO approvers configured as slots 2, 3, 4, ... .
+     * They augment the normal department rule instead of replacing slot 1.
+     */
+    public static function poAdditionalDepartmentApprovers(object $wfForm, array $context): Collection
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+        $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+
+        if ($appCode !== 'po' || $stepNo !== 3 || $departmentId <= 0) {
+            return collect();
+        }
+
+        $connection = WorkflowDb::connection($appCode);
+        if (!$connection->getSchemaBuilder()->hasTable(self::PO_DEPARTMENT_APPROVER_TABLE)) {
+            return collect();
+        }
+
+        foreach (self::departmentLineage($departmentId, $appCode) as $candidateDepartmentId) {
+            $approvers = WorkflowDb::table($appCode, self::PO_DEPARTMENT_APPROVER_TABLE . ' as pda')
+                ->join('users as u', 'u.id', '=', 'pda.approver_user_id')
+                ->where('pda.department_id', $candidateDepartmentId)
+                ->where('pda.sequence_no', '>=', 2)
+                ->where('pda.is_active', 1)
+                ->where('u.is_active', 1)
+                ->orderBy('pda.sequence_no')
                 ->orderBy('pda.id')
                 ->pluck('u.id')
                 ->map(fn ($id) => (int) $id)

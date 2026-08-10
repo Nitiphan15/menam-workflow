@@ -180,10 +180,11 @@ return [
             [
                 'icon' => 'fa-shopping-cart',
                 'text' => 'PO Online',
-                'permission' => ['PO', 'POPUR'],
+                'permission' => ['PO', 'POPUR', 'POM'],
                 'children' => [
                     ['icon' => 'fa-tasks', 'text' => 'เอกสารที่ต้องทำ', 'route' => 'po.myActions', 'permission' => 'PO'],
                     ['icon' => 'fa-list', 'text' => 'รายการ PO', 'route' => 'po.index', 'permission' => 'POPUR'],
+                    ['icon' => 'fa-users-gear', 'text' => 'PO Approver Master', 'route' => 'po.approver-master.index', 'permission' => 'POM'],
                 ],
             ],
         ],

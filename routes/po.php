@@ -5,6 +5,21 @@ use App\Http\Controllers\Po\PoController;
 use App\Http\Controllers\Po\PoApprovalController;
 use App\Http\Controllers\Po\PoLookupController;
 use App\Http\Controllers\Po\PoExportController;
+use App\Http\Controllers\Po\PoApproverMasterController;
+
+Route::middleware(['auth', 'permission.any:POM'])
+    ->prefix('po')
+    ->name('po.')
+    ->group(function () {
+        Route::get('/approver-master', [PoApproverMasterController::class, 'index'])->name('approver-master.index');
+        Route::post('/approver-master', [PoApproverMasterController::class, 'store'])->name('approver-master.store');
+        Route::put('/approver-master/{mapping}', [PoApproverMasterController::class, 'update'])
+            ->whereNumber('mapping')
+            ->name('approver-master.update');
+        Route::delete('/approver-master/{mapping}', [PoApproverMasterController::class, 'destroy'])
+            ->whereNumber('mapping')
+            ->name('approver-master.destroy');
+    });
 
 Route::middleware(['auth', 'permission.any:PO,POPUR'])
     ->prefix('po')
