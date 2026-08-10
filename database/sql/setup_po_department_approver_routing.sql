@@ -229,6 +229,49 @@ DECLARE @ApproverSeed TABLE (
     approver_key NVARCHAR(255) NOT NULL
 );
 
+-- Backfill usernames for active users originally created without one.
+DECLARE @RobertUserId BIGINT = (
+    SELECT TOP (1) id
+    FROM dbo.users
+    WHERE name = N'Robert Sammayo' AND is_active = 1
+    ORDER BY id
+);
+DECLARE @ChacritUserId BIGINT = (
+    SELECT TOP (1) id
+    FROM dbo.users
+    WHERE (name = N'Chacrit Rakrai' OR LOWER(email) = N'chacrit@menamstainless.co.th')
+      AND is_active = 1
+    ORDER BY CASE WHEN LOWER(email) = N'chacrit@menamstainless.co.th' THEN 0 ELSE 1 END, id
+);
+
+IF @RobertUserId IS NULL
+    THROW 51013, 'Active user Robert Sammayo was not found.', 1;
+
+IF @ChacritUserId IS NULL
+    THROW 51014, 'Active user Chacrit Rakrai was not found.', 1;
+
+IF EXISTS (
+    SELECT 1 FROM dbo.users
+    WHERE username = N'robert_s' AND id <> @RobertUserId
+)
+    THROW 51015, 'Username robert_s is already used by another user.', 1;
+
+IF EXISTS (
+    SELECT 1 FROM dbo.users
+    WHERE username = N'chacrit_r' AND id <> @ChacritUserId
+)
+    THROW 51016, 'Username chacrit_r is already used by another user.', 1;
+
+UPDATE dbo.users
+SET username = N'robert_s', updated_at = SYSDATETIME()
+WHERE id = @RobertUserId
+  AND NULLIF(LTRIM(RTRIM(username)), N'') IS NULL;
+
+UPDATE dbo.users
+SET username = N'chacrit_r', updated_at = SYSDATETIME()
+WHERE id = @ChacritUserId
+  AND NULLIF(LTRIM(RTRIM(username)), N'') IS NULL;
+
 -- The 15 requested Production labels resolve to 14 unique department masters
 -- because Logistic and Transport both use SP - จัดส่ง.
 INSERT INTO @ApproverSeed (department_code, approver_key)
@@ -261,8 +304,8 @@ VALUES
     (N'GT',  N'chatchawal_c'),
     (N'SQR', N'jittinan_k'),
     (N'MKT', N'theerarat_k'),
-    (N'SE',  N'chacrit@menamstainless.co.th'),
-    (N'IT',  N'Robert Sammayo'),
+    (N'SE',  N'chacrit_r'),
+    (N'IT',  N'robert_s'),
     (N'ENG', N'panya_k'),
     (N'EE',  N'panya_k'),
     (N'ME',  N'panya_k');
@@ -380,8 +423,8 @@ VALUES
     (N'thanin_p'),
     (N'assadaporn_m'),
     (N'jiraporn_k'),
-    (N'chacrit@menamstainless.co.th'),
-    (N'Robert Sammayo');
+    (N'chacrit_r'),
+    (N'robert_s');
 
 IF EXISTS (
     SELECT 1
