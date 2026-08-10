@@ -258,7 +258,7 @@ VALUES
     (N'RD',  N'thatree_k'),
     (N'R',   N'thatree_k'),
     (N'DD',  N'kitpon_s'),
-    (N'GRAT', N'chatchawal_c'),
+    (N'GT',  N'chatchawal_c'),
     (N'SQR', N'jittinan_k'),
     (N'MKT', N'theerarat_k'),
     (N'SE',  N'chacrit@menamstainless.co.th'),
@@ -436,6 +436,6 @@ JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
 WHERE department.code IN (
     N'SH1',N'CG',N'SB',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',
-    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'GRAT',N'SQR',N'MKT',N'SE',N'ENG',N'EE',N'ME'
+    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'GT',N'SQR',N'MKT',N'SE',N'ENG',N'EE',N'ME'
 )
 ORDER BY department.code, mapping.sequence_no;
