@@ -135,10 +135,7 @@ VALUES
     (N'PK',  N'jittinan_k'),
     (N'SP',  N'jittinan_k'),
     (N'ST',  N'jittinan_k'),
-    (N'AM',  N'jittinan_k'),
-    (N'PN',  N'assadaporn_m'),
-    (N'AC',  N'jiraporn_k'),
-    (N'HR',  N'chacrit@menamstainless.co.th');
+    (N'AM',  N'jittinan_k');
 
 IF EXISTS (
     SELECT 1
@@ -179,6 +176,13 @@ WHEN MATCHED THEN
 WHEN NOT MATCHED THEN
     INSERT (department_id, approver_user_id, is_active, created_at, updated_at)
     VALUES (source.department_id, source.approver_user_id, 1, SYSDATETIME(), SYSDATETIME());
+
+-- Planning, Accounting, and HR intentionally use the shared FormPO
+-- position/department resolver instead of a named-user override.
+DELETE mapping
+FROM dbo.po_department_approvers AS mapping
+JOIN dbo.departments AS department ON department.id = mapping.department_id
+WHERE department.code IN (N'PN', N'AC', N'HR');
 
 DECLARE @PoRoleId INT = (
     SELECT TOP (1) id
@@ -242,5 +246,5 @@ SELECT department.code AS department_code,
 FROM dbo.po_department_approvers AS mapping
 JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
-WHERE department.code IN (N'SH1',N'CG',N'SB',N'DD',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',N'PN',N'AC',N'HR')
+WHERE department.code IN (N'SH1',N'CG',N'SB',N'DD',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM')
 ORDER BY department.code;
