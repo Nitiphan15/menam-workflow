@@ -11,9 +11,19 @@ use Illuminate\Support\Facades\Storage;
 
 class PoErpService
 {
-    private const ERP_DEPARTMENT_CODE_ALIASES = [
-        'DRAWING' => 'SQR',
-        'TOOLING' => 'R',
+    private const ERP_DEPARTMENT_ALIASES = [
+        'BAR1' => ['SH1'],
+        'BAR2' => ['SH2'],
+        'CGM' => ['CG'],
+        'DIE' => ['DD'],
+        'DRAWING' => ['SQR'],
+        'TOOLING' => ['R'],
+        'LOGISTIC' => ['SP'],
+        'PACK' => ['PK'],
+        'STOCK' => ['ST'],
+        'W&F' => ['GT'],
+        'SALE' => ['DOMESTIC', 'ขายในประเทศ', 'SL02'],
+        'EXPORT' => ['EXPORT', 'ขายต่างประเทศ', 'SL01'],
     ];
 
     public const SOURCE_WIRE = 'wire';
@@ -384,18 +394,23 @@ class PoErpService
         }
 
         $normalizedName = strtoupper($name);
-        foreach (self::ERP_DEPARTMENT_CODE_ALIASES as $alias => $departmentCode) {
+        foreach (self::ERP_DEPARTMENT_ALIASES as $alias => $departmentCandidates) {
             if (!str_contains($normalizedName, $alias)) {
                 continue;
             }
 
-            $aliasedDepartmentId = SqlServerDb::table('departments')
-                ->where('code', $departmentCode)
-                ->where('is_active', 1)
-                ->value('id');
+            foreach ($departmentCandidates as $departmentCandidate) {
+                $aliasedDepartmentId = SqlServerDb::table('departments')
+                    ->where(function ($query) use ($departmentCandidate) {
+                        $query->where('code', $departmentCandidate)
+                            ->orWhere('name', $departmentCandidate);
+                    })
+                    ->where('is_active', 1)
+                    ->value('id');
 
-            if ($aliasedDepartmentId) {
-                return (int) $aliasedDepartmentId;
+                if ($aliasedDepartmentId) {
+                    return (int) $aliasedDepartmentId;
+                }
             }
         }
 
@@ -467,6 +482,8 @@ class PoErpService
             ->whereDate('oe.transdate', '>=', '2026-04-01')
             ->whereRaw("oe.ordnumber ~ '^POR?[0-9]'")
             ->where('oe.shipped_or_received', false)
+            ->whereNotNull('oe.f1')
+            ->whereRaw("BTRIM(oe.f1) <> ''")
             ->whereNotExists(function ($query) {
                 $query->select(DB::raw(1))
                     ->from('ap')

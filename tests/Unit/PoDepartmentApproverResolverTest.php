@@ -196,6 +196,33 @@ class PoDepartmentApproverResolverTest extends TestCase
         $this->assertSame(51, PoErpService::resolveDepartmentId('R&D - Tooling'));
     }
 
+    public function test_po_list_department_groups_resolve_to_department_master(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 80, 'code' => 'SH1', 'name' => 'เพลา1', 'is_active' => 1],
+            ['id' => 81, 'code' => 'SH2', 'name' => 'BAR 2', 'is_active' => 1],
+            ['id' => 82, 'code' => 'CG', 'name' => 'CG', 'is_active' => 1],
+            ['id' => 83, 'code' => 'DD', 'name' => 'แต่งไดร์', 'is_active' => 1],
+            ['id' => 84, 'code' => 'SP', 'name' => 'จัดส่ง', 'is_active' => 1],
+            ['id' => 85, 'code' => 'PK', 'name' => 'แพ็คกิ้ง', 'is_active' => 1],
+            ['id' => 86, 'code' => 'ST', 'name' => 'สต็อกวัตถุดิบ', 'is_active' => 1],
+            ['id' => 87, 'code' => 'GT', 'name' => 'Grating', 'is_active' => 1],
+            ['id' => 88, 'code' => 'DOM', 'name' => 'ขายในประเทศ', 'is_active' => 1],
+            ['id' => 89, 'code' => 'EXP', 'name' => 'ขายต่างประเทศ', 'is_active' => 1],
+        ]);
+
+        $this->assertSame(80, PoErpService::resolveDepartmentId('Bar1 - k.ชวลิต'));
+        $this->assertSame(81, PoErpService::resolveDepartmentId('Bar2-k.ชิษณุพงศ์'));
+        $this->assertSame(82, PoErpService::resolveDepartmentId('CGM-k.อนุสิชฐ์'));
+        $this->assertSame(83, PoErpService::resolveDepartmentId('DIE - k.ไพฑูรย์'));
+        $this->assertSame(84, PoErpService::resolveDepartmentId('Logistic-k.ประมวล'));
+        $this->assertSame(85, PoErpService::resolveDepartmentId('Pack - K.ภัทรวดี'));
+        $this->assertSame(86, PoErpService::resolveDepartmentId('Stock -k.กาญจนา'));
+        $this->assertSame(87, PoErpService::resolveDepartmentId('W&F-k.อรุณี'));
+        $this->assertSame(88, PoErpService::resolveDepartmentId('Sale - k.Wilawan'));
+        $this->assertSame(89, PoErpService::resolveDepartmentId('Export-K.Sarun'));
+    }
+
     public function test_additional_approvers_are_returned_in_configured_sequence(): void
     {
         DB::connection('sqlsrv_menam')->table('departments')->insert([
