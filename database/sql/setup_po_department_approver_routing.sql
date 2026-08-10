@@ -115,12 +115,12 @@ WHEN NOT MATCHED THEN
 
 DECLARE @ApproverSeed TABLE (
     department_code NVARCHAR(50) NOT NULL PRIMARY KEY,
-    username NVARCHAR(80) NOT NULL
+    approver_key NVARCHAR(255) NOT NULL
 );
 
 -- The 15 requested Production labels resolve to 14 unique department masters
 -- because Logistic and Transport both use SP - จัดส่ง.
-INSERT INTO @ApproverSeed (department_code, username)
+INSERT INTO @ApproverSeed (department_code, approver_key)
 VALUES
     (N'SH1', N'jittinan_k'),
     (N'CG',  N'jittinan_k'),
@@ -137,7 +137,8 @@ VALUES
     (N'ST',  N'jittinan_k'),
     (N'AM',  N'jittinan_k'),
     (N'PN',  N'assadaporn_m'),
-    (N'AC',  N'jiraporn_k');
+    (N'AC',  N'jiraporn_k'),
+    (N'HR',  N'chacrit@menamstainless.co.th');
 
 IF EXISTS (
     SELECT 1
@@ -153,7 +154,7 @@ IF EXISTS (
     SELECT 1
     FROM @ApproverSeed AS seed
     LEFT JOIN dbo.users AS approver
-      ON approver.username = seed.username
+      ON (approver.username = seed.approver_key OR LOWER(approver.email) = LOWER(seed.approver_key))
      AND approver.is_active = 1
     WHERE approver.id IS NULL
 )
@@ -165,7 +166,9 @@ USING (
            approver.id AS approver_user_id
     FROM @ApproverSeed AS seed
     JOIN dbo.departments AS department ON department.code = seed.department_code
-    JOIN dbo.users AS approver ON approver.username = seed.username
+    JOIN dbo.users AS approver
+      ON (approver.username = seed.approver_key OR LOWER(approver.email) = LOWER(seed.approver_key))
+     AND approver.is_active = 1
 ) AS source
    ON target.department_id = source.department_id
 WHEN MATCHED THEN
@@ -187,9 +190,9 @@ DECLARE @PoRoleId INT = (
 IF @PoRoleId IS NULL
     THROW 51006, 'Active PO web permission was not found.', 1;
 
-DECLARE @PoUsers TABLE (username NVARCHAR(80) NOT NULL PRIMARY KEY);
+DECLARE @PoUsers TABLE (approver_key NVARCHAR(255) NOT NULL PRIMARY KEY);
 
-INSERT INTO @PoUsers (username)
+INSERT INTO @PoUsers (approver_key)
 VALUES
     (N'panya_k'),
     (N'thatree_k'),
@@ -201,13 +204,14 @@ VALUES
     (N'preeyapan_t'),
     (N'thanin_p'),
     (N'assadaporn_m'),
-    (N'jiraporn_k');
+    (N'jiraporn_k'),
+    (N'chacrit@menamstainless.co.th');
 
 IF EXISTS (
     SELECT 1
     FROM @PoUsers AS target_user
     LEFT JOIN dbo.users AS user_row
-      ON user_row.username = target_user.username
+      ON (user_row.username = target_user.approver_key OR LOWER(user_row.email) = LOWER(target_user.approver_key))
      AND user_row.is_active = 1
      AND user_row.department_id IS NOT NULL
     WHERE user_row.id IS NULL
@@ -217,7 +221,9 @@ IF EXISTS (
 INSERT INTO dbo.user_dept_roles (user_id, department_id, role_id)
 SELECT user_row.id, user_row.department_id, @PoRoleId
 FROM @PoUsers AS target_user
-JOIN dbo.users AS user_row ON user_row.username = target_user.username
+JOIN dbo.users AS user_row
+  ON (user_row.username = target_user.approver_key OR LOWER(user_row.email) = LOWER(target_user.approver_key))
+ AND user_row.is_active = 1
 WHERE NOT EXISTS (
     SELECT 1
     FROM dbo.user_dept_roles AS existing
@@ -236,5 +242,5 @@ SELECT department.code AS department_code,
 FROM dbo.po_department_approvers AS mapping
 JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
-WHERE department.code IN (N'SH1',N'CG',N'SB',N'DD',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',N'PN',N'AC')
+WHERE department.code IN (N'SH1',N'CG',N'SB',N'DD',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',N'PN',N'AC',N'HR')
 ORDER BY department.code;
