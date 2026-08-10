@@ -207,8 +207,8 @@ class PoDepartmentApproverResolverTest extends TestCase
             ['id' => 85, 'code' => 'PK', 'name' => 'แพ็คกิ้ง', 'is_active' => 1],
             ['id' => 86, 'code' => 'ST', 'name' => 'สต็อกวัตถุดิบ', 'is_active' => 1],
             ['id' => 87, 'code' => 'GT', 'name' => 'Grating', 'is_active' => 1],
-            ['id' => 88, 'code' => 'DOM', 'name' => 'ขายในประเทศ', 'is_active' => 1],
-            ['id' => 89, 'code' => 'EXP', 'name' => 'ขายต่างประเทศ', 'is_active' => 1],
+            ['id' => 88, 'code' => 'IM', 'name' => 'ขายในประเทศ', 'is_active' => 1],
+            ['id' => 89, 'code' => 'EP', 'name' => 'ขายต่างประเทศ', 'is_active' => 1],
         ]);
 
         $this->assertSame(80, PoErpService::resolveDepartmentId('Bar1 - k.ชวลิต'));

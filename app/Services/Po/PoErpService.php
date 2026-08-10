@@ -22,8 +22,8 @@ class PoErpService
         'PACK' => ['PK'],
         'STOCK' => ['ST'],
         'W&F' => ['GT'],
-        'SALE' => ['DOMESTIC', 'ขายในประเทศ', 'SL02'],
-        'EXPORT' => ['EXPORT', 'ขายต่างประเทศ', 'SL01'],
+        'SALE' => ['IM', 'IP', 'ขายในประเทศ', 'DOMESTIC', 'SL02'],
+        'EXPORT' => ['EP', 'ขายต่างประเทศ', 'EXPORT', 'SL01'],
     ];
 
     public const SOURCE_WIRE = 'wire';
