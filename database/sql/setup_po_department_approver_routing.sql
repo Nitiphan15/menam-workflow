@@ -125,7 +125,6 @@ VALUES
     (N'SH1', N'jittinan_k'),
     (N'CG',  N'jittinan_k'),
     (N'SB',  N'jittinan_k'),
-    (N'DD',  N'jittinan_k'),
     (N'ANL', N'jittinan_k'),
     (N'PF',  N'jittinan_k'),
     (N'WW',  N'jittinan_k'),
@@ -135,7 +134,19 @@ VALUES
     (N'PK',  N'jittinan_k'),
     (N'SP',  N'jittinan_k'),
     (N'ST',  N'jittinan_k'),
-    (N'AM',  N'jittinan_k');
+    (N'AM',  N'jittinan_k'),
+    -- Accounting and Finance group
+    (N'AF',  N'jiraporn_k'),
+    (N'AC',  N'jiraporn_k'),
+    (N'FN',  N'jiraporn_k'),
+    -- Quality Assurance group
+    (N'Q',   N'utis_j'),
+    (N'QA',  N'utis_j'),
+    (N'QC',  N'utis_j'),
+    -- Research and Development group; Die Dressing moves off Jittinan
+    (N'RD',  N'kitpon_s'),
+    (N'R',   N'kitpon_s'),
+    (N'DD',  N'kitpon_s');
 
 IF EXISTS (
     SELECT 1
@@ -177,12 +188,12 @@ WHEN NOT MATCHED THEN
     INSERT (department_id, approver_user_id, is_active, created_at, updated_at)
     VALUES (source.department_id, source.approver_user_id, 1, SYSDATETIME(), SYSDATETIME());
 
--- Planning, Accounting, and HR intentionally use the shared FormPO
+-- Planning and HR intentionally use the shared FormPO
 -- position/department resolver instead of a named-user override.
 DELETE mapping
 FROM dbo.po_department_approvers AS mapping
 JOIN dbo.departments AS department ON department.id = mapping.department_id
-WHERE department.code IN (N'PN', N'AC', N'HR');
+WHERE department.code IN (N'PN', N'HR');
 
 DECLARE @PoRoleId INT = (
     SELECT TOP (1) id
@@ -246,5 +257,8 @@ SELECT department.code AS department_code,
 FROM dbo.po_department_approvers AS mapping
 JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
-WHERE department.code IN (N'SH1',N'CG',N'SB',N'DD',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM')
+WHERE department.code IN (
+    N'SH1',N'CG',N'SB',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',
+    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD'
+)
 ORDER BY department.code;
