@@ -23,6 +23,23 @@ BEGIN
         ON dbo.po_department_approvers (approver_user_id, is_active);
 END;
 
+IF OBJECT_ID(N'dbo.po_department_alias_approvers', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.po_department_alias_approvers (
+        id BIGINT IDENTITY(1,1) NOT NULL
+            CONSTRAINT PK_po_department_alias_approvers PRIMARY KEY,
+        alias_key NVARCHAR(100) NOT NULL,
+        approver_user_id BIGINT NOT NULL,
+        is_active BIT NOT NULL
+            CONSTRAINT DF_po_department_alias_approvers_is_active DEFAULT (1),
+        created_at DATETIME2 NOT NULL
+            CONSTRAINT DF_po_department_alias_approvers_created_at DEFAULT (SYSDATETIME()),
+        updated_at DATETIME2 NOT NULL
+            CONSTRAINT DF_po_department_alias_approvers_updated_at DEFAULT (SYSDATETIME()),
+        CONSTRAINT UX_po_department_alias_approvers_alias UNIQUE (alias_key)
+    );
+END;
+
 DECLARE @ProductionDepartmentId INT = (
     SELECT TOP (1) id
     FROM dbo.departments
@@ -33,19 +50,32 @@ DECLARE @ProductionDepartmentId INT = (
 IF @ProductionDepartmentId IS NULL
     THROW 51001, 'Active PD - Production department was not found.', 1;
 
-DECLARE @DepartmentSeed TABLE (
-    code NVARCHAR(50) NOT NULL PRIMARY KEY,
-    name NVARCHAR(255) NOT NULL
+DECLARE @SalesMarketingDepartmentId INT = (
+    SELECT TOP (1) id
+    FROM dbo.departments
+    WHERE code = N'SM' AND is_active = 1
+    ORDER BY id
 );
 
-INSERT INTO @DepartmentSeed (code, name)
+IF @SalesMarketingDepartmentId IS NULL
+    THROW 51008, 'Active SM - Sales and Marketing department was not found.', 1;
+
+DECLARE @DepartmentSeed TABLE (
+    code NVARCHAR(50) NOT NULL PRIMARY KEY,
+    name NVARCHAR(255) NOT NULL,
+    parent_id BIGINT NOT NULL
+);
+
+INSERT INTO @DepartmentSeed (code, name, parent_id)
 VALUES
-    (N'SB',  N'Shotblast'),
-    (N'PF',  N'Profile'),
-    (N'WW',  N'บ่อบำบัด'),
-    (N'SH2', N'BAR 2'),
-    (N'CO2', N'CO2'),
-    (N'CT',  N'Coating');
+    (N'SB',  N'Shotblast',   @ProductionDepartmentId),
+    (N'PF',  N'Profile',     @ProductionDepartmentId),
+    (N'WW',  N'บ่อบำบัด',    @ProductionDepartmentId),
+    (N'SH2', N'BAR 2',       @ProductionDepartmentId),
+    (N'CO2', N'CO2',         @ProductionDepartmentId),
+    (N'CT',  N'Coating',     @ProductionDepartmentId),
+    (N'SQR', N'รีดเหลี่ยม',  @ProductionDepartmentId),
+    (N'MKT', N'การตลาด',     @SalesMarketingDepartmentId);
 
 IF EXISTS (
     SELECT 1
@@ -69,12 +99,12 @@ USING @DepartmentSeed AS source
 WHEN MATCHED THEN
     UPDATE SET
         target.name = source.name,
-        target.parent_id = @ProductionDepartmentId,
+        target.parent_id = source.parent_id,
         target.is_active = 1,
         target.updated_at = SYSDATETIME()
 WHEN NOT MATCHED THEN
     INSERT (code, name, parent_id, is_active, created_at, updated_at)
-    VALUES (source.code, source.name, @ProductionDepartmentId, 1, SYSDATETIME(), SYSDATETIME());
+    VALUES (source.code, source.name, source.parent_id, 1, SYSDATETIME(), SYSDATETIME());
 
 DECLARE @RoleSeed TABLE (
     code NVARCHAR(50) NOT NULL PRIMARY KEY,
@@ -146,7 +176,10 @@ VALUES
     -- Research and Development routes to Thatree; Die Dressing routes to Kitpon
     (N'RD',  N'thatree_k'),
     (N'R',   N'thatree_k'),
-    (N'DD',  N'kitpon_s');
+    (N'DD',  N'kitpon_s'),
+    (N'SQR', N'jittinan_k'),
+    (N'MKT', N'theerarat_k'),
+    (N'SE',  N'chacrit@menamstainless.co.th');
 
 IF EXISTS (
     SELECT 1
@@ -187,6 +220,30 @@ WHEN MATCHED THEN
 WHEN NOT MATCHED THEN
     INSERT (department_id, approver_user_id, is_active, created_at, updated_at)
     VALUES (source.department_id, source.approver_user_id, 1, SYSDATETIME(), SYSDATETIME());
+
+DECLARE @ToolingApproverId BIGINT = (
+    SELECT TOP (1) id
+    FROM dbo.users
+    WHERE username = N'kitpon_s' AND is_active = 1
+    ORDER BY id
+);
+
+IF @ToolingApproverId IS NULL
+    THROW 51009, 'Active Tooling approver kitpon_s was not found.', 1;
+
+MERGE dbo.po_department_alias_approvers AS target
+USING (
+    SELECT N'TOOLING' AS alias_key, @ToolingApproverId AS approver_user_id
+) AS source
+   ON target.alias_key = source.alias_key
+WHEN MATCHED THEN
+    UPDATE SET
+        target.approver_user_id = source.approver_user_id,
+        target.is_active = 1,
+        target.updated_at = SYSDATETIME()
+WHEN NOT MATCHED THEN
+    INSERT (alias_key, approver_user_id, is_active, created_at, updated_at)
+    VALUES (source.alias_key, source.approver_user_id, 1, SYSDATETIME(), SYSDATETIME());
 
 -- Planning and HR intentionally use the shared FormPO
 -- position/department resolver instead of a named-user override.
@@ -247,6 +304,27 @@ WHERE NOT EXISTS (
       AND existing.role_id = @PoRoleId
 );
 
+-- Retire Planning test accounts without deleting workflow history.
+UPDATE assignment
+SET assignment.is_primary = 0,
+    assignment.end_date = DATEADD(day, -1, CAST(GETDATE() AS date)),
+    assignment.updated_at = SYSDATETIME()
+FROM dbo.department_role_users AS assignment
+JOIN dbo.users AS test_user ON test_user.id = assignment.user_id
+WHERE test_user.username IN (N'nantiphi_t', N'nantiphi_t2')
+  AND assignment.start_date <= CAST(GETDATE() AS date)
+  AND (assignment.end_date IS NULL OR assignment.end_date >= CAST(GETDATE() AS date));
+
+DELETE permission
+FROM dbo.user_dept_roles AS permission
+JOIN dbo.users AS test_user ON test_user.id = permission.user_id
+WHERE test_user.username IN (N'nantiphi_t', N'nantiphi_t2');
+
+UPDATE dbo.users
+SET is_active = 0,
+    updated_at = SYSDATETIME()
+WHERE username IN (N'nantiphi_t', N'nantiphi_t2');
+
 COMMIT TRANSACTION;
 
 SELECT department.code AS department_code,
@@ -259,6 +337,6 @@ JOIN dbo.departments AS department ON department.id = mapping.department_id
 JOIN dbo.users AS approver ON approver.id = mapping.approver_user_id
 WHERE department.code IN (
     N'SH1',N'CG',N'SB',N'ANL',N'PF',N'WW',N'SH2',N'CO2',N'CT',N'PK',N'SP',N'ST',N'AM',
-    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD'
+    N'AF',N'AC',N'FN',N'Q',N'QA',N'QC',N'RD',N'R',N'DD',N'SQR',N'MKT',N'SE'
 )
 ORDER BY department.code;

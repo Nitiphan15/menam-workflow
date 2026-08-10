@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Storage;
 
 class PoErpService
 {
+    private const ERP_DEPARTMENT_CODE_ALIASES = [
+        'DRAWING' => 'SQR',
+        'TOOLING' => 'R',
+    ];
+
     public const SOURCE_WIRE = 'wire';
     public const SOURCE_PLUS = 'plus';
 
@@ -376,6 +381,22 @@ class PoErpService
         $name = trim((string) $erpDepartment);
         if ($name === '') {
             return null;
+        }
+
+        $normalizedName = strtoupper($name);
+        foreach (self::ERP_DEPARTMENT_CODE_ALIASES as $alias => $departmentCode) {
+            if (!str_contains($normalizedName, $alias)) {
+                continue;
+            }
+
+            $aliasedDepartmentId = SqlServerDb::table('departments')
+                ->where('code', $departmentCode)
+                ->where('is_active', 1)
+                ->value('id');
+
+            if ($aliasedDepartmentId) {
+                return (int) $aliasedDepartmentId;
+            }
         }
 
         $group = self::departmentGroupName($name);

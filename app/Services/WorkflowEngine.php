@@ -496,6 +496,7 @@ class WorkflowEngine
             return [
                 'department_id' => $departmentId ? (int) $departmentId : 0,
                 'document_department_id' => $departmentId ? (int) $departmentId : 0,
+                'document_department_name' => (string) ($po->f1 ?? ''),
                 'submitter_department_id' => $submitterDepartmentId ? (int) $submitterDepartmentId : 0,
                 'originator_id' => (int) ($wf->request_by_user_id ?? 0),
             ];

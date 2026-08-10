@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\ApproverResolver;
+use App\Services\Po\PoErpService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -27,6 +28,9 @@ class PoDepartmentApproverResolverTest extends TestCase
         $schema->create('departments', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('parent_id')->nullable();
+            $table->string('code')->nullable();
+            $table->string('name')->nullable();
+            $table->boolean('is_active')->default(true);
         });
         $schema->create('users', function (Blueprint $table) {
             $table->id();
@@ -35,6 +39,12 @@ class PoDepartmentApproverResolverTest extends TestCase
         $schema->create('po_department_approvers', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('department_id');
+            $table->unsignedBigInteger('approver_user_id');
+            $table->boolean('is_active')->default(true);
+        });
+        $schema->create('po_department_alias_approvers', function (Blueprint $table) {
+            $table->id();
+            $table->string('alias_key')->unique();
             $table->unsignedBigInteger('approver_user_id');
             $table->boolean('is_active')->default(true);
         });
@@ -107,5 +117,40 @@ class PoDepartmentApproverResolverTest extends TestCase
 
         $this->assertTrue($wrongApp->isEmpty());
         $this->assertTrue($wrongStep->isEmpty());
+    }
+
+    public function test_tooling_alias_overrides_the_resolved_rd_department(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 40, 'parent_id' => null, 'code' => 'R', 'name' => 'R&D', 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('users')->insert(['id' => 401, 'is_active' => 1]);
+        DB::connection('sqlsrv_menam')->table('po_department_alias_approvers')->insert([
+            'alias_key' => 'TOOLING',
+            'approver_user_id' => 401,
+            'is_active' => 1,
+        ]);
+
+        $result = ApproverResolver::poDepartmentApprovers(
+            (object) ['app_code' => 'po', 'current_step_no' => 3],
+            [
+                'document_department_id' => 40,
+                'document_department_name' => 'R&D - Tooling',
+                'workflow_step_no' => 3,
+            ],
+        );
+
+        $this->assertSame([401], $result->all());
+    }
+
+    public function test_erp_drawing_and_tooling_aliases_resolve_to_their_real_departments(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 50, 'parent_id' => null, 'code' => 'SQR', 'name' => 'รีดเหลี่ยม', 'is_active' => 1],
+            ['id' => 51, 'parent_id' => null, 'code' => 'R', 'name' => 'R&D', 'is_active' => 1],
+        ]);
+
+        $this->assertSame(50, PoErpService::resolveDepartmentId('Drawing'));
+        $this->assertSame(51, PoErpService::resolveDepartmentId('R&D - Tooling'));
     }
 }

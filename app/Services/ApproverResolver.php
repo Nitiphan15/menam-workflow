@@ -8,6 +8,7 @@ use Illuminate\Support\Collection;
 class ApproverResolver
 {
     private const PO_DEPARTMENT_APPROVER_TABLE = 'po_department_approvers';
+    private const PO_DEPARTMENT_ALIAS_APPROVER_TABLE = 'po_department_alias_approvers';
 
     /**
      * Return approver user ids for a workflow rule.
@@ -113,6 +114,11 @@ class ApproverResolver
             return collect();
         }
 
+        $aliasApprovers = self::poDepartmentAliasApprovers($appCode, $context);
+        if ($aliasApprovers->isNotEmpty()) {
+            return $aliasApprovers;
+        }
+
         $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
         if ($departmentId <= 0) {
             return collect();
@@ -141,6 +147,35 @@ class ApproverResolver
         }
 
         return collect();
+    }
+
+    private static function poDepartmentAliasApprovers(string $appCode, array $context): Collection
+    {
+        $departmentName = strtoupper(trim((string) ($context['document_department_name'] ?? '')));
+        if ($departmentName === '') {
+            return collect();
+        }
+
+        $connection = WorkflowDb::connection($appCode);
+        if (!$connection->getSchemaBuilder()->hasTable(self::PO_DEPARTMENT_ALIAS_APPROVER_TABLE)) {
+            return collect();
+        }
+
+        return WorkflowDb::table($appCode, self::PO_DEPARTMENT_ALIAS_APPROVER_TABLE . ' as paa')
+            ->join('users as u', 'u.id', '=', 'paa.approver_user_id')
+            ->where('paa.is_active', 1)
+            ->where('u.is_active', 1)
+            ->get(['paa.alias_key', 'u.id'])
+            ->filter(function ($row) use ($departmentName) {
+                $aliasKey = strtoupper(trim((string) $row->alias_key));
+
+                return $aliasKey !== '' && str_contains($departmentName, $aliasKey);
+            })
+            ->sortByDesc(fn ($row) => strlen((string) $row->alias_key))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
     }
 
     private static function byDeptLevel(int $deptId, int $levelNo, ?int $excludeUserId = null, ?string $appCode = null): Collection

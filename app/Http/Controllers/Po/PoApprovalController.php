@@ -46,6 +46,7 @@ class PoApprovalController extends Controller
                 'context' => [
                     'department_id' => $departmentId,
                     'document_department_id' => $departmentId,
+                    'document_department_name' => (string) $po->f1,
                     'submitter_department_id' => $submitterDepartmentId,
                 ],
                 'submit_comment' => $request->input('comment'),
@@ -114,6 +115,7 @@ class PoApprovalController extends Controller
                     'context' => [
                         'department_id' => $departmentId,
                         'document_department_id' => $departmentId,
+                        'document_department_name' => (string) $header->f1,
                         'submitter_department_id' => $submitterDepartmentId,
                     ],
                     'submit_comment' => 'Submitted from PO Online department group',
