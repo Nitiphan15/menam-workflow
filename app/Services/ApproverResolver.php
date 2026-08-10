@@ -7,6 +7,8 @@ use Illuminate\Support\Collection;
 
 class ApproverResolver
 {
+    private const PO_DEPARTMENT_APPROVER_TABLE = 'po_department_approvers';
+
     /**
      * Return approver user ids for a workflow rule.
      * Supported source_type: ORIGINATOR, SUPERVISOR, DEPARTMENT_MANAGER, ROLE, USER, QUERY
@@ -95,6 +97,50 @@ class ApproverResolver
             default:
                 return collect();
         }
+    }
+
+    /**
+     * Resolve an explicit FormPO department approver before the shared
+     * organization-role rules are evaluated. The nearest mapped department
+     * wins, so an exact department mapping overrides a parent mapping.
+     */
+    public static function poDepartmentApprovers(object $wfForm, array $context): Collection
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+
+        if ($appCode !== 'po' || $stepNo !== 3) {
+            return collect();
+        }
+
+        $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+        if ($departmentId <= 0) {
+            return collect();
+        }
+
+        $connection = WorkflowDb::connection($appCode);
+        if (!$connection->getSchemaBuilder()->hasTable(self::PO_DEPARTMENT_APPROVER_TABLE)) {
+            return collect();
+        }
+
+        foreach (self::departmentLineage($departmentId, $appCode) as $candidateDepartmentId) {
+            $approvers = WorkflowDb::table($appCode, self::PO_DEPARTMENT_APPROVER_TABLE . ' as pda')
+                ->join('users as u', 'u.id', '=', 'pda.approver_user_id')
+                ->where('pda.department_id', $candidateDepartmentId)
+                ->where('pda.is_active', 1)
+                ->where('u.is_active', 1)
+                ->orderBy('pda.id')
+                ->pluck('u.id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($approvers->isNotEmpty()) {
+                return $approvers;
+            }
+        }
+
+        return collect();
     }
 
     private static function byDeptLevel(int $deptId, int $levelNo, ?int $excludeUserId = null, ?string $appCode = null): Collection

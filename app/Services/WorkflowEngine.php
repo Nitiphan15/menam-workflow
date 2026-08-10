@@ -302,12 +302,15 @@ class WorkflowEngine
             ->orderBy('priority')
             ->get();
 
-        $approvers = collect();
-        foreach ($rules as $rule) {
-            $stepContext = array_merge($context, ['workflow_step_no' => $stepNo]);
-            $list = ApproverResolver::resolve($rule, $wf, $stepContext, $skipFlags);
-            $ruleApprovers = $list instanceof Collection ? $list : collect($list);
-            $approvers = $approvers->merge($ruleApprovers->unique()->values());
+        $stepContext = array_merge($context, ['workflow_step_no' => $stepNo]);
+        $approvers = ApproverResolver::poDepartmentApprovers($wf, $stepContext);
+
+        if ($approvers->isEmpty()) {
+            foreach ($rules as $rule) {
+                $list = ApproverResolver::resolve($rule, $wf, $stepContext, $skipFlags);
+                $ruleApprovers = $list instanceof Collection ? $list : collect($list);
+                $approvers = $approvers->merge($ruleApprovers->unique()->values());
+            }
         }
         $allowDuplicateApprovers = strtolower((string) ($wf->app_code ?? '')) === 'po';
         $approvers = $allowDuplicateApprovers
