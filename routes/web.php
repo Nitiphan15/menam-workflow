@@ -151,19 +151,20 @@ Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
 
 Route::prefix('grating-performance')
   ->name('grating-performance.')
-  ->middleware('auth')
   ->group(function () {
-    Route::middleware('permission.any:GP')->group(function () {
-      Route::get('/', [GratingPerformanceController::class, 'index'])->name('index');
+    Route::get('/', [GratingPerformanceController::class, 'index'])->name('index');
+    Route::get('/inquiry', [GratingPerformanceController::class, 'inquiry'])->name('inquiry');
+
+    Route::middleware(['auth', 'permission.any:GP'])->group(function () {
       Route::get('/entries/create', [GratingPerformanceController::class, 'create'])->name('entries.create');
       Route::get('/step-balance', [GratingPerformanceController::class, 'stepBalance'])->name('step-balance');
       Route::post('/entries', [GratingPerformanceController::class, 'storeEntry'])->name('entries.store');
       Route::put('/entries/{entry}', [GratingPerformanceController::class, 'updateEntry'])->name('entries.update');
       Route::delete('/entries/{entry}', [GratingPerformanceController::class, 'destroyEntry'])->name('entries.destroy');
-      Route::get('/inquiry', [GratingPerformanceController::class, 'inquiry'])->name('inquiry');
+      Route::post('/mfg/{mfgNo}/finish', [GratingPerformanceController::class, 'finishMfg'])->name('mfg.finish');
     });
 
-    Route::middleware('permission.any:GPM')->group(function () {
+    Route::middleware(['auth', 'permission.any:GPM'])->group(function () {
       Route::get('/masters', [GratingPerformanceController::class, 'masters'])->name('masters');
       Route::post('/masters/employees', [GratingPerformanceController::class, 'storeEmployee'])->name('employees.store');
       Route::put('/masters/employees/{employee}', [GratingPerformanceController::class, 'updateEmployee'])->name('employees.update');

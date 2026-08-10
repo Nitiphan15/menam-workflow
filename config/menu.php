@@ -16,6 +16,15 @@ return [
             ['icon' => 'fa-box', 'text' => 'Packaging',  'route' => 'pkg.packaging.usage'],
 
             [
+                'icon' => 'fa-solid fa-industry',
+                'text' => 'Grating Performance',
+                'children' => [
+                    ['icon' => 'fa-solid fa-chart-line', 'text' => 'Dashboard', 'route' => 'grating-performance.index'],
+                    ['icon' => 'fa-solid fa-table', 'text' => 'Inquiry', 'route' => 'grating-performance.inquiry'],
+                ],
+            ],
+
+            [
                 'icon' => 'fa-solid fa-screwdriver-wrench',
                 'text' => 'DIE Tracking',
                 'children' => [

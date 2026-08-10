@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\FormGP;
 
 use App\Http\Controllers\Controller;
+use App\Support\GratingWorkloadCalculator;
 use App\Support\SqlServerDb;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -64,6 +65,7 @@ class GratingPerformanceController extends Controller
                 'recentEntries' => collect(),
                 'employeeStepEfficiency' => collect(),
                 'workloadByDay' => collect(),
+                'outputComparison' => [],
             ]);
         }
 
@@ -71,8 +73,9 @@ class GratingPerformanceController extends Controller
         $entries = $this->entryBase($filters);
 
         $range = $this->rangeAverages($filters['date_from'], $filters['date_to']);
-        $totalMinutes = (int) (clone $entries)->sum(DB::raw('COALESCE(e.duration_minutes, 0)'));
         $stepSummary = $this->stepSummary($filters);
+        $elapsed = $this->productionElapsedSummary($filters);
+        $totalMinutes = $elapsed['minutes'];
 
         $avgPricePerKg = $this->avgFgGratingPricePerKg();
         $packKg = $this->packGoodKg($filters);
@@ -88,19 +91,20 @@ class GratingPerformanceController extends Controller
             'step_good_kg' => (float) (clone $entries)->where('e.mfg_no', '<>', 'FIELD')->sum('e.good_qty_kg'),
             'step_good_pcs' => (float) (clone $entries)->where('e.mfg_no', '<>', 'FIELD')->sum('e.good_qty_pcs'),
             'step_good_area_sqm' => (float) (clone $entries)->where('e.mfg_no', '<>', 'FIELD')->sum('e.good_area_sqm'),
-            'bad_kg' => (float) (clone $entries)->sum('e.bad_qty_kg'),
-            'bad_pcs' => (float) (clone $entries)->sum('e.bad_qty_pcs'),
-            'bad_area_sqm' => (float) (clone $entries)->sum('e.bad_area_sqm'),
+            'bad_kg' => $outputTotals['bad_kg'],
+            'bad_pcs' => $outputTotals['bad_pcs'],
+            'bad_area_sqm' => $outputTotals['bad_area_sqm'],
             'minutes' => $totalMinutes,
             'range_days' => $range['days'],
-            'hours_per_day' => ($totalMinutes / 60) / $range['days'],
+            'work_days' => $elapsed['work_days'],
+            'hours_per_day' => ($totalMinutes / 60) / max(1, $elapsed['work_days']),
             'target_bath' => $this->salesD8TargetForRange($filters['date_from'], $filters['date_to']),
             'target_months' => $this->monthsInRange($filters['date_from'], $filters['date_to']),
             'target_source' => 'Summary Sales D8 / FG GRATING',
             'pack_kg' => $packKg,
             'avg_price_per_kg' => $avgPricePerKg,
             'output_bath' => $packBath,
-            'finished' => (clone $entries)->where('e.is_finished', true)->count(),
+            'finished' => $outputTotals['finished_count'],
         ];
 
         return view('formGP.grating-performance.index', [
@@ -120,6 +124,7 @@ class GratingPerformanceController extends Controller
             'recentEntries' => $this->recentEntries($filters),
             'employeeStepEfficiency' => $this->employeeStepEfficiency($filters),
             'workloadByDay' => $this->workloadByDay($filters),
+            'outputComparison' => $this->outputComparison($filters),
         ]);
     }
 
@@ -155,9 +160,11 @@ class GratingPerformanceController extends Controller
                 'filters' => $this->filters($request),
                 'rows' => collect(),
                 'employeeDailyRows' => collect(),
+                'employeeElapsedSummary' => ['minutes' => 0, 'work_days' => 0],
                 'mfgFlowRows' => collect(),
                 'employeeDetailRows' => collect(),
                 'mfgDetailRows' => collect(),
+                'mfgLatestOutputs' => collect(),
                 'steps' => collect(),
                 'employees' => collect(),
             ]);
@@ -224,9 +231,13 @@ class GratingPerformanceController extends Controller
             'rows' => $rows,
             'summary' => $this->inquirySummary($filters),
             'employeeDailyRows' => $employeeDailyRows,
+            'employeeElapsedSummary' => $viewMode === 'employee'
+                ? $this->productionElapsedSummary($filters)
+                : ['minutes' => 0, 'work_days' => 0],
             'mfgFlowRows' => $mfgFlowRows,
             'employeeDetailRows' => $employeeDetailRows,
             'mfgDetailRows' => $mfgDetailRows,
+            'mfgLatestOutputs' => $viewMode === 'mfg' ? $this->latestMfgOutputQuery($filters)->get() : collect(),
             'steps' => $this->stepOptions(false),
             'employees' => $this->employeeOptions(false),
         ]);
@@ -751,31 +762,7 @@ class GratingPerformanceController extends Controller
 
     private function netDurationMinutes(Carbon $startedAt, Carbon $finishedAt): int
     {
-        $grossMinutes = max(0, $startedAt->diffInMinutes($finishedAt));
-        if ($grossMinutes === 0) {
-            return 0;
-        }
-
-        $breakMinutes = 0;
-        $day = $startedAt->copy()->startOfDay();
-        $lastDay = $finishedAt->copy()->startOfDay();
-
-        while ($day->lte($lastDay)) {
-            foreach (self::WORK_BREAKS as [$breakStartTime, $breakEndTime]) {
-                $breakStart = Carbon::parse($day->toDateString() . ' ' . $breakStartTime);
-                $breakEnd = Carbon::parse($day->toDateString() . ' ' . $breakEndTime);
-                $overlapStart = $startedAt->gt($breakStart) ? $startedAt->copy() : $breakStart;
-                $overlapEnd = $finishedAt->lt($breakEnd) ? $finishedAt->copy() : $breakEnd;
-
-                if ($overlapEnd->gt($overlapStart)) {
-                    $breakMinutes += $overlapStart->diffInMinutes($overlapEnd);
-                }
-            }
-
-            $day->addDay();
-        }
-
-        return max(0, $grossMinutes - $breakMinutes);
+        return GratingWorkloadCalculator::netMinutes($startedAt, $finishedAt, self::WORK_BREAKS);
     }
 
     public function destroyEntry(int $entry)
@@ -811,6 +798,44 @@ class GratingPerformanceController extends Controller
         });
 
         return back()->with('success', 'ยกเลิกรายการแล้ว');
+    }
+
+    public function finishMfg(string $mfgNo)
+    {
+        $mfgNo = trim($mfgNo);
+        if ($mfgNo === '' || $mfgNo === 'FIELD') {
+            return back()->withErrors(['mfg' => 'ไม่พบ MFG ที่ต้องการจบงาน']);
+        }
+
+        $filters = [
+            'date_from' => null,
+            'date_to' => null,
+            'mfg_no' => '',
+            'project' => '',
+            'salesorder' => '',
+            'step_id' => null,
+            'employee_ids' => [],
+            'employee_id' => null,
+            'period' => 'day',
+            'view_mode' => 'transactions',
+        ];
+        $latest = $this->latestMfgOutputQuery($filters)
+            ->where('mfg_no', $mfgNo)
+            ->first();
+
+        if (!$latest) {
+            return back()->withErrors(['mfg' => 'ไม่พบข้อมูลของ MFG ' . $mfgNo]);
+        }
+
+        SqlServerDb::table('grating_daily_entries')
+            ->where('id', $latest->last_entry_id)
+            ->where('mfg_no', $mfgNo)
+            ->update($this->withAudit('grating_daily_entries', [
+                'is_finished' => true,
+                'updated_at' => now(),
+            ], true));
+
+        return back()->with('success', 'จบงาน MFG ' . $mfgNo . ' แล้ว');
     }
 
     public function storeEmployee(Request $request)
@@ -963,6 +988,13 @@ class GratingPerformanceController extends Controller
             'month' => $today->copy()->endOfMonth()->toDateString(),
             default => $today->toDateString(),
         };
+        $employeeInput = $request->query('employee_ids', $request->query('employee_id', []));
+        $employeeIds = collect(is_array($employeeInput) ? $employeeInput : explode(',', (string) $employeeInput))
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
 
         return [
             'date_from' => $request->query('date_from', $defaultFrom),
@@ -971,7 +1003,8 @@ class GratingPerformanceController extends Controller
             'project' => trim((string) $request->query('project', '')),
             'salesorder' => trim((string) $request->query('salesorder', '')),
             'step_id' => $request->query('step_id'),
-            'employee_id' => $request->query('employee_id'),
+            'employee_ids' => $employeeIds,
+            'employee_id' => $employeeIds[0] ?? null,
             'period' => $period,
             'view_mode' => $viewMode,
         ];
@@ -1031,12 +1064,12 @@ class GratingPerformanceController extends Controller
                         ->where('fes.step_id', $stepId);
                 });
             })
-            ->when($filters['employee_id'] ?? null, function ($q, $employeeId) {
-                $q->whereExists(function ($sub) use ($employeeId) {
+            ->when($filters['employee_ids'] ?? [], function ($q, $employeeIds) {
+                $q->whereExists(function ($sub) use ($employeeIds) {
                     $sub->select(DB::raw(1))
                         ->from('grating_entry_employees as fee')
                         ->whereColumn('fee.entry_id', 'e.id')
-                        ->where('fee.employee_id', $employeeId);
+                        ->whereIn('fee.employee_id', $employeeIds);
                 });
             });
 
@@ -1053,9 +1086,10 @@ class GratingPerformanceController extends Controller
 
     private function employeeSummary(array $filters)
     {
-        return $this->entryBase($filters)
+        $rows = $this->entryBase($filters)
             ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
             ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('ge.id', $ids))
             ->select([
                 'ge.id',
                 'ge.name',
@@ -1072,19 +1106,49 @@ class GratingPerformanceController extends Controller
             ->orderByDesc('good_pcs')
             ->limit(20)
             ->get();
+
+        // A worker can be assigned to several entries during the same time
+        // window. Employee workload must count that elapsed time once per day,
+        // not once per entry.
+        $minutesByEmployee = $this->workloadByDay($filters)
+            ->groupBy('employee_id')
+            ->map(fn ($dailyRows) => (int) $dailyRows->sum('minutes'));
+        $outputsByEmployee = $this->employeeLatestOutputAllocations($filters)
+            ->groupBy('employee_id')
+            ->map(fn ($items) => (object) [
+                'good_pcs' => (float) $items->sum('good_pcs'),
+                'bad_pcs' => (float) $items->sum('bad_pcs'),
+                'good_kg' => (float) $items->sum('good_kg'),
+            ]);
+
+        return $rows->map(function ($row) use ($minutesByEmployee, $outputsByEmployee) {
+            $output = $outputsByEmployee->get((int) $row->id);
+            $row->minutes = (int) ($minutesByEmployee->get((int) $row->id) ?? 0);
+            $row->good_pcs = (float) ($output->good_pcs ?? 0);
+            $row->bad_pcs = (float) ($output->bad_pcs ?? 0);
+            $row->good_kg = (float) ($output->good_kg ?? 0);
+
+            return $row;
+        })->sortByDesc('good_pcs')->values();
     }
 
     private function employeeStepEfficiency(array $filters)
     {
-        return $this->entryBase($filters)
+        $minutesByEmployeeStep = $this->employeeStepWorkload($filters);
+        $rows = $this->entryBase($filters)
             ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
             ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
-            ->join('grating_steps as gs2', 'gs2.id', '=', 'e.step_id')
+            ->leftJoin('grating_entry_steps as ges_eff', 'ges_eff.entry_id', '=', 'e.id')
+            ->join('grating_steps as gs2', 'gs2.id', '=', DB::raw('COALESCE(ges_eff.step_id, e.step_id)'))
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('ge.id', $ids))
+            ->when($filters['step_id'] ?? null, fn ($query, $stepId) => $query->where('gs2.id', $stepId))
             ->select([
                 'ge.id as employee_id',
                 'ge.name as employee_name',
+                'gs2.id as step_id',
                 'gs2.step_code',
                 'gs2.step_name',
+                'gs2.sort_order',
                 DB::raw('SUM(COALESCE(e.duration_minutes, 0)) as minutes'),
                 DB::raw('SUM(e.good_qty_kg) as good_kg'),
                 DB::raw('SUM(e.good_qty_pcs) as good_pcs'),
@@ -1093,17 +1157,49 @@ class GratingPerformanceController extends Controller
                 DB::raw('COUNT(DISTINCT e.id) as entry_count'),
             ])
             ->where('gs2.is_field_work', false)
-            ->groupBy('ge.id', 'ge.name', 'gs2.step_code', 'gs2.step_name')
+            ->groupBy('ge.id', 'ge.name', 'gs2.id', 'gs2.step_code', 'gs2.step_name', 'gs2.sort_order')
             ->orderBy('ge.name')
+            ->orderBy('gs2.sort_order')
             ->orderBy('gs2.step_code')
             ->get()
-            ->map(function ($row) {
+            ->map(function ($row) use ($minutesByEmployeeStep) {
+                $row->minutes = (int) ($minutesByEmployeeStep->get(
+                    (int) $row->employee_id . '|' . (int) $row->step_id
+                ) ?? 0);
                 $hours = ((float) $row->minutes) / 60;
                 $row->hours = $hours;
                 $row->kg_per_hour = $hours > 0 ? round((float) $row->good_kg / $hours, 1) : null;
                 $row->pcs_per_hour = $hours > 0 ? round((float) $row->good_pcs / $hours, 1) : null;
+                $row->minutes_per_piece = (float) $row->good_pcs > 0
+                    ? round((float) $row->minutes / (float) $row->good_pcs, 1)
+                    : null;
                 return $row;
             });
+
+        $rows->groupBy('step_code')->each(function ($stepRows) {
+            $ranked = $stepRows
+                ->filter(fn ($row) => $row->minutes_per_piece !== null)
+                ->sortBy('minutes_per_piece')
+                ->values();
+
+            $previousMinutes = null;
+            $currentRank = 0;
+            $ranked->each(function ($row, $index) use ($ranked, &$previousMinutes, &$currentRank) {
+                $minutes = (float) $row->minutes_per_piece;
+                if ($previousMinutes === null || abs($minutes - $previousMinutes) > 0.0001) {
+                    $currentRank = $index + 1;
+                }
+
+                $row->step_rank = $currentRank;
+                $row->step_employee_count = $ranked->count();
+                $previousMinutes = $minutes;
+            });
+
+            $worstRank = (int) ($ranked->max('step_rank') ?? 0);
+            $ranked->each(fn ($row) => $row->step_worst_rank = $worstRank);
+        });
+
+        return $rows;
     }
 
     private function inquirySummary(array $filters): array
@@ -1112,24 +1208,19 @@ class GratingPerformanceController extends Controller
             ->select([
                 DB::raw('COUNT(DISTINCT e.id) as entry_count'),
                 DB::raw("COUNT(DISTINCT CASE WHEN e.mfg_no <> 'FIELD' THEN e.mfg_no END) as mfg_count"),
-                DB::raw('SUM(COALESCE(e.good_qty_pcs, 0)) as good_pcs'),
-                DB::raw('SUM(COALESCE(e.good_qty_kg, 0)) as good_kg'),
-                DB::raw('SUM(COALESCE(e.bad_qty_pcs, 0)) as bad_pcs'),
-                DB::raw('SUM(COALESCE(e.bad_qty_kg, 0)) as bad_kg'),
-                DB::raw('SUM(CASE WHEN e.is_finished = 1 THEN 1 ELSE 0 END) as finished_count'),
-                DB::raw('SUM(CASE WHEN e.is_finished = 1 THEN 0 ELSE 1 END) as open_count'),
             ])
             ->first();
+        $output = $this->mfgOutputTotals($filters);
 
         return [
             'entry_count' => (int) ($row->entry_count ?? 0),
             'mfg_count' => (int) ($row->mfg_count ?? 0),
-            'good_pcs' => (float) ($row->good_pcs ?? 0),
-            'good_kg' => (float) ($row->good_kg ?? 0),
-            'bad_pcs' => (float) ($row->bad_pcs ?? 0),
-            'bad_kg' => (float) ($row->bad_kg ?? 0),
-            'finished_count' => (int) ($row->finished_count ?? 0),
-            'open_count' => (int) ($row->open_count ?? 0),
+            'good_pcs' => $output['good_pcs'],
+            'good_kg' => $output['good_kg'],
+            'bad_pcs' => $output['bad_pcs'],
+            'bad_kg' => $output['bad_kg'],
+            'finished_count' => $output['finished_count'],
+            'open_count' => $output['open_count'],
         ];
     }
 
@@ -1138,21 +1229,33 @@ class GratingPerformanceController extends Controller
         return $this->entryBase($filters)
             ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
             ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('ge.id', $ids))
             ->select([
+                'e.id as entry_id',
                 'ge.id as employee_id',
                 'ge.name as employee_name',
                 DB::raw('CONVERT(varchar(10), e.work_date, 120) as work_day'),
-                DB::raw('SUM(COALESCE(e.duration_minutes, 0)) as minutes'),
-                DB::raw('COUNT(DISTINCT e.id) as entry_count'),
+                'e.started_at',
+                'e.finished_at',
             ])
-            ->groupBy('ge.id', 'ge.name', DB::raw('CONVERT(varchar(10), e.work_date, 120)'))
-            ->orderBy('work_day')
-            ->orderBy('ge.name')
+            ->whereNotNull('e.finished_at')
             ->get()
-            ->map(function ($row) {
-                $row->hours = round(((float) $row->minutes) / 60, 1);
-                return $row;
-            });
+            ->groupBy(fn ($row) => $row->employee_id . '|' . $row->work_day)
+            ->map(function ($rows) {
+                $first = $rows->first();
+                $minutes = GratingWorkloadCalculator::uniqueMinutes($rows, self::WORK_BREAKS);
+
+                return (object) [
+                    'employee_id' => $first->employee_id,
+                    'employee_name' => $first->employee_name,
+                    'work_day' => $first->work_day,
+                    'minutes' => $minutes,
+                    'entry_count' => $rows->pluck('entry_id')->unique()->count(),
+                    'hours' => round($minutes / 60, 1),
+                ];
+            })
+            ->sortBy(fn ($row) => $row->work_day . '|' . $row->employee_name)
+            ->values();
     }
 
     private function employeeDailyInquiry(array $filters)
@@ -1161,9 +1264,10 @@ class GratingPerformanceController extends Controller
         $stepRollup = $this->stepRollupSubquery();
         $projectExpr = $this->hasEntryColumn('project') ? 'e.project' : 'CAST(NULL AS NVARCHAR(MAX))';
 
-        return $this->entryBase($filters)
+        $rows = $this->entryBase($filters)
             ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
             ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('ge.id', $ids))
             ->leftJoinSub($teamSize, 'ts', 'ts.entry_id', '=', 'e.id')
             ->leftJoinSub($stepRollup, 'sr_daily', 'sr_daily.entry_id', '=', 'e.id')
             ->select([
@@ -1182,6 +1286,139 @@ class GratingPerformanceController extends Controller
             ->orderBy('work_day')
             ->limit(120)
             ->get();
+
+        $workMinutes = $this->workloadByDay($filters)
+            ->keyBy(fn ($row) => $row->employee_id . '|' . $row->work_day);
+        $latestOutputsByEmployeeDay = $this->employeeLatestOutputAllocations($filters)
+            ->groupBy(fn ($row) => $row->employee_id . '|' . $row->work_day)
+            ->map(fn ($items) => (object) [
+                'good_pcs' => (float) $items->sum('good_pcs'),
+                'bad_pcs' => (float) $items->sum('bad_pcs'),
+                'good_kg' => (float) $items->sum('good_kg'),
+            ]);
+
+        return $rows->map(function ($row) use ($workMinutes, $latestOutputsByEmployeeDay) {
+            $key = $row->employee_id . '|' . $row->work_day;
+            $output = $latestOutputsByEmployeeDay->get($key);
+            $row->minutes = (int) ($workMinutes->get($key)->minutes ?? $row->minutes ?? 0);
+            $row->allocated_good_pcs = (float) ($output->good_pcs ?? 0);
+            $row->allocated_bad_pcs = (float) ($output->bad_pcs ?? 0);
+            $row->allocated_good_kg = (float) ($output->good_kg ?? 0);
+            $row->work_day_count = 1;
+
+            return $row;
+        });
+    }
+
+    /**
+     * Allocate only the latest-step output of each MFG to its actual team.
+     * This keeps employee totals reconcilable with the MFG output total and
+     * prevents the same pieces being counted again at every production step.
+     */
+    private function employeeLatestOutputAllocations(array $filters)
+    {
+        $selectedEmployeeIds = array_map('intval', $filters['employee_ids'] ?? []);
+        $allocationFilters = $filters;
+        $allocationFilters['employee_ids'] = [];
+
+        $latestOutputs = $this->latestMfgOutputQuery($allocationFilters)
+            ->get()
+            ->keyBy('mfg_no');
+
+        if ($latestOutputs->isEmpty()) {
+            return collect();
+        }
+
+        $teamSize = $this->teamSizeSubquery();
+        $rows = $this->entryBase($allocationFilters)
+            ->leftJoin('grating_entry_steps as employee_output_ges', 'employee_output_ges.entry_id', '=', 'e.id')
+            ->join('grating_steps as employee_output_step', 'employee_output_step.id', '=', DB::raw('COALESCE(employee_output_ges.step_id, e.step_id)'))
+            ->join('grating_entry_employees as employee_output_gee', 'employee_output_gee.entry_id', '=', 'e.id')
+            ->join('grating_employees as employee_output_ge', 'employee_output_ge.id', '=', 'employee_output_gee.employee_id')
+            ->leftJoinSub($teamSize, 'employee_output_team', 'employee_output_team.entry_id', '=', 'e.id')
+            ->where('e.mfg_no', '<>', 'FIELD')
+            ->whereIn('e.mfg_no', $latestOutputs->keys()->all())
+            ->select([
+                'e.id as entry_id',
+                'e.mfg_no',
+                'employee_output_step.id as step_id',
+                'employee_output_ge.id as employee_id',
+                DB::raw('CONVERT(varchar(10), e.work_date, 120) as work_day'),
+                'e.started_at',
+                'e.good_qty_pcs',
+                'e.bad_qty_pcs',
+                'e.good_qty_kg',
+                DB::raw('COALESCE(employee_output_team.team_size, 1) as team_size'),
+            ])
+            ->distinct()
+            ->get()
+            ->filter(function ($row) use ($latestOutputs) {
+                $latest = $latestOutputs->get($row->mfg_no);
+
+                return $latest && (int) $row->step_id === (int) $latest->output_step_id;
+            });
+
+        return $rows
+            ->groupBy(fn ($row) => implode('|', [
+                $row->mfg_no,
+                $row->step_id,
+                $row->work_day,
+                Carbon::parse($row->started_at)->format('Y-m-d H:i:s'),
+            ]))
+            ->flatMap(function ($sessionRows) {
+                $employees = $sessionRows->groupBy('employee_id');
+                $divisor = max(
+                    1,
+                    (int) $sessionRows->max('team_size'),
+                    $employees->count()
+                );
+                $goodPcs = (float) $sessionRows->max('good_qty_pcs') / $divisor;
+                $badPcs = (float) $sessionRows->max('bad_qty_pcs') / $divisor;
+                $goodKg = (float) $sessionRows->max('good_qty_kg') / $divisor;
+
+                return $employees->map(function ($employeeRows, $employeeId) use ($goodPcs, $badPcs, $goodKg) {
+                    $first = $employeeRows->first();
+
+                    return (object) [
+                        'employee_id' => (int) $employeeId,
+                        'work_day' => $first->work_day,
+                        'good_pcs' => $goodPcs,
+                        'bad_pcs' => $badPcs,
+                        'good_kg' => $goodKg,
+                    ];
+                });
+            })
+            ->when($selectedEmployeeIds !== [], fn ($items) => $items
+                ->filter(fn ($row) => in_array((int) $row->employee_id, $selectedEmployeeIds, true)))
+            ->values();
+    }
+
+    private function employeeStepWorkload(array $filters)
+    {
+        return $this->entryBase($filters)
+            ->join('grating_entry_employees as employee_step_gee', 'employee_step_gee.entry_id', '=', 'e.id')
+            ->join('grating_employees as employee_step_ge', 'employee_step_ge.id', '=', 'employee_step_gee.employee_id')
+            ->leftJoin('grating_entry_steps as employee_step_ges', 'employee_step_ges.entry_id', '=', 'e.id')
+            ->join('grating_steps as employee_step_step', 'employee_step_step.id', '=', DB::raw('COALESCE(employee_step_ges.step_id, e.step_id)'))
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('employee_step_ge.id', $ids))
+            ->when($filters['step_id'] ?? null, fn ($query, $stepId) => $query->where('employee_step_step.id', $stepId))
+            ->whereNotNull('e.finished_at')
+            ->select([
+                'e.id as entry_id',
+                'employee_step_ge.id as employee_id',
+                'employee_step_step.id as step_id',
+                DB::raw('CONVERT(varchar(10), e.work_date, 120) as work_day'),
+                'e.started_at',
+                'e.finished_at',
+            ])
+            ->distinct()
+            ->get()
+            ->groupBy(fn ($row) => $row->employee_id . '|' . $row->step_id)
+            ->map(function ($stepRows) {
+                return $stepRows
+                    ->groupBy('work_day')
+                    ->sum(fn ($dayRows) => GratingWorkloadCalculator::uniqueMinutes($dayRows, self::WORK_BREAKS));
+            });
     }
 
     private function mfgFlowInquiry(array $filters)
@@ -1196,6 +1433,7 @@ class GratingPerformanceController extends Controller
             ->join('grating_steps as flow_step', 'flow_step.id', '=', DB::raw('COALESCE(ges_flow.step_id, e.step_id)'))
             ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
             ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('ge.id', $ids))
             ->leftJoinSub($teamSize, 'ts', 'ts.entry_id', '=', 'e.id')
             ->where('e.mfg_no', '<>', 'FIELD')
             ->select([
@@ -1237,6 +1475,7 @@ class GratingPerformanceController extends Controller
         return $this->entryBase($filters)
             ->join('grating_entry_employees as gee_detail', 'gee_detail.entry_id', '=', 'e.id')
             ->join('grating_employees as ge_detail', 'ge_detail.id', '=', 'gee_detail.employee_id')
+            ->when($filters['employee_ids'] ?? [], fn ($query, $ids) => $query->whereIn('ge_detail.id', $ids))
             ->leftJoinSub($teamSize, 'ts_detail', 'ts_detail.entry_id', '=', 'e.id')
             ->leftJoinSub($stepRollup, 'sr_detail', 'sr_detail.entry_id', '=', 'e.id')
             ->leftJoinSub($fieldMfgRollup, 'fmr_detail', 'fmr_detail.entry_id', '=', 'e.id')
@@ -1314,27 +1553,167 @@ class GratingPerformanceController extends Controller
 
     private function mfgOutputTotals(array $filters): array
     {
-        $rows = $this->entryBase($filters)
-            ->where('e.mfg_no', '<>', 'FIELD')
-            ->select([
-                'e.mfg_no',
-                DB::raw('COALESCE(MAX(CASE WHEN e.is_finished = 1 THEN e.good_qty_kg END), MAX(e.good_qty_kg), 0) as good_kg'),
-                DB::raw('COALESCE(MAX(CASE WHEN e.is_finished = 1 THEN e.good_qty_pcs END), MAX(e.good_qty_pcs), 0) as good_pcs'),
-                DB::raw('COALESCE(MAX(CASE WHEN e.is_finished = 1 THEN e.good_area_sqm END), MAX(e.good_area_sqm), 0) as good_area_sqm'),
-            ])
-            ->groupBy('e.mfg_no');
-
         $totals = SqlServerDb::connection()
             ->query()
-            ->fromSub($rows, 'mfg_output')
-            ->selectRaw('SUM(good_kg) as good_kg, SUM(good_pcs) as good_pcs, SUM(good_area_sqm) as good_area_sqm')
+            ->fromSub($this->latestMfgOutputQuery($filters), 'mfg_output')
+            ->selectRaw(
+                'SUM(good_kg) as good_kg, SUM(good_pcs) as good_pcs, SUM(good_area_sqm) as good_area_sqm, '
+                . 'SUM(bad_kg) as bad_kg, SUM(bad_pcs) as bad_pcs, SUM(bad_area_sqm) as bad_area_sqm, '
+                . 'SUM(CASE WHEN finished = 1 THEN 1 ELSE 0 END) as finished_count, '
+                . 'SUM(CASE WHEN finished = 1 THEN 0 ELSE 1 END) as open_count'
+            )
             ->first();
 
         return [
             'good_kg' => (float) ($totals->good_kg ?? 0),
             'good_pcs' => (float) ($totals->good_pcs ?? 0),
             'good_area_sqm' => (float) ($totals->good_area_sqm ?? 0),
+            'bad_kg' => (float) ($totals->bad_kg ?? 0),
+            'bad_pcs' => (float) ($totals->bad_pcs ?? 0),
+            'bad_area_sqm' => (float) ($totals->bad_area_sqm ?? 0),
+            'finished_count' => (int) ($totals->finished_count ?? 0),
+            'open_count' => (int) ($totals->open_count ?? 0),
         ];
+    }
+
+    /**
+     * One output row per MFG, using only the furthest step reached in the
+     * selected range. Entries within that step are still accumulated, while
+     * quantities from earlier steps are excluded.
+     */
+    private function latestMfgOutputQuery(array $filters)
+    {
+        $entrySteps = $this->entryBase($filters)
+            ->leftJoin('grating_entry_steps as latest_ges', 'latest_ges.entry_id', '=', 'e.id')
+            ->join('grating_steps as latest_step', 'latest_step.id', '=', DB::raw('COALESCE(latest_ges.step_id, e.step_id)'))
+            ->where('e.mfg_no', '<>', 'FIELD')
+            ->when($filters['step_id'] ?? null, fn ($query, $stepId) => $query->where('latest_step.id', $stepId))
+            ->select([
+                'e.id as entry_id',
+                'e.mfg_no',
+                'latest_step.id as output_step_id',
+                'latest_step.sort_order as step_sort_order',
+                'e.work_date',
+                'e.started_at',
+                'e.good_qty_kg',
+                'e.good_qty_pcs',
+                'e.good_area_sqm',
+                'e.bad_qty_kg',
+                'e.bad_qty_pcs',
+                'e.bad_area_sqm',
+                'e.is_finished',
+            ])
+            ->distinct();
+
+        // Legacy rows can contain the same MFG/step session once per worker.
+        // Collapse those rows first so output is not multiplied by headcount.
+        $sessionOutputs = SqlServerDb::connection()
+            ->query()
+            ->fromSub($entrySteps, 'entry_step')
+            ->select([
+                'mfg_no',
+                'output_step_id',
+                'step_sort_order',
+                'work_date',
+                'started_at',
+                DB::raw('MAX(COALESCE(good_qty_kg, 0)) as good_kg'),
+                DB::raw('MAX(COALESCE(good_qty_pcs, 0)) as good_pcs'),
+                DB::raw('MAX(COALESCE(good_area_sqm, 0)) as good_area_sqm'),
+                DB::raw('MAX(COALESCE(bad_qty_kg, 0)) as bad_kg'),
+                DB::raw('MAX(COALESCE(bad_qty_pcs, 0)) as bad_pcs'),
+                DB::raw('MAX(COALESCE(bad_area_sqm, 0)) as bad_area_sqm'),
+                DB::raw('MAX(CAST(is_finished AS int)) as finished'),
+                DB::raw('MAX(entry_id) as last_entry_id'),
+            ])
+            ->groupBy('mfg_no', 'output_step_id', 'step_sort_order', 'work_date', 'started_at');
+
+        $stepTotals = SqlServerDb::connection()
+            ->query()
+            ->fromSub($sessionOutputs, 'session_output')
+            ->select([
+                'mfg_no',
+                'output_step_id',
+                'step_sort_order',
+                DB::raw('SUM(good_kg) as good_kg'),
+                DB::raw('SUM(good_pcs) as good_pcs'),
+                DB::raw('SUM(good_area_sqm) as good_area_sqm'),
+                DB::raw('SUM(bad_kg) as bad_kg'),
+                DB::raw('SUM(bad_pcs) as bad_pcs'),
+                DB::raw('SUM(bad_area_sqm) as bad_area_sqm'),
+                DB::raw('MAX(finished) as finished'),
+                DB::raw('MAX(work_date) as last_work_date'),
+                DB::raw('MAX(started_at) as last_started_at'),
+                DB::raw('MAX(last_entry_id) as last_entry_id'),
+            ])
+            ->groupBy('mfg_no', 'output_step_id', 'step_sort_order');
+
+        $ranked = SqlServerDb::connection()
+            ->query()
+            ->fromSub($stepTotals, 'step_output')
+            ->select([
+                'step_output.*',
+                DB::raw('ROW_NUMBER() OVER (PARTITION BY mfg_no ORDER BY step_sort_order DESC, last_work_date DESC, last_started_at DESC, last_entry_id DESC) as latest_rank'),
+            ]);
+
+        return SqlServerDb::connection()
+            ->query()
+            ->fromSub($ranked, 'ranked_output')
+            ->where('latest_rank', 1);
+    }
+
+    private function outputComparison(array $filters): array
+    {
+        $anchor = Carbon::parse($filters['date_to']);
+        $comparisons = [
+            'yesterday' => [
+                'label' => 'วันที่เลือก เทียบเมื่อวาน',
+                'current_from' => $anchor->copy(),
+                'current_to' => $anchor->copy(),
+                'previous_from' => $anchor->copy()->subDay(),
+                'previous_to' => $anchor->copy()->subDay(),
+            ],
+            'last_week' => [
+                'label' => 'สัปดาห์นี้ เทียบสัปดาห์ก่อน',
+                'current_from' => $anchor->copy()->startOfWeek(),
+                'current_to' => $anchor->copy(),
+                'previous_from' => $anchor->copy()->startOfWeek()->subWeek(),
+                'previous_to' => $anchor->copy()->subWeek(),
+            ],
+            'last_month' => [
+                'label' => 'เดือนนี้ เทียบเดือนก่อน',
+                'current_from' => $anchor->copy()->startOfMonth(),
+                'current_to' => $anchor->copy(),
+                'previous_from' => $anchor->copy()->subMonthNoOverflow()->startOfMonth(),
+                'previous_to' => $anchor->copy()->subMonthNoOverflow(),
+            ],
+        ];
+
+        return collect($comparisons)->map(function ($period) use ($filters) {
+            $currentFilters = array_merge($filters, [
+                'date_from' => $period['current_from']->toDateString(),
+                'date_to' => $period['current_to']->toDateString(),
+            ]);
+            $previousFilters = array_merge($filters, [
+                'date_from' => $period['previous_from']->toDateString(),
+                'date_to' => $period['previous_to']->toDateString(),
+            ]);
+            $current = $this->mfgOutputTotals($currentFilters);
+            $previous = $this->mfgOutputTotals($previousFilters);
+
+            return [
+                'label' => $period['label'],
+                'current_from' => $currentFilters['date_from'],
+                'current_to' => $currentFilters['date_to'],
+                'previous_from' => $previousFilters['date_from'],
+                'previous_to' => $previousFilters['date_to'],
+                'current_good_pcs' => $current['good_pcs'],
+                'current_bad_pcs' => $current['bad_pcs'],
+                'previous_good_pcs' => $previous['good_pcs'],
+                'previous_bad_pcs' => $previous['bad_pcs'],
+                'good_delta' => $current['good_pcs'] - $previous['good_pcs'],
+                'bad_delta' => $current['bad_pcs'] - $previous['bad_pcs'],
+            ];
+        })->all();
     }
 
     private function mfgSummary(array $filters)
@@ -1379,16 +1758,27 @@ class GratingPerformanceController extends Controller
             ->select('e.mfg_no', DB::raw('COUNT(DISTINCT COALESCE(ges.step_id, e.step_id)) as step_count'))
             ->groupBy('e.mfg_no')
             ->pluck('step_count', 'mfg_no');
+        $latestOutputs = $this->latestMfgOutputQuery($filters)->get()->keyBy('mfg_no');
 
-        return $rows->map(function ($row) use ($peopleCounts, $stepCounts) {
+        return $rows->map(function ($row) use ($peopleCounts, $stepCounts, $latestOutputs) {
             $row->people_count = (int) ($peopleCounts[$row->mfg_no] ?? 0);
             $row->step_count = (int) ($stepCounts[$row->mfg_no] ?? $row->step_count);
+            if ($output = $latestOutputs->get($row->mfg_no)) {
+                $row->good_kg = (float) $output->good_kg;
+                $row->good_pcs = (float) $output->good_pcs;
+                $row->good_area_sqm = (float) $output->good_area_sqm;
+                $row->bad_kg = (float) $output->bad_kg;
+                $row->bad_pcs = (float) $output->bad_pcs;
+                $row->bad_area_sqm = (float) $output->bad_area_sqm;
+            }
             return $row;
         });
     }
 
     private function mfgStepPeopleSummary(array $filters)
     {
+        $minutesByMfgStep = $this->mfgStepUniqueMinutesByMfg($filters);
+        $minutesByMfg = $this->mfgUniqueMinutesByMfg($filters);
         $outputRows = $this->entryBase($filters)
             ->leftJoin('grating_entry_steps as ges', 'ges.entry_id', '=', 'e.id')
             ->join('grating_steps as ss', 'ss.id', '=', DB::raw('COALESCE(ges.step_id, e.step_id)'))
@@ -1398,14 +1788,15 @@ class GratingPerformanceController extends Controller
                 'ss.id as step_id',
                 'ss.step_code',
                 'ss.step_name',
+                'ss.sort_order',
                 DB::raw('SUM(e.good_qty_pcs) as good_pcs'),
                 DB::raw('SUM(e.good_qty_kg) as good_kg'),
                 DB::raw('SUM(COALESCE(e.duration_minutes, 0)) as minutes'),
                 DB::raw('MAX(e.work_date) as last_work_date'),
             ])
-            ->groupBy('e.mfg_no', 'ss.id', 'ss.step_code', 'ss.step_name');
+            ->groupBy('e.mfg_no', 'ss.id', 'ss.step_code', 'ss.step_name', 'ss.sort_order');
 
-        $peopleRows = $this->entryBase($filters)
+        $peopleEntries = $this->entryBase($filters)
             ->leftJoin('grating_entry_steps as ges', 'ges.entry_id', '=', 'e.id')
             ->join('grating_steps as ss', 'ss.id', '=', DB::raw('COALESCE(ges.step_id, e.step_id)'))
             ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
@@ -1414,9 +1805,19 @@ class GratingPerformanceController extends Controller
             ->select([
                 'e.mfg_no',
                 'ss.id as step_id',
-                DB::raw("STRING_AGG(CAST(ge.name AS NVARCHAR(MAX)), N', ') as employee_names"),
+                'ge.id as employee_id',
+                'ge.name as employee_name',
             ])
-            ->groupBy('e.mfg_no', 'ss.id');
+            ->distinct();
+        $peopleRows = SqlServerDb::connection()
+            ->query()
+            ->fromSub($peopleEntries, 'mfg_step_employee')
+            ->select([
+                'mfg_no',
+                'step_id',
+                DB::raw("STRING_AGG(CAST(employee_name AS NVARCHAR(MAX)), N', ') as employee_names"),
+            ])
+            ->groupBy('mfg_no', 'step_id');
 
         return SqlServerDb::connection()
             ->query()
@@ -1427,19 +1828,27 @@ class GratingPerformanceController extends Controller
             })
             ->select([
                 'ms.mfg_no',
+                'ms.step_id',
                 'ms.step_code',
                 'ms.step_name',
+                'ms.sort_order',
                 DB::raw("COALESCE(mp.employee_names, '') as employee_names"),
                 'ms.good_pcs',
                 'ms.good_kg',
                 'ms.minutes',
                 'ms.last_work_date',
             ])
-            ->orderByDesc('ms.last_work_date')
             ->orderBy('ms.mfg_no')
+            ->orderBy('ms.sort_order')
             ->orderBy('ms.step_code')
             ->limit(80)
-            ->get();
+            ->get()
+            ->map(function ($row) use ($minutesByMfgStep, $minutesByMfg) {
+                $row->minutes = (int) ($minutesByMfgStep->get($row->mfg_no . '|' . $row->step_id) ?? 0);
+                $row->mfg_minutes = (int) ($minutesByMfg->get($row->mfg_no) ?? 0);
+
+                return $row;
+            });
     }
 
     private function mfgIncompleteSummary(array $filters)
@@ -1448,7 +1857,7 @@ class GratingPerformanceController extends Controller
         $salesorderExpr = $this->hasEntryColumn('salesorder') ? 'MAX(e.salesorder)' : 'CAST(NULL AS NVARCHAR(MAX))';
         $planQtyExpr = $this->hasEntryColumn('plan_qty_pcs') ? 'MAX(e.plan_qty_pcs)' : 'CAST(NULL AS decimal(18, 3))';
 
-        return $this->entryBase($filters)
+        $rows = $this->entryBase($filters)
             ->leftJoin('grating_entry_steps as ges', 'ges.entry_id', '=', 'e.id')
             ->join('grating_steps as ss', 'ss.id', '=', DB::raw('COALESCE(ges.step_id, e.step_id)'))
             ->where('e.mfg_no', '<>', 'FIELD')
@@ -1467,18 +1876,95 @@ class GratingPerformanceController extends Controller
                 DB::raw('MAX(e.work_date) as last_work_date'),
             ])
             ->groupBy('e.mfg_no')
-            ->havingRaw("MAX(CASE WHEN ss.step_code = N'PACK' THEN 1 ELSE 0 END) = 0 OR MAX(CAST(e.is_finished AS int)) = 0")
             ->orderByDesc('last_work_date')
-            ->limit(30)
             ->get();
+
+        if ($rows->isEmpty()) {
+            return $rows;
+        }
+
+        // Pack/finished status belongs to the MFG, not to the active report
+        // date, step or employee filters. Check its complete entry history.
+        $globalStatuses = SqlServerDb::table('grating_daily_entries as status_e')
+            ->leftJoin('grating_entry_steps as status_ges', 'status_ges.entry_id', '=', 'status_e.id')
+            ->join('grating_steps as status_s', 'status_s.id', '=', DB::raw('COALESCE(status_ges.step_id, status_e.step_id)'))
+            ->whereIn('status_e.mfg_no', $rows->pluck('mfg_no')->all())
+            ->select([
+                'status_e.mfg_no',
+                DB::raw("MAX(CASE WHEN status_s.step_code = N'PACK' THEN 1 ELSE 0 END) as has_pack"),
+                DB::raw('MAX(CAST(status_e.is_finished AS int)) as finished'),
+            ])
+            ->groupBy('status_e.mfg_no')
+            ->get()
+            ->keyBy('mfg_no');
+
+        // The pending route is the furthest route reached by the MFG in its
+        // complete history, not merely the latest step inside the report filter.
+        $globalMfgFilters = array_merge($filters, [
+            'date_from' => null,
+            'date_to' => null,
+            'mfg_no' => '',
+            'project' => '',
+            'salesorder' => '',
+            'step_id' => null,
+            'employee_ids' => [],
+            'employee_id' => null,
+        ]);
+        $latestOutputs = $this->latestMfgOutputQuery($globalMfgFilters)
+            ->whereIn('mfg_no', $rows->pluck('mfg_no')->all())
+            ->get()
+            ->keyBy('mfg_no');
+        $latestSteps = SqlServerDb::table('grating_steps')
+            ->whereIn('id', $latestOutputs->pluck('output_step_id')->filter()->unique()->all())
+            ->get(['id', 'step_code', 'step_name', 'sort_order'])
+            ->keyBy('id');
+
+        return $rows->map(function ($row) use ($latestOutputs, $latestSteps, $globalStatuses) {
+            // The same step can be keyed several times for one MFG. Keep every
+            // entry for calculations, but show each step only once in the list.
+            $row->step_names = collect(explode(',', (string) ($row->step_names ?? '')))
+                ->map(fn ($step) => trim($step))
+                ->filter()
+                ->unique()
+                ->implode(', ');
+            $row->step_codes = collect(explode(',', (string) ($row->step_codes ?? '')))
+                ->map(fn ($step) => trim($step))
+                ->filter()
+                ->unique()
+                ->implode(', ');
+
+            if ($status = $globalStatuses->get($row->mfg_no)) {
+                $row->has_pack = (int) $status->has_pack;
+                $row->finished = (int) $status->finished;
+            }
+
+            if ($output = $latestOutputs->get($row->mfg_no)) {
+                $row->good_pcs = (float) $output->good_pcs;
+                $row->bad_pcs = (float) $output->bad_pcs;
+                $row->finished = (int) $output->finished;
+                $row->latest_step_id = (int) $output->output_step_id;
+                if ($latestStep = $latestSteps->get($row->latest_step_id)) {
+                    $row->pending_step_name = $latestStep->step_name;
+                    $row->pending_step_code = $latestStep->step_code;
+                    $row->pending_route_no = (int) $latestStep->sort_order;
+                }
+            }
+
+            return $row;
+        })
+            ->filter(fn ($row) => !(bool) $row->finished)
+            ->sortByDesc('last_work_date')
+            ->take(30)
+            ->values();
     }
 
     private function stepSummary(array $filters)
     {
         $range = $this->rangeAverages($filters['date_from'] ?? null, $filters['date_to'] ?? null);
+        $minutesByStep = $this->mfgStepUniqueMinutes($filters);
         $hasTargetPcs = $this->hasStepColumn('target_pcs_per_hour');
         $targetPcsExpr = $hasTargetPcs ? 'ss.target_pcs_per_hour' : 'CAST(NULL AS decimal(12, 3))';
-        $groupBy = ['ss.id', 'ss.step_code', 'ss.step_name', 'ss.is_field_work', 'ss.target_kg_per_hour'];
+        $groupBy = ['ss.id', 'ss.step_code', 'ss.step_name', 'ss.sort_order', 'ss.is_field_work', 'ss.target_kg_per_hour'];
         if ($hasTargetPcs) {
             $groupBy[] = 'ss.target_pcs_per_hour';
         }
@@ -1490,6 +1976,7 @@ class GratingPerformanceController extends Controller
                 'ss.id',
                 'ss.step_code',
                 'ss.step_name',
+                'ss.sort_order',
                 'ss.is_field_work',
                 'ss.target_kg_per_hour',
                 DB::raw($targetPcsExpr . ' as target_pcs_per_hour'),
@@ -1506,16 +1993,115 @@ class GratingPerformanceController extends Controller
                 DB::raw('SUM(COALESCE(e.duration_minutes, 0) / 60.0 * COALESCE(' . $targetPcsExpr . ', 0)) as target_pcs'),
             ])
             ->groupBy($groupBy)
+            ->orderBy('ss.sort_order')
             ->orderBy('ss.step_code')
             ->get()
-            ->map(function ($row) use ($range) {
-                $totalHours = ((float) ($row->minutes ?? 0)) / 60;
+            ->map(function ($row) use ($range, $minutesByStep) {
+                $row->minutes = (int) ($minutesByStep->get((int) $row->id) ?? 0);
+                $totalHours = $row->minutes / 60;
                 $row->total_hours = $totalHours;
                 $row->avg_hours_per_day = $totalHours / $range['days'];
                 $row->avg_hours_per_week = $totalHours / $range['weeks'];
+                $row->target_kg = $totalHours * (float) ($row->target_kg_per_hour ?? 0);
+                $row->target_pcs = $totalHours * (float) ($row->target_pcs_per_hour ?? 0);
 
                 return $row;
             });
+    }
+
+    /**
+     * Production time is MFG-centric: overlapping worker entries for the same
+     * MFG, step and day represent one production window and are counted once.
+     */
+    private function mfgStepUniqueMinutes(array $filters)
+    {
+        $rows = $this->mfgStepTimeEntries($filters);
+
+        return $rows
+            ->groupBy('step_id')
+            ->map(function ($stepRows) {
+                return $stepRows
+                    ->groupBy(function ($row) {
+                        $workKey = $row->mfg_no === 'FIELD'
+                            ? 'FIELD|' . (trim((string) ($row->project ?? '')) ?: $row->entry_id)
+                            : $row->mfg_no;
+
+                        return $workKey . '|' . Carbon::parse($row->work_date)->toDateString();
+                    })
+                    ->sum(fn ($workRows) => GratingWorkloadCalculator::uniqueMinutes($workRows, self::WORK_BREAKS));
+            });
+    }
+
+    /**
+     * Actual production clock time for the KPI. Parallel MFG/step entries are
+     * one elapsed production window, so overlapping ranges are counted once.
+     */
+    private function productionElapsedSummary(array $filters): array
+    {
+        $minutesByDay = $this->entryBase($filters)
+            ->whereNotNull('e.finished_at')
+            ->select([
+                'e.id as entry_id',
+                DB::raw('CONVERT(varchar(10), e.work_date, 120) as work_day'),
+                'e.started_at',
+                'e.finished_at',
+            ])
+            ->distinct()
+            ->get()
+            ->groupBy('work_day')
+            ->map(fn ($dayRows) => GratingWorkloadCalculator::uniqueMinutes($dayRows, self::WORK_BREAKS));
+
+        return [
+            'minutes' => (int) $minutesByDay->sum(),
+            'work_days' => $minutesByDay->filter(fn ($minutes) => $minutes > 0)->count(),
+        ];
+    }
+
+    private function mfgStepUniqueMinutesByMfg(array $filters)
+    {
+        return $this->mfgStepTimeEntries($filters)
+            ->where('mfg_no', '<>', 'FIELD')
+            ->groupBy(fn ($row) => $row->mfg_no . '|' . $row->step_id)
+            ->map(function ($mfgStepRows) {
+                return $mfgStepRows
+                    ->groupBy(fn ($row) => Carbon::parse($row->work_date)->toDateString())
+                    ->sum(fn ($workRows) => GratingWorkloadCalculator::uniqueMinutes($workRows, self::WORK_BREAKS));
+            });
+    }
+
+    private function mfgUniqueMinutesByMfg(array $filters)
+    {
+        return $this->mfgStepTimeEntries($filters)
+            ->where('mfg_no', '<>', 'FIELD')
+            ->groupBy('mfg_no')
+            ->map(function ($mfgRows) {
+                return $mfgRows
+                    ->groupBy(fn ($row) => Carbon::parse($row->work_date)->toDateString())
+                    ->sum(fn ($workRows) => GratingWorkloadCalculator::uniqueMinutes($workRows, self::WORK_BREAKS));
+            });
+    }
+
+    private function mfgStepTimeEntries(array $filters)
+    {
+        $projectExpr = $this->hasEntryColumn('project')
+            ? 'e.project'
+            : 'CAST(NULL AS NVARCHAR(MAX))';
+
+        return $this->entryBase($filters)
+            ->leftJoin('grating_entry_steps as ges_time', 'ges_time.entry_id', '=', 'e.id')
+            ->join('grating_steps as time_step', 'time_step.id', '=', DB::raw('COALESCE(ges_time.step_id, e.step_id)'))
+            ->whereNotNull('e.finished_at')
+            ->select([
+                'e.id as entry_id',
+                'e.mfg_no',
+                DB::raw($projectExpr . ' as project'),
+                'time_step.id as step_id',
+                'e.work_date',
+                'e.started_at',
+                'e.finished_at',
+            ])
+            ->distinct()
+            ->get();
     }
 
     private function rangeAverages(?string $dateFrom, ?string $dateTo): array
@@ -1555,6 +2141,7 @@ class GratingPerformanceController extends Controller
 
                 $row->actual_kg_per_hour = $totalHours > 0 ? $goodKg / $totalHours : 0;
                 $row->actual_pcs_per_hour = $totalHours > 0 ? $goodPcs / $totalHours : 0;
+                $row->minutes_per_piece = $goodPcs > 0 ? ($totalHours * 60) / $goodPcs : null;
                 $row->hours_per_work = $totalHours / $workCount;
                 $row->work_unit_label = $isFieldWork ? 'ชม./งาน' : 'ชม./MFG';
                 $row->work_count = $workCount;
@@ -1622,35 +2209,21 @@ class GratingPerformanceController extends Controller
             ->orderBy('date_from')
             ->get();
 
-        $periodOutput = $this->entryBase($filters)
-            ->where('e.mfg_no', '<>', 'FIELD')
-            ->select([
-                DB::raw($periodSelect . ' as period_label'),
-                'e.mfg_no',
-                DB::raw('COALESCE(MAX(CASE WHEN e.is_finished = 1 THEN e.good_qty_kg END), MAX(e.good_qty_kg), 0) as good_kg'),
-                DB::raw('COALESCE(MAX(CASE WHEN e.is_finished = 1 THEN e.good_qty_pcs END), MAX(e.good_qty_pcs), 0) as good_pcs'),
-                DB::raw('COALESCE(MAX(CASE WHEN e.is_finished = 1 THEN e.good_area_sqm END), MAX(e.good_area_sqm), 0) as good_area_sqm'),
-            ])
-            ->groupBy(DB::raw($periodSelect), 'e.mfg_no');
-
-        $outputByPeriod = SqlServerDb::connection()
-            ->query()
-            ->fromSub($periodOutput, 'period_output')
-            ->select('period_label', DB::raw('SUM(good_kg) as good_kg'), DB::raw('SUM(good_pcs) as good_pcs'), DB::raw('SUM(good_area_sqm) as good_area_sqm'))
-            ->groupBy('period_label')
-            ->get()
-            ->keyBy('period_label');
-
-        return $periodRows->map(function ($row) use ($filters, $periodSelect, $outputByPeriod) {
+        return $periodRows->map(function ($row) use ($filters, $periodSelect) {
                 $row->people_count = (int) $this->entryBase($filters)
                     ->join('grating_entry_employees as gee', 'gee.entry_id', '=', 'e.id')
                     ->whereRaw($periodSelect . ' = ?', [$row->period_label])
                     ->distinct()
                     ->count('gee.employee_id');
-                $output = $outputByPeriod[$row->period_label] ?? null;
-                $row->good_kg = (float) ($output->good_kg ?? 0);
-                $row->good_pcs = (float) ($output->good_pcs ?? 0);
-                $row->good_area_sqm = (float) ($output->good_area_sqm ?? 0);
+                $output = $this->mfgOutputTotals(array_merge($filters, [
+                    'date_from' => Carbon::parse($row->date_from)->toDateString(),
+                    'date_to' => Carbon::parse($row->date_to)->toDateString(),
+                ]));
+                $row->good_kg = $output['good_kg'];
+                $row->good_pcs = $output['good_pcs'];
+                $row->good_area_sqm = $output['good_area_sqm'];
+                $row->bad_kg = $output['bad_kg'];
+                $row->bad_pcs = $output['bad_pcs'];
 
                 return $row;
             });
@@ -1794,14 +2367,24 @@ class GratingPerformanceController extends Controller
 
     private function employeeRollupSubquery()
     {
-        return SqlServerDb::table('grating_entry_employees as gee')
+        $employees = SqlServerDb::table('grating_entry_employees as gee')
             ->join('grating_employees as ge', 'ge.id', '=', 'gee.employee_id')
             ->select([
                 'gee.entry_id',
-                DB::raw("STRING_AGG(CAST(ge.name AS NVARCHAR(MAX)), N', ') as employee_names"),
-                DB::raw('COUNT(gee.employee_id) as team_size'),
+                'ge.id as employee_id',
+                'ge.name as employee_name',
             ])
-            ->groupBy('gee.entry_id');
+            ->distinct();
+
+        return SqlServerDb::connection()
+            ->query()
+            ->fromSub($employees, 'entry_employee')
+            ->select([
+                'entry_id',
+                DB::raw("STRING_AGG(CAST(employee_name AS NVARCHAR(MAX)), N', ') as employee_names"),
+                DB::raw('COUNT(employee_id) as team_size'),
+            ])
+            ->groupBy('entry_id');
     }
 
     private function teamSizeSubquery()

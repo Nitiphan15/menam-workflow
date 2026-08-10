@@ -93,15 +93,15 @@ class MfgLookupController extends Controller
 
     public function byMFG(Request $r)
     {
-        return $this->searchMfg($r, ['G']);
+        return $this->searchMfg($r, ['G'], true);
     }
 
     public function byWocrMFG(Request $r)
     {
-        return $this->searchMfg($r, ['W']);
+        return $this->searchMfg($r, [], false);
     }
 
-    private function searchMfg(Request $r, array $prefixes)
+    private function searchMfg(Request $r, array $prefixes, bool $searchPartnumber)
     {
 
         $term  = trim((string) $r->query('q', ''));   // เช่น "W2501"
@@ -128,21 +128,26 @@ class MfgLookupController extends Controller
         ];
 
         // ฟังก์ชันช่วยยิง query ต่อ DB ใด ๆ แล้วผนวกคอลัมน์ site
-        $fetchFrom = function (\Illuminate\Database\ConnectionInterface $conn, string $siteLabel) use ($select, $term, $limit, $prefixes) {
+        $fetchFrom = function (\Illuminate\Database\ConnectionInterface $conn, string $siteLabel) use ($select, $term, $limit, $prefixes, $searchPartnumber) {
             return $conn->table('workorder as wo')
                 ->join('parts as p', 'wo.parts_id', '=', 'p.id')
                 ->select($select)
                 ->addSelect(DB::raw('NULL AS plan_description'))
                 ->selectRaw('? as site', [$siteLabel])        // เพิ่มคอลัมน์ site ให้รู้ว่าแหล่งไหน
-                ->where(function ($q) use ($prefixes) {
-                    foreach ($prefixes as $prefix) {
-                        $q->orWhere('wo.workordernumber', 'ilike', $prefix . '%');
-                    }
+                ->when($prefixes !== [], function ($q) use ($prefixes) {
+                    $q->where(function ($sub) use ($prefixes) {
+                        foreach ($prefixes as $prefix) {
+                            $sub->orWhere('wo.workordernumber', 'ilike', $prefix . '%');
+                        }
+                    });
                 })
-                ->when($term !== '', function ($q) use ($term) {
-                    $q->where(function ($sub) use ($term) {
-                        $sub->where('wo.workordernumber', 'ilike', $term . '%')
-                            ->orWhere('p.partnumber', 'ilike', $term . '%');
+                ->when($term !== '', function ($q) use ($term, $searchPartnumber) {
+                    $q->where(function ($sub) use ($term, $searchPartnumber) {
+                        $sub->where('wo.workordernumber', 'ilike', $term . '%');
+
+                        if ($searchPartnumber) {
+                            $sub->orWhere('p.partnumber', 'ilike', $term . '%');
+                        }
                     });
                 })
                 ->orderBy('wo.workordernumber')

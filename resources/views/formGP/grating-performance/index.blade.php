@@ -7,6 +7,16 @@
     @php
         $fmt = fn($value, $dec = 1) => number_format((float) $value, $dec);
         $hours = fn($minutes) => $minutes ? number_format($minutes / 60, 1) : '0.0';
+        $duration = function ($minutes) {
+            $minutes = max(0, (int) round((float) $minutes));
+            if ($minutes === 0) return '0 นาที';
+            if ($minutes < 60) return $minutes . ' นาที';
+            $wholeHours = intdiv($minutes, 60);
+            $remainingMinutes = $minutes % 60;
+            return $remainingMinutes === 0
+                ? $wholeHours . ' ชม.'
+                : $wholeHours . ' ชม. ' . $remainingMinutes . ' นาที';
+        };
         $achievement = (($summary['target_bath'] ?? 0) > 0 && ($summary['output_bath'] ?? null) !== null)
             ? (($summary['output_bath'] / $summary['target_bath']) * 100)
             : null;
@@ -31,6 +41,11 @@
             font-weight:700;
             border-radius:8px 8px 0 0;
         }
+        .gp-panel.is-collapsed > :not(.gp-head) { display:none !important; }
+        .gp-panel.is-collapsed > .gp-head { border-bottom:0; border-radius:8px; }
+        .gp-collapse-toggle { flex:0 0 auto; line-height:1; }
+        .gp-collapse-toggle i { transition:transform .18s ease; }
+        .gp-panel.is-collapsed .gp-collapse-toggle i { transform:rotate(-90deg); }
 
         /* ── KPI cards ───────────────────────────────────────────────── */
         .gp-kpi {
@@ -104,6 +119,20 @@
         .gp-table th { position:sticky; top:0; z-index:2; background:#edf4ff; white-space:nowrap; }
         .gp-table td { vertical-align:middle; }
         .num { text-align:right; font-variant-numeric:tabular-nums; }
+        .gp-employee-summary-row { cursor:pointer; }
+        .gp-employee-summary-row:hover { background:#f8fbff; }
+        .gp-employee-summary-row .gp-row-chevron { transition:transform .18s ease; }
+        .gp-employee-summary-row.is-open .gp-row-chevron { transform:rotate(90deg); }
+        .gp-employee-step-detail { display:none; background:#f8fafc; }
+        .gp-employee-step-detail.is-open { display:table-row; }
+        .gp-employee-step-detail > td { padding:10px 14px !important; }
+        .gp-employee-step-table th { background:#f1f5f9; position:static; }
+        .gp-mfg-summary-row { cursor:pointer; }
+        .gp-mfg-summary-row:hover { filter:brightness(.98); }
+        .gp-mfg-summary-row .gp-row-chevron { transition:transform .18s ease; }
+        .gp-mfg-summary-row.is-open .gp-row-chevron { transform:rotate(90deg); }
+        .gp-mfg-step-row { display:none; }
+        .gp-mfg-step-row.is-open { display:table-row; }
 
         /* highlight unfinished/slow rows */
         .gp-table tbody tr.table-warning { background:#fff8e1 !important; }
@@ -163,7 +192,11 @@
             <div class="gp-head">
                 <span>Dashboard</span>
                 <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="gp-collapse-all"><i class="fas fa-compress-alt me-1"></i> ย่อทั้งหมด</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="gp-expand-all"><i class="fas fa-expand-alt me-1"></i> ขยายทั้งหมด</button>
+                    @can('GP')
                     <a href="{{ route('grating-performance.entries.create') }}" class="btn btn-sm btn-primary"><i class="fas fa-plus me-1"></i> Input</a>
+                    @endcan
                     <a href="{{ route('grating-performance.inquiry') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-table me-1"></i> Inquiry</a>
                     @can('GPM')
                     <a href="{{ route('grating-performance.masters') }}" class="btn btn-sm btn-outline-primary"><i class="fas fa-sliders me-1"></i> Masters</a>
@@ -197,7 +230,7 @@
                 </div>
                 <div class="col-6 col-sm-4 col-md-3 col-lg-2 gp-project-wrap">
                     <label class="form-label">โครงการ</label>
-                    <input type="text" name="project" class="form-control form-control-sm gp-project-autocomplete" value="{{ $filters['project'] ?? '' }}" autocomplete="off">
+                    <input type="text" name="project" class="form-control form-control-sm gp-project-autocomplete" value="{{ $filters['project'] ?? '' }}" autocomplete="off" placeholder="พิมพ์บางส่วนของชื่อได้" title="ค้นหาแบบมีคำนี้อยู่ในชื่อโครงการ">
                     <div class="gp-project-list gp-mfg-list"></div>
                 </div>
                 <div class="col-6 col-sm-4 col-md-3 col-lg-2">
@@ -215,10 +248,9 @@
                 </div>
                 <div class="col-6 col-sm-4 col-md-3 col-lg-2">
                     <label class="form-label">พนักงาน</label>
-                    <select name="employee_id" class="form-select form-select-sm">
-                        <option value="">ทั้งหมด</option>
+                    <select name="employee_ids[]" class="form-select form-select-sm gp-select" multiple data-placeholder="พนักงานทั้งหมด">
                         @foreach ($employees as $employee)
-                            <option value="{{ $employee->id }}" @selected((string) $filters['employee_id'] === (string) $employee->id)>{{ $employee->name }}</option>
+                            <option value="{{ $employee->id }}" @selected(in_array((int) $employee->id, $filters['employee_ids'] ?? [], true))>{{ $employee->name }}{{ trim((string) ($employee->nickname ?? '')) !== '' ? ' - ' . trim($employee->nickname) : '' }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -251,7 +283,7 @@
                     <div class="kpi-icon"><i class="fas fa-boxes"></i></div>
                     <div class="label">ยอดดีรวม</div>
                     <div class="value">{{ $fmt($summary['good_pcs'] ?? 0, 0) }}</div>
-                    <div class="hint">ชิ้น | {{ $fmt($summary['good_kg'] ?? 0) }} กก. | PACK: {{ $fmt($summary['pack_kg'] ?? 0) }} กก.</div>
+                    <div class="hint">ชิ้นจาก step ล่าสุด | {{ $fmt($summary['good_kg'] ?? 0) }} กก. | PACK: {{ $fmt($summary['pack_kg'] ?? 0) }} กก.</div>
                     <div class="hint">{{ $fmt($summary['good_area_sqm'] ?? 0) }} ตร.ม.</div>
                 </div>
             </div>
@@ -260,15 +292,15 @@
                     <div class="kpi-icon"><i class="fas fa-exclamation-triangle"></i></div>
                     <div class="label">ยอดเสีย</div>
                     <div class="value">{{ $fmt($summary['bad_pcs'] ?? 0, 0) }}</div>
-                    <div class="hint">ชิ้น | {{ $fmt($summary['bad_kg'] ?? 0) }} กก. | {{ $fmt($summary['bad_area_sqm'] ?? 0) }} ตร.ม.</div>
+                    <div class="hint">ชิ้นจาก step ล่าสุด | {{ $fmt($summary['bad_kg'] ?? 0) }} กก. | {{ $fmt($summary['bad_area_sqm'] ?? 0) }} ตร.ม.</div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-xl-2">
                 <div class="gp-kpi kpi-purple">
                     <div class="kpi-icon"><i class="fas fa-clock"></i></div>
-                    <div class="label">ชั่วโมงใช้จริง</div>
+                    <div class="label">ชั่วโมงเดินงานจริง</div>
                     <div class="value">{{ $hours($summary['minutes'] ?? 0) }}</div>
-                    <div class="hint">จากเวลาเริ่ม-จบ</div>
+                    <div class="hint">ตัดช่วงเวลาซ้อนทุกงานแล้ว</div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-xl-2">
@@ -276,7 +308,7 @@
                     <div class="kpi-icon"><i class="fas fa-calendar-day"></i></div>
                     <div class="label">ชม./วัน</div>
                     <div class="value">{{ $fmt($summary['hours_per_day'] ?? 0) }}</div>
-                    <div class="hint">เฉลี่ย {{ number_format($summary['range_days'] ?? 1) }} วัน</div>
+                    <div class="hint">เฉลี่ย {{ number_format($summary['work_days'] ?? 0) }} วันที่มีงาน · ช่วง {{ number_format($summary['range_days'] ?? 1) }} วัน</div>
                 </div>
             </div>
             <div class="col-6 col-md-4 col-xl-2">
@@ -313,8 +345,116 @@
 
         <div class="gp-panel mb-3">
             <div class="gp-head">
-                <span>MFG ยังไม่ครบ / ยังไม่ Pack</span>
-                <small class="text-muted">งานที่ยังไม่มี step PACK หรือยังไม่ถูกจบงาน</small>
+                <span>เปรียบเทียบยอดดี / ยอดเสีย</span>
+                <small class="text-muted">นับผลผลิตเฉพาะ step ล่าสุดของแต่ละ MFG</small>
+            </div>
+            <div class="row g-2 p-3">
+                @foreach (($outputComparison ?? []) as $comparison)
+                    <div class="col-12 col-md-4">
+                        <div class="border rounded p-3 h-100 bg-light">
+                            <div class="fw-bold">{{ $comparison['label'] }}</div>
+                            <div class="small text-muted mb-2">
+                                ปัจจุบัน {{ \Carbon\Carbon::parse($comparison['current_from'])->format('d/m/Y') }}
+                                @if($comparison['current_from'] !== $comparison['current_to'])
+                                    - {{ \Carbon\Carbon::parse($comparison['current_to'])->format('d/m/Y') }}
+                                @endif
+                                · ก่อนหน้า {{ \Carbon\Carbon::parse($comparison['previous_from'])->format('d/m/Y') }}
+                                @if($comparison['previous_from'] !== $comparison['previous_to'])
+                                    - {{ \Carbon\Carbon::parse($comparison['previous_to'])->format('d/m/Y') }}
+                                @endif
+                            </div>
+                            <div class="d-flex justify-content-between gap-2">
+                                <span>ยอดดี {{ $fmt($comparison['current_good_pcs'], 0) }} / {{ $fmt($comparison['previous_good_pcs'], 0) }} ชิ้น</span>
+                                <strong class="{{ $comparison['good_delta'] >= 0 ? 'text-success' : 'text-danger' }}">
+                                    {{ $comparison['good_delta'] >= 0 ? '+' : '' }}{{ $fmt($comparison['good_delta'], 0) }}
+                                </strong>
+                            </div>
+                            <div class="d-flex justify-content-between gap-2">
+                                <span>ยอดเสีย {{ $fmt($comparison['current_bad_pcs'], 0) }} / {{ $fmt($comparison['previous_bad_pcs'], 0) }} ชิ้น</span>
+                                <strong class="{{ $comparison['bad_delta'] <= 0 ? 'text-success' : 'text-danger' }}">
+                                    {{ $comparison['bad_delta'] >= 0 ? '+' : '' }}{{ $fmt($comparison['bad_delta'], 0) }}
+                                </strong>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        {{-- Employee efficiency follows the good/bad comparison for quick review. --}}
+        <div class="gp-panel mb-3">
+            <div class="gp-head">
+                <span>เปรียบเทียบพนักงานใน Step เดียวกัน</span>
+                <small class="text-muted">เวลาเฉลี่ยต่อชิ้น ยิ่งน้อยยิ่งเร็ว พร้อมอันดับใน step เดียวกัน</small>
+            </div>
+            @if ($employeeStepEfficiency->isNotEmpty())
+                @php
+                    $effSteps = $employeeStepEfficiency
+                        ->sortBy([['sort_order', 'asc'], ['step_code', 'asc']])
+                        ->unique('step_id')
+                        ->values();
+                    $effByEmp = $employeeStepEfficiency->groupBy('employee_name');
+                @endphp
+                <div class="gp-table-wrap" style="max-height:320px;">
+                    <table class="table table-sm table-bordered table-hover gp-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>พนักงาน</th>
+                                @foreach ($effSteps as $effStep)
+                                    <th class="num text-center" style="font-size:.75rem;">{{ $effStep->step_name }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($effByEmp as $empName => $empRows)
+                                <tr>
+                                    <td class="fw-bold">{{ $empName }}</td>
+                                    @foreach ($effSteps as $effStep)
+                                        @php
+                                            $cell = $empRows->firstWhere('step_id', $effStep->step_id);
+                                            $minutesPerPiece = $cell->minutes_per_piece ?? null;
+                                            $rank = $cell->step_rank ?? null;
+                                        @endphp
+                                        <td class="num
+                                            @if($minutesPerPiece === null) text-muted
+                                            @elseif($rank === 1) text-success fw-bold
+                                            @elseif($rank === ($cell->step_worst_rank ?? $cell->step_employee_count ?? null)) text-danger
+                                            @else text-dark
+                                            @endif">
+                                            @if($minutesPerPiece !== null)
+                                                {{ $duration($minutesPerPiece) }}
+                                                <div class="small text-muted">
+                                                    @if($rank === 1)
+                                                        <i class="fas fa-medal" style="color:#d4a017" title="อันดับ 1 เหรียญทอง"></i>
+                                                    @elseif($rank === 2)
+                                                        <i class="fas fa-medal" style="color:#9ca3af" title="อันดับ 2 เหรียญเงิน"></i>
+                                                    @elseif($rank === 3)
+                                                        <i class="fas fa-medal" style="color:#b87333" title="อันดับ 3 เหรียญทองแดง"></i>
+                                                    @else
+                                                        #{{ $rank }}
+                                                    @endif
+                                                    · ดี {{ $fmt($cell->good_pcs, 0) }} / เสีย {{ $fmt($cell->bad_pcs, 0) }}
+                                                </div>
+                                            @else
+                                                -
+                                            @endif
+                                        </td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-3 pb-2 pt-1"><small class="text-muted">เทียบอันดับเฉพาะพนักงานที่ทำ step เดียวกัน, "-" = ไม่มีข้อมูล</small></div>
+            @else
+                <div class="p-3 text-muted">ยังไม่มีข้อมูล</div>
+            @endif
+        </div>
+
+        <div class="gp-panel mb-3">
+            <div class="gp-head">
+                <span>MFG ยังไม่จบงาน</span>
+                <small class="text-muted">อิง Route No ล่าสุด และจบงานได้แม้กระบวนการไม่ต้องผ่าน PACK</small>
             </div>
             @if (($mfgIncompleteSummary ?? collect())->isNotEmpty())
                 <div class="gp-table-wrap" style="max-height:320px;">
@@ -323,11 +463,14 @@
                             <tr>
                                 <th>MFG</th>
                                 <th>โครงการ / เลข SO</th>
-                                <th>Step ที่มี</th>
+                                <th>ค้างอยู่ที่ Step</th>
                                 <th class="num">จำนวนแผน</th>
                                 <th class="num">ยอดดี</th>
                                 <th class="num">ยอดเสีย</th>
                                 <th>สถานะ</th>
+                                @can('GP')
+                                    <th>ดำเนินการ</th>
+                                @endcan
                             </tr>
                         </thead>
                         <tbody>
@@ -338,17 +481,29 @@
                                         <div>{{ $row->project ?: '-' }}</div>
                                         <div class="small text-muted">{{ $row->salesorder ?: '-' }}</div>
                                     </td>
-                                    <td>{{ ($row->step_names ?? null) ?: (($row->step_codes ?? null) ?: '-') }}</td>
+                                    <td>
+                                        <span class="fw-bold">{{ ($row->pending_step_name ?? null) ?: (($row->pending_step_code ?? null) ?: '-') }}</span>
+                                        @if(($row->pending_route_no ?? null) !== null)
+                                            <div class="small text-muted">Route No. {{ number_format($row->pending_route_no) }}</div>
+                                        @endif
+                                    </td>
                                     <td class="num">{{ $fmt($row->plan_qty_pcs ?? 0, 0) }}</td>
                                     <td class="num">{{ $fmt($row->good_pcs ?? 0, 0) }}</td>
                                     <td class="num">{{ $fmt($row->bad_pcs ?? 0, 0) }}</td>
                                     <td>
-                                        @if (!($row->has_pack ?? false))
-                                            <span class="badge bg-warning text-dark">ยังไม่ Pack</span>
-                                        @else
-                                            <span class="badge bg-secondary">ยังไม่จบงาน</span>
+                                        <span class="badge bg-warning text-dark">ยังไม่จบงาน</span>
+                                        @if($row->has_pack ?? false)
+                                            <div class="small text-muted mt-1">มี PACK แล้ว</div>
                                         @endif
                                     </td>
+                                    @can('GP')
+                                    <td>
+                                        <form method="POST" action="{{ route('grating-performance.mfg.finish', ['mfgNo' => $row->mfg_no]) }}" onsubmit="return confirm('ยืนยันจบงาน MFG นี้โดยไม่บังคับ PACK?')">
+                                            @csrf
+                                            <button type="submit" class="btn btn-sm btn-success text-nowrap"><i class="fas fa-check me-1"></i>จบงาน</button>
+                                        </form>
+                                    </td>
+                                    @endcan
                                 </tr>
                             @endforeach
                         </tbody>
@@ -363,8 +518,8 @@
         <div class="row g-3 mb-3">
             <div class="col-lg-7">
                 <div class="gp-panel h-100">
-                    <div class="gp-head"><span>แนวโน้มยอดดี (ชิ้น)</span><small class="text-muted">แสดงชิ้นเป็นหลัก และดู กก. ประกอบในบัตรสรุป</small></div>
-                    <div class="p-3" style="height:220px;">
+                    <div class="gp-head"><span>แนวโน้มยอดผลิต (ชิ้น)</span><small class="text-muted">ตัวเลขบนแท่ง = ยอดดี · เส้นแดง = ยอดเสีย · เส้นน้ำเงิน = เฉลี่ย 7 จุด</small></div>
+                    <div class="p-3" style="height:280px;">
                         <canvas id="gp-trend-chart"></canvas>
                     </div>
                 </div>
@@ -373,7 +528,7 @@
                 <div class="gp-panel h-100">
                     <div class="gp-head">
                         <span>ประสิทธิภาพราย Step</span>
-                        <small class="text-muted">งานผลิตดู ชม./MFG ส่วนออกหน้างานดู ชม./งาน</small>
+                        <small class="text-muted">เวลาแสดงเป็นนาที และเปลี่ยนเป็นชั่วโมงเมื่อครบ 60 นาที</small>
                     </div>
                     @if (($slowStepSummary ?? collect())->isNotEmpty())
                         <div class="gp-slow-list">
@@ -384,9 +539,11 @@
                                 @endphp
                                 <div class="gp-slow-item {{ $slowClass }}">
                                     <div class="name">{{ $row->step_name }}</div>
-                                    <div class="metric"><span>ชม.รวม</span><strong>{{ $fmt($row->total_hours) }}</strong></div>
-                                    <div class="metric"><span>{{ $row->work_unit_label ?? 'ชม./MFG' }}</span><strong>{{ $fmt($row->hours_per_work) }}</strong></div>
-                                    <div class="metric"><span>ชิ้น/ชม. จริง</span><strong>{{ $fmt($row->actual_pcs_per_hour) }}</strong></div>
+                                    <div class="metric"><span>เวลารวม</span><strong>{{ $duration($row->minutes ?? 0) }}</strong></div>
+                                    <div class="metric"><span>{{ ($row->is_field_work ?? false) ? 'เวลา/งาน' : 'เวลา/MFG' }}</span><strong>{{ $duration(($row->hours_per_work ?? 0) * 60) }}</strong></div>
+                                    <div class="metric"><span>เวลา/ชิ้น</span><strong>{{ ($row->minutes_per_piece ?? null) !== null ? $duration($row->minutes_per_piece) : '-' }}</strong></div>
+                                    <div class="metric"><span>ยอดดี (ชิ้น)</span><strong>{{ $fmt($row->good_pcs ?? 0, 0) }}</strong></div>
+                                    <div class="metric"><span>ยอดเสีย (ชิ้น)</span><strong>{{ $fmt($row->bad_pcs ?? 0, 0) }}</strong></div>
                                     <div class="metric"><span>กก./ชม.</span><strong>{{ $fmt($row->actual_kg_per_hour) }}</strong></div>
                                     <div class="meta">
                                         <span class="badge {{ ($row->delay_percent ?? null) !== null ? 'bg-danger' : 'bg-secondary' }}">{{ $row->slow_reason }}</span>
@@ -405,89 +562,50 @@
             </div>
         </div>
 
-        {{-- Section 5: Efficiency รายคน x Step heatmap --}}
         <div class="gp-panel mb-3">
             <div class="gp-head">
-                <span>Efficiency รายคน x Step</span>
-                <small class="text-muted">ชิ้น/ชม. เป็นหลัก และยังเก็บ กก./ชม. ไว้ดูประกอบ</small>
-            </div>
-            @if ($employeeStepEfficiency->isNotEmpty())
-                @php
-                    $effSteps = $employeeStepEfficiency->pluck('step_name')->unique()->sort()->values();
-                    $effByEmp = $employeeStepEfficiency->groupBy('employee_name');
-                @endphp
-                <div class="gp-table-wrap" style="max-height:320px;">
-                    <table class="table table-sm table-bordered table-hover gp-table mb-0">
-                        <thead>
-                            <tr>
-                                <th>พนักงาน</th>
-                                @foreach ($effSteps as $sc)
-                                    <th class="num text-center" style="font-size:.75rem;">{{ $sc }}</th>
-                                @endforeach
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($effByEmp as $empName => $empRows)
-                                <tr>
-                                    <td class="fw-bold">{{ $empName }}</td>
-                                    @foreach ($effSteps as $sc)
-                                        @php
-                                            $cell = $empRows->firstWhere('step_name', $sc);
-                                            $kph = $cell ? $cell->pcs_per_hour : null;
-                                        @endphp
-                                        <td class="num
-                                            @if($kph === null) text-muted
-                                            @elseif($kph >= 50) text-success fw-bold
-                                            @elseif($kph >= 20) text-dark
-                                            @else text-danger
-                                            @endif">
-                                            {{ $kph !== null ? number_format($kph, 1) : '-' }}
-                                        </td>
-                                    @endforeach
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-                <div class="px-3 pb-2 pt-1"><small class="text-muted">ตัวเลขในตาราง = ชิ้น/ชม., "-" = ไม่มีข้อมูล step นี้</small></div>
-            @else
-                <div class="p-3 text-muted">ยังไม่มีข้อมูล</div>
-            @endif
-        </div>
-
-        <div class="gp-panel mb-3">
-            <div class="gp-head">
-                <span>คนทำงานตาม MFG x Step</span>
-                <small class="text-muted">แสดงว่า MFG แต่ละ step ทำโดยใครบ้าง</small>
+                <span>MFG → Step → ผู้รับผิดชอบ</span>
+                <small class="text-muted">เวลารวมของ MFG แล้วไล่เวลาและผู้รับผิดชอบลงมาตาม Step</small>
             </div>
             @if (($mfgStepPeopleSummary ?? collect())->isNotEmpty())
                 <div class="gp-table-wrap" style="max-height:360px;">
                     <table class="table table-sm table-bordered table-hover gp-table mb-0">
                         <thead>
                             <tr>
-                                <th>MFG</th>
-                                <th>Step</th>
-                                <th>คนทำ</th>
+                                <th>MFG / Step</th>
+                                <th>ผู้รับผิดชอบ</th>
                                 <th class="num">ยอดดี (ชิ้น)</th>
                                 <th class="num">ยอดดี (กก.)</th>
-                                <th class="num">ชม.</th>
+                                <th class="num">เวลา</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach ($mfgStepPeopleSummary as $row)
-                                <tr>
-                                    <td class="fw-bold">{{ $row->mfg_no }}</td>
-                                    <td>
-                                        <span class="fw-bold">{{ $row->step_name ?: $row->step_code }}</span>
-                                        @if($row->step_code && $row->step_name !== $row->step_code)
-                                            <div class="small text-muted">{{ $row->step_code }}</div>
-                                        @endif
-                                    </td>
-                                    <td>{{ $row->employee_names }}</td>
-                                    <td class="num">{{ $fmt($row->good_pcs ?? 0, 0) }}</td>
-                                    <td class="num">{{ $fmt($row->good_kg ?? 0) }}</td>
-                                    <td class="num">{{ $hours($row->minutes ?? 0) }}</td>
+                            @foreach ($mfgStepPeopleSummary->groupBy('mfg_no') as $mfgNo => $mfgRows)
+                                @php
+                                    $firstMfgRow = $mfgRows->first();
+                                    $mfgStepGroupId = 'mfg-step-group-' . md5((string) $mfgNo);
+                                @endphp
+                                <tr class="gp-mfg-summary-row" data-mfg-step-target="{{ $mfgStepGroupId }}" tabindex="0" role="button" aria-expanded="false">
+                                    <td class="fw-bold"><i class="fas fa-chevron-right gp-row-chevron me-2"></i>MFG {{ $mfgNo }}</td>
+                                    <td class="text-muted">{{ $mfgRows->pluck('employee_names')->flatMap(fn($names) => collect(explode(',', (string) $names)))->map(fn($name) => trim($name))->filter()->unique()->implode(', ') ?: '-' }}</td>
+                                    <td class="num text-muted">-</td>
+                                    <td class="num text-muted">-</td>
+                                    <td class="num fw-bold">รวม {{ $duration($firstMfgRow->mfg_minutes ?? 0) }}</td>
                                 </tr>
+                                @foreach ($mfgRows as $row)
+                                    <tr class="gp-mfg-step-row" data-mfg-step-group="{{ $mfgStepGroupId }}">
+                                        <td class="ps-4">
+                                            <span class="fw-bold">↳ {{ $row->step_name ?: $row->step_code }}</span>
+                                            @if($row->step_code && $row->step_name !== $row->step_code)
+                                                <div class="small text-muted ms-3">{{ $row->step_code }}</div>
+                                            @endif
+                                        </td>
+                                        <td>{{ $row->employee_names ?: '-' }}</td>
+                                        <td class="num">{{ $fmt($row->good_pcs ?? 0, 0) }}</td>
+                                        <td class="num">{{ $fmt($row->good_kg ?? 0) }}</td>
+                                        <td class="num">{{ $duration($row->minutes ?? 0) }}</td>
+                                    </tr>
+                                @endforeach
                             @endforeach
                         </tbody>
                     </table>
@@ -560,11 +678,14 @@
                 <div class="gp-panel">
                     <div class="gp-head"><span>รายคน</span><small class="text-muted">Top 10 ตามจำนวนชิ้น และ % ของเสีย</small></div>
                     <div class="gp-table-wrap">
+                        @php
+                            $employeeStepsByEmployee = $employeeStepEfficiency->groupBy('employee_id');
+                        @endphp
                         <table class="table table-sm table-bordered table-hover gp-table mb-0">
                             <thead>
                                 <tr>
                                     <th>พนักงาน</th>
-                                    <th class="num">ชั่วโมงรวม</th>
+                                    <th class="num">เวลารวม</th>
                                     <th class="num">ยอดดี (ชิ้น)</th>
                                     <th class="num">ยอดเสีย (ชิ้น)</th>
                                     <th class="num">% ของเสีย</th>
@@ -576,19 +697,44 @@
                                         $defect = (($row->good_pcs ?? 0) + ($row->bad_pcs ?? 0)) > 0
                                             ? (($row->bad_pcs ?? 0) / (($row->good_pcs ?? 0) + ($row->bad_pcs ?? 0)) * 100)
                                             : null;
+                                        $employeeStepRows = $employeeStepsByEmployee
+                                            ->get($row->id, collect())
+                                            ->sortBy([['sort_order', 'asc'], ['step_code', 'asc']]);
+                                        $employeeDetailId = 'employee-step-detail-' . $row->id;
                                     @endphp
-                                    <tr>
+                                    <tr class="gp-employee-summary-row" data-employee-step-target="{{ $employeeDetailId }}" tabindex="0" role="button" aria-expanded="false">
                                         <td>
-                                            {{ $row->name }}
+                                            <i class="fas fa-chevron-right gp-row-chevron me-1 text-muted"></i>{{ $row->name }}
                                             @if($row->responsible_work)
                                                 <div class="small text-muted">{{ $row->responsible_work }}</div>
                                             @endif
                                         </td>
-                                        <td class="num">{{ $hours($row->minutes) }}</td>
+                                        <td class="num">{{ $duration($row->minutes) }}</td>
                                         <td class="num">{{ $fmt($row->good_pcs ?? 0, 0) }}</td>
                                         <td class="num">{{ $fmt($row->bad_pcs ?? 0, 0) }}</td>
                                         <td class="num fw-bold {{ $defect === null ? 'text-muted' : ($defect > 5 ? 'text-danger' : ($defect > 2 ? 'text-warning' : 'text-success')) }}">
                                             {{ $defect === null ? '-' : $fmt($defect, 1).'%' }}
+                                        </td>
+                                    </tr>
+                                    <tr id="{{ $employeeDetailId }}" class="gp-employee-step-detail">
+                                        <td colspan="5">
+                                            @if($employeeStepRows->isNotEmpty())
+                                                <table class="table table-sm table-bordered gp-employee-step-table mb-1">
+                                                    <thead><tr><th>Step</th><th class="num">เวลาของพนักงาน</th><th class="num">รายการ</th></tr></thead>
+                                                    <tbody>
+                                                        @foreach($employeeStepRows as $stepRow)
+                                                            <tr>
+                                                                <td>{{ $stepRow->step_name }}<div class="small text-muted">{{ $stepRow->step_code }}</div></td>
+                                                                <td class="num">{{ $duration($stepRow->minutes ?? 0) }}</td>
+                                                                <td class="num">{{ number_format($stepRow->entry_count ?? 0) }}</td>
+                                                            </tr>
+                                                        @endforeach
+                                                    </tbody>
+                                                </table>
+                                                <small class="text-muted">เวลาราย Step ตัดช่วงซ้ำภายใน Step แล้ว; หากคีย์หลาย Step ในช่วงเดียวกัน เวลารวมรายคนจะนับช่วงนั้นเพียงครั้งเดียว</small>
+                                            @else
+                                                <span class="text-muted">ไม่มีรายละเอียดเวลาแยก Step</span>
+                                            @endif
                                         </td>
                                     </tr>
                                 @empty
@@ -612,7 +758,7 @@
                                     <th class="num">MFG</th>
                                     <th class="num">ยอดดี (ชิ้น)</th>
                                     <th class="num">kg ดี</th>
-                                    <th class="num">ชม./วัน</th>
+                                    <th class="num">เวลา/วัน</th>
                                     <th class="num">เป้า (ชิ้น)</th>
                                     <th class="num">%</th>
                                 </tr>
@@ -636,7 +782,7 @@
                                         <td class="num">{{ number_format($row->mfg_count) }}</td>
                                         <td class="num">{{ $fmt($row->good_pcs, 0) }}</td>
                                         <td class="num">{{ $fmt($row->good_kg) }}</td>
-                                        <td class="num">{{ $fmt($row->avg_hours_per_day) }}</td>
+                                        <td class="num">{{ $duration(($row->avg_hours_per_day ?? 0) * 60) }}</td>
                                         <td class="num">
                                             {{ $targetPcs > 0 ? $fmt($targetPcs, 0) : '-' }}
                                             @if ($targetKg > 0)
@@ -671,6 +817,78 @@
                     if (window.TomSelect) {
                         new TomSelect(el, { plugins: el.multiple ? ['remove_button'] : [], dropdownParent: 'body' });
                     }
+                });
+
+                const collapsiblePanels = [];
+                document.querySelectorAll('.gp-panel > .gp-head').forEach(function (head, index) {
+                    const panel = head.parentElement;
+                    const heading = head.querySelector(':scope > span')?.textContent.trim() || `panel-${index}`;
+                    if (heading === 'Dashboard') return;
+
+                    const storageKey = `gp-dashboard-collapse:${location.pathname}:${heading}:${index}`;
+                    const toggle = document.createElement('button');
+                    toggle.type = 'button';
+                    toggle.className = 'btn btn-sm btn-outline-secondary gp-collapse-toggle';
+                    toggle.innerHTML = '<i class="fas fa-chevron-down"></i>';
+
+                    const setCollapsed = function (collapsed, remember = true) {
+                        panel.classList.toggle('is-collapsed', collapsed);
+                        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+                        toggle.title = collapsed ? 'ขยายส่วนนี้' : 'ย่อส่วนนี้';
+                        if (remember) {
+                            try { localStorage.setItem(storageKey, collapsed ? '1' : '0'); } catch (error) {}
+                        }
+                    };
+
+                    let initiallyCollapsed = false;
+                    try { initiallyCollapsed = localStorage.getItem(storageKey) === '1'; } catch (error) {}
+                    setCollapsed(initiallyCollapsed, false);
+                    toggle.addEventListener('click', () => setCollapsed(!panel.classList.contains('is-collapsed')));
+                    head.appendChild(toggle);
+                    collapsiblePanels.push({ panel, setCollapsed });
+                });
+
+                document.getElementById('gp-collapse-all')?.addEventListener('click', function () {
+                    collapsiblePanels.forEach(item => item.setCollapsed(true));
+                });
+                document.getElementById('gp-expand-all')?.addEventListener('click', function () {
+                    collapsiblePanels.forEach(item => item.setCollapsed(false));
+                });
+
+                document.querySelectorAll('.gp-employee-summary-row').forEach(function (row) {
+                    const toggleDetail = function () {
+                        const detail = document.getElementById(row.dataset.employeeStepTarget);
+                        if (!detail) return;
+                        const open = !detail.classList.contains('is-open');
+                        detail.classList.toggle('is-open', open);
+                        row.classList.toggle('is-open', open);
+                        row.setAttribute('aria-expanded', open ? 'true' : 'false');
+                    };
+                    row.addEventListener('click', toggleDetail);
+                    row.addEventListener('keydown', function (event) {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            toggleDetail();
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.gp-mfg-summary-row').forEach(function (row) {
+                    const toggleSteps = function () {
+                        const groupId = row.dataset.mfgStepTarget;
+                        const stepRows = document.querySelectorAll(`[data-mfg-step-group="${groupId}"]`);
+                        const open = !row.classList.contains('is-open');
+                        row.classList.toggle('is-open', open);
+                        row.setAttribute('aria-expanded', open ? 'true' : 'false');
+                        stepRows.forEach(stepRow => stepRow.classList.toggle('is-open', open));
+                    };
+                    row.addEventListener('click', toggleSteps);
+                    row.addEventListener('keydown', function (event) {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            toggleSteps();
+                        }
+                    });
                 });
 
                 const periodSelect = document.getElementById('gp-period-select');
@@ -779,8 +997,18 @@
                     drawChart();
                 }
                 function drawChart() {
-                    const labels    = @json($periodSummary->pluck('period_label'));
+                    const rawLabels = @json($periodSummary->pluck('period_label'));
+                    const labels = rawLabels.map(label => /^\d{4}-\d{2}-\d{2}$/.test(label)
+                        ? `${label.slice(8, 10)}/${label.slice(5, 7)}`
+                        : label);
                     const goodPcs   = @json($periodSummary->pluck('good_pcs')->map(fn($v) => round((float)$v, 0)));
+                    const badPcs    = @json($periodSummary->pluck('bad_pcs')->map(fn($v) => round((float)$v, 0)));
+                    const mfgCounts = @json($periodSummary->pluck('mfg_count')->map(fn($v) => (int)$v));
+                    const peopleCounts = @json($periodSummary->pluck('people_count')->map(fn($v) => (int)$v));
+                    const movingAverage = goodPcs.map((value, index) => {
+                        const windowValues = goodPcs.slice(Math.max(0, index - 6), index + 1);
+                        return Math.round((windowValues.reduce((sum, item) => sum + Number(item || 0), 0) / windowValues.length) * 10) / 10;
+                    });
                     const datasets = [{
                         type: 'bar',
                         label: 'ยอดดี (ชิ้น)',
@@ -788,24 +1016,71 @@
                         backgroundColor: 'rgba(37,99,235,0.7)',
                         borderRadius: 4,
                         order: 2,
+                    }, {
+                        type: 'line',
+                        label: 'ยอดเสีย (ชิ้น)',
+                        data: badPcs,
+                        borderColor: '#dc2626',
+                        backgroundColor: '#dc2626',
+                        borderWidth: 2,
+                        pointRadius: badPcs.length > 20 ? 1.5 : 3,
+                        pointHoverRadius: 5,
+                        tension: .25,
+                        order: 1,
+                    }, {
+                        type: 'line',
+                        label: 'เฉลี่ย 7 จุด',
+                        data: movingAverage,
+                        borderColor: '#1d4ed8',
+                        backgroundColor: '#1d4ed8',
+                        borderWidth: 2,
+                        borderDash: [5, 4],
+                        pointRadius: 0,
+                        tension: .3,
+                        order: 0,
                     }];
+
+                    const valueLabelPlugin = {
+                        id: 'gpValueLabels',
+                        afterDatasetsDraw(chart) {
+                            const meta = chart.getDatasetMeta(0);
+                            const ctx = chart.ctx;
+                            ctx.save();
+                            ctx.fillStyle = '#334155';
+                            ctx.font = '600 9px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            meta.data.forEach((bar, index) => {
+                                const value = Number(goodPcs[index] || 0);
+                                if (value > 0) ctx.fillText(value.toLocaleString(), bar.x, bar.y - 3);
+                            });
+                            ctx.restore();
+                        }
+                    };
 
                     new Chart(ctx, {
                         data: { labels, datasets },
+                        plugins: [valueLabelPlugin],
                         options: {
                             responsive: true,
                             maintainAspectRatio: false,
+                            layout: { padding: { top: 16 } },
                             plugins: {
-                                legend: { display: false, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } },
+                                legend: { display: true, position: 'top', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } },
                                 tooltip: {
                                     callbacks: {
-                                        label: ctx => ctx.dataset.label + ': ' + Number(ctx.parsed.y).toLocaleString()
+                                        title: items => rawLabels[items[0]?.dataIndex] || '',
+                                        label: ctx => ctx.dataset.label + ': ' + Number(ctx.parsed.y).toLocaleString(),
+                                        afterBody: items => {
+                                            const index = items[0]?.dataIndex ?? 0;
+                                            return [`MFG: ${Number(mfgCounts[index] || 0).toLocaleString()}`, `พนักงาน: ${Number(peopleCounts[index] || 0).toLocaleString()} คน`];
+                                        }
                                     }
                                 }
                             },
                             scales: {
-                                y: { beginAtZero: true, grid: { color: '#f0f0f0' } },
-                                x: { grid: { display: false }, ticks: { maxRotation: 45 } }
+                                y: { beginAtZero: true, grid: { color: '#f0f0f0' }, grace: '12%' },
+                                x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 16 } }
                             }
                         }
                     });
