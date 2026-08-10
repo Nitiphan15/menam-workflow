@@ -207,7 +207,7 @@ class PoDepartmentApproverResolverTest extends TestCase
             ['id' => 85, 'code' => 'PK', 'name' => 'แพ็คกิ้ง', 'is_active' => 1],
             ['id' => 86, 'code' => 'ST', 'name' => 'สต็อกวัตถุดิบ', 'is_active' => 1],
             ['id' => 87, 'code' => 'GT', 'name' => 'Grating', 'is_active' => 1],
-            ['id' => 88, 'code' => 'IM', 'name' => 'ขายในประเทศ', 'is_active' => 1],
+            ['id' => 88, 'code' => 'IP', 'name' => 'ขายในประเทศ', 'is_active' => 1],
             ['id' => 89, 'code' => 'EP', 'name' => 'ขายต่างประเทศ', 'is_active' => 1],
             ['id' => 90, 'code' => 'ANL', 'name' => 'อันนีล', 'is_active' => 1],
             ['id' => 91, 'code' => 'PN', 'name' => 'วางแผน', 'is_active' => 1],

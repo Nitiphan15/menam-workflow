@@ -36,7 +36,7 @@ class PoErpService
         'FINANCE' => ['FN'],
         'PURCHASE' => ['P'],
         'STORE' => ['S'],
-        'SALE' => ['IM', 'IP', 'ขายในประเทศ', 'DOMESTIC', 'SL02'],
+        'SALE' => ['IP', 'IM', 'ขายในประเทศ', 'DOMESTIC', 'SL02'],
         'EXPORT' => ['EP', 'ขายต่างประเทศ', 'EXPORT', 'SL01'],
     ];
 
