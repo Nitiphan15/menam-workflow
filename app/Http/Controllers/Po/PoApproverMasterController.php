@@ -226,7 +226,6 @@ class PoApproverMasterController extends Controller
                     'originator_id' => 0,
                 ];
                 $approverIds = ApproverResolver::poDepartmentApprovers($workflowContext, $context);
-                $source = $approverIds->isNotEmpty() ? 'กำหนดเฉพาะ' : 'ตามตำแหน่ง/ลำดับชั้น';
 
                 if ($approverIds->isEmpty()) {
                     foreach ($rules as $rule) {
@@ -250,7 +249,6 @@ class PoApproverMasterController extends Controller
                     'department_id' => (int) $department->id,
                     'department_code' => $department->code,
                     'department_name' => $department->name,
-                    'source' => $source,
                     'approvers' => $approvers,
                 ];
             })

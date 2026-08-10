@@ -101,7 +101,7 @@
             <div class="table-responsive">
                 <table class="table table-sm table-bordered align-middle mb-0">
                     <thead class="table-light">
-                        <tr><th>แผนก</th><th>ผู้อนุมัติหลัก</th><th>ที่มา</th><th>สถานะ</th></tr>
+                        <tr><th>แผนก</th><th>ผู้อนุมัติหลัก</th><th>สถานะ</th></tr>
                     </thead>
                     <tbody>
                         @forelse ($baseRows as $row)
@@ -114,11 +114,10 @@
                                         <span class="text-danger">ยังไม่พบผู้อนุมัติ</span>
                                     @endforelse
                                 </td>
-                                <td>{{ $row->source }}</td>
                                 <td>{{ $row->approvers->isNotEmpty() ? 'พร้อมใช้งาน' : 'ต้องตรวจตำแหน่ง' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="4" class="text-center text-muted">ไม่พบแผนกที่เลือก</td></tr>
+                            <tr><td colspan="3" class="text-center text-muted">ไม่พบแผนกที่เลือก</td></tr>
                         @endforelse
                     </tbody>
                 </table>

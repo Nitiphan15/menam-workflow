@@ -150,7 +150,13 @@ NamedRoleDepth AS (
     SELECT role_user.sort_order,
            MIN(role_user.depth) AS selected_depth
     FROM ActiveRoleUsers AS role_user
-    WHERE role_user.role_name IN (N'Assist Manager', N'Manager')
+    WHERE (
+        role_user.sort_order = 16
+        AND (role_user.role_name = N'Manager' OR role_user.level_no > 3)
+    ) OR (
+        role_user.sort_order <> 16
+        AND role_user.role_name IN (N'Assist Manager', N'Manager')
+    )
     GROUP BY role_user.sort_order
 ),
 NamedPositionUsers AS (
@@ -163,7 +169,13 @@ NamedPositionUsers AS (
     JOIN NamedRoleDepth AS selected
       ON selected.sort_order = role_user.sort_order
      AND selected.selected_depth = role_user.depth
-    WHERE role_user.role_name IN (N'Assist Manager', N'Manager')
+    WHERE (
+        role_user.sort_order = 16
+        AND (role_user.role_name = N'Manager' OR role_user.level_no > 3)
+    ) OR (
+        role_user.sort_order <> 16
+        AND role_user.role_name IN (N'Assist Manager', N'Manager')
+    )
 ),
 FallbackDepth AS (
     SELECT role_user.sort_order,
@@ -172,6 +184,7 @@ FallbackDepth AS (
     LEFT JOIN NamedRoleDepth AS named
       ON named.sort_order = role_user.sort_order
     WHERE named.sort_order IS NULL
+      AND role_user.sort_order <> 16
       AND role_user.level_no >= 3
     GROUP BY role_user.sort_order
 ),

@@ -54,6 +54,14 @@ class ApproverResolver
                 $roleId = (int) $rule->source_ref_id;
 
                 if (isset($json['role_in'])) {
+                    if (self::isPoDomesticSalesApprovalStep($wfForm, $context, $deptId)) {
+                        return self::byDeptManagerOrAbove(
+                            $deptId,
+                            $excludeOriginator ? $originatorId : null,
+                            $appCode,
+                        );
+                    }
+
                     $users = self::byDeptRoleNames(
                         $deptId,
                         (array) $json['role_in'],
@@ -265,6 +273,27 @@ class ApproverResolver
         return collect();
     }
 
+    private static function byDeptManagerOrAbove(int $deptId, ?int $excludeUserId = null, ?string $appCode = null): Collection
+    {
+        foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
+            $users = self::queryDeptRoleUsers($candidateDeptId, $excludeUserId, $appCode)
+                ->where(function ($query) {
+                    $query->where('dr.name', 'Manager')
+                        ->orWhere('dr.level_no', '>', 3);
+                })
+                ->orderByDesc('dr.level_no')
+                ->orderByDesc('dru.is_primary')
+                ->orderByDesc('dru.start_date')
+                ->pluck('u.id');
+
+            if ($users->isNotEmpty()) {
+                return $users;
+            }
+        }
+
+        return collect();
+    }
+
     private static function byDeptLevelOrAbove(int $deptId, int $minLevelNo, ?int $excludeUserId = null, ?string $appCode = null): Collection
     {
         foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
@@ -296,6 +325,17 @@ class ApproverResolver
     {
         return strtolower((string) ($wfForm->app_code ?? '')) === 'po'
             && (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0) === 3;
+    }
+
+    private static function isPoDomesticSalesApprovalStep(object $wfForm, array $context, int $deptId): bool
+    {
+        if (!self::isPoDepartmentApprovalStep($wfForm, $context) || $deptId <= 0) {
+            return false;
+        }
+
+        return strtoupper((string) WorkflowDb::table('po', 'departments')
+            ->where('id', $deptId)
+            ->value('code')) === 'IP';
     }
 
     private static function isPoPurchaseApprovalStep(object $wfForm, array $context): bool

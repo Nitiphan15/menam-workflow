@@ -286,6 +286,45 @@ class PoDepartmentApproverResolverTest extends TestCase
         $this->assertSame([1001], $result->all());
     }
 
+    public function test_domestic_sales_uses_manager_and_above_but_not_assist_manager(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            'id' => 110,
+            'code' => 'IP',
+            'name' => 'ขายในประเทศ',
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('users')->insert([
+            ['id' => 1101, 'department_id' => 110, 'username' => 'sales_manager', 'is_active' => 1],
+            ['id' => 1102, 'department_id' => 110, 'username' => 'sales_assist_manager', 'is_active' => 1],
+            ['id' => 1103, 'department_id' => 110, 'username' => 'sales_general_manager', 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_roles')->insert([
+            ['id' => 1111, 'department_id' => 110, 'name' => 'Manager', 'level_no' => 3, 'is_active' => 1],
+            ['id' => 1112, 'department_id' => 110, 'name' => 'Assist Manager', 'level_no' => 3, 'is_active' => 1],
+            ['id' => 1113, 'department_id' => 110, 'name' => 'General Manager', 'level_no' => 4, 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_role_users')->insert([
+            ['department_role_id' => 1111, 'user_id' => 1101, 'is_primary' => 1, 'start_date' => now()->subDay()->toDateString()],
+            ['department_role_id' => 1112, 'user_id' => 1102, 'is_primary' => 1, 'start_date' => now()->subDay()->toDateString()],
+            ['department_role_id' => 1113, 'user_id' => 1103, 'is_primary' => 1, 'start_date' => now()->subDay()->toDateString()],
+        ]);
+
+        $result = ApproverResolver::resolve(
+            (object) [
+                'source_type' => 'ROLE',
+                'source_ref_id' => null,
+                'department_scoped' => 1,
+                'condition_expr' => json_encode(['role_in' => ['Assist Manager', 'Manager']]),
+            ],
+            (object) ['app_code' => 'po', 'current_step_no' => 3, 'request_by_user_id' => 0],
+            ['document_department_id' => 110, 'workflow_step_no' => 3, 'originator_id' => 0],
+            [],
+        );
+
+        $this->assertSame([1103, 1101], $result->all());
+    }
+
     public function test_additional_approvers_are_returned_in_configured_sequence(): void
     {
         DB::connection('sqlsrv_menam')->table('departments')->insert([
@@ -361,8 +400,8 @@ class PoDepartmentApproverResolverTest extends TestCase
         $rows = $view->getData()['baseRows']->keyBy('department_code');
 
         $this->assertSame([701], $rows['FIX']->approvers->pluck('id')->all());
-        $this->assertSame('กำหนดเฉพาะ', $rows['FIX']->source);
         $this->assertSame([702], $rows['DYN']->approvers->pluck('id')->all());
-        $this->assertSame('ตามตำแหน่ง/ลำดับชั้น', $rows['DYN']->source);
+        $this->assertFalse(property_exists($rows['FIX'], 'source'));
+        $this->assertFalse(property_exists($rows['DYN'], 'source'));
     }
 }
