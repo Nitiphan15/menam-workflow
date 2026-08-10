@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Po;
 
 use App\Http\Controllers\Controller;
+use App\Services\ApproverResolver;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -33,11 +34,7 @@ class PoApproverMasterController extends Controller
                 'd.name as department_name',
             ]);
 
-        $baseRows = $this->mappingQuery()
-            ->where('m.sequence_no', 1)
-            ->when($departmentId > 0, fn ($query) => $query->where('m.department_id', $departmentId))
-            ->orderBy('d.name')
-            ->get();
+        $baseRows = $this->effectiveBaseRows($departments, $departmentId);
 
         $specialRows = $this->mappingQuery()
             ->where('m.sequence_no', '>=', 2)
@@ -58,6 +55,7 @@ class PoApproverMasterController extends Controller
     public function store(Request $request)
     {
         $data = $this->validated($request);
+        $data['sequence_no'] = $this->nextSpecialSequence((int) $data['department_id']);
         $this->assertMappingIsAvailable($data);
 
         SqlServerDb::transaction(function () use ($data) {
@@ -81,6 +79,9 @@ class PoApproverMasterController extends Controller
         abort_unless($row, 404);
 
         $data = $this->validated($request);
+        $data['sequence_no'] = (int) $row->department_id === (int) $data['department_id']
+            ? (int) $row->sequence_no
+            : $this->nextSpecialSequence((int) $data['department_id'], $mapping);
         $this->assertMappingIsAvailable($data, $mapping);
 
         SqlServerDb::transaction(function () use ($data, $mapping) {
@@ -112,7 +113,6 @@ class PoApproverMasterController extends Controller
         $data = $request->validate([
             'department_id' => ['required', 'integer'],
             'approver_user_id' => ['required', 'integer'],
-            'sequence_no' => ['required', 'integer', 'min:2', 'max:20'],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -140,7 +140,6 @@ class PoApproverMasterController extends Controller
         return [
             'department_id' => (int) $data['department_id'],
             'approver_user_id' => (int) $data['approver_user_id'],
-            'sequence_no' => (int) $data['sequence_no'],
             'is_active' => (int) ($data['is_active'] ?? 0),
         ];
     }
@@ -161,13 +160,101 @@ class PoApproverMasterController extends Controller
         if ($slotExists || $userExists) {
             $messages = [];
             if ($slotExists) {
-                $messages['sequence_no'] = 'ลำดับนี้ถูกใช้แล้ว กรุณาแก้ไขรายการเดิมหรือเลือกลำดับอื่น';
+                $messages['department_id'] = 'ไม่สามารถบันทึกผู้อนุมัติพิเศษของแผนกนี้ได้ กรุณาลองใหม่';
             }
             if ($userExists) {
                 $messages['approver_user_id'] = 'ผู้ใช้นี้อยู่ในรายการอนุมัติของแผนกแล้ว';
             }
             throw ValidationException::withMessages($messages);
         }
+    }
+
+    private function nextSpecialSequence(int $departmentId, ?int $exceptId = null): int
+    {
+        $used = SqlServerDb::table(self::TABLE)
+            ->where('department_id', $departmentId)
+            ->whereBetween('sequence_no', [2, 20])
+            ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId))
+            ->pluck('sequence_no')
+            ->map(fn ($sequence) => (int) $sequence)
+            ->all();
+
+        for ($sequence = 2; $sequence <= 20; $sequence++) {
+            if (!in_array($sequence, $used, true)) {
+                return $sequence;
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'department_id' => 'แผนกนี้มีผู้อนุมัติพิเศษครบจำนวนที่รองรับแล้ว',
+        ]);
+    }
+
+    private function effectiveBaseRows($departments, int $departmentId)
+    {
+        $workflow = SqlServerDb::table('workflows')
+            ->where('code', 'po')
+            ->where('is_active', 1)
+            ->first();
+        $step = $workflow
+            ? SqlServerDb::table('workflow_steps')
+                ->where('workflow_id', $workflow->id)
+                ->where('step_no', 3)
+                ->where('is_active', 1)
+                ->first()
+            : null;
+        $rules = $step
+            ? SqlServerDb::table('workflow_step_rules')
+                ->where('workflow_step_id', $step->id)
+                ->orderBy('priority')
+                ->get()
+            : collect();
+        $workflowContext = (object) [
+            'app_code' => 'po',
+            'current_step_no' => 3,
+            'request_by_user_id' => 0,
+        ];
+
+        return $departments
+            ->when($departmentId > 0, fn ($rows) => $rows->where('id', $departmentId))
+            ->map(function ($department) use ($workflowContext, $rules) {
+                $context = [
+                    'department_id' => (int) $department->id,
+                    'document_department_id' => (int) $department->id,
+                    'document_department_name' => (string) $department->name,
+                    'workflow_step_no' => 3,
+                    'originator_id' => 0,
+                ];
+                $approverIds = ApproverResolver::poDepartmentApprovers($workflowContext, $context);
+                $source = $approverIds->isNotEmpty() ? 'กำหนดเฉพาะ' : 'ตามตำแหน่ง/ลำดับชั้น';
+
+                if ($approverIds->isEmpty()) {
+                    foreach ($rules as $rule) {
+                        $approverIds = $approverIds->merge(
+                            ApproverResolver::resolve($rule, $workflowContext, $context, [])
+                        );
+                    }
+                }
+
+                $approverIds = $approverIds->filter()->unique()->values();
+                $approvers = $approverIds->isEmpty()
+                    ? collect()
+                    : SqlServerDb::table('users')
+                        ->whereIn('id', $approverIds->all())
+                        ->where('is_active', 1)
+                        ->get(['id', 'username', 'email', 'name'])
+                        ->sortBy(fn ($user) => $approverIds->search((int) $user->id))
+                        ->values();
+
+                return (object) [
+                    'department_id' => (int) $department->id,
+                    'department_code' => $department->code,
+                    'department_name' => $department->name,
+                    'source' => $source,
+                    'approvers' => $approvers,
+                ];
+            })
+            ->values();
     }
 
     private function ensurePoPermission(int $userId): void

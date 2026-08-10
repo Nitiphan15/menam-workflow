@@ -2,9 +2,11 @@
 
 namespace Tests\Unit;
 
+use App\Http\Controllers\Po\PoApproverMasterController;
 use App\Services\ApproverResolver;
 use App\Services\Po\PoErpService;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -34,6 +36,10 @@ class PoDepartmentApproverResolverTest extends TestCase
         });
         $schema->create('users', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('department_id')->nullable();
+            $table->string('username')->nullable();
+            $table->string('email')->nullable();
+            $table->string('name')->nullable();
             $table->boolean('is_active')->default(true);
         });
         $schema->create('po_department_approvers', function (Blueprint $table) {
@@ -48,6 +54,41 @@ class PoDepartmentApproverResolverTest extends TestCase
             $table->string('alias_key')->unique();
             $table->unsignedBigInteger('approver_user_id');
             $table->boolean('is_active')->default(true);
+        });
+        $schema->create('workflows', function (Blueprint $table) {
+            $table->id();
+            $table->string('code');
+            $table->boolean('is_active')->default(true);
+        });
+        $schema->create('workflow_steps', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('workflow_id');
+            $table->unsignedInteger('step_no');
+            $table->boolean('is_active')->default(true);
+        });
+        $schema->create('workflow_step_rules', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('workflow_step_id');
+            $table->string('source_type');
+            $table->unsignedBigInteger('source_ref_id')->nullable();
+            $table->boolean('department_scoped')->default(false);
+            $table->text('condition_expr')->nullable();
+            $table->unsignedInteger('priority')->default(1);
+        });
+        $schema->create('department_roles', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('department_id');
+            $table->string('name');
+            $table->unsignedInteger('level_no');
+            $table->boolean('is_active')->default(true);
+        });
+        $schema->create('department_role_users', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('department_role_id');
+            $table->unsignedBigInteger('user_id');
+            $table->boolean('is_primary')->default(false);
+            $table->date('start_date');
+            $table->date('end_date')->nullable();
         });
     }
 
@@ -180,5 +221,58 @@ class PoDepartmentApproverResolverTest extends TestCase
 
         $this->assertSame([601], ApproverResolver::poDepartmentApprovers($workflow, $context)->all());
         $this->assertSame([602, 603], ApproverResolver::poAdditionalDepartmentApprovers($workflow, $context)->all());
+    }
+
+    public function test_master_read_only_rows_include_fixed_and_position_resolved_departments(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 70, 'code' => 'FIX', 'name' => 'Fixed Department', 'is_active' => 1],
+            ['id' => 71, 'code' => 'DYN', 'name' => 'Dynamic Department', 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('users')->insert([
+            ['id' => 701, 'department_id' => 70, 'username' => 'fixed_user', 'name' => 'Fixed User', 'is_active' => 1],
+            ['id' => 702, 'department_id' => 71, 'username' => 'manager_user', 'name' => 'Manager User', 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('po_department_approvers')->insert([
+            'department_id' => 70,
+            'approver_user_id' => 701,
+            'sequence_no' => 1,
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('workflows')->insert(['id' => 1, 'code' => 'po', 'is_active' => 1]);
+        DB::connection('sqlsrv_menam')->table('workflow_steps')->insert([
+            'id' => 2,
+            'workflow_id' => 1,
+            'step_no' => 3,
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('workflow_step_rules')->insert([
+            'workflow_step_id' => 2,
+            'source_type' => 'ROLE',
+            'department_scoped' => 1,
+            'condition_expr' => json_encode(['role_in' => ['Manager']]),
+            'priority' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_roles')->insert([
+            'id' => 3,
+            'department_id' => 71,
+            'name' => 'Manager',
+            'level_no' => 3,
+            'is_active' => 1,
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_role_users')->insert([
+            'department_role_id' => 3,
+            'user_id' => 702,
+            'is_primary' => 1,
+            'start_date' => now()->subDay()->toDateString(),
+        ]);
+
+        $view = (new PoApproverMasterController())->index(Request::create('/po/approver-master', 'GET'));
+        $rows = $view->getData()['baseRows']->keyBy('department_code');
+
+        $this->assertSame([701], $rows['FIX']->approvers->pluck('id')->all());
+        $this->assertSame('กำหนดเฉพาะ', $rows['FIX']->source);
+        $this->assertSame([702], $rows['DYN']->approvers->pluck('id')->all());
+        $this->assertSame('ตามตำแหน่ง/ลำดับชั้น', $rows['DYN']->source);
     }
 }
