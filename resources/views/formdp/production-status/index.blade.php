@@ -59,7 +59,12 @@
         };
         $clearSiteQuery = request()->except(['page', 'site']);
         $movementQuery = fn($value) => array_merge(request()->except(['page']), ['movement_filter' => $value]);
-        $processQuery = fn($value) => array_merge(request()->except(['page']), ['process_filter' => $value]);
+        $rawProcessFilters = $filters['process_filter'] ?? [];
+        $processFilterValues = collect(is_array($rawProcessFilters) ? $rawProcessFilters : [$rawProcessFilters])
+            ->map(fn($value) => trim((string) $value))
+            ->filter()
+            ->values();
+        $processQuery = fn($value) => array_merge(request()->except(['page']), ['process_filter' => [$value]]);
         $divisionQuery = fn($value) => array_merge(request()->except(['page']), ['keyword' => $value]);
         $clearProcessQuery = request()->except(['page', 'process_filter']);
         $confirmationQuery = fn($value) => array_merge(request()->except(['page']), ['confirmation_filter' => $value]);
@@ -949,7 +954,9 @@
             <form method="GET" action="{{ route('dp.production-status') }}" class="p-3">
                 <input type="hidden" name="completion_filter" value="{{ $filters['completion_filter'] ?? 'all' }}">
                 <input type="hidden" name="status_filter" value="{{ $filters['status_filter'] ?? 'all' }}">
-                <input type="hidden" name="process_filter" value="{{ $filters['process_filter'] ?? '' }}">
+                @foreach ($processFilterValues as $processFilterValue)
+                    <input type="hidden" name="process_filter[]" value="{{ $processFilterValue }}">
+                @endforeach
                 <input type="hidden" name="movement_filter" value="{{ $filters['movement_filter'] ?? 'all' }}">
                 <input type="hidden" name="confirmation_filter" value="{{ $confirmationFilterValue }}">
                 <input type="hidden" name="delivery_type" value="{{ $deliveryTypeFilterValue }}">
@@ -1380,8 +1387,8 @@
             <summary class="pst-lane-head pst-collapsible-summary">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span>งานในแต่ละขั้นตอน</span>
-                    @if (!empty($filters['process_filter']))
-                        <span class="badge bg-primary">{{ $filters['process_filter'] }}</span>
+                    @if ($processFilterValues->isNotEmpty())
+                        <span class="badge bg-primary">{{ $processFilterValues->implode(', ') }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status', $clearProcessQuery) }}"
                             onclick="event.stopPropagation()">ล้าง</a>
@@ -1425,7 +1432,8 @@
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span>Dashboard Summary</span>
                     <form method="GET" action="{{ route('dp.production-status') }}"
-                        class="d-inline-flex align-items-center gap-1" title="Quick action: กรองตามสถานีงาน">
+                        class="d-inline-flex align-items-center gap-1 pst-process-filter-form"
+                        title="Quick action: กรองตามสถานีงาน (เลือกได้หลายสถานี)">
                         @foreach (request()->except(['page', 'process_filter']) as $name => $value)
                             @if (is_scalar($value))
                                 <input type="hidden" name="{{ $name }}" value="{{ $value }}">
@@ -1434,19 +1442,22 @@
                         <label for="pstQuickProcessFilter" class="small text-nowrap mb-0">
                             <i class="fas fa-filter me-1"></i>สถานีงาน
                         </label>
-                        <select id="pstQuickProcessFilter" name="process_filter"
-                            class="form-select form-select-sm" style="width:190px" onchange="this.form.submit()">
-                            <option value="">ทุกสถานีงาน</option>
+                        <select id="pstQuickProcessFilter" name="process_filter[]" multiple
+                            class="form-select form-select-sm" style="width:260px"
+                            data-placeholder="ทุกสถานีงาน">
                             @foreach ($processOptions ?? [] as $processOption)
                                 <option value="{{ $processOption['value'] }}"
-                                    @selected(($filters['process_filter'] ?? '') === $processOption['value'])>
+                                    @selected($processFilterValues->contains($processOption['value']))>
                                     {{ $processOption['label'] }} ({{ number_format($processOption['count']) }})
                                 </option>
                             @endforeach
                         </select>
+                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">
+                            กรอง
+                        </button>
                     </form>
-                    @if (!empty($filters['process_filter']))
-                        <span class="badge bg-primary">ขั้นตอน: {{ $filters['process_filter'] }}</span>
+                    @if ($processFilterValues->isNotEmpty())
+                        <span class="badge bg-primary">ขั้นตอน: {{ $processFilterValues->implode(', ') }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status', $clearProcessQuery) }}">ล้างขั้นตอน</a>
                     @endif
@@ -1499,6 +1510,12 @@
                         href="{{ route('dp.production-status', $statusQuery('at_risk')) }}">
                         <i class="fas fa-bolt me-1"></i> At Risk
                         <span class="ms-1">{{ number_format($summary['at_risk'] ?? 0) }}</span>
+                    </a>
+                    <a class="btn btn-sm {{ $confirmationFilterValue === 'pending' ? 'btn-secondary' : 'btn-outline-secondary' }}"
+                        href="{{ route('dp.production-status', $confirmationQuery($confirmationFilterValue === 'pending' ? 'all' : 'pending')) }}"
+                        title="ดูรายการที่ยังไม่ได้ยืนยันหรือขอเลื่อนการส่ง">
+                        <i class="fas fa-circle-question me-1"></i> ยังไม่ Confirm/เลื่อน
+                        <span class="ms-1">{{ number_format($summary['pending_confirmation'] ?? 0) }}</span>
                     </a>
                     <a class="btn btn-sm {{ $confirmationFilterValue === 'postpone' ? 'btn-warning' : 'btn-outline-warning' }}"
                         href="{{ route('dp.production-status', $confirmationQuery($confirmationFilterValue === 'postpone' ? 'all' : 'postpone')) }}"
@@ -1890,6 +1907,20 @@
             const BULK_URL = @json(route('dp.production-status.confirm.bulk'));
             const HIST_URL = @json(route('dp.production-status.confirm.history'));
             const CSRF = @json(csrf_token());
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const processSelect = document.getElementById('pstQuickProcessFilter');
+                if (processSelect && window.TomSelect && !processSelect.tomselect) {
+                    new TomSelect(processSelect, {
+                        plugins: ['remove_button'],
+                        closeAfterSelect: false,
+                        hideSelected: true,
+                        maxOptions: 1000,
+                        placeholder: processSelect.dataset.placeholder || 'ทุกสถานีงาน',
+                        dropdownParent: 'body'
+                    });
+                }
+            });
 
             const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
                 '&': '&amp;',
