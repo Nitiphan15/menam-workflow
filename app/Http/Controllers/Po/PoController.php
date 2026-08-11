@@ -105,13 +105,7 @@ class PoController extends Controller
 
     public function myActions(Request $request)
     {
-        $workflowIds = SqlServerDb::table('wf_form_authorizes as wa')
-            ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
-            ->where('wa.approver_user_id', auth()->id())
-            ->where('wa.status', WfFormAuthorize::ST_PENDING)
-            ->whereColumn('wa.step_no', 'wf.current_step_no')
-            ->pluck('wa.wf_form_id')
-            ->all();
+        $workflowIds = $this->workflowIdsVisibleToApprover((int) auth()->id());
 
         $rows = $this->erpService->listOpenPos(
             department: $request->string('department')->toString() ?: null,
@@ -121,6 +115,7 @@ class PoController extends Controller
             status: $request->string('status')->toString() ?: null,
             source: $request->string('source')->toString() ?: null,
             workflowIds: $workflowIds,
+            includeCompletedStatuses: true,
         );
 
         return view('po.my_actions', [
@@ -128,6 +123,25 @@ class PoController extends Controller
             'statusOptions' => $this->statusOptions(),
             'sourceOptions' => $this->sourceOptions(),
         ]);
+    }
+
+    private function workflowIdsVisibleToApprover(int $userId): array
+    {
+        return SqlServerDb::table('wf_form_authorizes as wa')
+            ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
+            ->where('wa.approver_user_id', $userId)
+            ->where(function ($query) {
+                $query->where('wa.status', WfFormAuthorize::ST_APPROVED)
+                    ->orWhere(function ($pending) {
+                        $pending->where('wa.status', WfFormAuthorize::ST_PENDING)
+                            ->whereColumn('wa.step_no', 'wf.current_step_no');
+                    });
+            })
+            ->pluck('wa.wf_form_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function store(Request $request)

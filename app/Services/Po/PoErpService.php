@@ -59,6 +59,7 @@ class PoErpService
         ?string $status = null,
         ?string $source = null,
         ?array $workflowIds = null,
+        bool $includeCompletedStatuses = false,
     ): Collection
     {
         $wantedSource = self::normalizeSource($source);
@@ -154,16 +155,25 @@ class PoErpService
             return $allowed->isEmpty()
                 ? collect()
                 : $items->filter(fn ($row) => $allowed->contains((int) ($row->workflow_id ?? 0)))->values();
-        })->filter(function ($row) use ($status) {
+        })->filter(function ($row) use ($status, $includeCompletedStatuses) {
             $rowStatus = strtoupper((string) $row->status_code);
             $wantedStatus = strtoupper(trim((string) $status));
 
-            if ($wantedStatus !== '') {
-                return $rowStatus !== 'APPROVED';
-            }
-
-            return !in_array($rowStatus, ['APPROVED', 'CLOSED'], true);
+            return $this->isListStatusVisible($rowStatus, $wantedStatus, $includeCompletedStatuses);
         });
+    }
+
+    private function isListStatusVisible(string $rowStatus, string $wantedStatus, bool $includeCompletedStatuses): bool
+    {
+        if ($includeCompletedStatuses) {
+            return true;
+        }
+
+        if ($wantedStatus !== '') {
+            return $rowStatus !== 'APPROVED';
+        }
+
+        return !in_array($rowStatus, ['APPROVED', 'CLOSED'], true);
     }
 
     public function getDetailRows(string $ordnumber, ?string $sourceSystem = null): Collection

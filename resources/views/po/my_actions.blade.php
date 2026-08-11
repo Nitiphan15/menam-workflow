@@ -14,7 +14,7 @@
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
                     <div>
                         <h4 class="mb-1">เอกสารที่ต้องดำเนินการ</h4>
-                        <div class="text-muted small">แสดงเฉพาะ PO ที่ผู้ใช้ปัจจุบันมีสิทธิ์ action ใน step ปัจจุบัน</div>
+                        <div class="text-muted small">แสดง PO ที่กำลังรอคุณอนุมัติ และรายการที่คุณอนุมัติแล้วจนกว่า ERP จะบันทึกรับของ</div>
                     </div>
                     @can('POPUR')
                         <a href="{{ route('po.index') }}" class="btn btn-outline-secondary">กลับหน้ารายการ PO</a>
