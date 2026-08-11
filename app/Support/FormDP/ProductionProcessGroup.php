@@ -40,18 +40,44 @@ final class ProductionProcessGroup
         return array_values($normalized);
     }
 
+    public static function selectableLabels(iterable $processes): array
+    {
+        $labels = [];
+
+        foreach ($processes as $process) {
+            $process = trim((string) $process);
+            if ($process === '') {
+                continue;
+            }
+
+            $label = self::label($process);
+            if (in_array(strtoupper($label), ['COMPLETE', 'COMPLETED'], true)) {
+                continue;
+            }
+
+            $labels[mb_strtolower($label)] = $label;
+        }
+
+        return array_values($labels);
+    }
+
     public static function matches(?string $process, mixed $filters): bool
+    {
+        return self::matchesAny([$process], $filters);
+    }
+
+    public static function matchesAny(iterable $processes, mixed $filters): bool
     {
         $filters = self::normalizeFilters($filters);
         if ($filters === []) {
             return true;
         }
 
-        $label = self::label($process);
-
-        foreach ($filters as $filter) {
-            if (strcasecmp($label, $filter) === 0) {
-                return true;
+        foreach (self::selectableLabels($processes) as $label) {
+            foreach ($filters as $filter) {
+                if (strcasecmp($label, $filter) === 0) {
+                    return true;
+                }
             }
         }
 

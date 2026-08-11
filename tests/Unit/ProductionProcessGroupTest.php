@@ -37,4 +37,22 @@ class ProductionProcessGroupTest extends TestCase
         $this->assertTrue(ProductionProcessGroup::matches('PK', $filters));
         $this->assertFalse(ProductionProcessGroup::matches('ST', $filters));
     }
+
+    public function test_filter_matches_any_station_in_the_full_routing(): void
+    {
+        $routing = ['SH1', 'CB3C', 'CT', 'PK'];
+
+        $this->assertTrue(ProductionProcessGroup::matchesAny($routing, ['Combine']));
+        $this->assertTrue(ProductionProcessGroup::matchesAny($routing, ['Cut']));
+        $this->assertTrue(ProductionProcessGroup::matchesAny($routing, ['SH1', 'PK']));
+        $this->assertFalse(ProductionProcessGroup::matchesAny($routing, ['ST']));
+    }
+
+    public function test_complete_status_is_not_a_selectable_station(): void
+    {
+        $this->assertSame(
+            ['Combine', 'Cut', 'PK'],
+            ProductionProcessGroup::selectableLabels(['Completed', 'CB3', 'Complete', 'CU', 'PK'])
+        );
+    }
 }

@@ -1386,7 +1386,7 @@
         <details class="pst-lane mb-3 pst-collapsible" data-storage-key="pst-process-summary-open" open>
             <summary class="pst-lane-head pst-collapsible-summary">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <span>งานในแต่ละขั้นตอน</span>
+                    <span>งานที่มีแต่ละสถานีใน Routing</span>
                     @if ($processFilterValues->isNotEmpty())
                         <span class="badge bg-primary">{{ $processFilterValues->implode(', ') }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
