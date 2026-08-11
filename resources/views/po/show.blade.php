@@ -608,6 +608,16 @@
                         @php
                             $signatureCards = [
                                 [
+                                    'label' => 'Submitted by',
+                                    'name' => $signatures['submitted_by']->actor_name ?? '',
+                                    'image' => $signatures['submitted_by']->signature_data_uri ?? null,
+                                    'date' => !empty($signatures['submitted_by']?->created_at)
+                                        ? \Illuminate\Support\Carbon::parse(
+                                            $signatures['submitted_by']->created_at,
+                                        )->format('d-M-Y')
+                                        : '',
+                                ],
+                                [
                                     'label' => 'Ordered by',
                                     'name' => collect($signatures['ordered_by'] ?? [])
                                         ->pluck('actor_name')
