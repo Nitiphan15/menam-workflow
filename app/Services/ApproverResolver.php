@@ -159,6 +159,69 @@ class ApproverResolver
     }
 
     /**
+     * PO documents owned by departments outside Purchase/Store must first be
+     * acknowledged by an active Purchase/Store assistant. Documents owned by
+     * Purchase/Store keep the configured step-2 rules unchanged.
+     */
+    public static function poPurchaseStoreAssistantApprovers(object $wfForm, array $context): Collection
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+
+        if (!self::shouldRoutePoThroughPurchaseStoreAssistant($wfForm, $context)) {
+            return collect();
+        }
+
+        $departmentIds = WorkflowDb::table($appCode, 'departments')
+            ->where('is_active', 1)
+            ->get(['id', 'name', 'code'])
+            ->filter(fn ($department) => self::looksLikePurchaseStoreDepartment($department))
+            ->sortBy(function ($department) {
+                $code = strtolower(trim((string) ($department->code ?? '')));
+                $text = strtolower(trim((string) ($department->name ?? '') . ' ' . (string) ($department->code ?? '')));
+
+                if ($code === 'ps') {
+                    return 0;
+                }
+
+                return str_contains($text, 'purchase')
+                    || str_contains($text, 'purchasing')
+                    || str_contains($text, 'จัดซื้อ') ? 1 : 2;
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values();
+
+        return $departmentIds
+            ->flatMap(function (int $departmentId) use ($appCode) {
+                return self::queryDeptRoleUsers($departmentId, null, $appCode)
+                    ->where(function ($query) {
+                        $query->whereRaw('LOWER(dr.name) LIKE ?', ['%assist%'])
+                            ->orWhereRaw('LOWER(dr.name) LIKE ?', ['%asst%']);
+                    })
+                    ->orderByDesc('dru.is_primary')
+                    ->orderByDesc('dru.start_date')
+                    ->pluck('u.id');
+            })
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->take(1)
+            ->values();
+    }
+
+    public static function shouldRoutePoThroughPurchaseStoreAssistant(object $wfForm, array $context): bool
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+
+        return $appCode === 'po'
+            && $stepNo === 2
+            && !self::isPoPurchaseStoreDocument($context, $appCode);
+    }
+
+    /**
      * Additional FormPO approvers configured as slots 2, 3, 4, ... .
      * They augment the normal department rule instead of replacing slot 1.
      */
@@ -369,6 +432,41 @@ class ApproverResolver
         }
 
         return false;
+    }
+
+    private static function isPoPurchaseStoreDocument(array $context, ?string $appCode = null): bool
+    {
+        $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+
+        foreach (self::departmentLineage($departmentId, $appCode) as $candidateDeptId) {
+            $department = WorkflowDb::table($appCode, 'departments')
+                ->where('id', $candidateDeptId)
+                ->first(['name', 'code']);
+
+            if ($department && self::looksLikePurchaseStoreDepartment($department)) {
+                return true;
+            }
+        }
+
+        return self::looksLikePurchaseStoreDepartment((object) [
+            'name' => (string) ($context['document_department_name'] ?? ''),
+            'code' => '',
+        ]);
+    }
+
+    private static function looksLikePurchaseStoreDepartment(object $department): bool
+    {
+        $name = strtolower(trim((string) ($department->name ?? '')));
+        $code = strtolower(trim((string) ($department->code ?? '')));
+        $text = trim($name . ' ' . $code);
+
+        return str_contains($text, 'purchase')
+            || str_contains($text, 'purchasing')
+            || str_contains($text, 'จัดซื้อ')
+            || str_contains($text, 'store')
+            || str_contains($text, 'คลัง')
+            || in_array($code, ['p', 'pur', 'purch', 'purchase', 'ps', 's', 'store'], true)
+            || str_starts_with($code, 'pur');
     }
 
     private static function resolveDepartmentContext(object $rule, object $wfForm, array $context, array $json): int

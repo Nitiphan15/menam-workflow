@@ -161,6 +161,73 @@ class PoDepartmentApproverResolverTest extends TestCase
         $this->assertTrue($wrongStep->isEmpty());
     }
 
+    public function test_engineering_and_qa_po_route_to_active_purchase_store_assistant(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 31, 'code' => 'ENG', 'name' => 'Engineering', 'parent_id' => null, 'is_active' => 1],
+            ['id' => 32, 'code' => 'PS', 'name' => 'Purchase and Store', 'parent_id' => null, 'is_active' => 1],
+            ['id' => 33, 'code' => 'P', 'name' => 'Purchase', 'parent_id' => 32, 'is_active' => 1],
+            ['id' => 34, 'code' => 'S', 'name' => 'Store', 'parent_id' => 32, 'is_active' => 1],
+            ['id' => 35, 'code' => 'QA', 'name' => 'QA', 'parent_id' => null, 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('users')->insert([
+            ['id' => 311, 'department_id' => 32, 'username' => 'purchase_assist', 'is_active' => 1],
+            ['id' => 312, 'department_id' => 32, 'username' => 'purchase_manager', 'is_active' => 1],
+            ['id' => 313, 'department_id' => 34, 'username' => 'store_assist', 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_roles')->insert([
+            ['id' => 3111, 'department_id' => 32, 'name' => 'Asst. Purchasing Manager', 'level_no' => 3, 'is_active' => 1],
+            ['id' => 3112, 'department_id' => 32, 'name' => 'Manager', 'level_no' => 3, 'is_active' => 1],
+            ['id' => 3113, 'department_id' => 34, 'name' => 'Assistant', 'level_no' => 2, 'is_active' => 1],
+        ]);
+        DB::connection('sqlsrv_menam')->table('department_role_users')->insert([
+            ['department_role_id' => 3111, 'user_id' => 311, 'is_primary' => 1, 'start_date' => now()->subDay()->toDateString()],
+            ['department_role_id' => 3112, 'user_id' => 312, 'is_primary' => 1, 'start_date' => now()->subDay()->toDateString()],
+            ['department_role_id' => 3113, 'user_id' => 313, 'is_primary' => 1, 'start_date' => now()->subDay()->toDateString()],
+        ]);
+
+        $engineeringResult = ApproverResolver::poPurchaseStoreAssistantApprovers(
+            (object) ['app_code' => 'po', 'current_step_no' => 2],
+            [
+                'document_department_id' => 31,
+                'document_department_name' => 'Engineering',
+                'workflow_step_no' => 2,
+            ],
+        );
+        $qaResult = ApproverResolver::poPurchaseStoreAssistantApprovers(
+            (object) ['app_code' => 'po', 'current_step_no' => 2],
+            [
+                'document_department_id' => 35,
+                'document_department_name' => 'QA',
+                'workflow_step_no' => 2,
+            ],
+        );
+
+        $this->assertSame([311], $engineeringResult->all());
+        $this->assertSame([311], $qaResult->all());
+    }
+
+    public function test_purchase_and_store_po_keep_the_existing_step_two_rules(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 34, 'code' => 'P', 'name' => 'Purchase', 'parent_id' => null, 'is_active' => 1],
+            ['id' => 35, 'code' => 'S', 'name' => 'Store', 'parent_id' => null, 'is_active' => 1],
+        ]);
+
+        $workflow = (object) ['app_code' => 'po', 'current_step_no' => 2];
+
+        $this->assertSame([], ApproverResolver::poPurchaseStoreAssistantApprovers($workflow, [
+            'document_department_id' => 34,
+            'document_department_name' => 'Purchase',
+            'workflow_step_no' => 2,
+        ])->all());
+        $this->assertSame([], ApproverResolver::poPurchaseStoreAssistantApprovers($workflow, [
+            'document_department_id' => 35,
+            'document_department_name' => 'Store',
+            'workflow_step_no' => 2,
+        ])->all());
+    }
+
     public function test_tooling_alias_overrides_the_resolved_rd_department(): void
     {
         DB::connection('sqlsrv_menam')->table('departments')->insert([

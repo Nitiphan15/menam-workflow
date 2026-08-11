@@ -370,9 +370,16 @@ class WorkflowEngine
             ->get();
 
         $stepContext = array_merge($context, ['workflow_step_no' => $stepNo]);
-        $approvers = ApproverResolver::poDepartmentApprovers($wf, $stepContext);
+        $requiresPurchaseStoreAssistant = ApproverResolver::shouldRoutePoThroughPurchaseStoreAssistant($wf, $stepContext);
+        $approvers = $requiresPurchaseStoreAssistant
+            ? ApproverResolver::poPurchaseStoreAssistantApprovers($wf, $stepContext)
+            : collect();
 
-        if ($approvers->isEmpty()) {
+        if (!$requiresPurchaseStoreAssistant) {
+            $approvers = ApproverResolver::poDepartmentApprovers($wf, $stepContext);
+        }
+
+        if ($approvers->isEmpty() && !$requiresPurchaseStoreAssistant) {
             foreach ($rules as $rule) {
                 $list = ApproverResolver::resolve($rule, $wf, $stepContext, $skipFlags);
                 $ruleApprovers = $list instanceof Collection ? $list : collect($list);
