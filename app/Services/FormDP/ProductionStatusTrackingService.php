@@ -4,6 +4,7 @@ namespace App\Services\FormDP;
 
 use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
+use App\Support\FormDP\ProductionProcessGroup;
 use App\Support\FormDP\ProductionWeightTolerance;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -30,10 +31,10 @@ class ProductionStatusTrackingService
 
         try {
             $sourceRows = $this->fetchProductionRows($filters)->values();
-            $processFilters = array_merge($filters, ['process_filter' => '']);
+            $processFilters = array_merge($filters, ['process_filter' => []]);
             $processOptions = $sourceRows
                 ->filter(fn($row) => $this->passesFilters($row, $processFilters))
-                ->groupBy(fn($row) => trim((string) ($row->current_process ?? '')) ?: 'Unknown')
+                ->groupBy(fn($row) => ProductionProcessGroup::label($row->current_process ?? null))
                 ->map(fn($items, $process) => [
                     'value' => $process,
                     'label' => $process,
@@ -54,13 +55,21 @@ class ProductionStatusTrackingService
             $dataError = $e->getMessage();
         }
 
+        $pendingConfirmationCount = $rows
+            ->filter(fn($r) => !DeliveryConfirmation::isActiveStatus($r->confirmation_status ?? null))
+            ->count();
         $postponeCount = $rows->filter(fn($r) => strtoupper((string) ($r->confirmation_status ?? '')) === 'POSTPONE')->count();
         $confirmationFilter = strtolower(trim((string) ($filters['confirmation_filter'] ?? 'all')));
-        if ($confirmationFilter === 'postpone') {
+        if ($confirmationFilter === 'pending') {
+            $rows = $rows
+                ->filter(fn($r) => !DeliveryConfirmation::isActiveStatus($r->confirmation_status ?? null))
+                ->values();
+        } elseif ($confirmationFilter === 'postpone') {
             $rows = $rows->filter(fn($r) => strtoupper((string) ($r->confirmation_status ?? '')) === 'POSTPONE')->values();
         }
 
         $summary = $this->buildSummary($rows);
+        $summary['pending_confirmation'] = $pendingConfirmationCount;
         $summary['postpone'] = $postponeCount;
 
         return [
@@ -1594,8 +1603,7 @@ SQL;
             }
         }
 
-        $processFilter = trim((string) ($filters['process_filter'] ?? ''));
-        if ($processFilter !== '' && strcasecmp(trim((string) ($row->current_process ?? '')), $processFilter) !== 0) {
+        if (!ProductionProcessGroup::matches($row->current_process ?? null, $filters['process_filter'] ?? [])) {
             return false;
         }
 
@@ -1677,7 +1685,7 @@ SQL;
             ->values();
 
         $processSummary = $rows
-            ->groupBy(fn($row) => trim((string) ($row->current_process ?? '')) ?: 'Unknown')
+            ->groupBy(fn($row) => ProductionProcessGroup::label($row->current_process ?? null))
             ->map(fn($items, $process) => [
                 'process' => $process,
                 'count' => $items->count(),
