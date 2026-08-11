@@ -21,6 +21,20 @@ class DeadstockSalesAccessTest extends TestCase
         $this->assertFalse(DeadstockSalesAccess::canManage($user, 'Export Sales 02'));
     }
 
+    public function test_division_mapping_grants_edit_access_to_both_salespeople_in_the_division(): void
+    {
+        $user = $this->user(['DS_IMPORT'], [
+            $this->access('D1'),
+            $this->access('D2'),
+        ]);
+
+        $this->assertTrue(DeadstockSalesAccess::canManage($user, 'คุณดิลก สอนแจ้ง'));
+        $this->assertTrue(DeadstockSalesAccess::canManage($user, 'คุณขวัญเรือน'));
+        $this->assertTrue(DeadstockSalesAccess::canManage($user, 'คุณปรียาพรรณ ทิพหา'));
+        $this->assertTrue(DeadstockSalesAccess::canManage($user, 'คุณนิตยา'));
+        $this->assertFalse(DeadstockSalesAccess::canManage($user, 'คุณธนัชชา'));
+    }
+
     public function test_username_alone_is_not_granted_access(): void
     {
         $user = $this->user();
