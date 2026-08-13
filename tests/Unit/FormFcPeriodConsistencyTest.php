@@ -26,8 +26,8 @@ class FormFcPeriodConsistencyTest extends TestCase
             '/slice\(-6\)/',
             '/take\(6\)/',
             '/\*\s*6\b/',
-            '/Avg\s*6M/i',
-            '/Forecast\s*6M/i',
+            '/Avg\s+6M/i',
+            '/Forecast\s+6M/i',
             '/6\s*\x{0E40}\x{0E14}\x{0E37}\x{0E2D}\x{0E19}/u',
         ];
 
