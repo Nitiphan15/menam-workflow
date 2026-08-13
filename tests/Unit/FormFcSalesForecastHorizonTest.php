@@ -28,6 +28,9 @@ class FormFcSalesForecastHorizonTest extends TestCase
         $this->assertSame(5, substr_count($blade, 'class="form-control form-control-sm manual-col-filter"'));
         $this->assertStringContainsString('function applyManualFilters()', $blade);
         $this->assertStringContainsString('function sortManualRows(', $blade);
+        $this->assertStringContainsString('id="columnFilterGroupMenu"', $blade);
+        $this->assertStringContainsString('function groupedColumnValues(', $blade);
+        $this->assertStringContainsString('count.textContent = `(${group.count})`;', $blade);
         $this->assertStringContainsString("if (tr.style.display === 'none') return;", $blade);
     }
 }

@@ -402,6 +402,39 @@
                 color: #64748b;
                 font-size: 11px;
             }
+
+            .column-filter-group-menu {
+                position: fixed;
+                z-index: 2000;
+                max-height: 280px;
+                overflow-y: auto;
+                border-radius: 10px;
+                box-shadow: 0 12px 28px rgba(15, 23, 42, .18);
+            }
+
+            .column-filter-group-menu .list-group-item {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 7px 10px;
+                font-size: 12px;
+                text-align: left;
+            }
+
+            .column-filter-group-menu .filter-group-value {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .column-filter-group-menu .filter-group-count {
+                flex: 0 0 auto;
+                min-width: 28px;
+                color: #64748b;
+                font-variant-numeric: tabular-nums;
+                text-align: right;
+            }
         </style>
 
         @if (!empty($isSubmitted) && empty($isApprovalMode))
@@ -1145,6 +1178,9 @@
             </div>
         </div>
     </div>
+
+    <div id="columnFilterGroupMenu" class="list-group column-filter-group-menu d-none" role="listbox"
+        aria-label="ค่าที่จัดกลุ่มสำหรับตัวกรอง"></div>
 
     <script>
         const OLD_PAYLOAD_JSON = @json(old('payload'));
@@ -2136,6 +2172,91 @@
             return String(v).toLowerCase();
         }
 
+        function groupedColumnValues(input) {
+            const col = parseInt(input?.dataset.filterCol || '-1', 10);
+            if (col < 0) return [];
+
+            const rows = input.classList.contains('manual-col-filter') ? manualTableRows() : tableRows();
+            const groups = new Map();
+
+            rows.forEach(tr => {
+                const value = String(getCellInputAwareValue(tr.children[col]) ?? '').trim();
+                if (value === '') return;
+
+                const key = value.toLocaleLowerCase();
+                const current = groups.get(key);
+                if (current) {
+                    current.count += 1;
+                } else {
+                    groups.set(key, { value, count: 1 });
+                }
+            });
+
+            return Array.from(groups.values()).sort((a, b) =>
+                a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: 'base' }));
+        }
+
+        const columnFilterGroupMenu = document.getElementById('columnFilterGroupMenu');
+        let activeColumnFilterInput = null;
+
+        function hideColumnFilterGroups() {
+            activeColumnFilterInput = null;
+            columnFilterGroupMenu?.classList.add('d-none');
+            columnFilterGroupMenu?.replaceChildren();
+        }
+
+        function showColumnFilterGroups(input) {
+            if (!input || !columnFilterGroupMenu) return;
+
+            const query = String(input.value || '').trim().toLocaleLowerCase();
+            const options = groupedColumnValues(input)
+                .filter(group => query === '' || group.value.toLocaleLowerCase().includes(query))
+                .slice(0, 100);
+
+            activeColumnFilterInput = input;
+            columnFilterGroupMenu.replaceChildren();
+
+            if (options.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'list-group-item text-muted';
+                empty.textContent = 'ไม่พบค่าที่ตรงกัน';
+                columnFilterGroupMenu.appendChild(empty);
+            } else {
+                options.forEach(group => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'list-group-item list-group-item-action';
+                    button.dataset.filterValue = group.value;
+
+                    const value = document.createElement('span');
+                    value.className = 'filter-group-value';
+                    value.textContent = group.value;
+
+                    const count = document.createElement('span');
+                    count.className = 'filter-group-count';
+                    count.textContent = `(${group.count})`;
+
+                    button.append(value, count);
+                    columnFilterGroupMenu.appendChild(button);
+                });
+            }
+
+            const rect = input.getBoundingClientRect();
+            columnFilterGroupMenu.style.left = `${Math.max(8, rect.left)}px`;
+            columnFilterGroupMenu.style.top = `${rect.bottom + 4}px`;
+            columnFilterGroupMenu.style.width = `${Math.max(180, rect.width)}px`;
+            columnFilterGroupMenu.classList.remove('d-none');
+        }
+
+        function bindGroupedColumnFilter(input) {
+            input.addEventListener('focus', () => showColumnFilterGroups(input));
+            input.addEventListener('click', () => showColumnFilterGroups(input));
+            input.addEventListener('input', () => showColumnFilterGroups(input));
+            input.addEventListener('blur', () => setTimeout(() => {
+                if (activeColumnFilterInput === input) hideColumnFilterGroups();
+            }, 150));
+        }
+
         /* ================== MANUAL FORECAST EXCEL-STYLE FILTER / GROUP ORDER ================== */
         function manualTableRows() {
             return manualBodyEl ? Array.from(manualBodyEl.querySelectorAll('.js-manual-row')) : [];
@@ -2309,6 +2430,27 @@
         });
         document.getElementById('globalSearch')?.addEventListener('input', applyFilters);
         applyFilters();
+
+        document.querySelectorAll(
+            '#gen-form table.excel thead input.col-filter, #manualForecastTable input.manual-col-filter'
+        ).forEach(bindGroupedColumnFilter);
+
+        columnFilterGroupMenu?.addEventListener('mousedown', event => event.preventDefault());
+        columnFilterGroupMenu?.addEventListener('click', event => {
+            const option = event.target.closest('[data-filter-value]');
+            if (!option || !activeColumnFilterInput) return;
+
+            activeColumnFilterInput.value = option.dataset.filterValue || '';
+            if (activeColumnFilterInput.classList.contains('manual-col-filter')) {
+                applyManualFilters();
+            } else {
+                applyFilters();
+            }
+            hideColumnFilterGroups();
+        });
+
+        window.addEventListener('resize', hideColumnFilterGroups);
+        document.addEventListener('scroll', hideColumnFilterGroups, true);
 
         /* ================== EXPORT EXCEL (client-side .xls via HTML) ================== */
         document.getElementById('btnExportExcel')?.addEventListener('click', function() {
