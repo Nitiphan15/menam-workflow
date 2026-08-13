@@ -27,10 +27,9 @@ class PoPourPdfOverrideVisibilityTest extends TestCase
             dirname(__DIR__, 2) . '/app/Http/Controllers/Po/PoApprovalController.php',
         );
 
-        $this->assertStringContainsString(
-            "return redirect()->route('po.myActions')->with('ok', 'อนุมัติ PO เรียบร้อยแล้ว');",
-            $controller,
-        );
+        $this->assertStringContainsString("->route('po.myActions')->with('ok', \$message)", $controller);
+        $this->assertStringContainsString('catch (NotFoundHttpException $exception)', $controller);
+        $this->assertStringContainsString('PO approval saved but notification failed', $controller);
     }
 
     public function test_opening_existing_po_is_read_only(): void
@@ -44,6 +43,8 @@ class PoPourPdfOverrideVisibilityTest extends TestCase
 
         $this->assertStringNotContainsString('syncHeaderFromErp', $showMethod);
         $this->assertStringNotContainsString('->save()', $showMethod);
+        $this->assertStringNotContainsString('findOrFail', $showMethod);
         $this->assertStringContainsString('getDetailRows', $showMethod);
+        $this->assertStringContainsString("->route('po.myActions')", $showMethod);
     }
 }
