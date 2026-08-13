@@ -236,7 +236,7 @@ class DivisionPartMasterController extends Controller
             ];
         })->values();
 
-        return view('formfc.division_part_master', [
+        return view('formfc.division.part_master', [
             'division'             => $division,
             'part'                 => $part,
             'rows'                 => $rows,

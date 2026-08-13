@@ -2221,7 +2221,7 @@ class ForecastRmDivisionController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        return view('formfc.division_forecast_planning', [
+        return view('formfc.division.forecast_planning', [
             'rows' => $paginatedRows,
             'allDivisions' => $this->planningDivisionCodes(),
             'selectedDivisions' => $selectedDivisions,
@@ -2346,7 +2346,7 @@ class ForecastRmDivisionController extends Controller
         }
 
         if (!$this->submissionTableAvailable()) {
-            return view('formfc.division_documents', [
+            return view('formfc.division.documents', [
                 'rows' => collect(),
                 'q' => trim((string) $request->query('q', '')),
                 'status' => strtoupper(trim((string) $request->query('status', 'ALL'))),
@@ -2376,7 +2376,7 @@ class ForecastRmDivisionController extends Controller
             return $row;
         });
 
-        return view('formfc.division_documents', [
+        return view('formfc.division.documents', [
             'rows' => $rows,
             'q' => trim((string) $request->query('q', '')),
             'status' => strtoupper(trim((string) $request->query('status', 'ALL'))),
@@ -2470,7 +2470,7 @@ class ForecastRmDivisionController extends Controller
         }
 
         if (!$this->submissionTableAvailable()) {
-            return view('formfc.division_approval_list', [
+            return view('formfc.division.approval_list', [
                 'rows' => collect(),
                 'q' => trim((string) $request->query('q', '')),
                 'status' => trim((string) $request->query('status', '')),
@@ -2537,7 +2537,7 @@ class ForecastRmDivisionController extends Controller
             return $row;
         });
 
-        return view('formfc.division_approval_list', [
+        return view('formfc.division.approval_list', [
             'rows' => $rows,
             'q' => $qText,
             'status' => $status,
@@ -3036,7 +3036,7 @@ class ForecastRmDivisionController extends Controller
             ? WorkflowDb::historyWithActors('fc', (int) $workflow->id)
             : collect();
 
-        return view('formfc.division_forecast', [
+        return view('formfc.division.forecast', [
             'salesCode' => $salesCode,
             'rmLike' => $rmLike,
             'fgLike' => $fgLike,

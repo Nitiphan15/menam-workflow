@@ -261,7 +261,7 @@ class ForecastRmController extends Controller
             return $row;
         })->values();
 
-        return view('formfc.division_forecast', [
+        return view('formfc.division.forecast', [
             'salesCode'     => $salesCode,
             'skuLike'       => $skuLike,
             'companyMode'   => $companyMode,
@@ -1074,7 +1074,7 @@ class ForecastRmController extends Controller
             'manual_order_sum'      => (float) $rows->sum('manual_order_qty'),
         ];
 
-        return view('formfc.index', [
+        return view('formfc.forecast.index', [
             'skuLike'           => $skuLike,
             'companyMode'       => $companyMode,
             'sinceAvg'          => $data['sinceAvg'],
@@ -1303,7 +1303,7 @@ class ForecastRmController extends Controller
         $mode = $this->supplierShortageMode($request->query('source_mode', 'final'));
         $report = $this->buildSupplierShortageReport($payload['rows'], $mode);
 
-        return view('formfc.supplier_shortage', $payload + $report + [
+        return view('formfc.forecast.supplier_shortage', $payload + $report + [
             'sourceMode' => $mode,
             'supplierOptions' => $this->getSupplierOptions(),
             'gradeOptions' => $this->getGradeOptions(),

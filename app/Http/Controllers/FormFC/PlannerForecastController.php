@@ -485,7 +485,7 @@ class PlannerForecastController extends Controller
             'forecast_6m_sum' => (float) $rows->sum('forecast_6m'),
         ];
 
-        return view('formfc.planner_forecast', [
+        return view('formfc.planner.forecast', [
             'fgLike' => $fgKeywordText,
             'selectedFg' => $selectedFg,
             'selectedSo' => $selectedSo,
