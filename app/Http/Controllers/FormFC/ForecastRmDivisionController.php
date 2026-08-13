@@ -908,6 +908,19 @@ class ForecastRmDivisionController extends Controller
         return $this->rowCustomerFgOwnerKey($row);
     }
 
+    private function shouldDisplayManualRow(array $row): bool
+    {
+        if ((float) ($row['avg6'] ?? 0) > 0) {
+            return false;
+        }
+
+        $rmPart = strtoupper(trim((string) ($row['rm_partnumber'] ?? '')));
+        $hasSavedManual = (int) ($row['manual_forecast_saved'] ?? 0) === 1
+            || (float) ($row['manual_forecast_1m'] ?? 0) > 0;
+
+        return $rmPart !== '' || $hasSavedManual;
+    }
+
     private function findOverrideCustomerCodeForName(?string $customerName): ?string
     {
         $customerName = trim((string) $customerName);
@@ -2990,10 +3003,7 @@ class ForecastRmDivisionController extends Controller
             ->all();
 
         $manualOnlyRows = $rows
-            ->filter(function ($r) {
-                $rmPart = strtoupper(trim((string) ($r['rm_partnumber'] ?? '')));
-                return (float) ($r['avg6'] ?? 0) <= 0 && $rmPart !== '';
-            })
+            ->filter(fn($r) => $this->shouldDisplayManualRow((array) $r))
             ->reject(fn($r) => in_array($this->rowCustomerFgDedupKey((array) $r), $rowsWithHistoryKeys, true))
             ->groupBy(fn($r) => $this->rowCustomerFgDedupKey((array) $r))
             ->map(function ($group) {

@@ -44,4 +44,36 @@ class FormFcSalesForecastHorizonTest extends TestCase
         $this->assertStringContainsString('event.target === columnFilterGroupMenu', $blade);
         $this->assertStringContainsString("if (tr.style.display === 'none') return;", $blade);
     }
+
+    public function test_saved_manual_row_remains_visible_when_rm_mapping_is_missing(): void
+    {
+        $controller = new ForecastRmDivisionController();
+        $method = (new ReflectionClass($controller))->getMethod('shouldDisplayManualRow');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke($controller, [
+            'avg6' => 0,
+            'rm_partnumber' => '',
+            'manual_forecast_saved' => 1,
+            'manual_forecast_1m' => 125,
+        ]));
+        $this->assertTrue($method->invoke($controller, [
+            'avg6' => 0,
+            'rm_partnumber' => 'RM-001',
+            'manual_forecast_saved' => 0,
+            'manual_forecast_1m' => 0,
+        ]));
+        $this->assertFalse($method->invoke($controller, [
+            'avg6' => 0,
+            'rm_partnumber' => '',
+            'manual_forecast_saved' => 0,
+            'manual_forecast_1m' => 0,
+        ]));
+        $this->assertFalse($method->invoke($controller, [
+            'avg6' => 1,
+            'rm_partnumber' => '',
+            'manual_forecast_saved' => 1,
+            'manual_forecast_1m' => 125,
+        ]));
+    }
 }
