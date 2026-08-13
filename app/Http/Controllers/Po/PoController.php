@@ -159,16 +159,6 @@ class PoController extends Controller
     public function show($id)
     {
         $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->findOrFail($id);
-        $po = $this->erpService->syncHeaderFromErp(
-            $po->ordnumber,
-            auth()->id(),
-            $po->site,
-            useStoredWhenErpMissing: true,
-        );
-        $po->load([
-            'attachments.creator',
-            'workflow',
-        ]);
         $detailRows = $this->erpService->getDetailRows($po->ordnumber, $po->site);
         $headerRow = $detailRows->first();
         $signatures = $this->erpService->printWorkflowSignatures($po->workflow_id);

@@ -33,14 +33,17 @@ class PoPourPdfOverrideVisibilityTest extends TestCase
         );
     }
 
-    public function test_existing_po_uses_stored_header_when_erp_temporarily_returns_no_rows(): void
+    public function test_opening_existing_po_is_read_only(): void
     {
-        $root = dirname(__DIR__, 2);
-        $controller = file_get_contents($root . '/app/Http/Controllers/Po/PoController.php');
-        $service = file_get_contents($root . '/app/Services/Po/PoErpService.php');
+        $controller = file_get_contents(
+            dirname(__DIR__, 2) . '/app/Http/Controllers/Po/PoController.php',
+        );
+        $showStart = strpos($controller, 'public function show($id)');
+        $showEnd = strpos($controller, 'public function edit($id)', $showStart);
+        $showMethod = substr($controller, $showStart, $showEnd - $showStart);
 
-        $this->assertStringContainsString('useStoredWhenErpMissing: true', $controller);
-        $this->assertStringContainsString('if ($useStoredWhenErpMissing && $record)', $service);
-        $this->assertStringContainsString("abort(404, 'PO not found in ERP')", $service);
+        $this->assertStringNotContainsString('syncHeaderFromErp', $showMethod);
+        $this->assertStringNotContainsString('->save()', $showMethod);
+        $this->assertStringContainsString('getDetailRows', $showMethod);
     }
 }

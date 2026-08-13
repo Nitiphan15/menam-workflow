@@ -249,31 +249,18 @@ class PoErpService
         return $id ? (int) $id : null;
     }
 
-    public function syncHeaderFromErp(
-        string $ordnumber,
-        ?int $userId = null,
-        ?string $sourceSystem = null,
-        bool $useStoredWhenErpMissing = false,
-    ): PoHeader
+    public function syncHeaderFromErp(string $ordnumber, ?int $userId = null, ?string $sourceSystem = null): PoHeader
     {
         $sourceSystem = self::normalizeSource($sourceSystem) ?? self::SOURCE_WIRE;
+        $header = $this->firstHeaderRow($ordnumber, $sourceSystem);
+        abort_if(!$header, 404, 'PO not found in ERP');
+
         $lookup = ['ordnumber' => $ordnumber];
         if ($this->poHeadersHaveSiteColumn()) {
             $lookup['site'] = $sourceSystem;
         }
 
-        $record = PoHeader::query()->where($lookup)->first();
-        $header = $this->firstHeaderRow($ordnumber, $sourceSystem);
-
-        if (!$header) {
-            if ($useStoredWhenErpMissing && $record) {
-                return $record->load(['attachments', 'workflow']);
-            }
-
-            abort(404, 'PO not found in ERP');
-        }
-
-        $record ??= new PoHeader($lookup);
+        $record = PoHeader::query()->firstOrNew($lookup);
         $normalizedStatus = $this->normalizeStatusCode($record->status_code, $record->workflow_id) ?: 'DRAFT';
         $payload = [
             'site' => $sourceSystem,
