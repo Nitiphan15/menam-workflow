@@ -8,6 +8,7 @@ use App\Mail\FcDivisionNeedsApprovalMail;
 use App\Mail\FcDivisionRejectedMail;
 use App\Services\WorkflowEngine;
 use App\Support\WorkflowDb;
+use App\Support\FormFcPeriod;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -25,7 +26,7 @@ class ForecastRmDivisionController extends Controller
      * 4-month total. Rename/migrate those legacy columns only after the trial
      * horizon is confirmed.
      */
-    private const FORECAST_HORIZON_MONTHS = 4;
+    private const FORECAST_HORIZON_MONTHS = FormFcPeriod::MONTHS;
 
     private string $fcConn = 'sqlsrv_menam';
     private string $divisionSubmissionTable = 'fc_rm_division_forecast_submissions';
@@ -2610,7 +2611,7 @@ class ForecastRmDivisionController extends Controller
         }
         $rowDefaultK = $selectedK > 0 ? $selectedK : $defaultK;
 
-        $historyMonths = collect(range(0, 5))
+        $historyMonths = collect(range(0, FormFcPeriod::MONTHS - 1))
             ->map(fn($i) => (clone $baseMonth)->subMonths($i))
             ->reverse()
             ->values();
@@ -2626,7 +2627,7 @@ class ForecastRmDivisionController extends Controller
             $salesCode,
             $rmKeywords,
             $customerNameKeywords,
-            (clone $baseMonth)->subMonths(5)->startOfMonth(),
+            (clone $baseMonth)->subMonths(FormFcPeriod::MONTHS - 1)->startOfMonth(),
             (clone $baseMonth)->endOfMonth(),
             $companyMode,
             $customerIds
@@ -2806,7 +2807,7 @@ class ForecastRmDivisionController extends Controller
         );
         $manualSeedHistory = $this->fetchHistoryForSavedCustomerFgRows(
             $missingManualSeeds,
-            (clone $baseMonth)->subMonths(5)->startOfMonth(),
+            (clone $baseMonth)->subMonths(FormFcPeriod::MONTHS - 1)->startOfMonth(),
             (clone $baseMonth)->endOfMonth(),
             $historyYm,
             $companyMode
@@ -3890,7 +3891,9 @@ class ForecastRmDivisionController extends Controller
             'fg_description'      => isset($r['fg_description']) ? (string) $r['fg_description'] : null,
             'fg_partnumber'       => isset($r['fg_partnumber']) ? (string) $r['fg_partnumber'] : null,
             'forecast_1m'         => isset($r['forecast_1m']) ? round((float) $r['forecast_1m'], 2) : null,
-            'forecast_6m'         => isset($r['forecast_6m']) ? round((float) $r['forecast_6m'], 2) : null,
+            'forecast_6m'         => isset($r['forecast_1m'])
+                ? round((float) $r['forecast_1m'] * FormFcPeriod::MONTHS, 2)
+                : null,
             'forecast_base_month' => $r['forecast_base_month'] ?? null,
             'forecast_month'      => $r['forecast_month'] ?? null,
             'forecast_qty'        => isset($r['forecast_qty']) ? round((float) $r['forecast_qty'], 2) : null,

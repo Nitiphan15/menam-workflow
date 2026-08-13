@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\FormFC;
 
 use App\Http\Controllers\Controller;
+use App\Support\FormFcPeriod;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -114,7 +115,7 @@ class DivisionPartMasterController extends Controller
             return collect();
         }
 
-        $start = $start ?: now('Asia/Bangkok')->startOfMonth()->subMonths(6)->startOfMonth();
+        $start = $start ?: now('Asia/Bangkok')->startOfMonth()->subMonths(FormFcPeriod::MONTHS)->startOfMonth();
         $end   = $end   ?: now('Asia/Bangkok')->startOfMonth()->subMonths(1)->endOfMonth();
 
         $fetch = function (string $conn) use ($salespersonIds, $start, $end, $partKeyword) {
@@ -211,7 +212,7 @@ class DivisionPartMasterController extends Controller
         $forecastRows = $this->fetchDivisionFgRowsFromForecastSource(
             $division,
             $part,
-            (clone $baseMonth)->subMonths(6)->startOfMonth(),
+            (clone $baseMonth)->subMonths(FormFcPeriod::MONTHS)->startOfMonth(),
             (clone $baseMonth)->subMonths(1)->endOfMonth()
         );
 

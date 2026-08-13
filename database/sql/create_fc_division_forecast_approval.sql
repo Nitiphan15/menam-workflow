@@ -10,6 +10,7 @@ BEGIN
         fg_description NVARCHAR(500) NULL,
         rm_partnumber NVARCHAR(100) NULL,
         division_forecast_1m DECIMAL(18,2) NULL,
+        -- Legacy _6m names temporarily store the Form FC 4-month trial total.
         division_forecast_6m DECIMAL(18,2) NULL,
         approval_k_factor DECIMAL(18,1) NULL,
         approval_forecast_1m DECIMAL(18,2) NOT NULL,

@@ -166,7 +166,7 @@
                                 <th>FG Part</th>
                                 <th>FG Description</th>
                                 <th>RM Part</th>
-                                <th>Avg 6M</th>
+                                <th>Avg {{ $forecastHorizonMonths }}M</th>
                                 <th>K</th>
                                 @foreach ($futureLabels as $label)
                                     <th>{{ $label }}</th>
