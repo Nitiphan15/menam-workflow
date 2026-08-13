@@ -13,11 +13,12 @@ class PoAuthorizedSignatureOverlayTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            '$authorizedBy, 0.39 * $pageWidth, 0.868 * $pageHeight, 0.22 * $pageWidth, 0.052 * $pageHeight',
+            '$authorizedBy, 0.385 * $pageWidth, 0.864 * $pageHeight, 0.23 * $pageWidth, 0.056 * $pageHeight',
             $controller,
         );
-        $this->assertStringContainsString('strokeBoost: 0.12', $controller);
+        $this->assertStringContainsString('strokeBoost: 0.18', $controller);
         $this->assertStringContainsString('if ($strokeBoost > 0)', $controller);
+        $this->assertStringContainsString('$diagonalBoost = $strokeBoost * 0.7', $controller);
         $this->assertStringContainsString('$imageX + $offsetX', $controller);
         $this->assertStringContainsString('$imageY + $offsetY', $controller);
     }
