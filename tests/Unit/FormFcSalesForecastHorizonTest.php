@@ -24,7 +24,7 @@ class FormFcSalesForecastHorizonTest extends TestCase
 
     public function test_manual_forecast_table_has_excel_style_column_filters(): void
     {
-        $blade = file_get_contents(resource_path('views/formfc/division_forecast.blade.php'));
+        $blade = file_get_contents(resource_path('views/formfc/division/forecast.blade.php'));
 
         $this->assertStringContainsString('id="manualForecastTable"', $blade);
         $this->assertSame(5, substr_count($blade, 'class="form-control form-control-sm manual-col-filter"'));

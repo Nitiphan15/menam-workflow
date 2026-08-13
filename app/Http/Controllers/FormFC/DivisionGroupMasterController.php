@@ -67,7 +67,7 @@ class DivisionGroupMasterController extends Controller
                 ->get();
         }
 
-        return view('formfc.division_group_master', [
+        return view('formfc.division.group_master', [
             'groups' => $groups,
             'filters' => [
                 'q' => $search,
