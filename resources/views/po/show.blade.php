@@ -294,6 +294,7 @@
                     </div>
                 </div>
 
+                @if ($canEditPdfOverride)
                 @php
                     $pdfDescriptionOverrideText = collect(old('pdf_description_overrides', $po->pdf_description_overrides ?? []))
                         ->map(fn ($value) => trim((string) $value))
@@ -378,6 +379,7 @@
                         </form>
                     </div>
                 </div>
+                @endif
 
                 <div class="card po-attach-card shadow-sm">
                     <div class="card-header d-flex justify-content-between align-items-center gap-2">

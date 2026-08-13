@@ -318,7 +318,7 @@ class PoApprovalController extends Controller
             $this->notifyPendingApprovers(collect([$po]));
         }
 
-        return redirect()->route('po.show', $po->id)->with('ok', 'อนุมัติ PO เรียบร้อยแล้ว');
+        return redirect()->route('po.myActions')->with('ok', 'อนุมัติ PO เรียบร้อยแล้ว');
     }
 
     public function reject(Request $request, $id)
