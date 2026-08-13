@@ -2176,6 +2176,9 @@
             const col = parseInt(input?.dataset.filterCol || '-1', 10);
             if (col < 0) return [];
 
+            const cached = groupedColumnValueCache.get(input);
+            if (cached) return cached;
+
             const rows = input.classList.contains('manual-col-filter') ? manualTableRows() : tableRows();
             const groups = new Map();
 
@@ -2192,11 +2195,16 @@
                 }
             });
 
-            return Array.from(groups.values()).sort((a, b) =>
+            const values = Array.from(groups.values()).sort((a, b) =>
                 a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: 'base' }));
+            groupedColumnValueCache.set(input, values);
+
+            return values;
         }
 
         const columnFilterGroupMenu = document.getElementById('columnFilterGroupMenu');
+        const groupedColumnValueCache = new WeakMap();
+        const columnFilterRefreshTimers = new WeakMap();
         let activeColumnFilterInput = null;
         let columnFilterMenuPointerDown = false;
 
@@ -2263,9 +2271,12 @@
         }
 
         function bindGroupedColumnFilter(input) {
-            input.addEventListener('focus', () => showColumnFilterGroups(input));
+            input.addEventListener('focus', () => requestAnimationFrame(() => showColumnFilterGroups(input)));
             input.addEventListener('click', () => showColumnFilterGroups(input));
-            input.addEventListener('input', () => showColumnFilterGroups(input));
+            input.addEventListener('input', () => {
+                delete input.dataset.filterExact;
+                scheduleColumnFilterRefresh(input);
+            });
             input.addEventListener('blur', () => setTimeout(() => {
                 if (activeColumnFilterInput === input && !columnFilterMenuPointerDown) {
                     hideColumnFilterGroups();
@@ -2309,12 +2320,18 @@
                 .map(el => ({
                     col: parseInt(el.dataset.filterCol, 10),
                     value: (el.value || '').trim(),
+                    exact: (el.dataset.filterExact || '').trim().toLowerCase(),
                 }))
                 .filter(filter => filter.value !== '');
 
             manualTableRows().forEach(tr => {
-                const visible = filters.every(filter =>
-                    matchesManualFilter(getCellInputAwareValue(tr.children[filter.col]), filter.value));
+                const visible = filters.every(filter => {
+                    const cellValue = getCellInputAwareValue(tr.children[filter.col]);
+                    if (filter.exact !== '') {
+                        return String(cellValue ?? '').trim().toLowerCase() === filter.exact;
+                    }
+                    return matchesManualFilter(cellValue, filter.value);
+                });
                 tr.style.display = visible ? '' : 'none';
             });
         }
@@ -2351,11 +2368,6 @@
                 this.querySelector('.sort-ind').textContent = dir === 1 ? '▲' : '▼';
                 sortManualRows(col, type, dir);
             });
-        });
-
-        document.querySelectorAll('#manualForecastTable .manual-col-filter').forEach(el => {
-            el.addEventListener('input', applyManualFilters);
-            el.addEventListener('change', applyManualFilters);
         });
 
         sortManualRows();
@@ -2396,6 +2408,7 @@
             const filters = Array.from(document.querySelectorAll('#gen-form table.excel thead .col-filter')).map(el => ({
                 col: parseInt(el.dataset.filterCol, 10),
                 value: (el.value || '').trim().toLowerCase(),
+                exact: (el.dataset.filterExact || '').trim().toLowerCase(),
                 type: el.tagName === 'SELECT' ? 'select' : 'text',
             })).filter(f => f.value !== '');
 
@@ -2420,6 +2433,11 @@
                                 show = false;
                                 break;
                             }
+                        } else if (f.exact !== '') {
+                            if (String(cellVal).trim().toLowerCase() !== f.exact) {
+                                show = false;
+                                break;
+                            }
                         } else {
                             // ถ้า value ขึ้นต้นด้วย >= ตัวเลข
                             const numMatch = f.value.match(/^>=?\s*(-?\d+(?:\.\d+)?)$/);
@@ -2441,8 +2459,7 @@
             });
         }
         document.querySelectorAll('#gen-form table.excel thead .col-filter').forEach(el => {
-            el.addEventListener('input', applyFilters);
-            el.addEventListener('change', applyFilters);
+            if (el.tagName === 'SELECT') el.addEventListener('change', applyFilters);
         });
         document.getElementById('globalSearch')?.addEventListener('input', applyFilters);
         applyFilters();
@@ -2451,24 +2468,51 @@
             '#gen-form table.excel thead input.col-filter, #manualForecastTable input.manual-col-filter'
         ).forEach(bindGroupedColumnFilter);
 
-        columnFilterGroupMenu?.addEventListener('mousedown', event => {
-            columnFilterMenuPointerDown = true;
-            if (event.target.closest('[data-filter-value]')) event.preventDefault();
-        });
-        document.addEventListener('mouseup', () => {
-            setTimeout(() => columnFilterMenuPointerDown = false, 0);
-        });
-        columnFilterGroupMenu?.addEventListener('click', event => {
-            const option = event.target.closest('[data-filter-value]');
-            if (!option || !activeColumnFilterInput) return;
+        function scheduleColumnFilterRefresh(input) {
+            const previousTimer = columnFilterRefreshTimers.get(input);
+            if (previousTimer) clearTimeout(previousTimer);
 
-            activeColumnFilterInput.value = option.dataset.filterValue || '';
-            if (activeColumnFilterInput.classList.contains('manual-col-filter')) {
+            const timer = setTimeout(() => {
+                columnFilterRefreshTimers.delete(input);
+                if (input.classList.contains('manual-col-filter')) {
+                    applyManualFilters();
+                } else {
+                    applyFilters();
+                }
+                if (document.activeElement === input) showColumnFilterGroups(input);
+            }, 80);
+            columnFilterRefreshTimers.set(input, timer);
+        }
+
+        function selectColumnFilterGroup(option) {
+            const input = activeColumnFilterInput;
+            if (!option || !input) return;
+
+            const selectedValue = option.dataset.filterValue || '';
+            const pendingTimer = columnFilterRefreshTimers.get(input);
+            if (pendingTimer) clearTimeout(pendingTimer);
+            columnFilterRefreshTimers.delete(input);
+
+            input.value = selectedValue;
+            input.dataset.filterExact = selectedValue.trim().toLowerCase();
+            if (input.classList.contains('manual-col-filter')) {
                 applyManualFilters();
             } else {
                 applyFilters();
             }
             hideColumnFilterGroups();
+        }
+
+        columnFilterGroupMenu?.addEventListener('pointerdown', event => {
+            columnFilterMenuPointerDown = true;
+            const option = event.target.closest('[data-filter-value]');
+            if (!option) return;
+
+            event.preventDefault();
+            selectColumnFilterGroup(option);
+        });
+        document.addEventListener('pointerup', () => {
+            setTimeout(() => columnFilterMenuPointerDown = false, 0);
         });
 
         window.addEventListener('resize', () => positionColumnFilterGroups());
