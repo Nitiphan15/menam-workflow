@@ -1002,16 +1002,16 @@ class PoExportController extends Controller
 
         $this->overlaySignatureSlot($pdf, $submittedBy, 0.105 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.132 * $pageWidth, 0.090 * $pageWidth);
         $this->overlaySignatureSlot($pdf, $purchaseApprovedBy, 0.225 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.252 * $pageWidth, 0.090 * $pageWidth);
-        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.385 * $pageWidth, 0.864 * $pageHeight, 0.23 * $pageWidth, 0.056 * $pageHeight, 0.955 * $pageHeight, $tempImages, strokeBoost: 0.18);
+        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.375 * $pageWidth, 0.858 * $pageHeight, 0.25 * $pageWidth, 0.060 * $pageHeight, 0.955 * $pageHeight, $tempImages, strokeBoost: 0.25, trimTransparent: true);
     }
 
-    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null, float $strokeBoost = 0): void
+    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null, float $strokeBoost = 0, bool $trimTransparent = false): void
     {
         if (!$signature || empty($signature->signature_data_uri)) {
             return;
         }
 
-        $imagePath = $this->signatureTempImage((string) $signature->signature_data_uri);
+        $imagePath = $this->signatureTempImage((string) $signature->signature_data_uri, $trimTransparent);
         if (!$imagePath) {
             return;
         }
@@ -1062,7 +1062,7 @@ class PoExportController extends Controller
         ];
     }
 
-    private function signatureTempImage(string $dataUri): ?string
+    private function signatureTempImage(string $dataUri, bool $trimTransparent = false): ?string
     {
         if (!preg_match('/^data:image\/png;base64,(.+)$/', $dataUri, $matches)) {
             return null;
@@ -1073,10 +1073,77 @@ class PoExportController extends Controller
             return null;
         }
 
+        if ($trimTransparent) {
+            $trimmed = $this->trimTransparentSignaturePng($contents);
+            if ($trimmed !== false) {
+                $contents = $trimmed;
+            }
+        }
+
         $path = storage_path('app/tmp/po-pdf/' . Str::uuid() . '-signature.png');
         File::put($path, $contents);
 
         return $path;
+    }
+
+    private function trimTransparentSignaturePng(string $contents): string|false
+    {
+        $image = @imagecreatefromstring($contents);
+        if (!$image) {
+            return false;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $minX = $width;
+        $minY = $height;
+        $maxX = -1;
+        $maxY = -1;
+
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $alpha = (imagecolorat($image, $x, $y) >> 24) & 0x7F;
+                if ($alpha >= 120) {
+                    continue;
+                }
+
+                $minX = min($minX, $x);
+                $minY = min($minY, $y);
+                $maxX = max($maxX, $x);
+                $maxY = max($maxY, $y);
+            }
+        }
+
+        if ($maxX < $minX || $maxY < $minY) {
+            imagedestroy($image);
+            return false;
+        }
+
+        $padding = 4;
+        $cropX = max(0, $minX - $padding);
+        $cropY = max(0, $minY - $padding);
+        $cropWidth = min($width - $cropX, ($maxX - $minX + 1) + ($padding * 2));
+        $cropHeight = min($height - $cropY, ($maxY - $minY + 1) + ($padding * 2));
+        $cropped = imagecrop($image, [
+            'x' => $cropX,
+            'y' => $cropY,
+            'width' => $cropWidth,
+            'height' => $cropHeight,
+        ]);
+        imagedestroy($image);
+
+        if (!$cropped) {
+            return false;
+        }
+
+        imagealphablending($cropped, false);
+        imagesavealpha($cropped, true);
+        ob_start();
+        imagepng($cropped, null, 6);
+        $png = ob_get_clean();
+        imagedestroy($cropped);
+
+        return $png === false ? false : $png;
     }
 
     private function safePdfFileName(string $fileName): string
