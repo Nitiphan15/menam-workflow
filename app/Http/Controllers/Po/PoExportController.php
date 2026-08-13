@@ -1002,7 +1002,7 @@ class PoExportController extends Controller
 
         $this->overlaySignatureSlot($pdf, $submittedBy, 0.105 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.132 * $pageWidth, 0.090 * $pageWidth);
         $this->overlaySignatureSlot($pdf, $purchaseApprovedBy, 0.225 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.252 * $pageWidth, 0.090 * $pageWidth);
-        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.39 * $pageWidth, 0.873 * $pageHeight, 0.22 * $pageWidth, 0.051 * $pageHeight, 0.955 * $pageHeight, $tempImages, strokeBoost: 0.05, trimTransparent: true);
+        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.39 * $pageWidth, 0.873 * $pageHeight, 0.22 * $pageWidth, 0.051 * $pageHeight, 0.955 * $pageHeight, $tempImages, strokeBoost: 0.02, trimTransparent: true);
     }
 
     private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null, float $strokeBoost = 0, bool $trimTransparent = false): void
