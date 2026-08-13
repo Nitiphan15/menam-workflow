@@ -9,17 +9,17 @@ use ReflectionMethod;
 
 class PoAuthorizedSignatureOverlayTest extends TestCase
 {
-    public function test_authorized_signature_is_larger_and_has_a_stroke_boost(): void
+    public function test_authorized_signature_uses_the_configured_dimensions_and_stroke(): void
     {
         $controller = file_get_contents(
             dirname(__DIR__, 2) . '/app/Http/Controllers/Po/PoExportController.php',
         );
 
         $this->assertStringContainsString(
-            '$authorizedBy, 0.425 * $pageWidth, 0.874 * $pageHeight, 0.15 * $pageWidth, 0.030 * $pageHeight',
+            '$authorizedBy, 0.39 * $pageWidth, 0.868 * $pageHeight, 0.22 * $pageWidth, 0.061 * $pageHeight',
             $controller,
         );
-        $this->assertStringContainsString('strokeBoost: 0.3, trimTransparent: true', $controller);
+        $this->assertStringContainsString('strokeBoost: 0.2, trimTransparent: true', $controller);
         $this->assertStringContainsString('if ($strokeBoost > 0)', $controller);
         $this->assertStringContainsString('$diagonalBoost = $strokeBoost * 0.7', $controller);
         $this->assertStringContainsString('trimTransparentSignaturePng', $controller);
