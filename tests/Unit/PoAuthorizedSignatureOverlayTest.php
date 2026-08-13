@@ -16,10 +16,10 @@ class PoAuthorizedSignatureOverlayTest extends TestCase
         );
 
         $this->assertStringContainsString(
-            '$authorizedBy, 0.375 * $pageWidth, 0.858 * $pageHeight, 0.25 * $pageWidth, 0.060 * $pageHeight',
+            '$authorizedBy, 0.39 * $pageWidth, 0.863 * $pageHeight, 0.22 * $pageWidth, 0.052 * $pageHeight',
             $controller,
         );
-        $this->assertStringContainsString('strokeBoost: 0.25, trimTransparent: true', $controller);
+        $this->assertStringContainsString('strokeBoost: 0.18, trimTransparent: true', $controller);
         $this->assertStringContainsString('if ($strokeBoost > 0)', $controller);
         $this->assertStringContainsString('$diagonalBoost = $strokeBoost * 0.7', $controller);
         $this->assertStringContainsString('trimTransparentSignaturePng', $controller);
