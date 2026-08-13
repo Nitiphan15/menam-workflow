@@ -2198,11 +2198,28 @@
 
         const columnFilterGroupMenu = document.getElementById('columnFilterGroupMenu');
         let activeColumnFilterInput = null;
+        let columnFilterMenuPointerDown = false;
 
         function hideColumnFilterGroups() {
             activeColumnFilterInput = null;
             columnFilterGroupMenu?.classList.add('d-none');
             columnFilterGroupMenu?.replaceChildren();
+        }
+
+        function positionColumnFilterGroups(input = activeColumnFilterInput) {
+            if (!input || !columnFilterGroupMenu) return;
+
+            const rect = input.getBoundingClientRect();
+            const outsideViewport = rect.bottom < 0 || rect.top > window.innerHeight ||
+                rect.right < 0 || rect.left > window.innerWidth;
+            if (outsideViewport) {
+                hideColumnFilterGroups();
+                return;
+            }
+
+            columnFilterGroupMenu.style.left = `${Math.max(8, rect.left)}px`;
+            columnFilterGroupMenu.style.top = `${rect.bottom + 4}px`;
+            columnFilterGroupMenu.style.width = `${Math.max(180, rect.width)}px`;
         }
 
         function showColumnFilterGroups(input) {
@@ -2241,10 +2258,7 @@
                 });
             }
 
-            const rect = input.getBoundingClientRect();
-            columnFilterGroupMenu.style.left = `${Math.max(8, rect.left)}px`;
-            columnFilterGroupMenu.style.top = `${rect.bottom + 4}px`;
-            columnFilterGroupMenu.style.width = `${Math.max(180, rect.width)}px`;
+            positionColumnFilterGroups(input);
             columnFilterGroupMenu.classList.remove('d-none');
         }
 
@@ -2253,7 +2267,9 @@
             input.addEventListener('click', () => showColumnFilterGroups(input));
             input.addEventListener('input', () => showColumnFilterGroups(input));
             input.addEventListener('blur', () => setTimeout(() => {
-                if (activeColumnFilterInput === input) hideColumnFilterGroups();
+                if (activeColumnFilterInput === input && !columnFilterMenuPointerDown) {
+                    hideColumnFilterGroups();
+                }
             }, 150));
         }
 
@@ -2435,7 +2451,13 @@
             '#gen-form table.excel thead input.col-filter, #manualForecastTable input.manual-col-filter'
         ).forEach(bindGroupedColumnFilter);
 
-        columnFilterGroupMenu?.addEventListener('mousedown', event => event.preventDefault());
+        columnFilterGroupMenu?.addEventListener('mousedown', event => {
+            columnFilterMenuPointerDown = true;
+            if (event.target.closest('[data-filter-value]')) event.preventDefault();
+        });
+        document.addEventListener('mouseup', () => {
+            setTimeout(() => columnFilterMenuPointerDown = false, 0);
+        });
         columnFilterGroupMenu?.addEventListener('click', event => {
             const option = event.target.closest('[data-filter-value]');
             if (!option || !activeColumnFilterInput) return;
@@ -2449,8 +2471,12 @@
             hideColumnFilterGroups();
         });
 
-        window.addEventListener('resize', hideColumnFilterGroups);
-        document.addEventListener('scroll', hideColumnFilterGroups, true);
+        window.addEventListener('resize', () => positionColumnFilterGroups());
+        document.addEventListener('scroll', event => {
+            if (!activeColumnFilterInput || event.target === columnFilterGroupMenu ||
+                columnFilterGroupMenu?.contains(event.target)) return;
+            positionColumnFilterGroups();
+        }, true);
 
         /* ================== EXPORT EXCEL (client-side .xls via HTML) ================== */
         document.getElementById('btnExportExcel')?.addEventListener('click', function() {
