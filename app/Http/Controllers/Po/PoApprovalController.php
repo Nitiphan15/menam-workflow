@@ -15,7 +15,10 @@ use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Throwable;
 
 class PoApprovalController extends Controller
 {
@@ -274,7 +277,13 @@ class PoApprovalController extends Controller
             'files.*' => 'file|max:20480',
         ]);
 
-        $po = PoHeader::query()->with('workflow')->findOrFail($id);
+        $po = PoHeader::query()->with('workflow')->find($id);
+        if (!$po) {
+            return redirect()
+                ->route('po.myActions')
+                ->with('error', 'ไม่พบเอกสาร PO ที่ต้องการอนุมัติ อาจเป็นลิงก์เก่าหรือรายการถูกลบแล้ว');
+        }
+
         abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
         $stepBeforeApprove = (int) ($po->workflow?->current_step_no ?? 0);
@@ -303,7 +312,13 @@ class PoApprovalController extends Controller
             );
         }
 
-        WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
+        try {
+            WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
+        } catch (NotFoundHttpException $exception) {
+            return redirect()
+                ->route('po.myActions')
+                ->with('error', 'เอกสาร PO นี้ถูกดำเนินการ ปิด หรือยกเลิกไปแล้ว กรุณาตรวจสอบสถานะล่าสุด');
+        }
 
         $wf = WfForm::query()->find($po->workflow_id);
         $stepAfterApprove = (int) ($wf?->current_step_no ?? 0);
@@ -312,13 +327,30 @@ class PoApprovalController extends Controller
         $po->updated_by = auth()->id();
         $po->save();
 
-        if ($po->status_code === 'CLOSED') {
-            $this->notifyPurchaseDepartmentOnClosed($po);
-        } elseif ($stepAfterApprove !== $stepBeforeApprove) {
-            $this->notifyPendingApprovers(collect([$po]));
+        $notificationFailed = false;
+        try {
+            if ($po->status_code === 'CLOSED') {
+                $this->notifyPurchaseDepartmentOnClosed($po);
+            } elseif ($stepAfterApprove !== $stepBeforeApprove) {
+                $this->notifyPendingApprovers(collect([$po]));
+            }
+        } catch (Throwable $exception) {
+            $notificationFailed = true;
+            Log::error('PO approval saved but notification failed', [
+                'po_id' => $po->id,
+                'ordnumber' => $po->ordnumber,
+                'workflow_id' => $po->workflow_id,
+                'approver_user_id' => auth()->id(),
+                'exception' => get_class($exception),
+                'message' => $exception->getMessage(),
+            ]);
         }
 
-        return redirect()->route('po.show', $po->id)->with('ok', 'อนุมัติ PO เรียบร้อยแล้ว');
+        $message = $notificationFailed
+            ? 'อนุมัติ PO เรียบร้อยแล้ว แต่ส่งอีเมลแจ้งเตือนไม่สำเร็จ ระบบบันทึกข้อผิดพลาดไว้แล้ว'
+            : 'อนุมัติ PO เรียบร้อยแล้ว';
+
+        return redirect()->route('po.myActions')->with('ok', $message);
     }
 
     public function reject(Request $request, $id)

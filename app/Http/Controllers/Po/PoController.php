@@ -158,12 +158,13 @@ class PoController extends Controller
 
     public function show($id)
     {
-        $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->findOrFail($id);
-        $po = $this->erpService->syncHeaderFromErp($po->ordnumber, auth()->id(), $po->site);
-        $po->load([
-            'attachments.creator',
-            'workflow',
-        ]);
+        $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->find($id);
+        if (!$po) {
+            return redirect()
+                ->route('po.myActions')
+                ->with('error', 'ไม่พบเอกสาร PO รายการนี้ อาจถูกลบหรือเป็นลิงก์เก่า');
+        }
+
         $detailRows = $this->erpService->getDetailRows($po->ordnumber, $po->site);
         $headerRow = $detailRows->first();
         $signatures = $this->erpService->printWorkflowSignatures($po->workflow_id);
@@ -352,72 +353,7 @@ class PoController extends Controller
     }
     private function canEditPdfOverrideForCurrentUser(): bool
     {
-        $user = auth()->user();
-
-        return $this->isPurchaseUser($user) || $this->isNitiphanUser($user);
-    }
-
-    private function isPurchaseUser($user): bool
-    {
-        if (!$user) {
-            return false;
-        }
-
-        $directText = strtolower(trim(implode(' ', array_filter([
-            $this->valueToText($user->department ?? ''),
-            $this->valueToText($user->department_name ?? ''),
-            $this->valueToText($user->position ?? ''),
-        ]))));
-
-        if ($this->looksLikePurchaseText($directText)) {
-            return true;
-        }
-
-        $departmentId = (int) ($user->department_id ?? 0);
-        if ($departmentId <= 0) {
-            return false;
-        }
-
-        $department = SqlServerDb::table('departments')
-            ->where('id', $departmentId)
-            ->first(['name', 'code']);
-
-        if (!$department) {
-            return false;
-        }
-
-        $departmentText = strtolower(trim((string) ($department->name ?? '') . ' ' . (string) ($department->code ?? '')));
-        $departmentCode = strtolower(trim((string) ($department->code ?? '')));
-
-        return $this->looksLikePurchaseText($departmentText)
-            || in_array($departmentCode, ['pur', 'purch', 'purchase'], true)
-            || str_starts_with($departmentCode, 'pur');
-    }
-
-    private function looksLikePurchaseText(string $value): bool
-    {
-        return str_contains($value, 'purchase')
-            || str_contains($value, 'purchasing')
-            || str_contains($value, 'จัดซื้อ');
-    }
-
-    private function isNitiphanUser($user): bool
-    {
-        if (!$user) {
-            return false;
-        }
-
-        $userText = strtolower(trim(implode(' ', array_filter([
-            $this->valueToText($user->name ?? ''),
-            $this->valueToText($user->email ?? ''),
-        ]))));
-
-        return str_contains($userText, 'nitiphan');
-    }
-
-    private function valueToText($value): string
-    {
-        return is_scalar($value) ? (string) $value : '';
+        return Gate::allows('POUR');
     }
 
     private function statusOptions(): array

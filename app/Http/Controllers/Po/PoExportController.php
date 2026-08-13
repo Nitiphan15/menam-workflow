@@ -1002,10 +1002,10 @@ class PoExportController extends Controller
 
         $this->overlaySignatureSlot($pdf, $submittedBy, 0.105 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.132 * $pageWidth, 0.090 * $pageWidth);
         $this->overlaySignatureSlot($pdf, $purchaseApprovedBy, 0.225 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.252 * $pageWidth, 0.090 * $pageWidth);
-        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.40 * $pageWidth, 0.878 * $pageHeight, 0.20 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages);
+        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.385 * $pageWidth, 0.864 * $pageHeight, 0.23 * $pageWidth, 0.056 * $pageHeight, 0.955 * $pageHeight, $tempImages, strokeBoost: 0.18);
     }
 
-    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null): void
+    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null, float $strokeBoost = 0): void
     {
         if (!$signature || empty($signature->signature_data_uri)) {
             return;
@@ -1018,6 +1018,16 @@ class PoExportController extends Controller
 
         $tempImages[] = $imagePath;
         [$imageX, $imageY, $imageWidth, $imageHeight] = $this->signatureImageBox($imagePath, $x, $y, $width, $height);
+        if ($strokeBoost > 0) {
+            $diagonalBoost = $strokeBoost * 0.7;
+            foreach ([
+                [-$strokeBoost, 0], [$strokeBoost, 0], [0, -$strokeBoost], [0, $strokeBoost],
+                [-$diagonalBoost, -$diagonalBoost], [$diagonalBoost, -$diagonalBoost],
+                [-$diagonalBoost, $diagonalBoost], [$diagonalBoost, $diagonalBoost],
+            ] as [$offsetX, $offsetY]) {
+                $pdf->Image($imagePath, $imageX + $offsetX, $imageY + $offsetY, $imageWidth, $imageHeight, 'PNG');
+            }
+        }
         $pdf->Image($imagePath, $imageX, $imageY, $imageWidth, $imageHeight, 'PNG');
 
         if (!empty($signature->created_at)) {
