@@ -571,7 +571,7 @@
                                 <th class="h-sales" style="min-width:150px;">Safety Forecast (Planner)</th>
                                 <th class="h-supply" style="min-width:140px;">Forecast + SO</th>
                                 <th class="h-supply" style="min-width:140px;"
-                                    title="แดง = ต้องสั่งเพิ่ม | เขียว = ของพอ/มีเกิน | ดำ = พอดี"
+                                    title="สูตร: (Onhand + FG + Total PO + WIP) - (Safety Forecast (Planner) + Forecast + SO) | ค่าติดลบสีแดง = ต้องสั่งเพิ่ม | ค่าบวกสีเขียว = ของพอ/มีเกิน"
                                     data-bs-toggle="tooltip">
                                     ต้องสั่งเพิ่ม
                                 </th>
@@ -598,14 +598,14 @@
 
                                     $need = (float) ($r['need_to_order'] ?? 0);
 
-                                    if ($need > 0) {
+                                    if ($need < 0) {
                                         $needText = number_format($need, 2);
                                         $needClass = 'text-danger';
-                                        $needTitle = 'สีแดง = ต้องสั่งเพิ่ม';
-                                    } elseif ($need < 0) {
-                                        $needText = number_format(abs($need), 2);
+                                        $needTitle = 'ค่าติดลบสีแดง = ต้องสั่งเพิ่ม';
+                                    } elseif ($need > 0) {
+                                        $needText = number_format($need, 2);
                                         $needClass = 'text-success';
-                                        $needTitle = 'สีเขียว = ของพอ / มีเกิน';
+                                        $needTitle = 'ค่าบวกสีเขียว = ของพอ / มีเกิน';
                                     } else {
                                         $needText = number_format(0, 2);
                                         $needClass = 'text-dark';
@@ -715,7 +715,7 @@
                                                 data-sku="{{ $r['sku'] }}"
                                                 data-description="{{ $r['description'] }}"
                                                 data-company="{{ $companyMode }}" data-plan-month="{{ $planMonth }}"
-                                                data-auto-need="{{ round(max((float) ($r['need_to_order'] ?? 0), 0), 2) }}"
+                                                data-auto-need="{{ round((float) ($r['order_shortage_qty'] ?? 0), 2) }}"
                                                 data-manual-qty="{{ round((float) ($r['manual_order_qty'] ?? 0), 2) }}"
                                                 data-supplier-codes='@json($r['manual_order_supplier_codes'] ?? [])'
                                                 data-supplier-qty-map='@json($r['manual_order_supplier_qty_by_code'] ?? [])'
@@ -783,7 +783,7 @@
                                 <th class="num">{{ number_format((float) ($kpi['total_forecast_so_sum'] ?? 0), 2) }}
                                 </th>
                                 <th class="num">
-                                    {{ number_format((float) $rows->sum(fn($r) => max((float) ($r['need_to_order'] ?? 0), 0)), 2) }}
+                                    {{ number_format((float) $rows->sum('need_to_order'), 2) }}
                                 </th>
                                 <th class="num">{{ number_format((float) ($kpi['manual_order_sum'] ?? 0), 2) }}</th>
 

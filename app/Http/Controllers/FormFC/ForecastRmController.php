@@ -4,6 +4,7 @@ namespace App\Http\Controllers\FormFC;
 
 use App\Http\Controllers\Controller;
 use App\Support\FormFcPeriod;
+use App\Support\FormFcOrderBalance;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -752,19 +753,26 @@ class ForecastRmController extends Controller
             // safety forecast จาก planner (PLN)
             $row['safety_forecast_planner'] = $plannerForecast;
 
-            // Demand ที่ใช้ซื้อ = SO + Forecast ฝ่ายขาย
-            // ถ้าไม่มี forecast แต่มี SO ก็จะได้ SO ตามรูป
-            $row['total_forecast_so'] = (float) $row['so'] + (float) $row['total_forecast'];
+            $orderBalance = FormFcOrderBalance::calculate(
+                (float) $row['onhand'],
+                (float) $row['fg'],
+                (float) $row['po_total'],
+                (float) $row['wip'],
+                (float) $row['safety_forecast_planner'],
+                (float) $row['total_forecast'],
+                (float) $row['so']
+            );
 
-            // supply ที่มีอยู่
-            $row['available_supply'] =
-                (float) $row['onhand']
-                + (float) $row['fg']
-                + (float) $row['po_total']
-                + (float) $row['wip'];
+            // 1 = Onhand + FG + Total PO + WIP
+            $row['available_supply'] = $orderBalance['supply'];
+            $row['total_forecast_so'] = $orderBalance['forecast_and_sales_order'];
 
-            // ต้องสั่งเพิ่ม = Demand - Supply
-            $row['need_to_order'] = (float) $row['total_forecast_so'] - (float) $row['available_supply'];
+            // 2 = Safety Forecast (Planner) + Forecast + SO
+            $row['required_demand'] = $orderBalance['demand'];
+
+            // 3 = 1 - 2; ค่าติดลบหมายถึงขาดและต้องสั่งเพิ่ม
+            $row['need_to_order'] = $orderBalance['balance'];
+            $row['order_shortage_qty'] = $orderBalance['shortage'];
 
             $manualOrder = $manualOrderIndex->get($sku, []);
             $manualSupplierRows = collect($manualOrder['supplier_rows'] ?? [])
@@ -1046,7 +1054,7 @@ class ForecastRmController extends Controller
         $rows = collect($data['rows'])->values();
         if ($shortageOnly) {
             $rows = $rows
-                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->filter(fn($row) => (float) ($row['order_shortage_qty'] ?? 0) > 0)
                 ->values();
         }
 
@@ -1142,7 +1150,7 @@ class ForecastRmController extends Controller
         $rows = collect($data['rows'])->values();
         if ($shortageOnly) {
             $rows = $rows
-                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->filter(fn($row) => (float) ($row['order_shortage_qty'] ?? 0) > 0)
                 ->values();
         }
 
@@ -1203,8 +1211,8 @@ class ForecastRmController extends Controller
         foreach ($rows as $row) {
             $row = (array) $row;
             $needRaw = round((float) ($row['need_to_order'] ?? 0), 2);
-            $autoNeed = round($this->exportNeedDisplayValue($row), 2);
-            $needStatus = $needRaw > 0 ? 'SHORTAGE' : ($needRaw < 0 ? 'SURPLUS' : 'BALANCED');
+            $autoNeed = round((float) ($row['order_shortage_qty'] ?? max(-$needRaw, 0)), 2);
+            $needStatus = $needRaw < 0 ? 'SHORTAGE' : ($needRaw > 0 ? 'SURPLUS' : 'BALANCED');
             $manualSupplierRows = collect($row['manual_order_supplier_rows'] ?? [])
                 ->map(fn($sp) => [
                     'code' => strtoupper(trim((string) ($sp['code'] ?? ''))),
@@ -1794,18 +1802,12 @@ class ForecastRmController extends Controller
 
     private function exportNeedDisplayValue(array $r): float
     {
-        $need = (float) ($r['need_to_order'] ?? 0);
-
-        // หน้า table แสดงค่าติดลบเป็นยอดเกินแบบ abs() สีเขียว จึงใช้ค่าเดียวกันตอน filter/export
-        return $need < 0 ? abs($need) : $need;
+        return (float) ($r['need_to_order'] ?? 0);
     }
 
     private function exportNeedToOrderExcelValue(array $r): float
     {
-        $need = (float) ($r['need_to_order'] ?? 0);
-
-        // In Forecast RM Excel, web-table red shortage values should export as negative.
-        return $need > 0 ? -$need : abs($need);
+        return (float) ($r['need_to_order'] ?? 0);
     }
 
     private function exportMainRow(array $r): array
@@ -2032,7 +2034,7 @@ class ForecastRmController extends Controller
         $rows = collect($data['rows'])->values();
         if ($shortageOnly) {
             $rows = $rows
-                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->filter(fn($row) => (float) ($row['order_shortage_qty'] ?? 0) > 0)
                 ->values();
         }
         $rows = $this->applyExportTableState($rows, $request);
