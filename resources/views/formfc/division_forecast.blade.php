@@ -563,7 +563,7 @@
             <div class="col-md-3">
                 <div class="card fc-card">
                     <div class="card-body py-2">
-                        <div class="kpi-title">Forecast 6 เดือน</div>
+                        <div class="kpi-title">Forecast {{ $forecastHorizonMonths }} เดือน</div>
                         <div class="kpi-val js-kpi-f6">{{ number_format($kpi['forecast_6m_sum'], 2) }}</div>
                     </div>
                 </div>
@@ -662,7 +662,7 @@
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="8" data-sort-type="num">{{ !empty($isApprovalMode) ? 'Approval 1M' : 'Forecast 1M' }}<span
                                             class="sort-ind"></span></th>
-                                    <th class="sortable" data-sort-col="9" data-sort-type="num">{{ !empty($isApprovalMode) ? 'Approval 6M' : 'Forecast 6M' }}<span
+                                    <th class="sortable" data-sort-col="9" data-sort-type="num">{{ !empty($isApprovalMode) ? 'Approval '.$forecastHorizonMonths.'M' : 'Forecast '.$forecastHorizonMonths.'M' }}<span
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="10" data-sort-type="text">Supplier<span
                                             class="sort-ind"></span></th>
@@ -957,15 +957,23 @@
                             customer และ FG เองได้</div>
                     @endif
                     <div class="excel-wrap">
-                        <table class="excel">
+                        <table class="excel" id="manualForecastTable">
                             <thead>
                                 <tr>
-                                    <th>Customer</th>
-                                    <th>FG Part</th>
-                                    <th>RM Part</th>
-                                    <th>Manual 1M</th>
-                                    <th>Forecast 6M</th>
+                                    <th class="sortable manual-sortable" data-sort-col="0" data-sort-type="text">Customer<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="1" data-sort-type="text">FG Part<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="2" data-sort-type="text">RM Part<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="3" data-sort-type="num">Manual 1M<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="4" data-sort-type="num">Forecast {{ $forecastHorizonMonths }}M<span class="sort-ind"></span></th>
                                     <th>Action</th>
+                                </tr>
+                                <tr class="filter-row">
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="0" placeholder="กรอง"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="1" placeholder="กรอง"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="2" placeholder="กรอง RM"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="3" placeholder=">= ตัวเลข"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="4" placeholder=">= ตัวเลข"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody id="manualForecastBody">
@@ -989,8 +997,8 @@
                                                 name="manual_rows[{{ $r['row_key'] }}]"
                                                 value="{{ number_format((float) ($r['manual_forecast_1m'] ?? 0), 2, '.', '') }}">
                                         </td>
-                                        <td class="num js-manual-6m-only">
-                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * 6), 2) }}
+                                        <td class="num js-manual-horizon-only">
+                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * $forecastHorizonMonths), 2) }}
                                         </td>
                                         <td class="text-center text-muted">-</td>
                                         <input type="hidden" name="manual_meta[{{ $r['row_key'] }}]"
@@ -1024,7 +1032,7 @@
                     <input type="number" step="0.01" min="0"
                         class="form-control form-control-sm text-end js-manual-1m-only">
                 </td>
-                <td class="num js-manual-6m-only">0.00</td>
+                <td class="num js-manual-horizon-only">0.00</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger js-remove-manual-row">ลบ</button>
                 </td>
@@ -1049,7 +1057,7 @@
                                         <th>เดือนที่บันทึก</th>
                                         <th class="text-end">K Factor</th>
                                         <th class="text-end">Forecast 1M</th>
-                                        <th class="text-end">Forecast 6M</th>
+                                        <th class="text-end">Forecast {{ $forecastHorizonMonths }}M</th>
                                         <th>Source</th>
                                         <th>เวลาบันทึก</th>
                                     </tr>
@@ -1140,6 +1148,7 @@
 
     <script>
         const OLD_PAYLOAD_JSON = @json(old('payload'));
+        const FORECAST_HORIZON_MONTHS = @json($forecastHorizonMonths);
 
         document.getElementById('checkAllForecast')?.addEventListener('click', () => {
             document.querySelectorAll('table.excel tbody .js-forecast-flag').forEach(el => el.checked = true);
@@ -1163,11 +1172,11 @@
         function recalcManualOnlyRow(tr) {
             if (!tr) return;
             const input = tr.querySelector('.js-manual-1m-only');
-            const f6El = tr.querySelector('.js-manual-6m-only');
-            if (!input || !f6El) return;
+            const horizonEl = tr.querySelector('.js-manual-horizon-only');
+            if (!input || !horizonEl) return;
 
             const f1 = parseFloat(input.value || '0') || 0;
-            f6El.textContent = formatNum(f1 * 6);
+            horizonEl.textContent = formatNum(f1 * FORECAST_HORIZON_MONTHS);
         }
 
         function bindManual1mInput(input) {
@@ -1574,9 +1583,9 @@
             const forecastFlagEl = tr.querySelector('.js-forecast-flag');
             const rowKEl = tr.querySelector('.js-row-kfactor');
             const manualInput = tr.querySelector('.js-manual-forecast');
-            const f6El = tr.querySelector('.js-f6');
+            const horizonEl = tr.querySelector('.js-f6');
 
-            if (!forecastFlagEl || !rowKEl || !manualInput || !f6El) {
+            if (!forecastFlagEl || !rowKEl || !manualInput || !horizonEl) {
                 return;
             }
 
@@ -1590,7 +1599,7 @@
             const hasManualValue = manual !== null && !Number.isNaN(manual) && Math.abs(manual) > 0.0001;
 
             let f1 = 0;
-            let f6 = 0;
+            let horizonForecast = 0;
 
             if (checked) {
                 // ถ้าติ๊ก Forecast ใหม่และช่อง 1M ยังว่าง/0 ให้คำนวณจาก Avg6*K ทันที
@@ -1601,7 +1610,7 @@
                     manualInput.value = f1.toFixed(2);
                     manualInput.dataset.userEdited = '0';
                 }
-                f6 = f1 * 6;
+                horizonForecast = f1 * FORECAST_HORIZON_MONTHS;
                 manualInput.dataset.forceAutoOnce = '0';
             } else {
                 if (!userEdited || !hasManualValue) {
@@ -1610,7 +1619,7 @@
                 }
             }
 
-            f6El.textContent = formatNum(f6);
+            horizonEl.textContent = formatNum(horizonForecast);
         }
 
         function recalcKpi() {
@@ -2127,6 +2136,94 @@
             return String(v).toLowerCase();
         }
 
+        /* ================== MANUAL FORECAST EXCEL-STYLE FILTER / GROUP ORDER ================== */
+        function manualTableRows() {
+            return manualBodyEl ? Array.from(manualBodyEl.querySelectorAll('.js-manual-row')) : [];
+        }
+
+        function matchesManualFilter(cellValue, query) {
+            const cellText = String(cellValue ?? '').trim().toLowerCase();
+            const numericCell = parseFloat(cellText.replace(/,/g, ''));
+            const terms = String(query ?? '')
+                .split(',')
+                .map(term => term.trim().toLowerCase())
+                .filter(Boolean);
+
+            if (terms.length === 0) return true;
+
+            return terms.some(term => {
+                const numericFilter = term.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+                if (!numericFilter || Number.isNaN(numericCell)) {
+                    return cellText.includes(term);
+                }
+
+                const operator = numericFilter[1] || '=';
+                const expected = parseFloat(numericFilter[2]);
+                if (operator === '>=') return numericCell >= expected;
+                if (operator === '<=') return numericCell <= expected;
+                if (operator === '>') return numericCell > expected;
+                if (operator === '<') return numericCell < expected;
+                return numericCell === expected;
+            });
+        }
+
+        function applyManualFilters() {
+            const filters = Array.from(document.querySelectorAll('#manualForecastTable .manual-col-filter'))
+                .map(el => ({
+                    col: parseInt(el.dataset.filterCol, 10),
+                    value: (el.value || '').trim(),
+                }))
+                .filter(filter => filter.value !== '');
+
+            manualTableRows().forEach(tr => {
+                const visible = filters.every(filter =>
+                    matchesManualFilter(getCellInputAwareValue(tr.children[filter.col]), filter.value));
+                tr.style.display = visible ? '' : 'none';
+            });
+        }
+
+        function sortManualRows(col = 0, type = 'text', dir = 1) {
+            if (!manualBodyEl) return;
+
+            const rows = manualTableRows();
+            rows.sort((a, b) => {
+                const aValue = getCellSortValue(a, col, type);
+                const bValue = getCellSortValue(b, col, type);
+                if (aValue < bValue) return -1 * dir;
+                if (aValue > bValue) return 1 * dir;
+
+                // Keep equal values grouped like Excel: Customer, then FG Part.
+                const aCustomer = getCellSortValue(a, 0, 'text');
+                const bCustomer = getCellSortValue(b, 0, 'text');
+                if (aCustomer !== bCustomer) return aCustomer.localeCompare(bCustomer);
+                return getCellSortValue(a, 1, 'text').localeCompare(getCellSortValue(b, 1, 'text'));
+            });
+            rows.forEach(row => manualBodyEl.appendChild(row));
+        }
+
+        let currentManualSort = { col: 0, dir: 1 };
+        document.querySelectorAll('#manualForecastTable th.manual-sortable').forEach(th => {
+            th.addEventListener('click', function() {
+                const col = parseInt(this.dataset.sortCol, 10);
+                const type = this.dataset.sortType || 'text';
+                const dir = currentManualSort.col === col ? -currentManualSort.dir : 1;
+                currentManualSort = { col, dir };
+
+                document.querySelectorAll('#manualForecastTable th.manual-sortable .sort-ind')
+                    .forEach(indicator => indicator.textContent = '');
+                this.querySelector('.sort-ind').textContent = dir === 1 ? '▲' : '▼';
+                sortManualRows(col, type, dir);
+            });
+        });
+
+        document.querySelectorAll('#manualForecastTable .manual-col-filter').forEach(el => {
+            el.addEventListener('input', applyManualFilters);
+            el.addEventListener('change', applyManualFilters);
+        });
+
+        sortManualRows();
+        applyManualFilters();
+
         let currentSort = {
             col: -1,
             dir: 1
@@ -2217,7 +2314,7 @@
         document.getElementById('btnExportExcel')?.addEventListener('click', function() {
             const visibleRows = tableRows().filter(tr => tr.style.display !== 'none');
             const headers = ['Customer', 'FG Part', 'Description', 'RM Part', 'Sales Order', 'Avg 6M', 'Forecast?',
-                'K', 'Forecast 1M', 'Forecast 6M', 'Supplier', 'Remark'
+                'K', 'Forecast 1M', `Forecast ${FORECAST_HORIZON_MONTHS}M`, 'Supplier', 'Remark'
             ];
             const escapeCell = (value) => String(value ?? '')
                 .replace(/&/g, '&amp;')
@@ -2255,11 +2352,12 @@
                 lines.push('<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>');
             });
 
-            const manualHeaders = ['Customer', 'FG Part', 'RM Part', 'Manual 1M', 'Forecast 6M'];
+            const manualHeaders = ['Customer', 'FG Part', 'RM Part', 'Manual 1M', `Forecast ${FORECAST_HORIZON_MONTHS}M`];
             const manualLines = [];
             manualLines.push('<tr>' + manualHeaders.map(h => `<th>${escapeCell(h)}</th>`).join('') + '</tr>');
 
             document.querySelectorAll('#manualForecastBody .js-manual-row').forEach(tr => {
+                if (tr.style.display === 'none') return;
                 const meta = manualRowMeta(tr);
                 const customerInput = tr.querySelector('.js-manual-customer-input');
                 const fgInput = tr.querySelector('.js-manual-fg-input');
@@ -2269,7 +2367,7 @@
                     meta.fg_partnumber || tr.dataset.fgPartnumber || fgInput?.value || tr.children[1]?.innerText.trim() || '',
                     meta.rm_partnumber || tr.dataset.rmPartnumber || tr.querySelector('.js-manual-rm-cell')?.innerText.trim() || '',
                     qtyInput?.value || '',
-                    tr.querySelector('.js-manual-6m-only')?.innerText.trim() || '',
+                    tr.querySelector('.js-manual-horizon-only')?.innerText.trim() || '',
                 ].map(escapeCell);
 
                 manualLines.push('<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>');

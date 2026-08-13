@@ -17,6 +17,16 @@ use Illuminate\Support\Facades\Mail;
 
 class ForecastRmDivisionController extends Controller
 {
+    /**
+     * Temporary Sales Forecast trial horizon.
+     *
+     * The database columns are still named forecast_6m, division_forecast_6m,
+     * and approval_forecast_6m. During this trial they intentionally store the
+     * 4-month total. Rename/migrate those legacy columns only after the trial
+     * horizon is confirmed.
+     */
+    private const FORECAST_HORIZON_MONTHS = 4;
+
     private string $fcConn = 'sqlsrv_menam';
     private string $divisionSubmissionTable = 'fc_rm_division_forecast_submissions';
     private string $divisionApprovalTable = 'fc_rm_division_forecast_approval';
@@ -1836,7 +1846,7 @@ class ForecastRmDivisionController extends Controller
                     'base_month'  => Carbon::parse($r->forecast_base_month)->format('Y-m'),
                     'k_factor'    => (float) ($r->k_factor ?? 0),
                     'forecast_1m' => (float) ($r->forecast_1m ?? 0),
-                    'forecast_6m' => (float) ($r->forecast_6m ?? 0),
+                    'forecast_6m' => round((float) ($r->forecast_1m ?? 0) * self::FORECAST_HORIZON_MONTHS, 2),
                     'saved_at'    => Carbon::parse($r->updated_at ?? $r->created_at)->format('Y-m-d H:i:s'),
                 ]];
             });
@@ -2087,7 +2097,7 @@ class ForecastRmDivisionController extends Controller
         $forecastBaseMonth = $baseMonth->toDateString();
         $selectedDivisions = $this->requestedPlanningDivisions($request);
         $search = trim((string) $request->query('q', ''));
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, self::FORECAST_HORIZON_MONTHS))
             ->map(fn($offset) => (clone $baseMonth)->addMonths($offset));
         $futureYm = $futureMonths->map(fn($month) => $month->format('Y-m'))->all();
         $futureLabels = $futureMonths->map(fn($month) => $month->format('M-y'))->all();
@@ -2151,7 +2161,9 @@ class ForecastRmDivisionController extends Controller
                     'row_remark' => (string) ($first->row_remark ?? ''),
                     'forecast_by_month' => $forecastByMonth,
                     'approval_forecast_1m' => $approval ? (float) $approval->approval_forecast_1m : null,
-                    'approval_forecast_6m' => $approval ? (float) $approval->approval_forecast_6m : null,
+                    'approval_forecast_6m' => $approval
+                        ? round((float) ($approval->approval_forecast_1m ?? 0) * self::FORECAST_HORIZON_MONTHS, 2)
+                        : null,
                     'approval_remark' => $approval ? (string) ($approval->approval_remark ?? '') : '',
                 ];
             })
@@ -2217,6 +2229,7 @@ class ForecastRmDivisionController extends Controller
             'forecastBaseMonth' => $forecastBaseMonth,
             'futureYm' => $futureYm,
             'futureLabels' => $futureLabels,
+            'forecastHorizonMonths' => self::FORECAST_HORIZON_MONTHS,
             'search' => $search,
             'kpi' => $kpi,
         ]);
@@ -2604,7 +2617,7 @@ class ForecastRmDivisionController extends Controller
 
         $historyYm = $historyMonths->map(fn($d) => $d->format('Y-m'))->all();
         $historyLabels = $historyMonths->map(fn($d) => $d->format('M-y'))->all();
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, self::FORECAST_HORIZON_MONTHS))
             ->map(fn($i) => (clone $baseMonth)->addMonths($i));
         $futureYm = $futureMonths->map(fn($d) => $d->format('Y-m'))->all();
         $futureLabels = $futureMonths->map(fn($d) => $d->format('M-y'))->all();
@@ -2940,12 +2953,14 @@ class ForecastRmDivisionController extends Controller
                 : 0.00;
 
             $r['forecast_6m'] = $r['is_selected']
-                ? round((float) $r['forecast_1m'] * 6, 2)
+                ? round((float) $r['forecast_1m'] * self::FORECAST_HORIZON_MONTHS, 2)
                 : 0.00;
 
             $approval = $approvalRows->get($r['row_key']);
             $r['approval_forecast_1m'] = $approval ? round((float) ($approval->approval_forecast_1m ?? 0), 2) : null;
-            $r['approval_forecast_6m'] = $approval ? round((float) ($approval->approval_forecast_6m ?? 0), 2) : null;
+            $r['approval_forecast_6m'] = $approval
+                ? round((float) ($approval->approval_forecast_1m ?? 0) * self::FORECAST_HORIZON_MONTHS, 2)
+                : null;
             $r['approval_k_factor'] = $approval && isset($approval->approval_k_factor)
                 ? round((float) $approval->approval_k_factor, 1)
                 : null;
@@ -3033,6 +3048,7 @@ class ForecastRmDivisionController extends Controller
             'historyLabels' => $historyLabels,
             'futureYm' => $futureYm,
             'futureLabels' => $futureLabels,
+            'forecastHorizonMonths' => self::FORECAST_HORIZON_MONTHS,
             'rows' => $displayRows,
             'manualOnlyRows' => $manualOnlyRows,
             'kpi' => $kpi,
@@ -3220,7 +3236,7 @@ class ForecastRmDivisionController extends Controller
                 ? ($isManual ? $manualInput : $autoForecast1m)
                 : 0.00;
 
-            $forecast6m = $isSelected ? round($forecast1m * 6, 2) : 0;
+            $forecast6m = $isSelected ? round($forecast1m * self::FORECAST_HORIZON_MONTHS, 2) : 0;
 
             $settingRows[] = [
                 'sales_code' => $salesCode,
@@ -3568,7 +3584,7 @@ class ForecastRmDivisionController extends Controller
                 'forecast_month' => $baseMonth,
                 'forecast_qty' => $qty,
                 'forecast_1m' => $qty,
-                'forecast_6m' => round($qty * 6, 2),
+                'forecast_6m' => round($qty * self::FORECAST_HORIZON_MONTHS, 2),
                 'source_type' => 'MANUAL',
                 'is_selected' => 1,
                 'created_at' => now(),
@@ -3735,7 +3751,7 @@ class ForecastRmDivisionController extends Controller
                 'division_forecast_1m' => isset($meta['division_forecast_1m']) ? round((float) $meta['division_forecast_1m'], 2) : null,
                 'division_forecast_6m' => isset($meta['division_forecast_6m']) ? round((float) $meta['division_forecast_6m'], 2) : null,
                 'approval_forecast_1m' => $qty,
-                'approval_forecast_6m' => round($qty * 6, 2),
+                'approval_forecast_6m' => round($qty * self::FORECAST_HORIZON_MONTHS, 2),
                 'approval_remark' => trim((string) ($remarks[$rowKey] ?? '')) ?: null,
                 'updated_at' => now(),
                 'updated_by' => $u->id ?? null,

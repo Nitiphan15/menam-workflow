@@ -172,7 +172,7 @@
                                     <th>{{ $label }}</th>
                                 @endforeach
                                 <th>Approved 1M</th>
-                                <th>Approved 6M</th>
+                                <th>Approved {{ $forecastHorizonMonths }}M</th>
                                 <th>Supplier</th>
                                 <th>Sales Remark</th>
                                 <th>Approval Remark</th>
