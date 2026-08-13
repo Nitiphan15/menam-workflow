@@ -2157,9 +2157,36 @@
 
         function getRowSearchText(tr) {
             return Array.from(tr.children)
-                .map(td => getCellInputAwareValue(td))
+                .map((td, col) => getCachedCellFilterValue(tr, col))
                 .join(' ')
                 .toLowerCase();
+        }
+
+        const rowFilterValueCache = new WeakMap();
+        let mainGroupedValueVersion = 0;
+        let manualGroupedValueVersion = 0;
+
+        function getCachedCellFilterValue(tr, col) {
+            let values = rowFilterValueCache.get(tr);
+            if (!values) {
+                values = [];
+                rowFilterValueCache.set(tr, values);
+            }
+            if (values[col] === undefined) {
+                values[col] = String(getCellInputAwareValue(tr.children[col]) ?? '');
+            }
+            return values[col];
+        }
+
+        function invalidateFilterRow(target) {
+            const tr = target?.closest?.('tbody tr');
+            if (!tr) return;
+            rowFilterValueCache.delete(tr);
+            if (tr.classList.contains('js-manual-row')) {
+                manualGroupedValueVersion += 1;
+            } else {
+                mainGroupedValueVersion += 1;
+            }
         }
 
         function getCellSortValue(tr, col, type) {
@@ -2176,14 +2203,16 @@
             const col = parseInt(input?.dataset.filterCol || '-1', 10);
             if (col < 0) return [];
 
+            const isManualFilter = input.classList.contains('manual-col-filter');
+            const version = isManualFilter ? manualGroupedValueVersion : mainGroupedValueVersion;
             const cached = groupedColumnValueCache.get(input);
-            if (cached) return cached;
+            if (cached?.version === version) return cached.values;
 
-            const rows = input.classList.contains('manual-col-filter') ? manualTableRows() : tableRows();
+            const rows = isManualFilter ? manualTableRows() : tableRows();
             const groups = new Map();
 
             rows.forEach(tr => {
-                const value = String(getCellInputAwareValue(tr.children[col]) ?? '').trim();
+                const value = getCachedCellFilterValue(tr, col).trim();
                 if (value === '') return;
 
                 const key = value.toLocaleLowerCase();
@@ -2197,7 +2226,7 @@
 
             const values = Array.from(groups.values()).sort((a, b) =>
                 a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: 'base' }));
-            groupedColumnValueCache.set(input, values);
+            groupedColumnValueCache.set(input, { version, values });
 
             return values;
         }
@@ -2205,6 +2234,7 @@
         const columnFilterGroupMenu = document.getElementById('columnFilterGroupMenu');
         const groupedColumnValueCache = new WeakMap();
         const columnFilterRefreshTimers = new WeakMap();
+        let columnFilterApplyFrame = null;
         let activeColumnFilterInput = null;
         let columnFilterMenuPointerDown = false;
 
@@ -2326,7 +2356,7 @@
 
             manualTableRows().forEach(tr => {
                 const visible = filters.every(filter => {
-                    const cellValue = getCellInputAwareValue(tr.children[filter.col]);
+                    const cellValue = getCachedCellFilterValue(tr, filter.col);
                     if (filter.exact !== '') {
                         return String(cellValue ?? '').trim().toLowerCase() === filter.exact;
                     }
@@ -2426,7 +2456,7 @@
                     for (const f of filters) {
                         const td = tr.children[f.col];
                         if (!td) continue;
-                        let cellVal = getCellInputAwareValue(td);
+                        const cellVal = getCachedCellFilterValue(tr, f.col);
 
                         if (f.type === 'select') {
                             if (String(cellVal) !== f.value) {
@@ -2468,6 +2498,30 @@
             '#gen-form table.excel thead input.col-filter, #manualForecastTable input.manual-col-filter'
         ).forEach(bindGroupedColumnFilter);
 
+        [mainTable, manualBodyEl].forEach(table => {
+            table?.addEventListener('input', event => invalidateFilterRow(event.target));
+            table?.addEventListener('change', event => invalidateFilterRow(event.target));
+        });
+
+        if (manualBodyEl) {
+            new MutationObserver(() => {
+                manualGroupedValueVersion += 1;
+            }).observe(manualBodyEl, { childList: true });
+        }
+
+        function applySelectedColumnFilter(input) {
+            if (columnFilterApplyFrame) cancelAnimationFrame(columnFilterApplyFrame);
+            columnFilterApplyFrame = requestAnimationFrame(() => {
+                columnFilterApplyFrame = null;
+                if (!input?.isConnected) return;
+                if (input.classList.contains('manual-col-filter')) {
+                    applyManualFilters();
+                } else {
+                    applyFilters();
+                }
+            });
+        }
+
         function scheduleColumnFilterRefresh(input) {
             const previousTimer = columnFilterRefreshTimers.get(input);
             if (previousTimer) clearTimeout(previousTimer);
@@ -2495,12 +2549,8 @@
 
             input.value = selectedValue;
             input.dataset.filterExact = selectedValue.trim().toLowerCase();
-            if (input.classList.contains('manual-col-filter')) {
-                applyManualFilters();
-            } else {
-                applyFilters();
-            }
             hideColumnFilterGroups();
+            applySelectedColumnFilter(input);
         }
 
         columnFilterGroupMenu?.addEventListener('pointerdown', event => {

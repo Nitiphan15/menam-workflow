@@ -35,7 +35,10 @@ class FormFcSalesForecastHorizonTest extends TestCase
         $this->assertStringContainsString('count.textContent = `(${group.count})`;', $blade);
         $this->assertStringContainsString('function positionColumnFilterGroups(', $blade);
         $this->assertStringContainsString('const groupedColumnValueCache = new WeakMap();', $blade);
+        $this->assertStringContainsString('const rowFilterValueCache = new WeakMap();', $blade);
         $this->assertStringContainsString('function scheduleColumnFilterRefresh(', $blade);
+        $this->assertStringContainsString('function applySelectedColumnFilter(', $blade);
+        $this->assertStringContainsString('columnFilterApplyFrame = requestAnimationFrame(', $blade);
         $this->assertStringContainsString("input.dataset.filterExact = selectedValue.trim().toLowerCase();", $blade);
         $this->assertStringContainsString("columnFilterGroupMenu?.addEventListener('pointerdown'", $blade);
         $this->assertStringContainsString('event.target === columnFilterGroupMenu', $blade);
