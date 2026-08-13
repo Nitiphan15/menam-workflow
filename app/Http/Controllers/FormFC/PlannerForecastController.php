@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\FormFC;
 
 use App\Http\Controllers\Controller;
+use App\Support\FormFcPeriod;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -288,7 +289,7 @@ class PlannerForecastController extends Controller
             $autoForecastDay = 1;
         }
 
-        $historyMonths = collect(range(0, 5))
+        $historyMonths = collect(range(0, FormFcPeriod::MONTHS - 1))
             ->map(fn($i) => (clone $base)->subMonths($i))
             ->reverse()
             ->values();
@@ -296,7 +297,7 @@ class PlannerForecastController extends Controller
         $historyYm = $historyMonths->map(fn($d) => $d->format('Y-m'))->all();
         $historyLabels = $historyMonths->map(fn($d) => $d->format('M-y'))->all();
 
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, FormFcPeriod::MONTHS))
             ->map(fn($i) => (clone $base)->addMonths($i))
             ->values();
 
@@ -329,7 +330,7 @@ class PlannerForecastController extends Controller
             ->get()
             ->groupBy('fg_partnumber')
             ->map(function ($g) {
-                return $g->take(6)->map(function ($r) {
+                return $g->take(FormFcPeriod::MONTHS)->map(function ($r) {
                     return [
                         'forecast_month' => (string) $r->forecast_month,
                         'forecast_qty' => (float) $r->forecast_qty,
@@ -347,7 +348,7 @@ class PlannerForecastController extends Controller
 
         $historyRaw = $this->fetchPlannerHistoryByMasterRm(
             $rmParts,
-            (clone $base)->subMonths(5)->startOfMonth(),
+            (clone $base)->subMonths(FormFcPeriod::MONTHS - 1)->startOfMonth(),
             (clone $base)->endOfMonth()
         );
 
@@ -419,7 +420,7 @@ class PlannerForecastController extends Controller
             }
 
             $forecast1m = $isSelected ? round((float) $manualForecast1m, 2) : 0;
-            $forecast6m = $isSelected ? round((float) $forecast1m * 6, 2) : 0;
+            $forecast6m = $isSelected ? round((float) $forecast1m * FormFcPeriod::MONTHS, 2) : 0;
 
             return [
                 'row_key' => $fgPart,
@@ -492,6 +493,7 @@ class PlannerForecastController extends Controller
             'fgOptions' => $filterOptions['fgOptions'] ?? [],
             'soOptions' => $filterOptions['soOptions'] ?? [],
             'customerOptions' => $filterOptions['customerOptions'] ?? [],
+            'forecastPeriodMonths' => FormFcPeriod::MONTHS,
             'selectedK' => (float) $selectedK,
             'historyYm' => $historyYm,
             'historyLabels' => $historyLabels,
@@ -548,7 +550,7 @@ class PlannerForecastController extends Controller
         $snapshotRows = [];
         $historyRows = [];
 
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, FormFcPeriod::MONTHS))
             ->map(fn($i) => now('Asia/Bangkok')->startOfMonth()->addMonths($i)->toDateString())
             ->values();
 
@@ -585,7 +587,7 @@ class PlannerForecastController extends Controller
             }
 
             $forecast1m = $isSelected ? round((float) $manualInput, 2) : 0;
-            $forecast6m = $isSelected ? round((float) $forecast1m * 6, 2) : 0;
+            $forecast6m = $isSelected ? round((float) $forecast1m * FormFcPeriod::MONTHS, 2) : 0;
 
             $sourceType = ($avg6 <= 0)
                 ? 'MANUAL'
@@ -825,7 +827,7 @@ class PlannerForecastController extends Controller
                 'forecast_month' => $baseMonth,
                 'forecast_qty' => $qty,
                 'forecast_1m' => $qty,
-                'forecast_6m' => round($qty * 6, 2),
+                'forecast_6m' => round($qty * FormFcPeriod::MONTHS, 2),
                 'source_type' => 'MANUAL',
                 'is_selected' => 1,
                 'created_at' => now(),
@@ -911,7 +913,9 @@ class PlannerForecastController extends Controller
             'fg_description'      => isset($r['fg_description']) ? (string) $r['fg_description'] : null,
             'fg_partnumber'       => isset($r['fg_partnumber']) ? (string) $r['fg_partnumber'] : null,
             'forecast_1m'         => isset($r['forecast_1m']) ? round((float) $r['forecast_1m'], 2) : null,
-            'forecast_6m'         => isset($r['forecast_6m']) ? round((float) $r['forecast_6m'], 2) : null,
+            'forecast_6m'         => isset($r['forecast_1m'])
+                ? round((float) $r['forecast_1m'] * FormFcPeriod::MONTHS, 2)
+                : null,
             'forecast_base_month' => $r['forecast_base_month'] ?? null,
             'forecast_month'      => $r['forecast_month'] ?? null,
             'forecast_qty'        => isset($r['forecast_qty']) ? round((float) $r['forecast_qty'], 2) : null,

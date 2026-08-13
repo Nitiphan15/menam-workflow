@@ -580,7 +580,7 @@
             <div class="col-md-3">
                 <div class="card fc-card">
                     <div class="card-body py-2">
-                        <div class="kpi-title">Avg 6M รวม</div>
+                        <div class="kpi-title">Avg {{ $forecastHorizonMonths }}M รวม</div>
                         <div class="kpi-val js-kpi-avg6">{{ number_format($kpi['avg6_sum'], 2) }}</div>
                     </div>
                 </div>
@@ -687,7 +687,7 @@
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="4" data-sort-type="num">Sales Order<span
                                             class="sort-ind"></span></th>
-                                    <th class="sortable" data-sort-col="5" data-sort-type="num">Avg 6M<span
+                                    <th class="sortable" data-sort-col="5" data-sort-type="num">Avg {{ $forecastHorizonMonths }}M<span
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="6" data-sort-type="num">Forecast?<span
                                             class="sort-ind"></span></th>
@@ -968,7 +968,7 @@
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <div>
                         <div class="section-title">Manual Forecast</div>
-                        <div class="small text-muted">เฉพาะรายการที่ sales ดูแล แต่ไม่มีข้อมูลย้อนหลัง 6 เดือน</div>
+                        <div class="small text-muted">เฉพาะรายการที่ sales ดูแล แต่ไม่มีข้อมูลย้อนหลัง {{ $forecastHorizonMonths }} เดือน</div>
                     </div>
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="addManualRow" @disabled(!empty($isSubmitted))>
@@ -1108,7 +1108,7 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <div>
-                            <div class="fw-semibold" id="avg6ModalTitle">Avg 6M รายเดือน</div>
+                            <div class="fw-semibold" id="avg6ModalTitle">Avg {{ $forecastHorizonMonths }}M รายเดือน</div>
                             <div class="small text-muted" id="avg6ModalSub"></div>
                         </div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1127,7 +1127,7 @@
                                 <tbody id="avg6ModalBody"></tbody>
                                 <tfoot>
                                     <tr class="table-light">
-                                        <th>รวม 6 เดือน</th>
+                                        <th>รวม {{ $forecastHorizonMonths }} เดือน</th>
                                         <th class="text-end" id="avg6FootWire">0.00</th>
                                         <th class="text-end" id="avg6FootPlus">0.00</th>
                                         <th class="text-end" id="avg6FootTotal">0.00</th>
@@ -1638,7 +1638,7 @@
             let horizonForecast = 0;
 
             if (checked) {
-                // ถ้าติ๊ก Forecast ใหม่และช่อง 1M ยังว่าง/0 ให้คำนวณจาก Avg6*K ทันที
+                // ถ้าติ๊ก Forecast ใหม่และช่อง 1M ยังว่าง/0 ให้คำนวณจากค่าเฉลี่ยตามช่วง * K ทันที
                 if (!forceAuto && userEdited && hasManualValue) {
                     f1 = manual;
                 } else {
@@ -1746,7 +1746,7 @@
                 const manualInput = tr?.querySelector('.js-manual-forecast');
                 const manual = parseFloat(String(manualInput?.value || '0').replace(/,/g, '')) || 0;
 
-                // เมื่อติ๊กเลือก Forecast ให้คำนวณ 1M/6M จาก Avg6*K ทันที ไม่ต้องขยับ K ก่อน
+                // เมื่อติ๊กเลือก Forecast ให้คำนวณ 1M/ยอดรวมตามช่วงทันที ไม่ต้องขยับ K ก่อน
                 if (this.checked && manualInput) {
                     manualInput.dataset.userEdited = '0';
                     manualInput.dataset.forceAutoOnce = '1';
@@ -2043,7 +2043,7 @@
             }
         });
 
-        /* ================== AVG 6M MODAL ================== */
+        /* ================== PERIOD AVERAGE MODAL ================== */
         document.addEventListener('click', function(e) {
             const btn = e.target.closest('.avg6-link');
             if (!btn) return;
@@ -2065,7 +2065,7 @@
                 history = [];
             }
 
-            titleEl.textContent = `Avg 6M | ${customer} | ${fg}`;
+            titleEl.textContent = `Avg ${FORECAST_HORIZON_MONTHS}M | ${customer} | ${fg}`;
             subEl.textContent = desc;
 
             let sumW = 0,
@@ -2481,7 +2481,7 @@
         /* ================== EXPORT EXCEL (client-side .xls via HTML) ================== */
         document.getElementById('btnExportExcel')?.addEventListener('click', function() {
             const visibleRows = tableRows().filter(tr => tr.style.display !== 'none');
-            const headers = ['Customer', 'FG Part', 'Description', 'RM Part', 'Sales Order', 'Avg 6M', 'Forecast?',
+            const headers = ['Customer', 'FG Part', 'Description', 'RM Part', 'Sales Order', `Avg ${FORECAST_HORIZON_MONTHS}M`, 'Forecast?',
                 'K', 'Forecast 1M', `Forecast ${FORECAST_HORIZON_MONTHS}M`, 'Supplier', 'Remark'
             ];
             const escapeCell = (value) => String(value ?? '')

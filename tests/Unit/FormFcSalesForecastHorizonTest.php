@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Http\Controllers\FormFC\ForecastRmDivisionController;
+use App\Support\FormFcPeriod;
 use ReflectionClass;
 use Tests\TestCase;
 
@@ -13,6 +14,7 @@ class FormFcSalesForecastHorizonTest extends TestCase
         $controller = new ReflectionClass(ForecastRmDivisionController::class);
 
         $this->assertSame(4, $controller->getConstant('FORECAST_HORIZON_MONTHS'));
+        $this->assertSame(FormFcPeriod::MONTHS, $controller->getConstant('FORECAST_HORIZON_MONTHS'));
 
         $source = file_get_contents(app_path('Http/Controllers/FormFC/ForecastRmDivisionController.php'));
         $this->assertStringContainsString('database columns are still named forecast_6m', strtolower($source));
