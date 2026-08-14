@@ -433,6 +433,9 @@
                                         <th>File</th>
                                         <th>Remark</th>
                                         <th>Uploaded By</th>
+                                        @if ($canEditAttachment)
+                                            <th class="text-end">ลบ</th>
+                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -459,10 +462,25 @@
                                                     target="_blank">{{ $displayFileName }}</a></td>
                                             <td>{{ $attachment->remark ?: '-' }}</td>
                                             <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
+                                            @if ($canEditAttachment)
+                                                <td class="text-end">
+                                                    <form method="POST"
+                                                        action="{{ route('po.attachments.destroy', [$po->id, $attachment->id]) }}"
+                                                        class="d-inline"
+                                                        onsubmit="return confirm('ยืนยันลบไฟล์ {{ addslashes($displayFileName) }}?')">
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                            title="ลบไฟล์" aria-label="ลบไฟล์ {{ $displayFileName }}">
+                                                            <i class="fa-solid fa-xmark"></i>
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            @endif
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="3" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>
+                                            <td colspan="{{ $canEditAttachment ? 4 : 3 }}" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -508,6 +526,9 @@
                                         @endif
                                         <div class="form-text">
                                             ไฟล์ใหม่จะเพิ่มต่อท้ายรายการเดิม ไม่ลบหรือแทนที่ไฟล์ที่แนบไว้แล้ว
+                                            @if (($po->workflow?->current_step_no ?? 0) == 3)
+                                                และจะบันทึกชื่อเป็น {{ $po->ordnumber }}-ชื่อไฟล์เดิม
+                                            @endif
                                         </div>
                                     </div>
                                 @endif

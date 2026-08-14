@@ -18,7 +18,13 @@ class PoAttachmentService
      * @param  array<int, UploadedFile|null>  $files
      * @param  array<int, string|null>  $remarks
      */
-    public function append(PoHeader $po, array $files, array $remarks, int $userId): int
+    public function append(
+        PoHeader $po,
+        array $files,
+        array $remarks,
+        int $userId,
+        bool $keepOriginalName = false,
+    ): int
     {
         $today = now();
         $directory = "po/{$today->year}/{$today->format('m')}/{$today->format('d')}";
@@ -31,16 +37,18 @@ class PoAttachmentService
                 continue;
             }
 
-            $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'file');
-            $extension = preg_replace('/[^a-z0-9]+/', '', $extension) ?: 'file';
-            $candidate = '';
-            $fileName = '';
+            if ($keepOriginalName) {
+                $fileName = $this->managerApprovalFileName($safePoNumber, $file, $directory);
+            } else {
+                $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'file');
+                $extension = preg_replace('/[^a-z0-9]+/', '', $extension) ?: 'file';
 
-            do {
-                $fileName = sprintf('%s_%02d.%s', $safePoNumber, $sequence, $extension);
-                $candidate = "{$directory}/{$fileName}";
-                $sequence++;
-            } while (Storage::disk('public')->exists($candidate));
+                do {
+                    $fileName = sprintf('%s_%02d.%s', $safePoNumber, $sequence, $extension);
+                    $candidate = "{$directory}/{$fileName}";
+                    $sequence++;
+                } while (Storage::disk('public')->exists($candidate));
+            }
 
             $stored = $file->storeAs($directory, $fileName, 'public');
 
@@ -65,5 +73,23 @@ class PoAttachmentService
         }
 
         return $appended;
+    }
+
+    private function managerApprovalFileName(string $safePoNumber, UploadedFile $file, string $directory): string
+    {
+        $originalName = trim(str_replace(['/', '\\'], '_', $file->getClientOriginalName()));
+        $originalName = preg_replace('/[\x00-\x1F\x7F]+/u', '', $originalName) ?: 'attachment';
+        $baseName = pathinfo($originalName, PATHINFO_FILENAME) ?: 'attachment';
+        $extension = pathinfo($originalName, PATHINFO_EXTENSION);
+        $suffix = $extension !== '' ? ".{$extension}" : '';
+        $fileName = "{$safePoNumber}-{$baseName}{$suffix}";
+        $duplicate = 2;
+
+        while (Storage::disk('public')->exists("{$directory}/{$fileName}")) {
+            $fileName = "{$safePoNumber}-{$baseName}-{$duplicate}{$suffix}";
+            $duplicate++;
+        }
+
+        return $fileName;
     }
 }

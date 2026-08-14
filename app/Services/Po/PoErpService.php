@@ -137,6 +137,39 @@ class PoErpService
         });
     }
 
+    public function filterByDepartmentId(Collection $rows, int $departmentId): Collection
+    {
+        if ($departmentId <= 0) {
+            return collect();
+        }
+
+        $resolved = [];
+
+        return $rows->filter(function ($row) use ($departmentId, &$resolved) {
+            $erpDepartment = trim((string) ($row->department ?? ''));
+            $key = strtoupper($erpDepartment);
+
+            if (!array_key_exists($key, $resolved)) {
+                $resolved[$key] = self::resolveDepartmentId($erpDepartment);
+            }
+
+            return (int) ($resolved[$key] ?? 0) === $departmentId;
+        })->values();
+    }
+
+    private function isListStatusVisible(string $rowStatus, string $wantedStatus, bool $includeCompletedStatuses): bool
+    {
+        if ($includeCompletedStatuses) {
+            return true;
+        }
+
+        if ($wantedStatus !== '') {
+            return $rowStatus !== 'APPROVED';
+        }
+
+        return !in_array($rowStatus, ['APPROVED', 'CLOSED'], true);
+    }
+
     public function getDetailRows(string $ordnumber, ?string $sourceSystem = null): Collection
     {
         return $this->baseDetailQuery($sourceSystem)
