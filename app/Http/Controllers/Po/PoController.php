@@ -125,6 +125,53 @@ class PoController extends Controller
         ]);
     }
 
+    public function departmentTracking(Request $request)
+    {
+        $departmentId = (int) (auth()->user()?->department_id ?? 0);
+        $department = $departmentId > 0
+            ? SqlServerDb::table('departments')->where('id', $departmentId)->first(['id', 'code', 'name'])
+            : null;
+
+        $rows = collect();
+        $pendingApproversByWorkflow = collect();
+
+        if ($department) {
+            $rows = $this->erpService->listOpenPos(
+                search: $request->string('search')->toString() ?: null,
+                dateFrom: $request->string('date_from')->toString() ?: null,
+                dateTo: $request->string('date_to')->toString() ?: null,
+                status: $request->string('status')->toString() ?: null,
+                source: $request->string('source')->toString() ?: null,
+                includeCompletedStatuses: true,
+            );
+            $rows = $this->erpService->filterByDepartmentId($rows, $departmentId);
+
+            $workflowIds = $rows->pluck('workflow_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
+            if ($workflowIds->isNotEmpty()) {
+                $pendingApproversByWorkflow = SqlServerDb::table('wf_form_authorizes as wa')
+                    ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
+                    ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
+                    ->whereIn('wa.wf_form_id', $workflowIds->all())
+                    ->where(function ($query) {
+                        $query->whereNull('wa.status')
+                            ->orWhere('wa.status', WfFormAuthorize::ST_PENDING);
+                    })
+                    ->whereColumn('wa.step_no', 'wf.current_step_no')
+                    ->orderBy('u.name')
+                    ->get(['wa.wf_form_id', 'wf.current_step_no', 'u.name'])
+                    ->groupBy('wf_form_id');
+            }
+        }
+
+        return view('po.department_tracking', [
+            'department' => $department,
+            'rows' => $rows,
+            'pendingApproversByWorkflow' => $pendingApproversByWorkflow,
+            'statusOptions' => $this->statusOptions(),
+            'sourceOptions' => $this->sourceOptions(),
+        ]);
+    }
+
     private function workflowIdsVisibleToApprover(int $userId): array
     {
         return SqlServerDb::table('wf_form_authorizes as wa')
@@ -201,7 +248,7 @@ class PoController extends Controller
                 ->whereColumn('wa.step_no', 'wf.current_step_no')
                 ->exists()
             : false;
-        $canAppendApprovalAttachment = $canApprove && $currentStepNo === 2;
+        $canAppendApprovalAttachment = $canApprove && in_array($currentStepNo, [2, 3], true);
         $pendingApprovers = $po->workflow_id
             ? SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
@@ -291,6 +338,29 @@ class PoController extends Controller
         }
 
         return Storage::disk('public')->response($path, $fileName, $headers, 'inline');
+    }
+
+    public function destroyAttachment($id, $attachmentId)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        abort_unless(
+            in_array($po->status_code, ['DRAFT', 'REJECTED'], true) && Gate::allows('POPUR'),
+            403,
+            'You are not authorized to delete attachments from this PO',
+        );
+
+        $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
+        $path = trim((string) $attachment->file_path);
+
+        DB::transaction(function () use ($attachment, $path) {
+            $attachment->delete();
+
+            if ($path !== '') {
+                Storage::disk('public')->delete($path);
+            }
+        });
+
+        return redirect()->route('po.show', $po->id)->with('ok', 'ลบไฟล์แนบเรียบร้อยแล้ว');
     }
 
     public function update(Request $request, $id)

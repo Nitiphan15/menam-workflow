@@ -27,6 +27,7 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
     ->group(function () {
         Route::get('/', [PoController::class, 'index'])->name('index');
         Route::get('/my-actions', [PoController::class, 'myActions'])->name('myActions');
+        Route::get('/department-tracking', [PoController::class, 'departmentTracking'])->name('departmentTracking');
 
         Route::middleware('permission.any:POPUR')->group(function () {
             Route::get('/create', [PoController::class, 'create'])->name('create');
@@ -45,6 +46,9 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
 
             Route::get('/{id}/edit', [PoController::class, 'edit'])->name('edit');
             Route::put('/{id}', [PoController::class, 'update'])->name('update');
+            Route::delete('/{id}/attachments/{attachmentId}', [PoController::class, 'destroyAttachment'])
+                ->whereNumber('attachmentId')
+                ->name('attachments.destroy');
 
             Route::get('/lookup/suppliers', [PoLookupController::class, 'suppliers'])->name('lookup.suppliers');
             Route::get('/lookup/items', [PoLookupController::class, 'items'])->name('lookup.items');

@@ -280,7 +280,7 @@ class PoApprovalController extends Controller
         $stepBeforeApprove = (int) ($po->workflow?->current_step_no ?? 0);
 
         if ($request->hasFile('files')) {
-            abort_unless($stepBeforeApprove === 2, 422, 'Attachments can only be added while approving step 2');
+            abort_unless(in_array($stepBeforeApprove, [2, 3], true), 422, 'Attachments can only be added while approving step 2 or step 3');
 
             $isCurrentApprover = SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
@@ -300,6 +300,7 @@ class PoApprovalController extends Controller
                 $request->file('files', []),
                 [],
                 (int) auth()->id(),
+                $stepBeforeApprove === 3,
             );
         }
 

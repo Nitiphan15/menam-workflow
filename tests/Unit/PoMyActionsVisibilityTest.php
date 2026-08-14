@@ -10,6 +10,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use ReflectionMethod;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 class PoMyActionsVisibilityTest extends TestCase
@@ -37,6 +38,12 @@ class PoMyActionsVisibilityTest extends TestCase
             $table->unsignedInteger('step_no');
             $table->unsignedBigInteger('approver_user_id');
             $table->string('status');
+        });
+        Schema::connection('sqlsrv_menam')->create('departments', function (Blueprint $table) {
+            $table->id();
+            $table->string('code')->nullable();
+            $table->string('name')->nullable();
+            $table->boolean('is_active')->default(true);
         });
     }
 
@@ -72,5 +79,22 @@ class PoMyActionsVisibilityTest extends TestCase
         $this->assertTrue($method->invoke($service, 'APPROVED', '', true));
         $this->assertFalse($method->invoke($service, 'CLOSED', '', false));
         $this->assertFalse($method->invoke($service, 'APPROVED', '', false));
+    }
+
+    public function test_department_tracking_keeps_only_rows_resolved_to_the_users_department(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 10, 'code' => 'SH1', 'name' => 'Bar 1', 'is_active' => 1],
+            ['id' => 20, 'code' => 'P', 'name' => 'Purchase', 'is_active' => 1],
+        ]);
+
+        $rows = new Collection([
+            (object) ['ordnumber' => 'PO001', 'department' => 'BAR1 - Production'],
+            (object) ['ordnumber' => 'PO002', 'department' => 'PURCHASE'],
+        ]);
+
+        $filtered = (new PoErpService())->filterByDepartmentId($rows, 10);
+
+        $this->assertSame(['PO001'], $filtered->pluck('ordnumber')->all());
     }
 }
