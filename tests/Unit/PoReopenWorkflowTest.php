@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Http\Controllers\Po\PoApprovalController;
+use App\Http\Controllers\Po\PoController;
 use App\Services\WorkflowEngine;
 use Illuminate\Support\Facades\Route;
 use ReflectionMethod;
@@ -39,5 +40,25 @@ class PoReopenWorkflowTest extends TestCase
     {
         $this->assertTrue(method_exists(WorkflowEngine::class, 'reopenCompleted'));
         $this->assertTrue(method_exists(WorkflowEngine::class, 'resubmit'));
+    }
+
+    public function test_attachment_delete_route_is_restored_and_purchase_restricted(): void
+    {
+        $route = Route::getRoutes()->getByName('po.attachments.destroy');
+
+        $this->assertNotNull($route);
+        $this->assertSame(['DELETE'], $route->methods());
+        $this->assertSame(PoController::class . '@destroyAttachment', $route->getActionName());
+        $this->assertContains('permission.any:POPUR', $route->gatherMiddleware());
+    }
+
+    public function test_department_tracking_route_is_available_to_po_users(): void
+    {
+        $route = Route::getRoutes()->getByName('po.departmentTracking');
+
+        $this->assertNotNull($route);
+        $this->assertSame(['GET', 'HEAD'], $route->methods());
+        $this->assertSame(PoController::class . '@departmentTracking', $route->getActionName());
+        $this->assertContains('permission.any:PO,POPUR', $route->gatherMiddleware());
     }
 }
