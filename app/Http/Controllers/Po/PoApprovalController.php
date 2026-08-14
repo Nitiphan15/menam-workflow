@@ -516,27 +516,77 @@ class PoApprovalController extends Controller
     private function notifyPurchaseDepartmentOnClosed(PoHeader $po): void
     {
         $recipients = $this->workflowSubmitterRecipients($po)
+            ->merge($this->purchaseApproverRecipients($po))
             ->merge($this->purchaseDepartmentRecipients($po))
             ->filter(fn ($recipient) => !blank($recipient?->email ?? null))
             ->unique(fn ($recipient) => strtolower((string) $recipient->email))
             ->values();
 
-        foreach ($recipients as $recipient) {
-            Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
-                recipientName: (string) ($recipient->name ?: 'Purchase'),
-                poItem: [
-                    'ordnumber' => $po->ordnumber,
-                    'source_label' => PoErpService::sourceLabel($po->site),
-                    'department' => $po->f1,
-                    'vendor_name' => $po->vendor_name,
-                    'step_no' => 999,
-                    'step_label' => $this->workflowStepLabel(999),
-                    'flow_steps' => $this->poFlowSteps(),
-                    'show_url' => route('po.show', $po->id),
-                    'print_url' => route('po.print', $po->id),
-                ],
-            ));
+        $context = [
+            'po_id' => $po->id,
+            'ordnumber' => $po->ordnumber,
+            'workflow_id' => $po->workflow_id,
+            'recipient_count' => $recipients->count(),
+        ];
+
+        if ($recipients->isEmpty()) {
+            Log::warning('PO closed mail has no eligible recipients', $context);
+
+            return;
         }
+
+        Log::info('PO closed mail dispatch started', $context);
+        $sent = 0;
+        $failed = 0;
+
+        foreach ($recipients as $recipient) {
+            try {
+                Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
+                    recipientName: (string) ($recipient->name ?: 'Purchase'),
+                    poItem: [
+                        'ordnumber' => $po->ordnumber,
+                        'source_label' => PoErpService::sourceLabel($po->site),
+                        'department' => $po->f1,
+                        'vendor_name' => $po->vendor_name,
+                        'step_no' => 999,
+                        'step_label' => $this->workflowStepLabel(999),
+                        'flow_steps' => $this->poFlowSteps(),
+                        'show_url' => route('po.show', $po->id),
+                        'print_url' => route('po.print', $po->id),
+                    ],
+                ));
+                $sent++;
+                Log::info('PO closed mail sent', $context + ['recipient' => (string) $recipient->email]);
+            } catch (Throwable $exception) {
+                $failed++;
+                Log::error('PO closed mail failed', $context + [
+                    'recipient' => (string) $recipient->email,
+                    'exception' => $exception::class,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('PO closed mail dispatch finished', $context + ['sent' => $sent, 'failed' => $failed]);
+    }
+
+    private function purchaseApproverRecipients(PoHeader $po): Collection
+    {
+        if (blank($po->workflow_id)) {
+            return collect();
+        }
+
+        return SqlServerDb::table('wf_form_authorizes as wa')
+            ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
+            ->where('wa.wf_form_id', $po->workflow_id)
+            ->where('wa.step_no', 2)
+            ->where('u.is_active', 1)
+            ->whereNotNull('u.email')
+            ->orderBy('u.name')
+            ->get(['u.name', 'u.email'])
+            ->filter(fn ($recipient) => !blank(trim((string) $recipient->email)))
+            ->unique(fn ($recipient) => strtolower(trim((string) $recipient->email)))
+            ->values();
     }
 
     private function workflowSubmitterRecipients(PoHeader $po): Collection
