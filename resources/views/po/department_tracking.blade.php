@@ -13,6 +13,9 @@
                         @if ($department)
                             <div class="text-muted">
                                 {{ $department->name }} ({{ $department->code }})
+                                @if ($trackingScope)
+                                    <span class="badge text-bg-info ms-2">{{ $trackingScope }}</span>
+                                @endif
                             </div>
                         @endif
                     </div>

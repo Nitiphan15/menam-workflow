@@ -101,6 +101,22 @@ class PoMyActionsVisibilityTest extends TestCase
         $this->assertSame(['PO001'], $filtered->pluck('ordnumber')->all());
     }
 
+    public function test_tooling_engineer_in_rd_sees_only_tooling_rows(): void
+    {
+        $rows = new Collection([
+            (object) ['ordnumber' => 'PO001', 'department' => 'TOOLING - R&D'],
+            (object) ['ordnumber' => 'PO002', 'department' => 'ENGINEERING - R&D'],
+            (object) ['ordnumber' => 'PO003', 'department' => 'PURCHASE'],
+        ]);
+
+        $service = new PoErpService();
+        $filtered = $service->filterForDepartmentViewer($rows, 99, 'Tooling Engineer');
+
+        $this->assertSame(['PO001'], $filtered->pluck('ordnumber')->all());
+        $this->assertTrue(PoErpService::canDepartmentViewerAccess('TOOLING - R&D', 99, 'Tooling Engineer'));
+        $this->assertFalse(PoErpService::canDepartmentViewerAccess('ENGINEERING - R&D', 99, 'Tooling Engineer'));
+    }
+
     public function test_department_tracking_detail_allows_only_the_users_department(): void
     {
         DB::connection('sqlsrv_menam')->table('departments')->insert([

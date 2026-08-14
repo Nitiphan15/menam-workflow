@@ -183,6 +183,43 @@ class PoErpService
         })->values();
     }
 
+    public function filterForDepartmentViewer(Collection $rows, int $departmentId, ?string $position): Collection
+    {
+        if (self::isToolingEngineerPosition($position)) {
+            return $rows->filter(
+                fn ($row) => self::isToolingDepartment($row->department ?? null)
+            )->values();
+        }
+
+        return $this->filterByDepartmentId($rows, $departmentId);
+    }
+
+    public static function canDepartmentViewerAccess(
+        ?string $erpDepartment,
+        int $departmentId,
+        ?string $position,
+    ): bool {
+        if (self::isToolingEngineerPosition($position)) {
+            return self::isToolingDepartment($erpDepartment);
+        }
+
+        $poDepartmentId = self::resolveDepartmentId($erpDepartment);
+
+        return $departmentId > 0
+            && $poDepartmentId !== null
+            && $departmentId === $poDepartmentId;
+    }
+
+    public static function isToolingEngineerPosition(?string $position): bool
+    {
+        return strcasecmp(trim((string) $position), 'Tooling Engineer') === 0;
+    }
+
+    private static function isToolingDepartment(?string $erpDepartment): bool
+    {
+        return strcasecmp(self::departmentGroupName($erpDepartment), 'Tooling') === 0;
+    }
+
     private function isListStatusVisible(string $rowStatus, string $wantedStatus, bool $includeCompletedStatuses): bool
     {
         if ($includeCompletedStatuses) {

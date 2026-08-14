@@ -127,7 +127,10 @@ class PoController extends Controller
 
     public function departmentTracking(Request $request)
     {
-        $departmentId = (int) (auth()->user()?->department_id ?? 0);
+        $user = auth()->user();
+        $departmentId = (int) ($user?->department_id ?? 0);
+        $position = (string) ($user?->position ?? '');
+        $trackingScope = PoErpService::isToolingEngineerPosition($position) ? 'Tooling only' : null;
         $department = $departmentId > 0
             ? SqlServerDb::table('departments')->where('id', $departmentId)->first(['id', 'code', 'name'])
             : null;
@@ -144,7 +147,7 @@ class PoController extends Controller
                 source: $request->string('source')->toString() ?: null,
                 includeCompletedStatuses: true,
             );
-            $rows = $this->erpService->filterByDepartmentId($rows, $departmentId);
+            $rows = $this->erpService->filterForDepartmentViewer($rows, $departmentId, $position);
 
             $workflowIds = $rows->pluck('workflow_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
             if ($workflowIds->isNotEmpty()) {
@@ -165,6 +168,7 @@ class PoController extends Controller
 
         return view('po.department_tracking', [
             'department' => $department,
+            'trackingScope' => $trackingScope,
             'rows' => $rows,
             'pendingApproversByWorkflow' => $pendingApproversByWorkflow,
             'statusOptions' => $this->statusOptions(),
@@ -388,11 +392,12 @@ class PoController extends Controller
 
     private function ensureCurrentUserCanViewDepartmentName(?string $erpDepartment): void
     {
-        $departmentId = (int) (auth()->user()?->department_id ?? 0);
-        $poDepartmentId = PoErpService::resolveDepartmentId($erpDepartment);
+        $user = auth()->user();
+        $departmentId = (int) ($user?->department_id ?? 0);
+        $position = (string) ($user?->position ?? '');
 
         abort_unless(
-            $departmentId > 0 && $poDepartmentId !== null && $departmentId === (int) $poDepartmentId,
+            PoErpService::canDepartmentViewerAccess($erpDepartment, $departmentId, $position),
             403,
             'You are not authorized to view PO documents from another department',
         );
