@@ -262,8 +262,7 @@ class PoController extends Controller
             )
             && $po->attachments->isNotEmpty()
             && $canPurchaseOperate;
-        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
-            && $canPurchaseOperate;
+        $canEditAttachment = !$readOnly && $this->canDeleteAttachment($po);
         $canReopen = $po->status_code === 'CLOSED'
             && !blank($po->workflow_id)
             && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_CLOSED
@@ -402,11 +401,7 @@ class PoController extends Controller
     public function destroyAttachment($id, $attachmentId)
     {
         $po = PoHeader::query()->findOrFail($id);
-        abort_unless(
-            in_array($po->status_code, ['DRAFT', 'REJECTED'], true) && Gate::allows('POPUR'),
-            403,
-            'You are not authorized to delete attachments from this PO',
-        );
+        abort_unless($this->canDeleteAttachment($po), 403, 'You are not authorized to delete attachments from this PO');
 
         $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
         $path = trim((string) $attachment->file_path);
@@ -425,8 +420,7 @@ class PoController extends Controller
     public function update(Request $request, $id)
     {
         $po = PoHeader::query()->findOrFail($id);
-        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
-            && Gate::allows('POPUR');
+        $canEditAttachment = $this->canDeleteAttachment($po);
         $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
 
         $request->validate([
@@ -474,6 +468,7 @@ class PoController extends Controller
                 $request->file('files', []),
                 $request->input('file_remark', []),
                 (int) auth()->id(),
+                workflowStepNo: 1,
             );
         }
 
@@ -482,6 +477,12 @@ class PoController extends Controller
     private function canEditPdfOverrideForCurrentUser(): bool
     {
         return Gate::allows('POUR');
+    }
+
+    private function canDeleteAttachment(PoHeader $po): bool
+    {
+        return in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
+            && Gate::allows('POPUR');
     }
 
     private function statusOptions(): array

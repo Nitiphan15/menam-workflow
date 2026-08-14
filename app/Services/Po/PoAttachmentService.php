@@ -24,6 +24,7 @@ class PoAttachmentService
         array $remarks,
         int $userId,
         bool $keepOriginalName = false,
+        ?int $workflowStepNo = null,
     ): int
     {
         $today = now();
@@ -61,6 +62,7 @@ class PoAttachmentService
                     'mime_type' => $file->getClientMimeType(),
                     'file_size' => $file->getSize(),
                     'remark' => $remarks[$index] ?? null,
+                    'workflow_step_no' => $workflowStepNo,
                     'created_at' => now(),
                     'created_by' => $userId,
                 ]);

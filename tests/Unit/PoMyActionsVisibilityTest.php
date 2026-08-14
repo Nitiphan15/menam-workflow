@@ -131,4 +131,16 @@ class PoMyActionsVisibilityTest extends TestCase
             $this->assertSame(403, $exception->getStatusCode());
         }
     }
+
+    public function test_head_of_department_cannot_delete_attachments(): void
+    {
+        $po = new PoHeader();
+        $po->status_code = 'DEPT_MANAGER_APPROVAL';
+
+        $controller = new PoController(new PoErpService(), new PoAttachmentService(new PoAttached()));
+        $method = new ReflectionMethod($controller, 'canDeleteAttachment');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke($controller, $po));
+    }
 }

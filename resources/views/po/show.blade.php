@@ -457,45 +457,67 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @forelse ($po->attachments as $attachmentIndex => $attachment)
-                                        @php
-                                            $attachmentExt =
-                                                $attachment->file_ext ?:
-                                                pathinfo((string) $attachment->file_name, PATHINFO_EXTENSION);
-                                            $fallbackName = sprintf(
-                                                '%s_%02d%s',
-                                                $po->ordnumber,
-                                                $attachmentIndex + 1,
-                                                $attachmentExt ? ".{$attachmentExt}" : '',
-                                            );
-                                            $displayFileName = str_starts_with(
-                                                (string) $attachment->file_name,
-                                                (string) $po->ordnumber,
-                                            )
-                                                ? $attachment->file_name
-                                                : $fallbackName;
-                                        @endphp
-                                        <tr>
-                                            <td><a href="{{ route($readOnly ? 'po.departmentTracking.attachments.show' : 'po.attachments.show', [$po->id, $attachment->id]) }}"
-                                                    target="_blank">{{ $displayFileName }}</a></td>
-                                            <td>{{ $attachment->remark ?: '-' }}</td>
-                                            <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
-                                            @if ($canEditAttachment)
-                                                <td class="text-end">
-                                                    <form method="POST"
-                                                        action="{{ route('po.attachments.destroy', [$po->id, $attachment->id]) }}"
-                                                        class="d-inline"
-                                                        onsubmit="return confirm('ยืนยันลบไฟล์ {{ addslashes($displayFileName) }}?')">
-                                                        @csrf
-                                                        @method('DELETE')
-                                                        <button type="submit" class="btn btn-sm btn-outline-danger"
-                                                            title="ลบไฟล์" aria-label="ลบไฟล์ {{ $displayFileName }}">
-                                                            <i class="fa-solid fa-xmark"></i>
-                                                        </button>
-                                                    </form>
-                                                </td>
-                                            @endif
+                                    @php
+                                        $attachmentStepLabels = [
+                                            1 => 'Purchase Submit',
+                                            2 => 'Purchase Approve',
+                                            3 => 'Head of Department Approve',
+                                            0 => 'Existing Attachments',
+                                        ];
+                                        $attachmentGroups = $po->attachments
+                                            ->groupBy(fn ($attachment) => (int) ($attachment->workflow_step_no ?? 0))
+                                            ->sortBy(fn ($attachments, $stepNo) => array_search((int) $stepNo, [1, 2, 3, 0], true));
+                                    @endphp
+
+                                    @forelse ($attachmentGroups as $stepNo => $attachments)
+                                        <tr class="table-secondary">
+                                            <th colspan="{{ $canEditAttachment ? 4 : 3 }}">
+                                                {{ $attachmentStepLabels[(int) $stepNo] ?? "Workflow Step {$stepNo}" }}
+                                                <span class="badge text-bg-light ms-1">{{ $attachments->count() }} files</span>
+                                            </th>
                                         </tr>
+
+                                        @foreach ($attachments as $attachment)
+                                            @php
+                                                $attachmentIndex = $po->attachments->search(fn ($item) => $item->getKey() === $attachment->getKey());
+                                                $attachmentExt =
+                                                    $attachment->file_ext ?:
+                                                    pathinfo((string) $attachment->file_name, PATHINFO_EXTENSION);
+                                                $fallbackName = sprintf(
+                                                    '%s_%02d%s',
+                                                    $po->ordnumber,
+                                                    $attachmentIndex + 1,
+                                                    $attachmentExt ? ".{$attachmentExt}" : '',
+                                                );
+                                                $displayFileName = str_starts_with(
+                                                    (string) $attachment->file_name,
+                                                    (string) $po->ordnumber,
+                                                )
+                                                    ? $attachment->file_name
+                                                    : $fallbackName;
+                                            @endphp
+                                            <tr>
+                                                <td><a href="{{ route($readOnly ? 'po.departmentTracking.attachments.show' : 'po.attachments.show', [$po->id, $attachment->id]) }}"
+                                                        target="_blank">{{ $displayFileName }}</a></td>
+                                                <td>{{ $attachment->remark ?: '-' }}</td>
+                                                <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
+                                                @if ($canEditAttachment)
+                                                    <td class="text-end">
+                                                        <form method="POST"
+                                                            action="{{ route('po.attachments.destroy', [$po->id, $attachment->id]) }}"
+                                                            class="d-inline"
+                                                            onsubmit="return confirm('ยืนยันลบไฟล์ {{ addslashes($displayFileName) }}?')">
+                                                            @csrf
+                                                            @method('DELETE')
+                                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                                title="ลบไฟล์" aria-label="ลบไฟล์ {{ $displayFileName }}">
+                                                                <i class="fa-solid fa-xmark"></i>
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                @endif
+                                            </tr>
+                                        @endforeach
                                     @empty
                                         <tr>
                                             <td colspan="{{ $canEditAttachment ? 4 : 3 }}" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>

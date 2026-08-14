@@ -309,7 +309,8 @@ class PoApprovalController extends Controller
                 $request->file('files', []),
                 [],
                 (int) auth()->id(),
-                $stepBeforeApprove === 3,
+                keepOriginalName: $stepBeforeApprove === 3,
+                workflowStepNo: $stepBeforeApprove,
             );
         }
 

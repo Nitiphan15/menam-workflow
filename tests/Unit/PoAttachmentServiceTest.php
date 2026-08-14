@@ -45,6 +45,7 @@ class PoAttachmentServiceTest extends TestCase
                     && $attributes['file_name'] === 'PO_123_02.pdf'
                     && $attributes['file_path'] === 'po/2026/07/29/PO_123_02.pdf'
                     && $attributes['remark'] === 'Approved quotation'
+                    && $attributes['workflow_step_no'] === 1
                     && $attributes['created_by'] === 99;
             }))
             ->andReturn(new PoAttached());
@@ -58,6 +59,7 @@ class PoAttachmentServiceTest extends TestCase
             [UploadedFile::fake()->create('quotation.pdf', 10, 'application/pdf')],
             ['Approved quotation'],
             99,
+            workflowStepNo: 1,
         );
 
         $this->assertSame(1, $appended);
@@ -86,6 +88,7 @@ class PoAttachmentServiceTest extends TestCase
                 return $attributes['po_header_id'] === 53
                     && $attributes['file_name'] === 'PO2026080053-quotation-2.pdf'
                     && $attributes['file_path'] === 'po/2026/08/14/PO2026080053-quotation-2.pdf'
+                    && $attributes['workflow_step_no'] === 3
                     && $attributes['created_by'] === 88;
             }))
             ->andReturn(new PoAttached());
@@ -99,7 +102,8 @@ class PoAttachmentServiceTest extends TestCase
             [UploadedFile::fake()->create('quotation.pdf', 10, 'application/pdf')],
             [],
             88,
-            true,
+            keepOriginalName: true,
+            workflowStepNo: 3,
         );
 
         $this->assertSame(1, $appended);
