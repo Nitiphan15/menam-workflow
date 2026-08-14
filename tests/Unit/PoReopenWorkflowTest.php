@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Http\Controllers\Po\PoApprovalController;
 use App\Http\Controllers\Po\PoController;
+use App\Http\Middleware\EnsureAnyPermission;
 use App\Services\WorkflowEngine;
 use Illuminate\Support\Facades\Route;
 use ReflectionMethod;
@@ -52,13 +53,46 @@ class PoReopenWorkflowTest extends TestCase
         $this->assertContains('permission.any:POPUR', $route->gatherMiddleware());
     }
 
-    public function test_department_tracking_route_is_available_to_po_users(): void
+    public function test_department_tracking_routes_require_pov_permission(): void
     {
         $route = Route::getRoutes()->getByName('po.departmentTracking');
+        $showRoute = Route::getRoutes()->getByName('po.departmentTracking.show');
+        $attachmentRoute = Route::getRoutes()->getByName('po.departmentTracking.attachments.show');
+        $erpShowRoute = Route::getRoutes()->getByName('po.departmentTracking.erp.show');
 
         $this->assertNotNull($route);
         $this->assertSame(['GET', 'HEAD'], $route->methods());
         $this->assertSame(PoController::class . '@departmentTracking', $route->getActionName());
-        $this->assertContains('permission.any:PO,POPUR', $route->gatherMiddleware());
+        $this->assertPovMiddleware($route->gatherMiddleware());
+
+        $this->assertNotNull($showRoute);
+        $this->assertSame(PoController::class . '@departmentTrackingShow', $showRoute->getActionName());
+        $this->assertPovMiddleware($showRoute->gatherMiddleware());
+
+        $this->assertNotNull($attachmentRoute);
+        $this->assertSame(PoController::class . '@departmentTrackingAttachment', $attachmentRoute->getActionName());
+        $this->assertPovMiddleware($attachmentRoute->gatherMiddleware());
+
+        $this->assertNotNull($erpShowRoute);
+        $this->assertSame(PoController::class . '@departmentTrackingErpShow', $erpShowRoute->getActionName());
+        $this->assertPovMiddleware($erpShowRoute->gatherMiddleware());
+    }
+
+    public function test_department_tracking_menu_uses_pov_permission(): void
+    {
+        $poMenu = collect(config('menu.menu.po.0.children'));
+        $tracking = $poMenu->firstWhere('route', 'po.departmentTracking');
+
+        $this->assertNotNull($tracking);
+        $this->assertSame('POV', $tracking['permission']);
+    }
+
+    private function assertPovMiddleware(array $middleware): void
+    {
+        $this->assertTrue(
+            in_array('permission.any:POV', $middleware, true)
+                || in_array(EnsureAnyPermission::class . ':POV', $middleware, true),
+            'POV permission middleware is missing',
+        );
     }
 }

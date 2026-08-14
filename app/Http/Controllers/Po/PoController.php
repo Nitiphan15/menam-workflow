@@ -172,6 +172,30 @@ class PoController extends Controller
         ]);
     }
 
+    public function departmentTrackingShow($id)
+    {
+        return $this->renderShow($id, true);
+    }
+
+    public function departmentTrackingAttachment($id, $attachmentId)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        $this->ensureCurrentUserCanViewDepartmentPo($po);
+
+        return $this->attachmentResponse($po, $attachmentId);
+    }
+
+    public function departmentTrackingErpShow(string $source, string $ordnumber)
+    {
+        $detailRows = $this->erpService->getDetailRows($ordnumber, $source);
+        abort_if($detailRows->isEmpty(), 404, 'PO document not found in ERP');
+
+        $headerRow = $detailRows->first();
+        $this->ensureCurrentUserCanViewDepartmentName($headerRow->f1 ?? null);
+
+        return view('po.department_tracking_erp_detail', compact('source', 'headerRow', 'detailRows'));
+    }
+
     private function workflowIdsVisibleToApprover(int $userId): array
     {
         return SqlServerDb::table('wf_form_authorizes as wa')
@@ -205,6 +229,11 @@ class PoController extends Controller
 
     public function show($id)
     {
+        return $this->renderShow($id);
+    }
+
+    private function renderShow($id, bool $readOnly = false)
+    {
         $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->find($id);
         if (!$po) {
             return redirect()
@@ -212,12 +241,16 @@ class PoController extends Controller
                 ->with('error', 'ไม่พบเอกสาร PO รายการนี้ อาจถูกลบหรือเป็นลิงก์เก่า');
         }
 
+        if ($readOnly) {
+            $this->ensureCurrentUserCanViewDepartmentPo($po);
+        }
+
         $detailRows = $this->erpService->getDetailRows($po->ordnumber, $po->site);
         $headerRow = $detailRows->first();
         $signatures = $this->erpService->printWorkflowSignatures($po->workflow_id);
         $currentStepNo = (int) ($po->workflow?->current_step_no ?? 0);
 
-        $canPurchaseOperate = Gate::allows('POPUR');
+        $canPurchaseOperate = !$readOnly && Gate::allows('POPUR');
         $canSubmit = (
                 (blank($po->workflow_id) && $po->status_code === 'DRAFT')
                 || (
@@ -236,9 +269,10 @@ class PoController extends Controller
             && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_CLOSED
             && $currentStepNo === 999
             && $canPurchaseOperate;
-        $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
-        $canApprove = $po->workflow_id
-            ? SqlServerDb::table('wf_form_authorizes as wa')
+        $canEditPdfOverride = !$readOnly && $this->canEditPdfOverrideForCurrentUser();
+        $canApprove = false;
+        if (!$readOnly && $po->workflow_id) {
+            $canApprove = SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
                 ->where('wa.wf_form_id', $po->workflow_id)
                 ->where('wa.approver_user_id', auth()->id())
@@ -247,8 +281,8 @@ class PoController extends Controller
                         ->orWhere('wa.status', WfFormAuthorize::ST_PENDING);
                 })
                 ->whereColumn('wa.step_no', 'wf.current_step_no')
-                ->exists()
-            : false;
+                ->exists();
+        }
         $canAppendApprovalAttachment = $canApprove && in_array($currentStepNo, [2, 3], true);
         $pendingApprovers = $po->workflow_id
             ? SqlServerDb::table('wf_form_authorizes as wa')
@@ -316,6 +350,7 @@ class PoController extends Controller
             'workflowHistories',
             'workflowRemarks',
             'currentStepName',
+            'readOnly',
         ));
     }
 
@@ -327,6 +362,12 @@ class PoController extends Controller
     public function attachment($id, $attachmentId)
     {
         $po = PoHeader::query()->findOrFail($id);
+
+        return $this->attachmentResponse($po, $attachmentId);
+    }
+
+    private function attachmentResponse(PoHeader $po, $attachmentId)
+    {
         $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
         $path = (string) $attachment->file_path;
 
@@ -339,6 +380,23 @@ class PoController extends Controller
         }
 
         return Storage::disk('public')->response($path, $fileName, $headers, 'inline');
+    }
+
+    private function ensureCurrentUserCanViewDepartmentPo(PoHeader $po): void
+    {
+        $this->ensureCurrentUserCanViewDepartmentName($po->f1);
+    }
+
+    private function ensureCurrentUserCanViewDepartmentName(?string $erpDepartment): void
+    {
+        $departmentId = (int) (auth()->user()?->department_id ?? 0);
+        $poDepartmentId = PoErpService::resolveDepartmentId($erpDepartment);
+
+        abort_unless(
+            $departmentId > 0 && $poDepartmentId !== null && $departmentId === (int) $poDepartmentId,
+            403,
+            'You are not authorized to view PO documents from another department',
+        );
     }
 
     public function destroyAttachment($id, $attachmentId)

@@ -107,7 +107,17 @@
                                         : collect();
                                 @endphp
                                 <tr>
-                                    <td class="fw-semibold">{{ $row->ordnumber }}</td>
+                                    <td class="fw-semibold">
+                                        @if ($row->po_header_id)
+                                            <a href="{{ route('po.departmentTracking.show', $row->po_header_id) }}">
+                                                {{ $row->ordnumber }}
+                                            </a>
+                                        @else
+                                            <a href="{{ route('po.departmentTracking.erp.show', [$row->site, $row->ordnumber]) }}">
+                                                {{ $row->ordnumber }}
+                                            </a>
+                                        @endif
+                                    </td>
                                     <td><span class="badge text-bg-light">{{ $row->source_label }}</span></td>
                                     <td>{{ $row->transdate ? \Illuminate\Support\Carbon::parse($row->transdate)->format('d-M-Y') : '-' }}</td>
                                     <td>{{ $row->department }}</td>
