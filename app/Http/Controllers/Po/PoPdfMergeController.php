@@ -70,7 +70,7 @@ class PoPdfMergeController extends Controller
     private function downloadFileName(?string $requestedName): string
     {
         $name = preg_replace('/\.pdf$/i', '', trim((string) $requestedName));
-        $name = preg_replace('/[\\\/:*?"<>|]+/u', '_', (string) $name);
+        $name = preg_replace('~[\\\\/:*?"<>|]+~u', '_', (string) $name);
         $name = trim((string) $name, " .\t\n\r\0\x0B");
 
         return ($name !== '' ? $name : 'merged-purchase-orders') . '.pdf';
