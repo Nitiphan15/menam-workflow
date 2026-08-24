@@ -43,4 +43,9 @@ return [
         'saleorder_sync_timeout' => env('ERP_SALEORDER_SYNC_TIMEOUT', 900),
     ],
 
+    'pdf' => [
+        'qpdf_binary' => env('QPDF_BINARY', 'qpdf'),
+        'qpdf_timeout' => env('QPDF_TIMEOUT', 60),
+    ],
+
 ];

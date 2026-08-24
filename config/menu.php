@@ -185,6 +185,7 @@ return [
                     ['icon' => 'fa-tasks', 'text' => 'เอกสารที่ต้องทำ', 'route' => 'po.myActions', 'permission' => 'PO'],
                     ['icon' => 'fa-route', 'text' => 'ติดตาม PO แผนกของฉัน', 'route' => 'po.departmentTracking', 'permission' => ['PO', 'POPUR']],
                     ['icon' => 'fa-list', 'text' => 'รายการ PO', 'route' => 'po.index', 'permission' => 'POPUR'],
+                    ['icon' => 'fa-file-pdf', 'text' => 'รวมไฟล์ PDF', 'route' => 'po.pdf-merge.index', 'permission' => 'POPUR'],
                     ['icon' => 'fa-users-gear', 'text' => 'PO Approver Master', 'route' => 'po.approver-master.index', 'permission' => 'POM'],
                 ],
             ],

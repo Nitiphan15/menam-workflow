@@ -6,6 +6,7 @@ use App\Http\Controllers\Po\PoApprovalController;
 use App\Http\Controllers\Po\PoLookupController;
 use App\Http\Controllers\Po\PoExportController;
 use App\Http\Controllers\Po\PoApproverMasterController;
+use App\Http\Controllers\Po\PoPdfMergeController;
 
 Route::middleware(['auth', 'permission.any:POM'])
     ->prefix('po')
@@ -30,6 +31,9 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
         Route::get('/department-tracking', [PoController::class, 'departmentTracking'])->name('departmentTracking');
 
         Route::middleware('permission.any:POPUR')->group(function () {
+            Route::get('/pdf-merge', [PoPdfMergeController::class, 'index'])->name('pdf-merge.index');
+            Route::post('/pdf-merge', [PoPdfMergeController::class, 'merge'])->name('pdf-merge.merge');
+
             Route::get('/create', [PoController::class, 'create'])->name('create');
             Route::post('/', [PoController::class, 'store'])->name('store');
 
