@@ -34,6 +34,9 @@ __pycache__/
 # Backup archives
 *.zip
 
+# Portable runtime tools deployed separately from Git
+/tools/qpdf/
+
 .phpunit.result.cache
 Homestead.json
 Homestead.yaml
