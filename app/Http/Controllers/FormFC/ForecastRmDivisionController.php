@@ -1422,11 +1422,13 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn) use ($fgParts) {
             return DB::connection($conn)
                 ->table('parts')
-                ->whereIn(DB::raw('UPPER(TRIM(partnumber))'), $fgParts)
+                ->leftJoin('partstype', 'parts.partstype_id', '=', 'partstype.id')
+                ->whereIn(DB::raw('UPPER(TRIM(parts.partnumber))'), $fgParts)
                 ->get([
-                    DB::raw('UPPER(TRIM(partnumber)) as fg_partnumber'),
-                    'description as fg_description',
-                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(f4, '')))) as rm_partnumber"),
+                    DB::raw('UPPER(TRIM(parts.partnumber)) as fg_partnumber'),
+                    'parts.description as fg_description',
+                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(parts.f4, '')))) as rm_partnumber"),
+                    DB::raw("COALESCE(partstype.description, '') as product_type"),
                 ])
                 ->map(fn($r) => (array) $r);
         };
@@ -1443,11 +1445,16 @@ class ForecastRmDivisionController extends Controller
         return $rows
             ->groupBy(fn($r) => strtoupper(trim((string) ($r['fg_partnumber'] ?? ''))))
             ->map(function ($group) {
-                $first = collect($group)->first();
+                $group = collect($group);
+                $first = $group->first();
+                $productTypeRow = $group->first(
+                    fn($row) => trim((string) ($row['product_type'] ?? '')) !== ''
+                );
 
                 return [
                     'fg_description' => (string) ($first['fg_description'] ?? ''),
                     'rm_partnumber' => (string) ($first['rm_partnumber'] ?? ''),
+                    'product_type' => (string) ($productTypeRow['product_type'] ?? ''),
                 ];
             });
     }
@@ -1745,22 +1752,25 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn) use ($q) {
             return DB::connection($conn)
                 ->table('parts')
+                ->leftJoin('partstype', 'parts.partstype_id', '=', 'partstype.id')
                 ->where(function ($w) use ($q) {
-                    $w->whereRaw("UPPER(TRIM(partnumber)) LIKE ?", [strtoupper($q) . '%'])
-                        ->orWhereRaw("UPPER(TRIM(COALESCE(description, ''))) LIKE ?", ['%' . strtoupper($q) . '%']);
+                    $w->whereRaw("UPPER(TRIM(parts.partnumber)) LIKE ?", [strtoupper($q) . '%'])
+                        ->orWhereRaw("UPPER(TRIM(COALESCE(parts.description, ''))) LIKE ?", ['%' . strtoupper($q) . '%']);
                 })
-                ->orderBy('partnumber')
+                ->orderBy('parts.partnumber')
                 ->limit(20)
                 ->get([
-                    DB::raw('UPPER(TRIM(partnumber)) as fg_partnumber'),
-                    'description as fg_description',
-                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(f4, '')))) as rm_partnumber"),
+                    DB::raw('UPPER(TRIM(parts.partnumber)) as fg_partnumber'),
+                    'parts.description as fg_description',
+                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(parts.f4, '')))) as rm_partnumber"),
+                    DB::raw("COALESCE(partstype.description, '') as product_type"),
                 ])
                 ->map(fn($r) => [
                     'value' => (string) ($r->fg_partnumber ?? ''),
                     'fg_partnumber' => (string) ($r->fg_partnumber ?? ''),
                     'fg_description' => (string) ($r->fg_description ?? ''),
                     'rm_partnumber' => (string) ($r->rm_partnumber ?? ''),
+                    'product_type' => (string) ($r->product_type ?? ''),
                     'text' => trim((string) ($r->fg_partnumber ?? '') . ' - ' . (string) ($r->fg_description ?? '')),
                 ]);
         };
@@ -2990,10 +3000,12 @@ class ForecastRmDivisionController extends Controller
             ->all();
 
         $soMap = $this->fetchSalesOrderSummaryByFg($fgParts, $companyMode);
+        $fgDetails = $this->fetchFgPartDetails($fgParts, $companyMode);
 
-        $rows = $rows->map(function ($r) use ($soMap) {
+        $rows = $rows->map(function ($r) use ($soMap, $fgDetails) {
             $fg = strtoupper(trim((string) ($r['fg_partnumber'] ?? '')));
             $r['sales_order_qty'] = (float) ($soMap->get($fg, 0) ?? 0);
+            $r['product_type'] = (string) (($fgDetails->get($fg, []))['product_type'] ?? '');
             return $r;
         })->values();
 
