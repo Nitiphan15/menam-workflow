@@ -17,7 +17,7 @@
         .document-title { margin: 0; text-align: center; font-size: 12pt; font-weight: 700; }
         .blue { color: #0000d4; }
         .red { color: #f00000; }
-        .doc-meta { width: 86mm; margin: 4mm 0 4mm auto; }
+        .doc-meta { width: 86mm; margin: 4mm 0 4mm auto; text-align: right; }
         .doc-meta > div { margin-bottom: 1.5mm; }
         .line { display: inline-block; min-width: 30mm; height: 4mm; border-bottom: 1px dotted #777; vertical-align: bottom; text-align: center; }
         .line.short { min-width: 13mm; }
@@ -60,7 +60,7 @@
         .approval-table th, .approval-table td { border: 1px solid #000; }
         .approval-table th { height: 5mm; font-size: 12pt; font-weight: 400; }
         .approval-table td { height: 18mm; }
-        .page-number { position: absolute; right: 8mm; bottom: 3mm; color: #666; font-size: 12pt; }
+        .page-number { position: absolute; right: 8mm; bottom: -3mm; color: #666; font-size: 12pt; }
         @media print {
             body { background: #fff; }
             .toolbar { display: none; }
