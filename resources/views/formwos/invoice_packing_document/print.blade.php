@@ -7,13 +7,13 @@
     <style>
         @page { size: A4 portrait; margin: 8mm; }
         * { box-sizing: border-box; }
-        body { margin: 0; background: #e5e7eb; color: #000; font-family: "Cordia New", Tahoma, Arial, sans-serif; font-size: 14pt; line-height: .9; }
+        body { margin: 0; background: #e5e7eb; color: #000; font-family: "Cordia New", Tahoma, Arial, sans-serif; font-size: 10pt; line-height: 1; }
         .toolbar { position: sticky; top: 0; z-index: 10; padding: 10px; text-align: center; background: #111827; }
         .toolbar button { border: 0; border-radius: 6px; padding: 8px 20px; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
         .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 5mm 8mm 5mm; background: #fff; page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
         .form-code { text-align: right; font-weight: 700; margin-bottom: 4mm; }
-        .document-title { margin: 0; text-align: center; font-size: 14pt; font-weight: 700; }
+        .document-title { margin: 0; text-align: center; font-size: 10pt; font-weight: 700; }
         .blue { color: #0000d4; }
         .red { color: #f00000; }
         .doc-meta { width: 86mm; margin: 2mm 0 2mm auto; }
@@ -27,7 +27,7 @@
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
         .customer-line { min-width: 92mm; color: #f00000; font-weight: 700; }
         .po-line { min-height: 6mm; margin: 1mm 0; line-height: 1.35; }
-        .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14pt; }
+        .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10pt; }
         .items-table th, .items-table td { border: 1px solid #000; padding: .6mm .8mm; vertical-align: top; }
         .items-table th { height: 6mm; padding: .5mm; text-align: center; vertical-align: middle; font-weight: 700; }
         .items-table tbody td { height: 16mm; border-top: 0; border-bottom: 0; }
@@ -37,9 +37,9 @@
         .center { text-align: center; }
         .right { text-align: right; }
         .nowrap { white-space: nowrap; }
-        .item-description { font-size: 14pt; line-height: .9; overflow-wrap: anywhere; }
-        .item-reference { margin-top: .5mm; font-size: 14pt; line-height: .9; }
-        .gross-note { display: block; margin-top: .5mm; font-size: 14pt; line-height: .9; white-space: normal; }
+        .item-description { font-size: 10pt; line-height: 1; overflow-wrap: anywhere; }
+        .item-reference { margin-top: .5mm; font-size: 10pt; line-height: 1; }
+        .gross-note { display: block; margin-top: .5mm; font-size: 10pt; line-height: 1; white-space: normal; }
         .w-seq { width: 6%; }
         .w-package { width: 14%; }
         .w-net { width: 14%; }
@@ -53,12 +53,12 @@
         .signature-space { height: 3mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
         .signature-name { margin-top: 1mm; color: #f00000; font-weight: 700; }
-        .approval-section { margin-top: 2mm; }
+        .approval-section { position: absolute; left: 8mm; right: 8mm; bottom: 10mm; }
         .approval-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .approval-table th, .approval-table td { border: 1px solid #000; }
-        .approval-table th { height: 5mm; font-size: 14pt; font-weight: 400; }
+        .approval-table th { height: 5mm; font-size: 10pt; font-weight: 400; }
         .approval-table td { height: 18mm; }
-        .page-number { position: absolute; right: 8mm; bottom: 3mm; color: #666; font-size: 14pt; }
+        .page-number { position: absolute; right: 8mm; bottom: 3mm; color: #666; font-size: 10pt; }
         @media print {
             body { background: #fff; }
             .toolbar { display: none; }
@@ -146,10 +146,7 @@
                         <tr>
                             <td class="center">{{ ($pageIndex * 5) + $rowIndex + 1 }}</td>
                             <td class="center">
-                                {{ number_format((int) $row->package_qty) }} ลัง
-                                @if (trim((string) $row->package_numbers) !== '')
-                                    <div class="item-reference">{{ $row->package_numbers }}</div>
-                                @endif
+                                {{ number_format((int) $row->package_qty) }}
                             </td>
                             <td class="right nowrap">{{ number_format((float) $row->net_weight_kg, 2) }} กก.</td>
                             <td class="center">
@@ -161,9 +158,6 @@
                                 @php($materialType = \App\Services\FormWOS\InvoicePackingDocumentService::materialType($row->description))
                                 @if ($materialType !== '')
                                     {{ $materialType }}<br>
-                                @endif
-                                @if (trim((string) $row->partnumber) !== '')
-                                    <strong>{{ $row->partnumber }}</strong><br>
                                 @endif
                                 {!! nl2br(e(trim((string) $row->description))) !!}
                             </td>
@@ -181,7 +175,7 @@
                 <tfoot>
                     <tr>
                         <td class="center">รวม</td>
-                        <td class="center">{{ number_format($pagePackageQty) }} ลัง</td>
+                        <td class="center">{{ number_format($pagePackageQty) }}</td>
                         <td class="right">{{ number_format($pageNetWeight, 2) }} กก.</td>
                         <td class="center"><span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span></td>
                         <td class="right">{{ number_format($pageAmount, 2) }}</td>
