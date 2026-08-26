@@ -29,4 +29,17 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertSame([1, 2, 3, 4, 5], $pages[0]);
         $this->assertSame([6, 7, 8, 9, 10], $pages[1]);
     }
+
+    public function test_print_template_uses_the_legacy_customs_a4_sections(): void
+    {
+        $template = file_get_contents(__DIR__ . '/../../resources/views/formwos/invoice_packing_document/print.blade.php');
+
+        $this->assertStringContainsString('@page { size: A4 portrait;', $template);
+        $this->assertStringContainsString('คำร้องขอส่งของในราชอาณาจักร', $template);
+        $this->assertStringContainsString('จำนวนหีบห่อ', $template);
+        $this->assertStringContainsString('น้ำหนักสุทธิ', $template);
+        $this->assertStringContainsString('น้ำหนักรวม', $template);
+        $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
+        $this->assertStringContainsString('{{ $signerName }}', $template);
+    }
 }

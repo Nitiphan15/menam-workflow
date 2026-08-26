@@ -9,7 +9,8 @@
             <div class="card-header bg-white py-3">
                 <h4 class="mb-1">สร้างรายการ Invoice / Packing List</h4>
                 <div class="text-muted small">
-                    ดึง PO, วันที่ Invoice, DOB, จำนวนลัง, Net/Gross Weight, ราคา และรายละเอียดจาก ERP
+                    สร้างคำร้อง A4 ตามแบบเดิม พร้อมดึง PO, วันที่ Invoice, DOB, จำนวนลัง,
+                    Net/Gross Weight, ราคา และรายละเอียดจาก ERP
                 </div>
             </div>
 
