@@ -32,7 +32,7 @@
         .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10pt; }
         .items-table th, .items-table td { border: 1px solid #000; padding: .6mm .8mm; vertical-align: top; }
         .items-table th { height: 6mm; padding: .5mm; text-align: center; vertical-align: middle; font-weight: 700; }
-        .items-table tbody td { height: 16mm; border-top: 0; border-bottom: 0; }
+        .items-table tbody td { border-top: 0; border-bottom: 0; vertical-align: middle; }
         .items-table tbody tr:first-child td { border-top: 1px solid #000; }
         .items-table tbody tr:last-child td { border-bottom: 1px solid #000; }
         .items-table tfoot td { height: 8mm; vertical-align: middle; font-weight: 700; }
@@ -86,6 +86,7 @@
             $pageNetWeight = $pageRows->sum(fn ($row) => (float) $row->net_weight_kg);
             $pageGrossWeight = $pageRows->sum(fn ($row) => (float) $row->gross_weight_kg);
             $pageAmount = $pageRows->sum(fn ($row) => (float) $row->line_amount);
+            $bodyRowHeight = 80 / max($pageRows->count(), 1);
             $pageAmountText = \App\Services\FormWOS\InvoicePackingDocumentService::amountInThaiText($pageAmount);
             $invoiceReferences = $pageRows
                 ->pluck('invoice_no')
@@ -146,17 +147,17 @@
                 </thead>
                 <tbody>
                     @foreach ($rows as $rowIndex => $row)
-                        <tr>
+                        <tr style="height: {{ number_format($bodyRowHeight, 2, '.', '') }}mm;">
                             <td class="center">{{ ($pageIndex * 5) + $rowIndex + 1 }}</td>
                             <td class="center">
                                 {{ number_format((int) $row->package_qty) }} ลัง
                             </td>
-                            <td class="right nowrap">{{ number_format((float) $row->net_weight_kg, 2) }} กก.</td>
+                            <td class="center nowrap">{{ number_format((float) $row->net_weight_kg, 2) }} กก.</td>
                             <td class="center">
                                 {{ number_format((int) $row->package_qty) }} ลัง
                                 <span class="gross-note">(น้ำหนักรวม {{ number_format((float) $row->gross_weight_kg, 2) }} กก.)</span>
                             </td>
-                            <td class="right nowrap">{{ number_format((float) $row->line_amount, 2) }}</td>
+                            <td class="center nowrap">{{ number_format((float) $row->line_amount, 2) }}</td>
                             <td class="item-description">
                                 @php($materialType = \App\Services\FormWOS\InvoicePackingDocumentService::materialType($row->description))
                                 @if ($materialType !== '')
@@ -167,21 +168,14 @@
                         </tr>
                     @endforeach
 
-                    @for ($emptyRow = count($rows); $emptyRow < 5; $emptyRow++)
-                        <tr>
-                            @for ($column = 0; $column < 6; $column++)
-                                <td>&nbsp;</td>
-                            @endfor
-                        </tr>
-                    @endfor
                 </tbody>
                 <tfoot>
                     <tr>
                         <td class="center">รวม</td>
                         <td class="center">{{ number_format($pagePackageQty) }} ลัง</td>
-                        <td class="right">{{ number_format($pageNetWeight, 2) }} กก.</td>
+                        <td class="center">{{ number_format($pageNetWeight, 2) }} กก.</td>
                         <td class="center"><span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span></td>
-                        <td class="right">{{ number_format($pageAmount, 2) }}</td>
+                        <td class="center">{{ number_format($pageAmount, 2) }}</td>
                         <td class="item-description">
                             <div>รายละเอียด ตามบัญชีราคาสินค้า/</div>
                             <div>ใบกำกับภาษีเลขที่ <span class="red">{{ $invoiceReferences }} ({{ $invoiceDates }})</span></div>
