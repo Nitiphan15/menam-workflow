@@ -13,7 +13,7 @@
         .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 5mm 8mm 5mm; background: #fff; page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
         .form-code { text-align: right; font-weight: 700; margin-bottom: 4mm; }
-        .document-title { margin: 0; text-align: center; font-size: 16pt; font-weight: 700; }
+        .document-title { margin: 0; text-align: center; font-size: 14pt; font-weight: 700; }
         .blue { color: #0000d4; }
         .red { color: #f00000; }
         .doc-meta { width: 86mm; margin: 2mm 0 2mm auto; }
