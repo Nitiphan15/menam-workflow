@@ -24,6 +24,7 @@
         .line.medium { min-width: 22mm; }
         .letter-body { line-height: 1.18; }
         .letter-body p { margin: .8mm 0; }
+        .letter-body .subject-line { margin-bottom: 2mm; }
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
@@ -55,7 +56,7 @@
         .signature-space { height: 3mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
         .signature-name { margin-top: 1mm; color: #f00000; font-weight: 700; }
-        .approval-section { position: absolute; left: 8mm; right: 8mm; bottom: 3mm; }
+        .approval-section { margin-top: 6mm; }
         .approval-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .approval-table th, .approval-table td { border: 1px solid #000; }
         .approval-table th { height: 5mm; font-size: 12pt; font-weight: 400; }
@@ -134,7 +135,7 @@
             </div>
 
             <div class="letter-body">
-                <p>เรื่อง ขออนุญาตนำของในราชอาณาจักรเข้าไปใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span></p>
+                <p class="subject-line">เรื่อง ขออนุญาตนำของในราชอาณาจักรเข้าไปใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span></p>
                 <p>เรียน หัวหน้าฝ่ายบริการศุลกากรที่ ๒ คทม.</p>
                 <p class="indent">ด้วยข้าพเจ้า บริษัท/ห้าง/ร้าน <span class="company-line">บริษัท แม่น้ำสแตนเลสไวร์ จำกัด (มหาชน)</span></p>
                 <p><span class="blue">เลขทะเบียนนิติบุคคล</span> <span class="fill-line" style="min-width: 35mm;">0107550000262</span> ที่ตั้งเลขที่ <span class="fill-line" style="min-width: 16mm;">299</span> หมู่ <span class="fill-line" style="min-width: 12mm;">6</span> ซอย <span class="fill-line" style="min-width: 18mm;">-</span> ถนน <span class="fill-line" style="min-width: 31mm;">-</span></p>
