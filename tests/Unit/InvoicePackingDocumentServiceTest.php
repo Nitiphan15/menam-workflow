@@ -70,6 +70,9 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('class="stamp-space"', $template);
         $this->assertStringContainsString('text-align: right;', $template);
         $this->assertStringContainsString('bottom: -8mm;', $template);
+        $this->assertStringContainsString('.w-package { width: 11%; }', $template);
+        $this->assertStringContainsString('.w-qty { width: 19%; }', $template);
+        $this->assertStringContainsString('.closing { width: 72mm; padding-top: 5mm;', $template);
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
         $this->assertStringNotContainsString('@for ($emptyRow = count($rows);', $template);

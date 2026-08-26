@@ -43,15 +43,15 @@
         .item-reference { margin-top: .5mm; font-size: 12pt; line-height: 1; }
         .gross-note { display: block; margin-top: .5mm; font-size: 10pt; line-height: 1; white-space: nowrap; }
         .w-seq { width: 6%; }
-        .w-package { width: 14%; }
+        .w-package { width: 11%; }
         .w-net { width: 14%; }
-        .w-qty { width: 16%; }
+        .w-qty { width: 19%; }
         .w-price { width: 13%; }
         .w-desc { width: 37%; }
         .under-table { min-height: 5mm; padding-top: .5mm; }
         .signature-row { display: flex; justify-content: space-between; align-items: flex-start; min-height: 24mm; padding: 0 7mm 0 10mm; }
         .requester { width: 75mm; min-height: 22mm; padding-top: 1mm; }
-        .closing { width: 72mm; text-align: center; }
+        .closing { width: 72mm; padding-top: 5mm; text-align: center; }
         .signature-space { height: 3mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
         .signature-name { margin-top: 1mm; color: #f00000; font-weight: 700; }
