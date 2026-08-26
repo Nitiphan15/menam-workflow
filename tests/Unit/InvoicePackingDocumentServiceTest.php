@@ -72,6 +72,10 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('bottom: -8mm;', $template);
         $this->assertStringContainsString('.w-package { width: 11%; }', $template);
         $this->assertStringContainsString('.w-qty { width: 19%; }', $template);
+        $this->assertStringContainsString('.w-price { width: 11%; }', $template);
+        $this->assertStringContainsString('.w-desc { width: 39%; }', $template);
+        $this->assertStringContainsString('.items-table tbody tr:last-child td { border-bottom: 0; }', $template);
+        $this->assertStringContainsString('.items-table tfoot td { height: 8mm; border-top: 0; background: #fff; vertical-align: middle; font-weight: 400; }', $template);
         $this->assertStringContainsString('.closing { width: 72mm; padding-top: 5mm;', $template);
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);

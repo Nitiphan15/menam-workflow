@@ -34,8 +34,8 @@
         .items-table th { height: 6mm; padding: .5mm; text-align: center; vertical-align: middle; font-weight: 700; }
         .items-table tbody td { border-top: 0; border-bottom: 0; vertical-align: middle; }
         .items-table tbody tr:first-child td { border-top: 1px solid #000; }
-        .items-table tbody tr:last-child td { border-bottom: 1px solid #000; }
-        .items-table tfoot td { height: 8mm; vertical-align: middle; font-weight: 700; }
+        .items-table tbody tr:last-child td { border-bottom: 0; }
+        .items-table tfoot td { height: 8mm; border-top: 0; background: #fff; vertical-align: middle; font-weight: 400; }
         .center { text-align: center; }
         .right { text-align: right; }
         .nowrap { white-space: nowrap; }
@@ -46,8 +46,8 @@
         .w-package { width: 11%; }
         .w-net { width: 14%; }
         .w-qty { width: 19%; }
-        .w-price { width: 13%; }
-        .w-desc { width: 37%; }
+        .w-price { width: 11%; }
+        .w-desc { width: 39%; }
         .under-table { min-height: 5mm; padding-top: .5mm; }
         .signature-row { display: flex; justify-content: space-between; align-items: flex-start; min-height: 24mm; padding: 0 7mm 0 10mm; }
         .requester { width: 75mm; min-height: 22mm; padding-top: 1mm; }
