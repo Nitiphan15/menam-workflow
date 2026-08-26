@@ -69,7 +69,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('จำนวนเงิน (ตัวอักษร)', $template);
         $this->assertStringContainsString('class="stamp-space"', $template);
         $this->assertStringContainsString('text-align: right;', $template);
-        $this->assertStringContainsString('bottom: -3mm;', $template);
+        $this->assertStringContainsString('bottom: -8mm;', $template);
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
         $this->assertStringNotContainsString('@for ($emptyRow = count($rows);', $template);

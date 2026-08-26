@@ -10,7 +10,7 @@
         body { margin: 0; background: #e5e7eb; color: #000; font-family: "Cordia New", Tahoma, Arial, sans-serif; font-size: 12pt; line-height: 1; }
         .toolbar { position: sticky; top: 0; z-index: 10; padding: 10px; text-align: center; background: #111827; }
         .toolbar button { border: 0; border-radius: 6px; padding: 8px 20px; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
-        .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 15mm 8mm 5mm; background: #fff; page-break-after: always; }
+        .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 5mm 8mm; background: #fff; page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
         .stamp-space { position: absolute; top: 5mm; left: 8mm; width: 38mm; height: 29mm; }
         .form-code { text-align: right; font-weight: 700; margin-bottom: 7mm; }
@@ -60,7 +60,7 @@
         .approval-table th, .approval-table td { border: 1px solid #000; }
         .approval-table th { height: 5mm; font-size: 12pt; font-weight: 400; }
         .approval-table td { height: 18mm; }
-        .page-number { position: absolute; right: 8mm; bottom: -3mm; color: #666; font-size: 12pt; }
+        .page-number { position: absolute; right: 8mm; bottom: -8mm; color: #666; font-size: 12pt; }
         @media print {
             body { background: #fff; }
             .toolbar { display: none; }
