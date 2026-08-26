@@ -25,6 +25,7 @@
         .letter-body { line-height: 1.18; }
         .letter-body p { margin: .8mm 0; }
         .letter-body .subject-line { margin-bottom: 2mm; }
+        .letter-body .contact-line { margin-bottom: 2mm; }
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
@@ -140,7 +141,7 @@
                 <p class="indent">ด้วยข้าพเจ้า บริษัท/ห้าง/ร้าน <span class="company-line">บริษัท แม่น้ำสแตนเลสไวร์ จำกัด (มหาชน)</span></p>
                 <p><span class="blue">เลขทะเบียนนิติบุคคล</span> <span class="fill-line" style="min-width: 35mm;">0107550000262</span> ที่ตั้งเลขที่ <span class="fill-line" style="min-width: 16mm;">299</span> หมู่ <span class="fill-line" style="min-width: 12mm;">6</span> ซอย <span class="fill-line" style="min-width: 18mm;">-</span> ถนน <span class="fill-line" style="min-width: 31mm;">-</span></p>
                 <p>แขวง/ตำบล <span class="fill-line" style="min-width: 29mm;">บางเพรียง</span> อำเภอ <span class="fill-line" style="min-width: 27mm;">บางบ่อ</span> จังหวัด <span class="fill-line" style="min-width: 34mm;">สมุทรปราการ</span></p>
-                <p>รหัสไปรษณีย์ <span class="fill-line" style="min-width: 28mm;">10560</span> โทรศัพท์ <span class="fill-line" style="min-width: 38mm;">(02)725 3999</span></p>
+                <p class="contact-line">รหัสไปรษณีย์ <span class="fill-line" style="min-width: 28mm;">10560</span> โทรศัพท์ <span class="fill-line" style="min-width: 38mm;">(02)725 3999</span></p>
                 <p class="indent">มีความประสงค์จะนำผลิตภัณฑ์ภายในประเทศเข้า<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> ซึ่งจำหน่ายให้แก่</p>
                 <p>บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัด{{ $customerProvinces ?: '-' }}</p>
                 <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poNumbers ?: '-' }}</span> ลงวันที่ <span class="red">{{ $poDueDates ?: '-' }}</span> ดังรายการต่อไปนี้</div>

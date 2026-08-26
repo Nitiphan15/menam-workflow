@@ -77,8 +77,10 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('.items-table tbody tr:last-child td { border-bottom: 0; }', $template);
         $this->assertStringContainsString('.items-table tfoot td { height: 8mm; border-top: 0; background: #fff; vertical-align: middle; font-weight: 400; }', $template);
         $this->assertStringContainsString('.letter-body .subject-line { margin-bottom: 2mm; }', $template);
+        $this->assertStringContainsString('.letter-body .contact-line { margin-bottom: 2mm; }', $template);
         $this->assertStringContainsString('.approval-section { margin-top: 6mm; }', $template);
         $this->assertStringContainsString('<p class="subject-line">เรื่อง', $template);
+        $this->assertStringContainsString('<p class="contact-line">รหัสไปรษณีย์', $template);
         $this->assertStringContainsString('.closing { width: 72mm; padding-top: 5mm;', $template);
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
