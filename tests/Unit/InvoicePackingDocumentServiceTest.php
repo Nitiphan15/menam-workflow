@@ -30,6 +30,21 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertSame([6, 7, 8, 9, 10], $pages[1]);
     }
 
+    public function test_amount_is_converted_to_thai_baht_text(): void
+    {
+        $this->assertSame(
+            'สองแสนสองหมื่นแปดพันสองร้อยเก้าสิบห้าบาทสี่สิบสตางค์',
+            InvoicePackingDocumentService::amountInThaiText(228295.40)
+        );
+    }
+
+    public function test_material_type_is_derived_from_erp_description(): void
+    {
+        $this->assertSame('เพลาเหล็ก', InvoicePackingDocumentService::materialType('Carbon Steel Bar S50C'));
+        $this->assertSame('เพลาสแตนเลส', InvoicePackingDocumentService::materialType('Bar 430F dia.6.00'));
+        $this->assertSame('', InvoicePackingDocumentService::materialType('Special product'));
+    }
+
     public function test_print_template_uses_the_legacy_customs_a4_sections(): void
     {
         $template = file_get_contents(__DIR__ . '/../../resources/views/formwos/invoice_packing_document/print.blade.php');
@@ -44,6 +59,8 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString("pluck('customer_name')", $template);
         $this->assertStringContainsString('ซึ่งจำหน่ายให้แก่', $template);
         $this->assertStringContainsString('border-top: 0; border-bottom: 0;', $template);
+        $this->assertStringContainsString('ใบกำกับภาษีเลขที่', $template);
+        $this->assertStringContainsString('จำนวนเงิน (ตัวอักษร)', $template);
         $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
         $this->assertStringContainsString('{{ $signerName }}', $template);
     }

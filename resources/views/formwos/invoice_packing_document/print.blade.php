@@ -84,6 +84,19 @@
             $pageNetWeight = $pageRows->sum(fn ($row) => (float) $row->net_weight_kg);
             $pageGrossWeight = $pageRows->sum(fn ($row) => (float) $row->gross_weight_kg);
             $pageAmount = $pageRows->sum(fn ($row) => (float) $row->line_amount);
+            $pageAmountText = \App\Services\FormWOS\InvoicePackingDocumentService::amountInThaiText($pageAmount);
+            $invoiceReferences = $pageRows
+                ->pluck('invoice_no')
+                ->map(fn ($number) => trim((string) $number))
+                ->filter()
+                ->unique()
+                ->implode(',');
+            $invoiceDates = $pageRows
+                ->pluck('invoice_date')
+                ->filter()
+                ->map(fn ($date) => \Carbon\Carbon::parse($date)->format('d/m/Y'))
+                ->unique()
+                ->implode(', ');
             $customerNames = $pageRows
                 ->pluck('customer_name')
                 ->map(fn ($name) => trim((string) $name))
@@ -140,19 +153,19 @@
                             </td>
                             <td class="right nowrap">{{ number_format((float) $row->net_weight_kg, 2) }} กก.</td>
                             <td class="center">
-                                {{ number_format((float) $row->qty, 2) }} {{ trim((string) $row->unit) }}
+                                {{ number_format((int) $row->package_qty) }} ลัง
                                 <span class="gross-note">(น้ำหนักรวม {{ number_format((float) $row->gross_weight_kg, 2) }} กก.)</span>
                             </td>
-                            <td class="right nowrap">
-                                {{ number_format((float) $row->line_amount, 2) }}
-                                <div class="item-reference">@ {{ number_format((float) $row->unit_price, 2) }}</div>
-                            </td>
+                            <td class="right nowrap">{{ number_format((float) $row->line_amount, 2) }}</td>
                             <td class="item-description">
+                                @php($materialType = \App\Services\FormWOS\InvoicePackingDocumentService::materialType($row->description))
+                                @if ($materialType !== '')
+                                    {{ $materialType }}<br>
+                                @endif
                                 @if (trim((string) $row->partnumber) !== '')
                                     <strong>{{ $row->partnumber }}</strong><br>
                                 @endif
                                 {!! nl2br(e(trim((string) $row->description))) !!}
-                                <div class="item-reference red">INV {{ $row->invoice_no }} / {{ $row->packing_list_no }}</div>
                             </td>
                         </tr>
                     @endforeach
@@ -172,12 +185,15 @@
                         <td class="right">{{ number_format($pageNetWeight, 2) }} กก.</td>
                         <td class="center"><span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span></td>
                         <td class="right">{{ number_format($pageAmount, 2) }}</td>
-                        <td></td>
+                        <td class="item-description">
+                            <div>รายละเอียด ตามบัญชีราคาสินค้า/</div>
+                            <div>ใบกำกับภาษีเลขที่ <span class="red">{{ $invoiceReferences }} ({{ $invoiceDates }})</span></div>
+                        </td>
                     </tr>
                 </tfoot>
             </table>
 
-            <div class="under-table"><span class="blue">จำนวนหีบห่อ (ตัวอักษร)</span> <span class="line" style="min-width: 75mm;"></span></div>
+            <div class="under-table"><span class="blue">จำนวนเงิน (ตัวอักษร)</span> {{ $pageAmountText }} <span class="line" style="min-width: 25mm;"></span></div>
 
             <div class="signature-row">
                 <div class="requester">ผู้ยื่นคำร้อง <span class="signature-line"></span></div>

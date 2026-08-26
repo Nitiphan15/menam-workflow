@@ -26,6 +26,73 @@ class InvoicePackingDocumentService
         return array_chunk(array_values($rows), $perPage);
     }
 
+    public static function amountInThaiText(float $amount): string
+    {
+        [$integerPart, $decimalPart] = explode('.', number_format($amount, 2, '.', ''));
+
+        $readNumber = function (string $value) use (&$readNumber): string {
+            $value = ltrim($value, '0');
+
+            if ($value === '') {
+                return '';
+            }
+
+            if (strlen($value) > 6) {
+                return $readNumber(substr($value, 0, -6)) . 'ล้าน' . $readNumber(substr($value, -6));
+            }
+
+            $digits = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
+            $positions = ['', 'สิบ', 'ร้อย', 'พัน', 'หมื่น', 'แสน'];
+            $result = '';
+            $length = strlen($value);
+
+            for ($index = 0; $index < $length; $index++) {
+                $digit = (int) $value[$index];
+
+                if ($digit === 0) {
+                    continue;
+                }
+
+                $position = $length - $index - 1;
+
+                if ($position === 0 && $digit === 1 && $length > 1) {
+                    $result .= 'เอ็ด';
+                } elseif ($position === 1 && $digit === 1) {
+                    $result .= 'สิบ';
+                } elseif ($position === 1 && $digit === 2) {
+                    $result .= 'ยี่สิบ';
+                } else {
+                    $result .= $digits[$digit] . $positions[$position];
+                }
+            }
+
+            return $result;
+        };
+
+        $bahtText = $readNumber($integerPart) ?: 'ศูนย์';
+
+        return $decimalPart === '00'
+            ? $bahtText . 'บาทถ้วน'
+            : $bahtText . 'บาท' . $readNumber($decimalPart) . 'สตางค์';
+    }
+
+    public static function materialType(?string $description): string
+    {
+        $description = strtoupper(trim((string) $description));
+
+        if (str_contains($description, 'CARBON')) {
+            return 'เพลาเหล็ก';
+        }
+
+        if (str_contains($description, 'STAINLESS')
+            || preg_match('/\bSUS\s*[0-9]/', $description)
+            || preg_match('/\b(?:3|4)[0-9]{2}[A-Z]?\b/', $description)) {
+            return 'เพลาสแตนเลส';
+        }
+
+        return '';
+    }
+
     public function lookup(array $invoiceNumbers): array
     {
         if ($invoiceNumbers === []) {
