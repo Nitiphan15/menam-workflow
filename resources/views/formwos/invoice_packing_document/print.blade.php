@@ -41,7 +41,7 @@
         .nowrap { white-space: nowrap; }
         .item-description { font-size: 12pt; line-height: 1; overflow-wrap: anywhere; }
         .item-reference { margin-top: .5mm; font-size: 12pt; line-height: 1; }
-        .gross-note { display: block; margin-top: .5mm; font-size: 12pt; line-height: 1; white-space: normal; }
+        .gross-note { display: block; margin-top: .5mm; font-size: 10pt; line-height: 1; white-space: nowrap; }
         .w-seq { width: 6%; }
         .w-package { width: 14%; }
         .w-net { width: 14%; }
@@ -180,7 +180,10 @@
                         <td class="center">รวม</td>
                         <td class="center">{{ number_format($pagePackageQty) }} ลัง</td>
                         <td class="center">{{ number_format($pageNetWeight, 2) }} กก.</td>
-                        <td class="center"><span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span></td>
+                        <td class="center">
+                            {{ number_format($pagePackageQty) }} ลัง
+                            <span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span>
+                        </td>
                         <td class="center">{{ number_format($pageAmount, 2) }}</td>
                         <td class="item-description">
                             <div>รายละเอียด ตามบัญชีราคาสินค้า/</div>
