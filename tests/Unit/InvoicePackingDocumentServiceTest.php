@@ -73,9 +73,12 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
         $this->assertStringNotContainsString('@for ($emptyRow = count($rows);', $template);
+        $this->assertStringContainsString('$poNumbers', $template);
+        $this->assertStringContainsString('$poDueDates', $template);
 
         $service = file_get_contents(__DIR__ . '/../../app/Services/FormWOS/InvoicePackingDocumentService.php');
         $this->assertStringContainsString('customer.f5 AS customer_province', $service);
+        $this->assertStringContainsString('ar.duedate AS due_date', $service);
         $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
         $this->assertStringContainsString('{{ $signerName }}', $template);
     }

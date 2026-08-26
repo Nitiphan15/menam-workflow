@@ -77,10 +77,15 @@
             $invoiceDateValues = $pageRows->pluck('invoice_date')->filter()->unique()->values();
             $invoiceDate = $invoiceDateValues->isNotEmpty() ? \Carbon\Carbon::parse($invoiceDateValues->first()) : now();
             $thaiMonths = [1 => 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-            $poReferences = $pageRows
+            $poRows = $pageRows
                 ->filter(fn ($row) => trim((string) $row->customer_po) !== '')
-                ->map(fn ($row) => trim((string) $row->customer_po) . ' ลงวันที่ ' . \Carbon\Carbon::parse($row->invoice_date)->format('d/m/Y'))
-                ->unique()
+                ->unique(fn ($row) => strtoupper(trim((string) $row->customer_po)))
+                ->values();
+            $poNumbers = $poRows
+                ->map(fn ($row) => trim((string) $row->customer_po))
+                ->implode(', ');
+            $poDueDates = $poRows
+                ->map(fn ($row) => ! empty($row->due_date) ? \Carbon\Carbon::parse($row->due_date)->format('d/m/Y') : '-')
                 ->implode(', ');
             $pagePackageQty = $pageRows->sum(fn ($row) => (int) $row->package_qty);
             $pageNetWeight = $pageRows->sum(fn ($row) => (float) $row->net_weight_kg);
@@ -137,7 +142,7 @@
                 <p>รหัสไปรษณีย์ <span class="fill-line" style="min-width: 28mm;">10560</span> โทรศัพท์ <span class="fill-line" style="min-width: 38mm;">(02)725 3999</span></p>
                 <p class="indent">มีความประสงค์จะนำผลิตภัณฑ์ภายในประเทศเข้า<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> ซึ่งจำหน่ายให้แก่</p>
                 <p>บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัด{{ $customerProvinces ?: '-' }}</p>
-                <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poReferences ?: '-' }}</span> ดังรายการต่อไปนี้</div>
+                <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poNumbers ?: '-' }}</span> ลงวันที่ <span class="red">{{ $poDueDates ?: '-' }}</span> ดังรายการต่อไปนี้</div>
             </div>
 
             <table class="items-table">
