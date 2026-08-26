@@ -39,6 +39,9 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('จำนวนหีบห่อ', $template);
         $this->assertStringContainsString('น้ำหนักสุทธิ', $template);
         $this->assertStringContainsString('น้ำหนักรวม', $template);
+        $this->assertStringContainsString("pluck('customer_name')", $template);
+        $this->assertStringContainsString('ซึ่งจำหน่ายให้แก่', $template);
+        $this->assertStringContainsString('border-top: 0; border-bottom: 0;', $template);
         $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
         $this->assertStringContainsString('{{ $signerName }}', $template);
     }

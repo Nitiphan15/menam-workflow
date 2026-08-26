@@ -21,14 +21,18 @@
         .line { display: inline-block; min-width: 30mm; height: 4mm; border-bottom: 1px dotted #777; vertical-align: bottom; text-align: center; }
         .line.short { min-width: 13mm; }
         .line.medium { min-width: 22mm; }
-        .letter-body p { margin: 1mm 0; }
+        .letter-body p { margin: .7mm 0; }
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
+        .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
+        .customer-line { min-width: 92mm; color: #f00000; font-weight: 700; }
         .po-line { min-height: 6mm; margin: 1mm 0; line-height: 1.35; }
         .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9px; }
         .items-table th, .items-table td { border: 1px solid #000; padding: 1.2mm 1.4mm; vertical-align: top; }
         .items-table th { height: 7mm; padding: 1mm; text-align: center; vertical-align: middle; font-weight: 700; }
-        .items-table tbody td { height: 18mm; }
+        .items-table tbody td { height: 18mm; border-top: 0; border-bottom: 0; }
+        .items-table tbody tr:first-child td { border-top: 1px solid #000; }
+        .items-table tbody tr:last-child td { border-bottom: 1px solid #000; }
         .items-table tfoot td { height: 8mm; vertical-align: middle; font-weight: 700; }
         .center { text-align: center; }
         .right { text-align: right; }
@@ -49,7 +53,8 @@
         .signature-space { height: 7mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
         .signature-name { margin-top: 1mm; color: #f00000; font-weight: 700; }
-        .approval-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 2mm; }
+        .approval-section { position: absolute; left: 8mm; right: 8mm; bottom: 3mm; }
+        .approval-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .approval-table th, .approval-table td { border: 1px solid #000; }
         .approval-table th { height: 6mm; font-size: 9px; font-weight: 400; }
         .approval-table td { height: 20mm; }
@@ -57,7 +62,7 @@
         @media print {
             body { background: #fff; }
             .toolbar { display: none; }
-            .sheet { width: auto; min-height: 0; margin: 0; box-shadow: none; }
+            .sheet { width: auto; height: 270mm; min-height: 0; margin: 0; box-shadow: none; }
         }
     </style>
 </head>
@@ -79,6 +84,12 @@
             $pageNetWeight = $pageRows->sum(fn ($row) => (float) $row->net_weight_kg);
             $pageGrossWeight = $pageRows->sum(fn ($row) => (float) $row->gross_weight_kg);
             $pageAmount = $pageRows->sum(fn ($row) => (float) $row->line_amount);
+            $customerNames = $pageRows
+                ->pluck('customer_name')
+                ->map(fn ($name) => trim((string) $name))
+                ->filter()
+                ->unique()
+                ->implode(', ');
         @endphp
 
         <section class="sheet">
@@ -96,11 +107,14 @@
 
             <div class="letter-body">
                 <p>เรื่อง ขออนุญาตนำของในราชอาณาจักรเข้าไปใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span></p>
-                <p>เรียน เจ้าหน้าที่ศุลกากรผู้ควบคุมเขตปลอดอากร</p>
-                <p class="indent">ข้าพเจ้า <span class="company-line">บริษัท แม่น้ำสแตนเลสไวร์ จำกัด (มหาชน)</span></p>
-                <p>เลขประจำตัวนิติบุคคล <span class="blue">0107550000262</span> มีความประสงค์นำสินค้าตามรายการด้านล่างเข้าไปในเขตปลอดอากร</p>
-                <p>โดยมีรายละเอียดตาม Invoice และใบสั่งซื้อของลูกค้าดังต่อไปนี้</p>
-                <div class="po-line red">เลขที่ใบสั่งซื้อ {{ $poReferences ?: '-' }}</div>
+                <p>เรียน หัวหน้าฝ่ายบริการศุลกากรที่ ๒ คทม.</p>
+                <p class="indent">ด้วยข้าพเจ้า บริษัท/ห้าง/ร้าน <span class="company-line">บริษัท แม่น้ำสแตนเลสไวร์ จำกัด (มหาชน)</span></p>
+                <p><span class="blue">เลขทะเบียนนิติบุคคล</span> <span class="fill-line" style="min-width: 35mm;">0107550000262</span> ที่ตั้งเลขที่ <span class="fill-line" style="min-width: 16mm;">299</span> หมู่ <span class="fill-line" style="min-width: 12mm;">6</span> ซอย <span class="fill-line" style="min-width: 18mm;">-</span> ถนน <span class="fill-line" style="min-width: 31mm;">-</span></p>
+                <p>แขวง/ตำบล <span class="fill-line" style="min-width: 29mm;">บางเพรียง</span> อำเภอ <span class="fill-line" style="min-width: 27mm;">บางบ่อ</span> จังหวัด <span class="fill-line" style="min-width: 34mm;">สมุทรปราการ</span></p>
+                <p>รหัสไปรษณีย์ <span class="fill-line" style="min-width: 28mm;">10560</span> โทรศัพท์ <span class="fill-line" style="min-width: 38mm;">(02)725 3999</span></p>
+                <p class="indent">มีความประสงค์จะนำผลิตภัณฑ์ภายในประเทศเข้า<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> ซึ่งจำหน่ายให้แก่</p>
+                <p>บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัดลำพูน</p>
+                <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poReferences ?: '-' }}</span> ดังรายการต่อไปนี้</div>
             </div>
 
             <table class="items-table">
@@ -177,10 +191,12 @@
                 </div>
             </div>
 
-            <table class="approval-table">
-                <thead><tr><th>บันทึกการอนุญาตของพนักงานศุลกากร</th><th>บันทึกการตรวจของพนักงานศุลกากร</th></tr></thead>
-                <tbody><tr><td></td><td></td></tr></tbody>
-            </table>
+            <div class="approval-section">
+                <table class="approval-table">
+                    <thead><tr><th>บันทึกการอนุญาตของพนักงานศุลกากร</th><th>บันทึกการตรวจของพนักงานศุลกากร</th></tr></thead>
+                    <tbody><tr><td></td><td></td></tr></tbody>
+                </table>
+            </div>
 
             <div class="page-number">หน้า {{ $pageIndex + 1 }} / {{ count($pages) }}</div>
         </section>
