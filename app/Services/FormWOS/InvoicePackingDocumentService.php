@@ -11,6 +11,8 @@ class InvoicePackingDocumentService
         'PLUS' => 'pgsqlp',
     ];
 
+    private static ?array $materialTypeMap = null;
+
     public static function normalizeInvoiceNumbers(string $value): array
     {
         return collect(preg_split('/[\s,;]+/', strtoupper(trim($value))) ?: [])
@@ -76,8 +78,43 @@ class InvoicePackingDocumentService
             : $bahtText . 'บาท' . $readNumber($decimalPart) . 'สตางค์';
     }
 
-    public static function materialType(?string $description): string
+    public static function materialType(?string $partNumber, ?string $description = null): string
     {
+        if ($description === null) {
+            $description = $partNumber;
+            $partNumber = null;
+        }
+
+        $partNumber = strtoupper(trim((string) $partNumber));
+        $materialTypeMap = self::materialTypeMap();
+        $lookupKeys = [];
+
+        if ($partNumber !== '') {
+            $lookupKeys[] = $partNumber;
+
+            if (preg_match('/^[\d.]+$/', $partNumber)) {
+                $lookupKeys[] = preg_replace('/\D+/', '', $partNumber);
+            }
+        }
+
+        if (preg_match_all('/\(([\d.]+)\)/', (string) $description, $matches)) {
+            foreach ($matches[1] as $embeddedPartNumber) {
+                $lookupKeys[] = preg_replace('/\D+/', '', $embeddedPartNumber);
+            }
+        }
+
+        if (preg_match_all('/(?<!\d)(\d{8,10})(?!\d)/', (string) $description, $matches)) {
+            $lookupKeys = array_merge($lookupKeys, $matches[1]);
+        }
+
+        foreach (array_unique(array_filter($lookupKeys)) as $lookupKey) {
+            $mappedType = $materialTypeMap[$lookupKey] ?? null;
+
+            if (is_string($mappedType) && $mappedType !== '') {
+                return $mappedType;
+            }
+        }
+
         $description = strtoupper(trim((string) $description));
 
         if (str_contains($description, 'CARBON')) {
@@ -91,6 +128,23 @@ class InvoicePackingDocumentService
         }
 
         return '';
+    }
+
+    private static function materialTypeMap(): array
+    {
+        if (self::$materialTypeMap !== null) {
+            return self::$materialTypeMap;
+        }
+
+        $path = dirname(__DIR__, 3) . '/resources/data/formwos/invoice_packing_material_types.json';
+
+        if (! is_file($path)) {
+            return self::$materialTypeMap = [];
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return self::$materialTypeMap = is_array($decoded) ? $decoded : [];
     }
 
     public function lookup(array $invoiceNumbers): array
@@ -114,6 +168,83 @@ class InvoicePackingDocumentService
                 $row->site,
                 (int) $row->invoice_line_id
             ))
+            ->values()
+            ->all();
+    }
+
+    public function suggestInvoiceNumbers(string $query, int $limit = 20): array
+    {
+        $query = strtoupper(trim($query));
+
+        if (mb_strlen($query) < 2) {
+            return [];
+        }
+
+        $limit = max(1, min($limit, 50));
+        $suggestions = collect();
+
+        foreach (self::CONNECTIONS as $site => $connection) {
+            try {
+                $rows = DB::connection($connection)->select(<<<SQL
+SELECT DISTINCT
+    TRIM(ar.invnumber) AS invoice_no,
+    ar.transdate AS invoice_date,
+    customer.name AS customer_name
+FROM ar
+LEFT JOIN customer
+    ON customer.id = ar.customer_id
+WHERE UPPER(TRIM(ar.invnumber)) LIKE ?
+  AND EXISTS (
+      SELECT 1
+      FROM delivery d
+      JOIN deliveryitems di
+          ON di.delivery_id = d.id
+      JOIN oe
+          ON oe.id = d.ord_id
+      JOIN dm
+          ON dm.ordnumber = oe.ordnumber
+         AND dm.transdate = ar.transdate
+      JOIN dmitems dmi
+          ON dmi.trans_id = dm.id
+         AND dmi.orderitems_id = di.orderitems_id
+      JOIN serializeunitsmvmt sm
+          ON sm.trans_id = dm.id
+         AND sm.invoice_id = dmi.id
+      WHERE d.ar_id = ar.id
+  )
+ORDER BY ar.transdate DESC, TRIM(ar.invnumber) DESC
+LIMIT {$limit}
+SQL, [$query . '%']);
+            } catch (\Throwable $exception) {
+                report($exception);
+                continue;
+            }
+
+            $suggestions = $suggestions->concat(collect($rows)->map(function ($row) use ($site) {
+                $invoiceNumber = strtoupper(trim((string) $row->invoice_no));
+                $invoiceDate = trim((string) ($row->invoice_date ?? ''));
+                $customerName = trim((string) ($row->customer_name ?? ''));
+
+                return [
+                    'invoice_no' => $invoiceNumber,
+                    'invoice_date' => $invoiceDate,
+                    'customer_name' => $customerName,
+                    'site' => $site,
+                    'text' => implode(' | ', array_filter([
+                        $invoiceNumber,
+                        $invoiceDate,
+                        $customerName,
+                        $site,
+                    ])),
+                ];
+            }));
+        }
+
+        return $suggestions
+            ->filter(fn ($row) => $row['invoice_no'] !== '')
+            ->sortByDesc(fn ($row) => $row['invoice_date'] . '|' . $row['invoice_no'])
+            ->unique('invoice_no')
+            ->take($limit)
             ->values()
             ->all();
     }

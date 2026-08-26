@@ -18,8 +18,25 @@ class InvoicePackingDocumentController extends Controller
         return view('formwos.invoice_packing_document.index');
     }
 
+    public function invoices(Request $request, InvoicePackingDocumentService $service)
+    {
+        $query = mb_substr(trim((string) $request->query('q', '')), 0, 50);
+
+        return response()->json([
+            'results' => $service->suggestInvoiceNumbers($query),
+        ]);
+    }
+
     public function preview(Request $request, InvoicePackingDocumentService $service)
     {
+        if (is_array($request->input('invoice_numbers'))) {
+            $request->merge([
+                'invoice_numbers' => collect($request->input('invoice_numbers'))
+                    ->filter(fn ($number) => is_scalar($number))
+                    ->implode(','),
+            ]);
+        }
+
         $validated = $request->validate([
             'invoice_numbers' => ['required', 'string', 'max:1000'],
             'signer_name' => ['required', 'string', 'max:150'],

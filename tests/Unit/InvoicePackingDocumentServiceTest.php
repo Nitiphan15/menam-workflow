@@ -45,6 +45,36 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertSame('', InvoicePackingDocumentService::materialType('Special product'));
     }
 
+    public function test_material_type_uses_part_mapping_before_description_fallback(): void
+    {
+        $this->assertSame(
+            'เพลาสแตนเลส',
+            InvoicePackingDocumentService::materialType('0600101034', 'Carbon Steel Bar S50C')
+        );
+        $this->assertSame(
+            'เพลาสแตนเลส',
+            InvoicePackingDocumentService::materialType(
+                'FB303XXX100003000C',
+                'Carbon Steel Bar (0600101.0.34) conflicting fallback'
+            )
+        );
+        $this->assertSame(
+            'เพลาเหล็ก',
+            InvoicePackingDocumentService::materialType('0600101025', 'Bar 303 stainless')
+        );
+        $this->assertSame(
+            'เพลาสแตนเลส',
+            InvoicePackingDocumentService::materialType('UNKNOWN', 'Bar 430F dia.6.00')
+        );
+
+        $mapPath = __DIR__ . '/../../resources/data/formwos/invoice_packing_material_types.json';
+        $map = json_decode((string) file_get_contents($mapPath), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertCount(62, $map);
+        $this->assertSame('เพลาสแตนเลส', $map['0600101106']);
+        $this->assertSame('เพลาเหล็ก', $map['0600101114']);
+    }
+
     public function test_print_template_uses_the_legacy_customs_a4_sections(): void
     {
         $template = file_get_contents(__DIR__ . '/../../resources/views/formwos/invoice_packing_document/print.blade.php');
@@ -97,5 +127,27 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('ar.duedate AS due_date', $service);
         $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
         $this->assertStringContainsString('{{ $signerName }}', $template);
+        $this->assertStringContainsString('materialType($row->partnumber, $row->description)', $template);
+    }
+
+    public function test_invoice_entry_page_supports_erp_autocomplete(): void
+    {
+        $template = file_get_contents(__DIR__ . '/../../resources/views/formwos/invoice_packing_document/index.blade.php');
+        $controller = file_get_contents(__DIR__ . '/../../app/Http/Controllers/FormWOS/InvoicePackingDocumentController.php');
+        $service = file_get_contents(__DIR__ . '/../../app/Services/FormWOS/InvoicePackingDocumentService.php');
+        $routes = file_get_contents(__DIR__ . '/../../routes/web.php');
+
+        $this->assertStringContainsString("new TomSelect('#invoice_numbers_picker'", $template);
+        $this->assertStringContainsString('maxItems: 10', $template);
+        $this->assertStringContainsString('name="invoice_numbers[]" multiple required', $template);
+        $this->assertStringNotContainsString('id="invoice_numbers" name="invoice_numbers" type="hidden"', $template);
+        $this->assertStringContainsString("route('wos.invoice_packing_document.invoices')", $template);
+        $this->assertStringContainsString('public function invoices(', $controller);
+        $this->assertStringContainsString("is_array(\$request->input('invoice_numbers'))", $controller);
+        $this->assertStringContainsString('suggestInvoiceNumbers($query)', $controller);
+        $this->assertStringContainsString('public function suggestInvoiceNumbers(', $service);
+        $this->assertStringContainsString('UPPER(TRIM(ar.invnumber)) LIKE ?', $service);
+        $this->assertStringContainsString("name('invoice_packing_document.invoices')", $routes);
+        $this->assertStringContainsString("middleware('throttle:60,1')", $routes);
     }
 }

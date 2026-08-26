@@ -281,6 +281,9 @@ Route::prefix('/wos')
 
     Route::get('/invoice-packing-document', [InvoicePackingDocumentController::class, 'index'])
       ->name('invoice_packing_document.index');
+    Route::get('/invoice-packing-document/invoices', [InvoicePackingDocumentController::class, 'invoices'])
+      ->middleware('throttle:60,1')
+      ->name('invoice_packing_document.invoices');
     Route::post('/invoice-packing-document/preview', [InvoicePackingDocumentController::class, 'preview'])
       ->name('invoice_packing_document.preview');
   });

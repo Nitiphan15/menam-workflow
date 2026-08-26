@@ -173,7 +173,7 @@
                             </td>
                             <td class="center nowrap">{{ number_format((float) $row->line_amount, 2) }}</td>
                             <td class="item-description">
-                                @php($materialType = \App\Services\FormWOS\InvoicePackingDocumentService::materialType($row->description))
+                                @php($materialType = \App\Services\FormWOS\InvoicePackingDocumentService::materialType($row->partnumber, $row->description))
                                 @if ($materialType !== '')
                                     {{ $materialType }}<br>
                                 @endif
