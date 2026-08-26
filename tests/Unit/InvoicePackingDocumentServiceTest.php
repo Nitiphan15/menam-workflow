@@ -51,7 +51,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
 
         $this->assertStringContainsString('@page { size: A4 portrait;', $template);
         $this->assertStringContainsString('font-family: "Cordia New"', $template);
-        $this->assertStringContainsString('font-size: 10pt;', $template);
+        $this->assertStringContainsString('font-size: 12pt;', $template);
         $this->assertStringNotContainsString('{{ $row->package_numbers }}', $template);
         $this->assertStringNotContainsString('{{ $row->partnumber }}', $template);
         $this->assertStringContainsString('{{ number_format((int) $row->package_qty) }} ลัง', $template);
