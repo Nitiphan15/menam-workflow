@@ -10,24 +10,25 @@
         body { margin: 0; background: #e5e7eb; color: #000; font-family: "Cordia New", Tahoma, Arial, sans-serif; font-size: 10pt; line-height: 1; }
         .toolbar { position: sticky; top: 0; z-index: 10; padding: 10px; text-align: center; background: #111827; }
         .toolbar button { border: 0; border-radius: 6px; padding: 8px 20px; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
-        .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 8mm 8mm 5mm; background: #fff; page-break-after: always; }
+        .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 15mm 8mm 5mm; background: #fff; page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
-        .stamp-space { position: absolute; top: 5mm; left: 8mm; width: 38mm; height: 22mm; }
-        .form-code { text-align: right; font-weight: 700; margin-bottom: 4mm; }
+        .stamp-space { position: absolute; top: 5mm; left: 8mm; width: 38mm; height: 29mm; }
+        .form-code { text-align: right; font-weight: 700; margin-bottom: 7mm; }
         .document-title { margin: 0; text-align: center; font-size: 10pt; font-weight: 700; }
         .blue { color: #0000d4; }
         .red { color: #f00000; }
-        .doc-meta { width: 86mm; margin: 2mm 0 2mm auto; }
-        .doc-meta > div { margin-bottom: 1mm; }
+        .doc-meta { width: 86mm; margin: 4mm 0 4mm auto; }
+        .doc-meta > div { margin-bottom: 1.5mm; }
         .line { display: inline-block; min-width: 30mm; height: 4mm; border-bottom: 1px dotted #777; vertical-align: bottom; text-align: center; }
         .line.short { min-width: 13mm; }
         .line.medium { min-width: 22mm; }
-        .letter-body p { margin: .4mm 0; }
+        .letter-body { line-height: 1.18; }
+        .letter-body p { margin: .8mm 0; }
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
         .customer-line { min-width: 92mm; color: #f00000; font-weight: 700; }
-        .po-line { min-height: 6mm; margin: 1mm 0; line-height: 1.35; }
+        .po-line { min-height: 6mm; margin: 1.5mm 0; line-height: 1.35; }
         .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10pt; }
         .items-table th, .items-table td { border: 1px solid #000; padding: .6mm .8mm; vertical-align: top; }
         .items-table th { height: 6mm; padding: .5mm; text-align: center; vertical-align: middle; font-weight: 700; }
@@ -148,7 +149,7 @@
                         <tr>
                             <td class="center">{{ ($pageIndex * 5) + $rowIndex + 1 }}</td>
                             <td class="center">
-                                {{ number_format((int) $row->package_qty) }}
+                                {{ number_format((int) $row->package_qty) }} ลัง
                             </td>
                             <td class="right nowrap">{{ number_format((float) $row->net_weight_kg, 2) }} กก.</td>
                             <td class="center">
@@ -177,7 +178,7 @@
                 <tfoot>
                     <tr>
                         <td class="center">รวม</td>
-                        <td class="center">{{ number_format($pagePackageQty) }}</td>
+                        <td class="center">{{ number_format($pagePackageQty) }} ลัง</td>
                         <td class="right">{{ number_format($pageNetWeight, 2) }} กก.</td>
                         <td class="center"><span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span></td>
                         <td class="right">{{ number_format($pageAmount, 2) }}</td>

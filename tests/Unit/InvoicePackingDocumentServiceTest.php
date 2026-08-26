@@ -54,6 +54,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('font-size: 10pt;', $template);
         $this->assertStringNotContainsString('{{ $row->package_numbers }}', $template);
         $this->assertStringNotContainsString('{{ $row->partnumber }}', $template);
+        $this->assertStringContainsString('{{ number_format((int) $row->package_qty) }} ลัง', $template);
         $this->assertStringContainsString('คำร้องขอส่งของในราชอาณาจักร', $template);
         $this->assertStringContainsString('จำนวนหีบห่อ', $template);
         $this->assertStringContainsString('น้ำหนักสุทธิ', $template);
