@@ -29,8 +29,9 @@
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
-        .customer-line { min-width: 92mm; color: #f00000; font-weight: 700; }
-        .po-line { min-height: 6mm; margin: 1.5mm 0; line-height: 1.35; }
+        .customer-line { min-width: 68mm; color: #f00000; font-weight: 700; }
+        .letter-body .customer-location-line { margin-bottom: .2mm; white-space: nowrap; }
+        .po-line { min-height: 6mm; margin: .2mm 0 1.5mm; line-height: 1.35; }
         .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12pt; }
         .items-table th, .items-table td { border: 1px solid #000; padding: .6mm .8mm; vertical-align: top; }
         .items-table th { height: 6mm; padding: .5mm; text-align: center; vertical-align: middle; font-weight: 700; }
@@ -143,7 +144,7 @@
                 <p>แขวง/ตำบล <span class="fill-line" style="min-width: 29mm;">บางเพรียง</span> อำเภอ <span class="fill-line" style="min-width: 27mm;">บางบ่อ</span> จังหวัด <span class="fill-line" style="min-width: 34mm;">สมุทรปราการ</span></p>
                 <p class="contact-line">รหัสไปรษณีย์ <span class="fill-line" style="min-width: 28mm;">10560</span> โทรศัพท์ <span class="fill-line" style="min-width: 38mm;">(02)725 3999</span></p>
                 <p class="indent">มีความประสงค์จะนำผลิตภัณฑ์ภายในประเทศเข้า<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> ซึ่งจำหน่ายให้แก่</p>
-                <p>บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัด{{ $customerProvinces ?: '-' }}</p>
+                <p class="customer-location-line">บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัด{{ $customerProvinces ?: '-' }}</p>
                 <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poNumbers ?: '-' }}</span> ลงวันที่ <span class="red">{{ $poDueDates ?: '-' }}</span> ดังรายการต่อไปนี้</div>
             </div>
 
