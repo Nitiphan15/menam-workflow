@@ -29,7 +29,7 @@
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
-        .customer-line { min-width: 68mm; color: #f00000; font-weight: 700; }
+        .customer-line { min-width: 68mm; color: #f00000; font-weight: 400; }
         .letter-body .customer-location-line { margin-bottom: .2mm; white-space: nowrap; }
         .po-line { min-height: 6mm; margin: .2mm 0 1.5mm; line-height: 1.35; }
         .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12pt; }

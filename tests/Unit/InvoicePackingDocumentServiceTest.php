@@ -78,7 +78,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('.items-table tfoot td { height: 8mm; border-top: 0; background: #fff; vertical-align: middle; font-weight: 400; }', $template);
         $this->assertStringContainsString('.letter-body .subject-line { margin-bottom: 2mm; }', $template);
         $this->assertStringContainsString('.letter-body .contact-line { margin-bottom: 2mm; }', $template);
-        $this->assertStringContainsString('.customer-line { min-width: 68mm;', $template);
+        $this->assertStringContainsString('.customer-line { min-width: 68mm; color: #f00000; font-weight: 400; }', $template);
         $this->assertStringContainsString('.letter-body .customer-location-line { margin-bottom: .2mm; white-space: nowrap; }', $template);
         $this->assertStringContainsString('.po-line { min-height: 6mm; margin: .2mm 0 1.5mm;', $template);
         $this->assertStringContainsString('.approval-section { margin-top: 6mm; }', $template);
