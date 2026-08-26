@@ -97,6 +97,8 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('border-top: 0; border-bottom: 0;', $template);
         $this->assertStringContainsString('ใบกำกับภาษีเลขที่', $template);
         $this->assertStringContainsString('จำนวนเงิน (ตัวอักษร)', $template);
+        $this->assertStringContainsString('.amount-text-line { display: inline-block; min-width: 95mm; border-bottom: 1px dotted #777; }', $template);
+        $this->assertStringContainsString('<span class="amount-text-line">{{ $pageAmountText }}</span>', $template);
         $this->assertStringContainsString('class="stamp-space"', $template);
         $this->assertStringContainsString('text-align: right;', $template);
         $this->assertStringContainsString('bottom: -8mm;', $template);
@@ -116,6 +118,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('<p class="contact-line">รหัสไปรษณีย์', $template);
         $this->assertStringContainsString('<p class="customer-location-line">บริษัท', $template);
         $this->assertStringContainsString('.closing { width: 72mm; padding-top: 5mm;', $template);
+        $this->assertStringContainsString('.signature-name { margin-top: 1mm; color: #f00000; font-weight: 400; }', $template);
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
         $this->assertStringNotContainsString('@for ($emptyRow = count($rows);', $template);

@@ -52,12 +52,13 @@
         .w-price { width: 11%; }
         .w-desc { width: 39%; }
         .under-table { min-height: 5mm; padding-top: .5mm; }
+        .amount-text-line { display: inline-block; min-width: 95mm; border-bottom: 1px dotted #777; }
         .signature-row { display: flex; justify-content: space-between; align-items: flex-start; min-height: 24mm; padding: 0 7mm 0 10mm; }
         .requester { width: 75mm; min-height: 22mm; padding-top: 1mm; }
         .closing { width: 72mm; padding-top: 5mm; text-align: center; }
         .signature-space { height: 3mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
-        .signature-name { margin-top: 1mm; color: #f00000; font-weight: 700; }
+        .signature-name { margin-top: 1mm; color: #f00000; font-weight: 400; }
         .approval-section { margin-top: 6mm; }
         .approval-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .approval-table th, .approval-table td { border: 1px solid #000; }
@@ -201,7 +202,7 @@
                 </tfoot>
             </table>
 
-            <div class="under-table"><span class="blue">จำนวนเงิน (ตัวอักษร)</span> {{ $pageAmountText }} <span class="line" style="min-width: 25mm;"></span></div>
+            <div class="under-table"><span class="blue">จำนวนเงิน (ตัวอักษร)</span> <span class="amount-text-line">{{ $pageAmountText }}</span></div>
 
             <div class="signature-row">
                 <div class="requester">จึงเรียนมาเพื่อโปรดทราบ</div>
