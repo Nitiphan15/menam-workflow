@@ -38,6 +38,8 @@
         .items-table tbody td { border-top: 0; border-bottom: 0; vertical-align: middle; }
         .items-table tbody tr:first-child td { border-top: 1px solid #000; }
         .items-table tbody tr:last-child td { border-bottom: 0; }
+        .items-table.no-total tbody tr:last-child td { border-bottom: 1px solid #000; }
+        .items-table tbody tr.single-row-continuation td { vertical-align: top; padding-top: 2mm; }
         .items-table tfoot td { height: 8mm; border-top: 0; background: #fff; vertical-align: middle; font-weight: 400; }
         .center { text-align: center; }
         .right { text-align: right; }
@@ -75,9 +77,32 @@
 <body>
     <div class="toolbar"><button type="button" onclick="window.print()">พิมพ์เอกสาร A4</button></div>
 
+    @php
+        $documentRows = collect($pages)->flatten(1);
+        $documentPackageQty = $documentRows->sum(fn ($row) => (int) $row->package_qty);
+        $documentNetWeight = $documentRows->sum(fn ($row) => (float) $row->net_weight_kg);
+        $documentGrossWeight = $documentRows->sum(fn ($row) => (float) $row->gross_weight_kg);
+        $documentAmount = $documentRows->sum(fn ($row) => (float) $row->line_amount);
+        $documentAmountText = \App\Services\FormWOS\InvoicePackingDocumentService::amountInThaiText($documentAmount);
+        $documentInvoiceReferences = $documentRows
+            ->pluck('invoice_no')
+            ->map(fn ($number) => trim((string) $number))
+            ->filter()
+            ->unique()
+            ->implode(',');
+        $documentInvoiceDates = $documentRows
+            ->pluck('invoice_date')
+            ->filter()
+            ->map(fn ($date) => \Carbon\Carbon::parse($date)->format('d/m/Y'))
+            ->unique()
+            ->implode(', ');
+    @endphp
+
     @foreach ($pages as $pageIndex => $rows)
         @php
             $pageRows = collect($rows);
+            $isLastPage = $pageIndex === count($pages) - 1;
+            $isSingleRowContinuation = $pageIndex > 0 && $pageRows->count() === 1;
             $invoiceDateValues = $pageRows->pluck('invoice_date')->filter()->unique()->values();
             $invoiceDate = $invoiceDateValues->isNotEmpty() ? \Carbon\Carbon::parse($invoiceDateValues->first()) : now();
             $thaiMonths = [1 => 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -91,24 +116,7 @@
             $poDueDates = $poRows
                 ->map(fn ($row) => ! empty($row->due_date) ? \Carbon\Carbon::parse($row->due_date)->format('d/m/Y') : '-')
                 ->implode(', ');
-            $pagePackageQty = $pageRows->sum(fn ($row) => (int) $row->package_qty);
-            $pageNetWeight = $pageRows->sum(fn ($row) => (float) $row->net_weight_kg);
-            $pageGrossWeight = $pageRows->sum(fn ($row) => (float) $row->gross_weight_kg);
-            $pageAmount = $pageRows->sum(fn ($row) => (float) $row->line_amount);
             $bodyRowHeight = 80 / max($pageRows->count(), 1);
-            $pageAmountText = \App\Services\FormWOS\InvoicePackingDocumentService::amountInThaiText($pageAmount);
-            $invoiceReferences = $pageRows
-                ->pluck('invoice_no')
-                ->map(fn ($number) => trim((string) $number))
-                ->filter()
-                ->unique()
-                ->implode(',');
-            $invoiceDates = $pageRows
-                ->pluck('invoice_date')
-                ->filter()
-                ->map(fn ($date) => \Carbon\Carbon::parse($date)->format('d/m/Y'))
-                ->unique()
-                ->implode(', ');
             $customerNames = $pageRows
                 ->pluck('customer_name')
                 ->map(fn ($name) => trim((string) $name))
@@ -149,7 +157,7 @@
                 <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poNumbers ?: '-' }}</span> ลงวันที่ <span class="red">{{ $poDueDates ?: '-' }}</span> ดังรายการต่อไปนี้</div>
             </div>
 
-            <table class="items-table">
+            <table class="items-table {{ $isLastPage ? 'has-total' : 'no-total' }}">
                 <thead>
                     <tr>
                         <th class="w-seq">ลำดับ</th>
@@ -162,7 +170,7 @@
                 </thead>
                 <tbody>
                     @foreach ($rows as $rowIndex => $row)
-                        <tr style="height: {{ number_format($bodyRowHeight, 2, '.', '') }}mm;">
+                        <tr @class(['single-row-continuation' => $isSingleRowContinuation]) style="height: {{ number_format($bodyRowHeight, 2, '.', '') }}mm;">
                             <td class="center">{{ ($pageIndex * 5) + $rowIndex + 1 }}</td>
                             <td class="center">
                                 {{ number_format((int) $row->package_qty) }} ลัง
@@ -184,25 +192,31 @@
                     @endforeach
 
                 </tbody>
-                <tfoot>
-                    <tr>
-                        <td class="center">รวม</td>
-                        <td class="center">{{ number_format($pagePackageQty) }} ลัง</td>
-                        <td class="center">{{ number_format($pageNetWeight, 2) }} กก.</td>
-                        <td class="center">
-                            {{ number_format($pagePackageQty) }} ลัง
-                            <span class="gross-note">(น้ำหนักรวม {{ number_format($pageGrossWeight, 2) }} กก.)</span>
-                        </td>
-                        <td class="center">{{ number_format($pageAmount, 2) }}</td>
-                        <td class="item-description">
-                            <div>รายละเอียด ตามบัญชีราคาสินค้า/</div>
-                            <div>ใบกำกับภาษีเลขที่ <span class="red">{{ $invoiceReferences }} ({{ $invoiceDates }})</span></div>
-                        </td>
-                    </tr>
-                </tfoot>
+                @if ($isLastPage)
+                    <tfoot>
+                        <tr>
+                            <td class="center">รวม</td>
+                            <td class="center">{{ number_format($documentPackageQty) }} ลัง</td>
+                            <td class="center">{{ number_format($documentNetWeight, 2) }} กก.</td>
+                            <td class="center">
+                                {{ number_format($documentPackageQty) }} ลัง
+                                <span class="gross-note">(น้ำหนักรวม {{ number_format($documentGrossWeight, 2) }} กก.)</span>
+                            </td>
+                            <td class="center">{{ number_format($documentAmount, 2) }}</td>
+                            <td class="item-description">
+                                <div>รายละเอียด ตามบัญชีราคาสินค้า/</div>
+                                <div>ใบกำกับภาษีเลขที่ <span class="red">{{ $documentInvoiceReferences }} ({{ $documentInvoiceDates }})</span></div>
+                            </td>
+                        </tr>
+                    </tfoot>
+                @endif
             </table>
 
-            <div class="under-table"><span class="blue">จำนวนเงิน (ตัวอักษร)</span> <span class="amount-text-line">{{ $pageAmountText }}</span></div>
+            <div class="under-table">
+                @if ($isLastPage)
+                    <span class="blue">จำนวนเงิน (ตัวอักษร)</span> <span class="amount-text-line">{{ $documentAmountText }}</span>
+                @endif
+            </div>
 
             <div class="signature-row">
                 <div class="requester">จึงเรียนมาเพื่อโปรดทราบ</div>

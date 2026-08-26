@@ -86,7 +86,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringNotContainsString('{{ $row->partnumber }}', $template);
         $this->assertStringContainsString('{{ number_format((int) $row->package_qty) }} ลัง', $template);
         $this->assertStringContainsString('font-size: 10pt; line-height: 1; white-space: nowrap;', $template);
-        $this->assertStringContainsString('{{ number_format($pagePackageQty) }} ลัง', $template);
+        $this->assertStringContainsString('{{ number_format($documentPackageQty) }} ลัง', $template);
         $this->assertStringContainsString('คำร้องขอส่งของในราชอาณาจักร', $template);
         $this->assertStringContainsString('จำนวนหีบห่อ', $template);
         $this->assertStringContainsString('น้ำหนักสุทธิ', $template);
@@ -98,7 +98,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('ใบกำกับภาษีเลขที่', $template);
         $this->assertStringContainsString('จำนวนเงิน (ตัวอักษร)', $template);
         $this->assertStringContainsString('.amount-text-line { display: inline-block; min-width: 95mm; border-bottom: 1px dotted #777; }', $template);
-        $this->assertStringContainsString('<span class="amount-text-line">{{ $pageAmountText }}</span>', $template);
+        $this->assertStringContainsString('<span class="amount-text-line">{{ $documentAmountText }}</span>', $template);
         $this->assertStringContainsString('class="stamp-space"', $template);
         $this->assertStringContainsString('text-align: right;', $template);
         $this->assertStringContainsString('bottom: -8mm;', $template);
@@ -107,6 +107,8 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('.w-price { width: 11%; }', $template);
         $this->assertStringContainsString('.w-desc { width: 39%; }', $template);
         $this->assertStringContainsString('.items-table tbody tr:last-child td { border-bottom: 0; }', $template);
+        $this->assertStringContainsString('.items-table.no-total tbody tr:last-child td { border-bottom: 1px solid #000; }', $template);
+        $this->assertStringContainsString('.items-table tbody tr.single-row-continuation td { vertical-align: top; padding-top: 2mm; }', $template);
         $this->assertStringContainsString('.items-table tfoot td { height: 8mm; border-top: 0; background: #fff; vertical-align: middle; font-weight: 400; }', $template);
         $this->assertStringContainsString('.letter-body .subject-line { margin-bottom: 2mm; }', $template);
         $this->assertStringContainsString('.letter-body .contact-line { margin-bottom: 2mm; }', $template);
@@ -121,6 +123,11 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('.signature-name { margin-top: 1mm; color: #f00000; font-weight: 400; }', $template);
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
+        $this->assertStringContainsString('$documentRows = collect($pages)->flatten(1);', $template);
+        $this->assertStringContainsString('$isLastPage = $pageIndex === count($pages) - 1;', $template);
+        $this->assertStringContainsString('$isSingleRowContinuation = $pageIndex > 0 && $pageRows->count() === 1;', $template);
+        $this->assertStringContainsString('<table class="items-table {{ $isLastPage ? \'has-total\' : \'no-total\' }}">', $template);
+        $this->assertStringContainsString('@if ($isLastPage)', $template);
         $this->assertStringNotContainsString('@for ($emptyRow = count($rows);', $template);
         $this->assertStringContainsString('$poNumbers', $template);
         $this->assertStringContainsString('$poDueDates', $template);
