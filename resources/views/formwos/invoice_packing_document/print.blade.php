@@ -106,6 +106,12 @@
                 ->filter()
                 ->unique()
                 ->implode(', ');
+            $customerProvinces = $pageRows
+                ->pluck('customer_province')
+                ->map(fn ($province) => trim((string) $province))
+                ->filter()
+                ->unique()
+                ->implode(', ');
         @endphp
 
         <section class="sheet">
@@ -130,7 +136,7 @@
                 <p>แขวง/ตำบล <span class="fill-line" style="min-width: 29mm;">บางเพรียง</span> อำเภอ <span class="fill-line" style="min-width: 27mm;">บางบ่อ</span> จังหวัด <span class="fill-line" style="min-width: 34mm;">สมุทรปราการ</span></p>
                 <p>รหัสไปรษณีย์ <span class="fill-line" style="min-width: 28mm;">10560</span> โทรศัพท์ <span class="fill-line" style="min-width: 38mm;">(02)725 3999</span></p>
                 <p class="indent">มีความประสงค์จะนำผลิตภัณฑ์ภายในประเทศเข้า<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> ซึ่งจำหน่ายให้แก่</p>
-                <p>บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัดลำพูน</p>
+                <p>บริษัท <span class="fill-line customer-line">{{ $customerNames ?: '-' }}</span> ซึ่งตั้งอยู่ใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span> นิคมอุตสาหกรรมภาคเหนือ จังหวัด{{ $customerProvinces ?: '-' }}</p>
                 <div class="po-line">ตามใบสั่งซื้อเลขที่ <span class="red">{{ $poReferences ?: '-' }}</span> ดังรายการต่อไปนี้</div>
             </div>
 

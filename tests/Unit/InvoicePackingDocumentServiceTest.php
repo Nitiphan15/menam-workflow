@@ -60,6 +60,7 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('น้ำหนักสุทธิ', $template);
         $this->assertStringContainsString('น้ำหนักรวม', $template);
         $this->assertStringContainsString("pluck('customer_name')", $template);
+        $this->assertStringContainsString("pluck('customer_province')", $template);
         $this->assertStringContainsString('ซึ่งจำหน่ายให้แก่', $template);
         $this->assertStringContainsString('border-top: 0; border-bottom: 0;', $template);
         $this->assertStringContainsString('ใบกำกับภาษีเลขที่', $template);
@@ -68,6 +69,9 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('$bodyRowHeight = 80 / max($pageRows->count(), 1);', $template);
         $this->assertStringNotContainsString('@for ($emptyRow = count($rows);', $template);
+
+        $service = file_get_contents(__DIR__ . '/../../app/Services/FormWOS/InvoicePackingDocumentService.php');
+        $this->assertStringContainsString('customer.f5 AS customer_province', $service);
         $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
         $this->assertStringContainsString('{{ $signerName }}', $template);
     }
