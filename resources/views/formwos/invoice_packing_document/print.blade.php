@@ -7,13 +7,13 @@
     <style>
         @page { size: A4 portrait; margin: 8mm; }
         * { box-sizing: border-box; }
-        body { margin: 0; background: #e5e7eb; color: #000; font-family: Tahoma, Arial, sans-serif; font-size: 10px; line-height: 1.38; }
+        body { margin: 0; background: #e5e7eb; color: #000; font-family: "Cordia New", Tahoma, Arial, sans-serif; font-size: 14pt; line-height: .9; }
         .toolbar { position: sticky; top: 0; z-index: 10; padding: 10px; text-align: center; background: #111827; }
         .toolbar button { border: 0; border-radius: 6px; padding: 8px 20px; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
         .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 5mm 8mm 5mm; background: #fff; page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
         .form-code { text-align: right; font-weight: 700; margin-bottom: 4mm; }
-        .document-title { margin: 0; text-align: center; font-size: 13px; font-weight: 700; }
+        .document-title { margin: 0; text-align: center; font-size: 16pt; font-weight: 700; }
         .blue { color: #0000d4; }
         .red { color: #f00000; }
         .doc-meta { width: 86mm; margin: 2mm 0 2mm auto; }
@@ -21,48 +21,48 @@
         .line { display: inline-block; min-width: 30mm; height: 4mm; border-bottom: 1px dotted #777; vertical-align: bottom; text-align: center; }
         .line.short { min-width: 13mm; }
         .line.medium { min-width: 22mm; }
-        .letter-body p { margin: .7mm 0; }
+        .letter-body p { margin: .4mm 0; }
         .indent { text-indent: 14mm; }
         .company-line { display: inline-block; min-width: 82mm; border-bottom: 1px dotted #777; text-align: center; }
         .fill-line { display: inline-block; border-bottom: 1px dotted #777; text-align: center; vertical-align: bottom; }
         .customer-line { min-width: 92mm; color: #f00000; font-weight: 700; }
         .po-line { min-height: 6mm; margin: 1mm 0; line-height: 1.35; }
-        .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9px; }
-        .items-table th, .items-table td { border: 1px solid #000; padding: 1.2mm 1.4mm; vertical-align: top; }
-        .items-table th { height: 7mm; padding: 1mm; text-align: center; vertical-align: middle; font-weight: 700; }
-        .items-table tbody td { height: 18mm; border-top: 0; border-bottom: 0; }
+        .items-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14pt; }
+        .items-table th, .items-table td { border: 1px solid #000; padding: .6mm .8mm; vertical-align: top; }
+        .items-table th { height: 6mm; padding: .5mm; text-align: center; vertical-align: middle; font-weight: 700; }
+        .items-table tbody td { height: 16mm; border-top: 0; border-bottom: 0; }
         .items-table tbody tr:first-child td { border-top: 1px solid #000; }
         .items-table tbody tr:last-child td { border-bottom: 1px solid #000; }
         .items-table tfoot td { height: 8mm; vertical-align: middle; font-weight: 700; }
         .center { text-align: center; }
         .right { text-align: right; }
         .nowrap { white-space: nowrap; }
-        .item-description { font-size: 7.5px; line-height: 1.18; overflow-wrap: anywhere; }
-        .item-reference { margin-top: 1mm; font-size: 7px; line-height: 1.15; }
-        .gross-note { display: block; margin-top: 1mm; font-size: 7.5px; white-space: nowrap; }
+        .item-description { font-size: 14pt; line-height: .9; overflow-wrap: anywhere; }
+        .item-reference { margin-top: .5mm; font-size: 14pt; line-height: .9; }
+        .gross-note { display: block; margin-top: .5mm; font-size: 14pt; line-height: .9; white-space: normal; }
         .w-seq { width: 6%; }
         .w-package { width: 14%; }
         .w-net { width: 14%; }
         .w-qty { width: 16%; }
         .w-price { width: 13%; }
         .w-desc { width: 37%; }
-        .under-table { min-height: 7mm; padding-top: 1mm; }
-        .signature-row { display: flex; justify-content: space-between; align-items: flex-start; min-height: 29mm; padding: 0 7mm 0 10mm; }
-        .requester { width: 75mm; padding-top: 2mm; }
+        .under-table { min-height: 5mm; padding-top: .5mm; }
+        .signature-row { display: flex; justify-content: space-between; align-items: flex-start; min-height: 24mm; padding: 0 7mm 0 10mm; }
+        .requester { width: 75mm; padding-top: 1mm; }
         .closing { width: 72mm; text-align: center; }
-        .signature-space { height: 7mm; }
+        .signature-space { height: 3mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
         .signature-name { margin-top: 1mm; color: #f00000; font-weight: 700; }
-        .approval-section { position: absolute; left: 8mm; right: 8mm; bottom: 3mm; }
+        .approval-section { margin-top: 2mm; }
         .approval-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         .approval-table th, .approval-table td { border: 1px solid #000; }
-        .approval-table th { height: 6mm; font-size: 9px; font-weight: 400; }
-        .approval-table td { height: 20mm; }
-        .page-number { position: absolute; right: 8mm; bottom: 3mm; color: #666; font-size: 8px; }
+        .approval-table th { height: 5mm; font-size: 14pt; font-weight: 400; }
+        .approval-table td { height: 18mm; }
+        .page-number { position: absolute; right: 8mm; bottom: 3mm; color: #666; font-size: 14pt; }
         @media print {
             body { background: #fff; }
             .toolbar { display: none; }
-            .sheet { width: auto; height: 270mm; min-height: 0; margin: 0; box-shadow: none; }
+            .sheet { width: auto; height: auto; min-height: 270mm; margin: 0; box-shadow: none; }
         }
     </style>
 </head>

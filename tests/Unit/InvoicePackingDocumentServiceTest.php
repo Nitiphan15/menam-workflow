@@ -35,6 +35,8 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $template = file_get_contents(__DIR__ . '/../../resources/views/formwos/invoice_packing_document/print.blade.php');
 
         $this->assertStringContainsString('@page { size: A4 portrait;', $template);
+        $this->assertStringContainsString('font-family: "Cordia New"', $template);
+        $this->assertStringContainsString('font-size: 14pt;', $template);
         $this->assertStringContainsString('คำร้องขอส่งของในราชอาณาจักร', $template);
         $this->assertStringContainsString('จำนวนหีบห่อ', $template);
         $this->assertStringContainsString('น้ำหนักสุทธิ', $template);
