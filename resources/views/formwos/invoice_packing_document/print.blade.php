@@ -10,8 +10,9 @@
         body { margin: 0; background: #e5e7eb; color: #000; font-family: "Cordia New", Tahoma, Arial, sans-serif; font-size: 10pt; line-height: 1; }
         .toolbar { position: sticky; top: 0; z-index: 10; padding: 10px; text-align: center; background: #111827; }
         .toolbar button { border: 0; border-radius: 6px; padding: 8px 20px; background: #2563eb; color: white; font-weight: 700; cursor: pointer; }
-        .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 5mm 8mm 5mm; background: #fff; page-break-after: always; }
+        .sheet { position: relative; width: 194mm; min-height: 281mm; margin: 10px auto; padding: 8mm 8mm 5mm; background: #fff; page-break-after: always; }
         .sheet:last-child { page-break-after: auto; }
+        .stamp-space { position: absolute; top: 5mm; left: 8mm; width: 38mm; height: 22mm; }
         .form-code { text-align: right; font-weight: 700; margin-bottom: 4mm; }
         .document-title { margin: 0; text-align: center; font-size: 10pt; font-weight: 700; }
         .blue { color: #0000d4; }
@@ -48,7 +49,7 @@
         .w-desc { width: 37%; }
         .under-table { min-height: 5mm; padding-top: .5mm; }
         .signature-row { display: flex; justify-content: space-between; align-items: flex-start; min-height: 24mm; padding: 0 7mm 0 10mm; }
-        .requester { width: 75mm; padding-top: 1mm; }
+        .requester { width: 75mm; min-height: 22mm; padding-top: 1mm; }
         .closing { width: 72mm; text-align: center; }
         .signature-space { height: 3mm; }
         .signature-line { display: inline-block; min-width: 48mm; border-bottom: 1px dotted #777; }
@@ -106,6 +107,7 @@
         @endphp
 
         <section class="sheet">
+            <div class="stamp-space" aria-hidden="true"></div>
             <div class="form-code">กศก.๐๒</div>
             <h1 class="document-title">คำร้องขอส่งของในราชอาณาจักรเข้าไปใน<span class="blue">เขตปลอดอากร/เขตประกอบการเสรี</span></h1>
 
@@ -190,7 +192,7 @@
             <div class="under-table"><span class="blue">จำนวนเงิน (ตัวอักษร)</span> {{ $pageAmountText }} <span class="line" style="min-width: 25mm;"></span></div>
 
             <div class="signature-row">
-                <div class="requester">ผู้ยื่นคำร้อง <span class="signature-line"></span></div>
+                <div class="requester">จึงเรียนมาเพื่อโปรดทราบ</div>
                 <div class="closing">
                     <div>ขอแสดงความนับถือ</div>
                     <div class="signature-space"></div>

@@ -63,6 +63,8 @@ class InvoicePackingDocumentServiceTest extends TestCase
         $this->assertStringContainsString('border-top: 0; border-bottom: 0;', $template);
         $this->assertStringContainsString('ใบกำกับภาษีเลขที่', $template);
         $this->assertStringContainsString('จำนวนเงิน (ตัวอักษร)', $template);
+        $this->assertStringContainsString('class="stamp-space"', $template);
+        $this->assertStringContainsString('จึงเรียนมาเพื่อโปรดทราบ', $template);
         $this->assertStringContainsString('บันทึกการอนุญาตของพนักงานศุลกากร', $template);
         $this->assertStringContainsString('{{ $signerName }}', $template);
     }
