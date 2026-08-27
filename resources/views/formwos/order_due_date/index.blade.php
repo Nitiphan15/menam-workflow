@@ -68,6 +68,123 @@
             min-width: 1180px;
         }
 
+        .delivery-analysis {
+            border-top: 3px solid #0d6efd;
+            padding-top: 1rem;
+        }
+
+        .delivery-section-heading {
+            background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+            border: 1px solid #cfe2ff;
+            border-radius: .65rem .65rem 0 0;
+            padding: 1rem 1.15rem;
+        }
+
+        .delivery-section-eyebrow {
+            color: #0d6efd;
+            font-size: .72rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+        }
+
+        .delivery-division-badge {
+            max-width: 100%;
+            white-space: normal;
+        }
+
+        .delivery-definition-bar {
+            align-items: center;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-top: 0;
+            border-radius: 0 0 .65rem .65rem;
+            color: #59636e;
+            display: flex;
+            flex-wrap: wrap;
+            font-size: .78rem;
+            gap: .45rem 1.25rem;
+            padding: .7rem 1.15rem;
+        }
+
+        .delivery-summary-card,
+        .delivery-data-card {
+            border-color: #dfe4ea;
+            box-shadow: 0 .125rem .35rem rgba(15, 23, 42, .05);
+        }
+
+        .delivery-kpi {
+            border-left: 3px solid transparent;
+            min-height: 66px;
+        }
+
+        .delivery-kpi-order { border-color: #495057; }
+        .delivery-kpi-same { border-color: #198754; }
+        .delivery-kpi-other { border-color: #f59f00; }
+        .delivery-kpi-total { border-color: #0d6efd; }
+
+        .delivery-kpi-label {
+            color: #6c757d;
+            font-size: .78rem;
+            margin-bottom: .2rem;
+        }
+
+        .delivery-kpi-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .delivery-kpi-same .delivery-kpi-value { color: #198754; }
+        .delivery-kpi-other .delivery-kpi-value { color: #d98400; }
+        .delivery-kpi-total .delivery-kpi-value { color: #0d6efd; }
+
+        .delivery-stat-chip {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 999px;
+            color: #495057;
+            font-size: .75rem;
+            padding: .25rem .6rem;
+        }
+
+        .delivery-table-toolbar {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: .75rem;
+            justify-content: space-between;
+        }
+
+        .delivery-search {
+            max-width: 310px;
+        }
+
+        .delivery-comparison-wrap {
+            max-height: 560px;
+        }
+
+        .due-comparison-table thead th {
+            background: #f8fafc;
+            position: sticky;
+            top: 0;
+            z-index: 3;
+        }
+
+        .delivery-origin-current > * {
+            background-color: #eaf3ff !important;
+        }
+
+        @media (max-width: 767.98px) {
+            .delivery-search {
+                max-width: none;
+                width: 100%;
+            }
+
+            .delivery-kpi-value {
+                font-size: 1.1rem;
+            }
+        }
+
         .due-filter-divisions {
             max-height: 132px;
             overflow-y: auto;
@@ -136,7 +253,7 @@
                     <input type="number" class="form-control" name="year" value="{{ $year }}">
                 </div>
                 <div class="col-12 col-md-3">
-                    <label class="form-label mb-1">Division สำหรับ Comparison / Excel</label>
+                    <label class="form-label mb-1">Division สำหรับ Actual Delivery / Excel</label>
                     <div class="border rounded p-2 due-filter-divisions">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" name="divisions[]" value="ALL"
@@ -166,102 +283,6 @@
                 </div>
             </div>
         </form>
-
-        <section class="mb-4">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                <div>
-                    <h4 class="mb-0">Order Due Date vs Actual Delivery</h4>
-                    <span class="text-muted small">Actual อ้างอิง predm.transdate · Original Due Date อ้างอิง orderitems.reqdate</span>
-                </div>
-                <span class="badge bg-secondary">{{ implode(', ', $selectedDivisions) }}</span>
-            </div>
-
-            <div class="row g-3 mb-3">
-                @foreach ([['key' => 'qty', 'label' => 'D1-D7/D9', 'unit' => 'Qty'], ['key' => 'baht', 'label' => 'D8', 'unit' => 'Baht']] as $metricGroup)
-                    @php $totals = $comparison['totals'][$metricGroup['key']] ?? []; @endphp
-                    <div class="col-12 col-xl-6">
-                        <div class="card h-100">
-                            <div class="card-header fw-semibold">{{ $metricGroup['label'] }} ({{ $metricGroup['unit'] }})</div>
-                            <div class="card-body">
-                                <div class="row g-2 text-center">
-                                    <div class="col-6 col-lg-3"><div class="text-muted small">Order Due</div><div class="fs-5 fw-bold">{{ $fmt($totals['order_due'] ?? 0) }}</div></div>
-                                    <div class="col-6 col-lg-3"><div class="text-muted small">Actual: Same Due</div><div class="fs-5 fw-bold text-success">{{ $fmt($totals['actual_same_due_month'] ?? 0) }}</div></div>
-                                    <div class="col-6 col-lg-3"><div class="text-muted small">Actual: Other Due</div><div class="fs-5 fw-bold text-warning">{{ $fmt($totals['actual_other_due_month'] ?? 0) }}</div></div>
-                                    <div class="col-6 col-lg-3"><div class="text-muted small">Actual Total</div><div class="fs-5 fw-bold text-primary">{{ $fmt($totals['actual_total'] ?? 0) }}</div></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-
-            <div class="card mb-3">
-                <div class="due-report-table-wrap">
-                    <table class="table table-sm table-bordered table-hover mb-0 due-comparison-table">
-                        <thead class="table-light">
-                            <tr class="text-center">
-                                <th>Division</th>
-                                <th>Product</th>
-                                <th>Unit</th>
-                                <th>Order Due</th>
-                                <th>Actual: Same Due Month</th>
-                                <th>Due Performance Variance</th>
-                                <th>Actual: Other Due Month</th>
-                                <th>Actual Delivery Total</th>
-                                <th>Monthly Variance</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse ($comparison['rows'] as $row)
-                                @php
-                                    $detailBase = ['year' => $year, 'month' => $month, 'mode' => 'actual', 'group_code' => $row['group_code'], 'type_name' => $row['product_type']];
-                                @endphp
-                                <tr>
-                                    <td class="fw-semibold">{{ $row['group_code'] }}</td>
-                                    <td>{{ $row['product_type'] }}</td>
-                                    <td class="text-center">{{ $row['metric_unit'] }}</td>
-                                    <td class="text-end">
-                                        @if ($row['order_due'] != 0)
-                                            <a href="{{ route('wos.order_due_date.detail', ['year' => $year, 'month' => $month, 'group_code' => $row['group_code'], 'type_name' => $row['product_type']]) }}">{{ $fmt($row['order_due']) }}</a>
-                                        @else
-                                            {{ $fmt($row['order_due']) }}
-                                        @endif
-                                    </td>
-                                    <td class="text-end"><a href="{{ route('wos.order_due_date.detail', array_merge($detailBase, ['due_period' => 'SAME_DUE_MONTH'])) }}">{{ $fmt($row['actual_same_due_month']) }}</a></td>
-                                    <td class="text-end {{ $row['due_performance_variance'] < 0 ? 'text-danger' : 'text-success' }}">{{ $fmt($row['due_performance_variance']) }}</td>
-                                    <td class="text-end"><a href="{{ route('wos.order_due_date.detail', array_merge($detailBase, ['due_period' => 'OTHER_DUE_MONTH'])) }}">{{ $fmt($row['actual_other_due_month']) }}</a></td>
-                                    <td class="text-end fw-semibold"><a href="{{ route('wos.order_due_date.detail', $detailBase) }}">{{ $fmt($row['actual_total']) }}</a></td>
-                                    <td class="text-end {{ $row['monthly_variance'] < 0 ? 'text-danger' : 'text-success' }}">{{ $fmt($row['monthly_variance']) }}</td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="9" class="text-center text-muted py-4">No data</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header fw-semibold">Actual Delivery มาจาก Original Due Date เดือนไหน</div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered mb-0">
-                        <thead class="table-light"><tr><th>Original Due Month</th><th class="text-end">Actual Qty</th><th class="text-end">D8 Actual Baht</th><th class="text-end">Shipment Lines</th></tr></thead>
-                        <tbody>
-                            @forelse ($comparison['due_origins'] as $origin)
-                                <tr>
-                                    <td><a href="{{ route('wos.order_due_date.detail', ['year' => $year, 'month' => $month, 'mode' => 'actual', 'due_period' => $origin['due_period'], 'divisions' => $selectedDivisions]) }}">{{ $origin['due_label'] }}</a></td>
-                                    <td class="text-end">{{ $fmt($origin['qty_actual']) }}</td>
-                                    <td class="text-end">{{ $fmt($origin['d8_baht']) }}</td>
-                                    <td class="text-end">{{ number_format($origin['line_count']) }}</td>
-                                </tr>
-                            @empty
-                                <tr><td colspan="4" class="text-center text-muted py-3">No actual delivery</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
 
         <section class="mb-4">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -408,6 +429,8 @@
             </div>
         </section>
 
+        @include('formwos.order_due_date._delivery_comparison')
+
     </div>
 @endsection
 
@@ -416,12 +439,28 @@
         (() => {
             const all = document.getElementById('dueDivisionAll');
             const options = Array.from(document.querySelectorAll('.due-division-option'));
-            if (!all || options.length === 0) return;
+            if (all && options.length > 0) {
+                all.addEventListener('change', () => options.forEach(option => option.checked = all.checked));
+                options.forEach(option => option.addEventListener('change', () => {
+                    all.checked = options.every(item => item.checked);
+                }));
+            }
 
-            all.addEventListener('change', () => options.forEach(option => option.checked = all.checked));
-            options.forEach(option => option.addEventListener('change', () => {
-                all.checked = options.every(item => item.checked);
-            }));
+            const search = document.getElementById('dueComparisonSearch');
+            const rows = Array.from(document.querySelectorAll('[data-comparison-row]'));
+            const noMatch = document.getElementById('dueComparisonNoMatch');
+            if (search && rows.length > 0 && noMatch) {
+                search.addEventListener('input', () => {
+                    const keyword = search.value.trim().toLowerCase();
+                    let visibleCount = 0;
+                    rows.forEach(row => {
+                        const visible = keyword === '' || (row.dataset.search || '').includes(keyword);
+                        row.classList.toggle('d-none', !visible);
+                        if (visible) visibleCount++;
+                    });
+                    noMatch.classList.toggle('d-none', visibleCount !== 0);
+                });
+            }
         })();
     </script>
 @endpush

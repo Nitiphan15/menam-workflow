@@ -90,6 +90,17 @@ class OrderDueDateDeliveryComparisonTest extends TestCase
         $this->assertCount(8, $this->invoke('normalizedDivisionCodes', [[]]));
     }
 
+    public function test_delivery_analysis_is_rendered_after_both_existing_order_tables(): void
+    {
+        $view = file_get_contents(dirname(__DIR__, 2) . '/resources/views/formwos/order_due_date/index.blade.php');
+        $partial = file_get_contents(dirname(__DIR__, 2) . '/resources/views/formwos/order_due_date/_delivery_comparison.blade.php');
+
+        $this->assertLessThan(strpos($view, "@include('formwos.order_due_date._delivery_comparison')"), strpos($view, 'Order Volume Report (by Due Date)'));
+        $this->assertLessThan(strpos($view, "@include('formwos.order_due_date._delivery_comparison')"), strpos($view, 'Orders Due for Delivery by Month'));
+        $this->assertStringContainsString('id="dueComparisonSearch"', $partial);
+        $this->assertStringContainsString('<caption class="visually-hidden">', $partial);
+    }
+
     private function invoke(string $method, array $arguments): mixed
     {
         $reflection = new ReflectionMethod(OrderDueDateController::class, $method);
