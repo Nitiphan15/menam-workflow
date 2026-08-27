@@ -135,7 +135,7 @@
                     <label class="form-label mb-1">ปี</label>
                     <input type="number" class="form-control" name="year" value="{{ $year }}">
                 </div>
-                <div class="col-12 col-md-5">
+                <div class="col-12 col-md-3">
                     <label class="form-label mb-1">Division สำหรับ Comparison / Excel</label>
                     <div class="border rounded p-2 due-filter-divisions">
                         <div class="form-check">
@@ -155,16 +155,14 @@
                         </div>
                     </div>
                 </div>
-                <div class="col-12 col-md-1 d-grid">
-                    <button class="btn btn-primary">ค้นหา</button>
-                </div>
-                <div class="col-12 col-md-2 d-grid">
-                    <a class="btn btn-outline-primary"
-                        href="{{ route('wos.order_due_date.dashboard', ['year' => $year, 'month' => $month]) }}">Dashboard เดิม</a>
-                </div>
-                <div class="col-12 d-flex justify-content-end">
-                    <button class="btn btn-success" type="submit"
-                        formaction="{{ route('wos.order_due_date.dashboard.excel') }}">Export Excel รายละเอียด</button>
+                <div class="col-12 col-md-5">
+                    <div class="d-flex flex-nowrap gap-2">
+                        <button class="btn btn-primary flex-fill" type="submit">ค้นหา</button>
+                        <a class="btn btn-outline-primary flex-fill"
+                            href="{{ route('wos.order_due_date.dashboard', ['year' => $year, 'month' => $month]) }}">Dashboard</a>
+                        <button class="btn btn-success flex-fill" type="submit"
+                            formaction="{{ route('wos.order_due_date.dashboard.excel') }}">Export Excel</button>
+                    </div>
                 </div>
             </div>
         </form>
