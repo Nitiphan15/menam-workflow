@@ -63,6 +63,15 @@
         .due-chart-shell {
             height: 360px;
         }
+
+        .due-comparison-table {
+            min-width: 1180px;
+        }
+
+        .due-filter-divisions {
+            max-height: 132px;
+            overflow-y: auto;
+        }
     </style>
 @endpush
 
@@ -70,6 +79,9 @@
     @php
         $year = (int) ($filters['year'] ?? now()->year);
         $month = (int) ($filters['month'] ?? now()->month);
+        $selectedDivisions = $filters['divisions'] ?? array_keys($divisionOptions ?? []);
+        $allDivisionsSelected = count($selectedDivisions) === count($divisionOptions ?? []);
+        $comparison = $deliveryComparison ?? ['rows' => [], 'totals' => ['qty' => [], 'baht' => []], 'due_origins' => []];
         $thaiMonths = [
             1 => 'มกราคม',
             2 => 'กุมภาพันธ์',
@@ -111,7 +123,7 @@
     <div class="container-fluid py-3">
         <form class="card card-body mb-3" method="GET" action="{{ route('wos.order_due_date') }}">
             <div class="row g-2 align-items-end">
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-2">
                     <label class="form-label mb-1">เดือน Due Date</label>
                     <select class="form-select" name="month">
                         @foreach ($thaiMonths as $no => $label)
@@ -119,19 +131,139 @@
                         @endforeach
                     </select>
                 </div>
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-2">
                     <label class="form-label mb-1">ปี</label>
                     <input type="number" class="form-control" name="year" value="{{ $year }}">
                 </div>
-                <div class="col-12 col-md-2 d-grid">
+                <div class="col-12 col-md-5">
+                    <label class="form-label mb-1">Division สำหรับ Comparison / Excel</label>
+                    <div class="border rounded p-2 due-filter-divisions">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="divisions[]" value="ALL"
+                                id="dueDivisionAll" @checked($allDivisionsSelected)>
+                            <label class="form-check-label fw-semibold" for="dueDivisionAll">เลือกทั้งหมด</label>
+                        </div>
+                        <div class="d-flex flex-wrap gap-x-3 gap-1">
+                            @foreach (($divisionOptions ?? []) as $code => $label)
+                                <div class="form-check me-3">
+                                    <input class="form-check-input due-division-option" type="checkbox"
+                                        name="divisions[]" value="{{ $code }}" id="dueDivision{{ $code }}"
+                                        @checked(in_array($code, $selectedDivisions, true))>
+                                    <label class="form-check-label" for="dueDivision{{ $code }}">{{ $code }}</label>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-1 d-grid">
                     <button class="btn btn-primary">ค้นหา</button>
                 </div>
                 <div class="col-12 col-md-2 d-grid">
                     <a class="btn btn-outline-primary"
-                        href="{{ route('wos.order_due_date.dashboard', ['year' => $year, 'month' => $month]) }}">Dashboard</a>
+                        href="{{ route('wos.order_due_date.dashboard', ['year' => $year, 'month' => $month]) }}">Dashboard เดิม</a>
+                </div>
+                <div class="col-12 d-flex justify-content-end">
+                    <button class="btn btn-success" type="submit"
+                        formaction="{{ route('wos.order_due_date.dashboard.excel') }}">Export Excel รายละเอียด</button>
                 </div>
             </div>
         </form>
+
+        <section class="mb-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <div>
+                    <h4 class="mb-0">Order Due Date vs Actual Delivery</h4>
+                    <span class="text-muted small">Actual อ้างอิง predm.transdate · Original Due Date อ้างอิง orderitems.reqdate</span>
+                </div>
+                <span class="badge bg-secondary">{{ implode(', ', $selectedDivisions) }}</span>
+            </div>
+
+            <div class="row g-3 mb-3">
+                @foreach ([['key' => 'qty', 'label' => 'D1-D7/D9', 'unit' => 'Qty'], ['key' => 'baht', 'label' => 'D8', 'unit' => 'Baht']] as $metricGroup)
+                    @php $totals = $comparison['totals'][$metricGroup['key']] ?? []; @endphp
+                    <div class="col-12 col-xl-6">
+                        <div class="card h-100">
+                            <div class="card-header fw-semibold">{{ $metricGroup['label'] }} ({{ $metricGroup['unit'] }})</div>
+                            <div class="card-body">
+                                <div class="row g-2 text-center">
+                                    <div class="col-6 col-lg-3"><div class="text-muted small">Order Due</div><div class="fs-5 fw-bold">{{ $fmt($totals['order_due'] ?? 0) }}</div></div>
+                                    <div class="col-6 col-lg-3"><div class="text-muted small">Actual: Same Due</div><div class="fs-5 fw-bold text-success">{{ $fmt($totals['actual_same_due_month'] ?? 0) }}</div></div>
+                                    <div class="col-6 col-lg-3"><div class="text-muted small">Actual: Other Due</div><div class="fs-5 fw-bold text-warning">{{ $fmt($totals['actual_other_due_month'] ?? 0) }}</div></div>
+                                    <div class="col-6 col-lg-3"><div class="text-muted small">Actual Total</div><div class="fs-5 fw-bold text-primary">{{ $fmt($totals['actual_total'] ?? 0) }}</div></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            <div class="card mb-3">
+                <div class="due-report-table-wrap">
+                    <table class="table table-sm table-bordered table-hover mb-0 due-comparison-table">
+                        <thead class="table-light">
+                            <tr class="text-center">
+                                <th>Division</th>
+                                <th>Product</th>
+                                <th>Unit</th>
+                                <th>Order Due</th>
+                                <th>Actual: Same Due Month</th>
+                                <th>Due Performance Variance</th>
+                                <th>Actual: Other Due Month</th>
+                                <th>Actual Delivery Total</th>
+                                <th>Monthly Variance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($comparison['rows'] as $row)
+                                @php
+                                    $detailBase = ['year' => $year, 'month' => $month, 'mode' => 'actual', 'group_code' => $row['group_code'], 'type_name' => $row['product_type']];
+                                @endphp
+                                <tr>
+                                    <td class="fw-semibold">{{ $row['group_code'] }}</td>
+                                    <td>{{ $row['product_type'] }}</td>
+                                    <td class="text-center">{{ $row['metric_unit'] }}</td>
+                                    <td class="text-end">
+                                        @if ($row['order_due'] != 0)
+                                            <a href="{{ route('wos.order_due_date.detail', ['year' => $year, 'month' => $month, 'group_code' => $row['group_code'], 'type_name' => $row['product_type']]) }}">{{ $fmt($row['order_due']) }}</a>
+                                        @else
+                                            {{ $fmt($row['order_due']) }}
+                                        @endif
+                                    </td>
+                                    <td class="text-end"><a href="{{ route('wos.order_due_date.detail', array_merge($detailBase, ['due_period' => 'SAME_DUE_MONTH'])) }}">{{ $fmt($row['actual_same_due_month']) }}</a></td>
+                                    <td class="text-end {{ $row['due_performance_variance'] < 0 ? 'text-danger' : 'text-success' }}">{{ $fmt($row['due_performance_variance']) }}</td>
+                                    <td class="text-end"><a href="{{ route('wos.order_due_date.detail', array_merge($detailBase, ['due_period' => 'OTHER_DUE_MONTH'])) }}">{{ $fmt($row['actual_other_due_month']) }}</a></td>
+                                    <td class="text-end fw-semibold"><a href="{{ route('wos.order_due_date.detail', $detailBase) }}">{{ $fmt($row['actual_total']) }}</a></td>
+                                    <td class="text-end {{ $row['monthly_variance'] < 0 ? 'text-danger' : 'text-success' }}">{{ $fmt($row['monthly_variance']) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="9" class="text-center text-muted py-4">No data</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header fw-semibold">Actual Delivery มาจาก Original Due Date เดือนไหน</div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light"><tr><th>Original Due Month</th><th class="text-end">Actual Qty</th><th class="text-end">D8 Actual Baht</th><th class="text-end">Shipment Lines</th></tr></thead>
+                        <tbody>
+                            @forelse ($comparison['due_origins'] as $origin)
+                                <tr>
+                                    <td><a href="{{ route('wos.order_due_date.detail', ['year' => $year, 'month' => $month, 'mode' => 'actual', 'due_period' => $origin['due_period'], 'divisions' => $selectedDivisions]) }}">{{ $origin['due_label'] }}</a></td>
+                                    <td class="text-end">{{ $fmt($origin['qty_actual']) }}</td>
+                                    <td class="text-end">{{ $fmt($origin['d8_baht']) }}</td>
+                                    <td class="text-end">{{ number_format($origin['line_count']) }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="text-center text-muted py-3">No actual delivery</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
 
         <section class="mb-4">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -280,3 +412,18 @@
 
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        (() => {
+            const all = document.getElementById('dueDivisionAll');
+            const options = Array.from(document.querySelectorAll('.due-division-option'));
+            if (!all || options.length === 0) return;
+
+            all.addEventListener('change', () => options.forEach(option => option.checked = all.checked));
+            options.forEach(option => option.addEventListener('change', () => {
+                all.checked = options.every(item => item.checked);
+            }));
+        })();
+    </script>
+@endpush
