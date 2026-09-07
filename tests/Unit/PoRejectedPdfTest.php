@@ -37,4 +37,18 @@ class PoRejectedPdfTest extends TestCase
         $controller = new PoExportController($this->app->make(PoErpService::class));
         $this->assertSame('ไม่ระบุเหตุผล', (new ReflectionMethod($controller, 'rejectionRemark'))->invoke($controller, $po));
     }
+
+    public function test_cancelled_pdf_uses_cancellation_reason_instead_of_rejection(): void
+    {
+        $po = new PoHeader(['status_code' => 'CANCELLED']);
+        $workflow = new WfForm;
+        $cancel = new WfActionHistory(['action_type' => 'CANCEL', 'comment' => 'ไม่ต้องการสั่งซื้อแล้ว']);
+        $cancel->id = 2;
+        $reject = new WfActionHistory(['action_type' => 'REJECT', 'comment' => 'Old rejection']);
+        $reject->id = 1;
+        $workflow->setRelation('histories', collect([$reject, $cancel]));
+        $po->setRelation('workflow', $workflow);
+        $controller = new PoExportController($this->app->make(PoErpService::class));
+        $this->assertSame('ไม่ต้องการสั่งซื้อแล้ว', (new ReflectionMethod($controller, 'rejectionRemark'))->invoke($controller, $po));
+    }
 }

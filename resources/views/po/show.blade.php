@@ -580,6 +580,11 @@
                                 data-bs-target="#rejectModal">
                                 Send Back / Reject
                             </button>
+                            @if ((int) ($po->workflow?->current_step_no ?? 0) === 3)
+                                <button class="btn btn-danger w-100 mt-2" data-bs-toggle="modal" data-bs-target="#cancelPoModal">
+                                    ยกเลิก PO / Cancel
+                                </button>
+                            @endif
                         @elseif ($canReopen)
                             <div class="alert alert-warning">
                                 PO นี้อนุมัติครบแล้ว หากราคาเปลี่ยน สามารถยกเลิกผลอนุมัติเดิมเพื่อกลับไปแก้ไขไฟล์แนบ
@@ -747,6 +752,29 @@
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-danger">ยืนยัน</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
+
+    @if ($canApprove && (int) ($po->workflow?->current_step_no ?? 0) === 3)
+    <div class="modal fade" id="cancelPoModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form class="modal-content" method="POST" action="{{ route('po.cancelByManager', $po->id) }}">
+                @csrf
+                <div class="modal-header">
+                    <h5 class="modal-title">ยกเลิก PO</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-danger">ยกเลิกแล้วจะจบรายการ ไม่สามารถแก้ไขและส่งอนุมัติใหม่ได้</p>
+                    <label class="form-label" for="cancelPoReason">เหตุผลการยกเลิก</label>
+                    <textarea id="cancelPoReason" name="comment" class="form-control" rows="4" maxlength="1000" required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-danger">ยืนยันยกเลิก PO</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
                 </div>
             </form>

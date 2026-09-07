@@ -409,7 +409,7 @@ class PoExportController extends Controller
         $pdf = new class extends Fpdi {
             protected array $extGStates = [];
 
-            public function rejectionStamp(float $width, float $height, string $remark): void
+            public function rejectionStamp(float $width, float $height, string $remark, string $status = 'REJECTED'): void
             {
                 $x = $width / 2 * $this->k;
                 $y = $height / 2 * $this->k;
@@ -421,7 +421,7 @@ class PoExportController extends Controller
                 $this->SetLineWidth(1);
                 $this->SetFont('Helvetica', 'B', 38);
                 $this->SetXY(($width - 120) / 2, $height / 2 - 13);
-                $this->Cell(120, 26, 'REJECTED', 1, 0, 'C');
+                $this->Cell(120, 26, $status, 1, 0, 'C');
                 $this->setAlpha(0.7);
                 $this->SetFont('THSarabunNew', 'B', 18);
                 $this->SetXY(($width - 120) / 2, $height / 2 + 13);
@@ -525,7 +525,7 @@ class PoExportController extends Controller
                             ? mb_substr($rejectionRemark, 0, 220) . '... (อ่านต่อหน้าท้าย)'
                             : $rejectionRemark;
                         $stampRemark = preg_replace('/\s+/u', ' ', $stampRemark);
-                        $pdf->rejectionStamp($size['width'], $size['height'], $this->pdfText('เหตุผล: ' . $stampRemark));
+                        $pdf->rejectionStamp($size['width'], $size['height'], $this->pdfText('เหตุผล: ' . $stampRemark), strtoupper(trim((string) $po->status_code)));
                     }
                 }
 
@@ -537,10 +537,10 @@ class PoExportController extends Controller
                     $pdf->SetXY(15, 15);
                     $pdf->SetTextColor(190, 30, 30);
                     $pdf->SetFont('Helvetica', 'B', 20);
-                    $pdf->MultiCell(180, 10, 'REJECTED - ' . $this->pdfText((string) $po->ordnumber));
+                    $pdf->MultiCell(180, 10, strtoupper(trim((string) $po->status_code)) . ' - ' . $this->pdfText((string) $po->ordnumber));
                     $pdf->SetTextColor(0);
                     $pdf->SetFont('THSarabunNew', '', 16);
-                    $pdf->MultiCell(180, 8, $this->pdfText('เหตุผลที่รีเจค / Remark: ' . $rejectionRemark), 0, 'L');
+                    $pdf->MultiCell(180, 8, $this->pdfText('เหตุผล / Remark: ' . $rejectionRemark), 0, 'L');
                     $pdf->SetAutoPageBreak(false);
                 }
             }
@@ -555,12 +555,14 @@ class PoExportController extends Controller
 
     private function rejectionRemark(?PoHeader $po): ?string
     {
-        if (!$po || strtoupper(trim((string) $po->status_code)) !== 'REJECTED') {
+        if (!$po || !in_array(strtoupper(trim((string) $po->status_code)), ['REJECTED', 'CANCELLED'], true)) {
             return null;
         }
 
+        $actions = strtoupper(trim((string) $po->status_code)) === 'CANCELLED'
+            ? ['CANCEL', 'CANCELLED'] : ['REJECT', 'REJECTED', 'REOPEN'];
         $history = $po->workflow?->histories
-            ->filter(fn ($row) => in_array(strtoupper((string) $row->action_type), ['REJECT', 'REJECTED', 'REOPEN'], true))
+            ->filter(fn ($row) => in_array(strtoupper((string) $row->action_type), $actions, true))
             ->sortByDesc('id')
             ->first();
 
