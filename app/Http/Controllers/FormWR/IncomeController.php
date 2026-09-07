@@ -10,6 +10,8 @@ use Illuminate\Support\Str;
 use Carbon\Carbon;
 
 use App\Exports\WirerodExport;
+use App\Exports\WirerodReservationSheet;
+use App\Services\FormWR\ReservedStockService;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Maatwebsite\Excel\Concerns\FromArray;
@@ -601,8 +603,16 @@ class IncomeController extends Controller
         $fgMap      = $fgMap ?? collect();
 
 
+        $reservationService = app(ReservedStockService::class);
+        $stockReport = $reservationService->report($companies, $itemLike);
+        $balanceWithOpenScaled = $reservationService->mergeBalances($balanceWithOpenScaled, $stockReport);
+        foreach (['balance', 'open', 'reserved', 'net'] as $column) {
+            $totals[$column] = (float) collect($balanceWithOpenScaled)->sum($column);
+        }
+
         // ---------- ส่งให้ Blade ----------
         return view('formwr.index', [
+            'stockReport'     => $stockReport,
             'monthOrder'      => $monthOrder,    // << ใช้ตัวเดียวให้ชัด
             'monthLabels'     => $monthLabels,
             'poByItemMonth'   => $poByItemMonthForView,
@@ -852,6 +862,11 @@ class IncomeController extends Controller
         })->filter(fn($r) => ($r['balance'] ?? 0) > 0 || ($r['open'] ?? 0) > 0)
             ->sortBy('item')->values()->all();
 
+        $reservationService = app(ReservedStockService::class);
+        $stockReport = $reservationService->report($companies, $itemLike);
+        $balanceWithOpen = $reservationService->mergeBalances($balanceWithOpen, $stockReport);
+        $reservationSheets = [new WirerodReservationSheet($stockReport), new WirerodReservationSheet($stockReport, true)];
+
         // --- SCALE 1000 เฉพาะจำนวน (KG.) ---
         $SCALE = 1000;
 
@@ -872,7 +887,7 @@ class IncomeController extends Controller
         $sheet1Rows[] = $sumLine;
 
         // Sheet 2: Balance & Overdue (ค้างส่ง * SCALE, balance ไม่คูณ)
-        $sheet2Head = ['Item', 'Company', 'Balance (KG.)', 'Overdue Open (KG.)'];
+        $sheet2Head = ['Item', 'Company', 'Balance (KG.)', 'Overdue Open (KG.)', 'Reserved Remaining (KG.)', 'Net (KG.)'];
         $sheet2Rows = [];
         foreach ($balanceWithOpen as $r) {
             $sheet2Rows[] = [
@@ -880,6 +895,8 @@ class IncomeController extends Controller
                 $r['company'] ?? '',
                 (float) ($r['balance'] ?? 0),
                 (float) ($r['open'] ?? 0) * $SCALE,
+                (float) $r['reserved'],
+                (float) $r['net'],
             ];
         }
 
@@ -914,8 +931,8 @@ class IncomeController extends Controller
             ];
         }
 
-        // --- สร้างไฟล์ Excel 3 ชีต แบบตารางเรียบ ๆ ---
-        $export = new class($sheet1Head, $sheet1Rows, $sheet2Head, $sheet2Rows, $sheet3Head, $sheet3Rows, $monthOrder, $monthLabels) implements WithMultipleSheets {
+        // Existing PO sheets plus the current Heat and MFG reservation detail.
+        $export = new class($sheet1Head, $sheet1Rows, $sheet2Head, $sheet2Rows, $sheet3Head, $sheet3Rows, $monthOrder, $monthLabels, $reservationSheets) implements WithMultipleSheets {
             public function __construct(
                 private array $s1Head,
                 private array $s1Rows,
@@ -924,7 +941,8 @@ class IncomeController extends Controller
                 private array $s3Head,
                 private array $s3Rows,
                 private array $monthOrder,
-                private array $monthLabels
+                private array $monthLabels,
+                private array $reservationSheets
             ) {}
 
             public function sheets(): array
@@ -978,6 +996,7 @@ class IncomeController extends Controller
                             return $this->rows;
                         }
                     },
+                    ...$this->reservationSheets,
                 ];
             }
         };

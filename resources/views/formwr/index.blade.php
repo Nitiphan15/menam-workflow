@@ -81,7 +81,7 @@
         </div>
         <div class="ms-auto d-flex gap-2">
             <a href="{{ route('wr.export', request()->query()) }}" class="btn btn-outline-primary">
-                <i class="bi bi-filetype-xlsx me-1"></i> Export (3 Sheets)
+                <i class="bi bi-filetype-xlsx me-1"></i> Export (5 Sheets)
             </a>
             <button type="button" class="btn btn-light border" onclick="location.href='{{ route('wr.index') }}'">
                 <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
@@ -344,17 +344,19 @@
         <div class="col-lg-6">
             <div class="card card-shadow border-0">
                 <div class="card-header bg-white">
-                    <div class="fw-semibold">ยอดคงเหลือ (KG.) / ค้างรับที่เหลือ (KG.)</div>
-                    <div class="text-muted small">รวมตามตัวกรองด้านบน</div>
+                    <div class="fw-semibold">ยอดคงเหลือ / จองวัตถุดิบ / สุทธิ (KG.)</div>
+                    <div class="text-muted small">ยอดล่าสุด {{ $stockReport['retrieved_at'] }} (เวลาไทย) · สต็อกและยอดจองกรองตามบริษัท/Item<br>ปี, คู่ค้า และ PO ใช้กรองค้างรับเท่านั้น · สุทธิ = คงเหลือ − จองที่ยังไม่เบิก · คลิก Item เพื่อดู Heat</div>
                 </div>
                 <div class="card-body p-0">
-                    <div class="h-560">
+                    <div class="h-560 table-responsive">
                         <table class="table table-sm align-middle">
                             <thead class="table-light">
                                 <tr>
                                     <th>item</th>
                                     <th>บริษัท</th>
-                                    <th class="text-end">ยอดคงเหลือ (KG.)</th>
+                                    <th class="text-end text-nowrap">ยอดคงเหลือ</th>
+                                    <th class="text-end text-nowrap">จองคงเหลือ</th>
+                                    <th class="text-end text-nowrap">สุทธิ</th>
                                     <th class="text-end">ค้างรับ (KG.)</th>
                                     <th class="text-center" style="width: 120px;">PO ที่ค้าง</th>
                                 </tr>
@@ -365,13 +367,22 @@
                                         $poList = $r['overdue_po'] ?? [];
                                         $countPo = count($poList);
                                         $collapse = 'poRow' . $loop->index;
+                                        $rowIndex = $loop->index;
                                     @endphp
 
                                     {{-- แถว summary --}}
                                     <tr>
-                                        <td>{{ $r['item'] }}</td>
+                                        <td class="text-nowrap">
+                                            @if ($r['stock_details'])
+                                                <a class="text-primary" href="#wr-stock-{{ $rowIndex }}">{{ $r['item'] }}</a>
+                                            @else
+                                                {{ $r['item'] }}
+                                            @endif
+                                        </td>
                                         <td>{{ $r['company'] }}</td>
                                         <td class="text-end">{{ number_format($r['balance'], 2) }}</td>
+                                        <td class="text-end">{{ number_format($r['reserved'], 2) }}</td>
+                                        <td class="text-end {{ $r['net'] < 0 ? 'text-danger fw-bold' : '' }}">{{ number_format($r['net'], 2) }}</td>
                                         <td class="text-end">{{ number_format($r['open'], 2) }}</td>
                                         <td class="text-center">
                                             @if ($countPo > 0)
@@ -386,10 +397,19 @@
                                         </td>
                                     </tr>
 
+                                    @if ($r['stock_details'])
+                                        <tr><td colspan="7">
+                                            <details id="wr-stock-{{ $rowIndex }}">
+                                                <summary class="small text-primary">Heat / MFG ของ {{ $r['item'] }}</summary>
+                                                <div class="mt-2">@include('formwr.stock-details', ['r' => $r, 'rowIndex' => $rowIndex])</div>
+                                            </details>
+                                        </td></tr>
+                                    @endif
+
                                     {{-- แถวรายละเอียด PO (ขยาย/ย่อ) --}}
                                     @if ($countPo > 0)
                                         <tr class="collapse bg-light" id="{{ $collapse }}">
-                                            <td colspan="5">
+                                            <td colspan="7">
                                                 <ul class="mb-0 small">
                                                     @foreach ($poList as $po)
                                                         <li class="mb-1">
@@ -409,6 +429,8 @@
                                 <tr>
                                     <td colspan="2">รวม</td>
                                     <td class="text-end">{{ number_format($totals['balance'], 2) }}</td>
+                                    <td class="text-end">{{ number_format($totals['reserved'], 2) }}</td>
+                                    <td class="text-end {{ $totals['net'] < 0 ? 'text-danger' : '' }}">{{ number_format($totals['net'], 2) }}</td>
                                     <td class="text-end">{{ number_format($totals['open'], 2) }}</td>
                                     <td></td>
                                 </tr>
@@ -487,6 +509,12 @@
 
 @push('scripts')
     <script>
+        document.addEventListener('click', function (event) {
+            const link = event.target.closest('a[href^="#wr-"]');
+            if (!link) return;
+            const detail = document.getElementById(link.getAttribute('href').slice(1));
+            if (detail && detail.tagName === 'DETAILS') detail.open = true;
+        });
         // -------- simple debounce ----------
         function debounce(fn, wait = 300) {
             let t;
