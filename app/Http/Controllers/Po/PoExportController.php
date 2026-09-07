@@ -409,6 +409,28 @@ class PoExportController extends Controller
         $pdf = new class extends Fpdi {
             protected array $extGStates = [];
 
+            public function rejectionStamp(float $width, float $height): void
+            {
+                $x = $width / 2 * $this->k;
+                $y = $height / 2 * $this->k;
+                $angle = deg2rad(35);
+                $this->_out(sprintf('q %.5F %.5F %.5F %.5F %.5F %.5F cm 1 0 0 1 %.5F %.5F cm', cos($angle), sin($angle), -sin($angle), cos($angle), $x, $y, -$x, -$y));
+                $this->setAlpha(0.45);
+                $this->SetDrawColor(190, 30, 30);
+                $this->SetTextColor(190, 30, 30);
+                $this->SetLineWidth(1);
+                $this->SetFont('Helvetica', 'B', 38);
+                $this->SetXY(($width - 120) / 2, $height / 2 - 13);
+                $this->Cell(120, 26, 'REJECTED', 1, 0, 'C');
+                $this->SetFont('Helvetica', '', 10);
+                $this->SetXY(($width - 120) / 2, $height / 2 + 13);
+                $this->Cell(120, 7, 'Reason: see rejection remark page', 0, 0, 'C');
+                $this->_out('Q');
+                $this->SetTextColor(0);
+                $this->SetDrawColor(0);
+                $this->SetLineWidth(0.2);
+            }
+
             public function useFontPath(string $path): void
             {
                 $this->fontpath = rtrim($path, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
@@ -471,6 +493,7 @@ class PoExportController extends Controller
                 $pageCount = $pdf->setSourceFile($document['pdf_path']);
                 $pagesToImport = $this->pagesToImportFromErpPdf($document['pdf_path'], $pageCount);
                 $po = $document['po'] ?? null;
+                $rejectionRemark = $this->rejectionRemark($po);
                 $descriptionPages = $this->resolveOverridePages($po->pdf_description_override_pages ?? null, $pagesToImport);
                 $commentsPages = $this->resolveOverridePages($po->pdf_comments_override_pages ?? null, $pagesToImport);
 
@@ -495,6 +518,24 @@ class PoExportController extends Controller
                         $pageNo
                     );
                     $this->overlaySignatures($pdf, $document['signatures'], $size['width'], $size['height'], $tempImages);
+                    if ($rejectionRemark !== null) {
+                        $pdf->rejectionStamp($size['width'], $size['height']);
+                    }
+                }
+
+                if ($rejectionRemark !== null) {
+                    // Keep the complete reason readable without covering ERP line items.
+                    $pdf->AddPage('P', 'A4');
+                    $pdf->SetMargins(15, 15, 15);
+                    $pdf->SetAutoPageBreak(true, 15);
+                    $pdf->SetXY(15, 15);
+                    $pdf->SetTextColor(190, 30, 30);
+                    $pdf->SetFont('Helvetica', 'B', 20);
+                    $pdf->MultiCell(180, 10, 'REJECTED - ' . $this->pdfText((string) $po->ordnumber));
+                    $pdf->SetTextColor(0);
+                    $pdf->SetFont('THSarabunNew', '', 16);
+                    $pdf->MultiCell(180, 8, $this->pdfText('เหตุผลที่รีเจค / Remark: ' . $rejectionRemark), 0, 'L');
+                    $pdf->SetAutoPageBreak(false);
                 }
             }
 
@@ -504,6 +545,20 @@ class PoExportController extends Controller
                 File::delete($path);
             }
         }
+    }
+
+    private function rejectionRemark(?PoHeader $po): ?string
+    {
+        if (!$po || strtoupper(trim((string) $po->status_code)) !== 'REJECTED') {
+            return null;
+        }
+
+        $history = $po->workflow?->histories
+            ->filter(fn ($row) => in_array(strtoupper((string) $row->action_type), ['REJECT', 'REJECTED', 'REOPEN'], true))
+            ->sortByDesc('id')
+            ->first();
+
+        return trim((string) ($history?->comment ?? '')) ?: 'ไม่ระบุเหตุผล';
     }
 
     private function overlayPlusPaperTint(Fpdi $pdf, ?PoHeader $po, float $pageWidth, float $pageHeight): void
