@@ -422,9 +422,10 @@ class PoExportController extends Controller
                 $this->SetFont('Helvetica', 'B', 38);
                 $this->SetXY(($width - 120) / 2, $height / 2 - 13);
                 $this->Cell(120, 26, 'REJECTED', 1, 0, 'C');
-                $this->SetFont('THSarabunNew', '', 14);
+                $this->setAlpha(0.7);
+                $this->SetFont('THSarabunNew', 'B', 18);
                 $this->SetXY(($width - 120) / 2, $height / 2 + 13);
-                $this->MultiCell(120, 6, $remark, 0, 'C');
+                $this->MultiCell(120, 8, $remark, 0, 'C');
                 $this->_out('Q');
                 $this->SetTextColor(0);
                 $this->SetDrawColor(0);
@@ -484,6 +485,7 @@ class PoExportController extends Controller
         $pdf->SetAutoPageBreak(false);
         $pdf->useFontPath(public_path('fonts/fpdf'));
         $pdf->AddFont('THSarabunNew', '', 'THSarabunNew.php');
+        $pdf->AddFont('THSarabunNew', 'B', 'THSarabunNew-Bold.php');
         $pdf->AddFont('PoTahomaThai', '', 'PoTahomaThai.php');
         $pdf->AddFont('PoAngsanaThai', '', 'PoAngsanaThai.php');
         $tempImages = [];
