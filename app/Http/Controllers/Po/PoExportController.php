@@ -409,7 +409,7 @@ class PoExportController extends Controller
         $pdf = new class extends Fpdi {
             protected array $extGStates = [];
 
-            public function rejectionStamp(float $width, float $height): void
+            public function rejectionStamp(float $width, float $height, string $remark): void
             {
                 $x = $width / 2 * $this->k;
                 $y = $height / 2 * $this->k;
@@ -422,9 +422,9 @@ class PoExportController extends Controller
                 $this->SetFont('Helvetica', 'B', 38);
                 $this->SetXY(($width - 120) / 2, $height / 2 - 13);
                 $this->Cell(120, 26, 'REJECTED', 1, 0, 'C');
-                $this->SetFont('Helvetica', '', 10);
+                $this->SetFont('THSarabunNew', '', 14);
                 $this->SetXY(($width - 120) / 2, $height / 2 + 13);
-                $this->Cell(120, 7, 'Reason: see rejection remark page', 0, 0, 'C');
+                $this->MultiCell(120, 6, $remark, 0, 'C');
                 $this->_out('Q');
                 $this->SetTextColor(0);
                 $this->SetDrawColor(0);
@@ -519,11 +519,15 @@ class PoExportController extends Controller
                     );
                     $this->overlaySignatures($pdf, $document['signatures'], $size['width'], $size['height'], $tempImages);
                     if ($rejectionRemark !== null) {
-                        $pdf->rejectionStamp($size['width'], $size['height']);
+                        $stampRemark = mb_strlen($rejectionRemark) > 220
+                            ? mb_substr($rejectionRemark, 0, 220) . '... (อ่านต่อหน้าท้าย)'
+                            : $rejectionRemark;
+                        $stampRemark = preg_replace('/\s+/u', ' ', $stampRemark);
+                        $pdf->rejectionStamp($size['width'], $size['height'], $this->pdfText('เหตุผล: ' . $stampRemark));
                     }
                 }
 
-                if ($rejectionRemark !== null) {
+                if ($rejectionRemark !== null && mb_strlen($rejectionRemark) > 220) {
                     // Keep the complete reason readable without covering ERP line items.
                     $pdf->AddPage('P', 'A4');
                     $pdf->SetMargins(15, 15, 15);
