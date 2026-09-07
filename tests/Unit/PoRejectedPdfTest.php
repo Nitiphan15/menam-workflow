@@ -51,4 +51,25 @@ class PoRejectedPdfTest extends TestCase
         $controller = new PoExportController($this->app->make(PoErpService::class));
         $this->assertSame('ไม่ต้องการสั่งซื้อแล้ว', (new ReflectionMethod($controller, 'rejectionRemark'))->invoke($controller, $po));
     }
+
+    public function test_actor_matches_latest_action_for_each_status(): void
+    {
+        $reject = new WfActionHistory(['action_type' => 'REJECT', 'actor_user_id' => 10]);
+        $reject->id = 1;
+        $reject->setRelation('actor', new \App\Models\Users\User(['name' => 'ผู้รีเจค ทดสอบ']));
+        $cancel = new WfActionHistory(['action_type' => 'CANCEL', 'actor_user_id' => 20]);
+        $cancel->id = 2;
+        $cancel->setRelation('actor', new \App\Models\Users\User(['name' => 'ผู้ยกเลิก ทดสอบ']));
+        $workflow = new WfForm;
+        $workflow->setRelation('histories', collect([$reject, $cancel]));
+        $po = new PoHeader(['status_code' => 'REJECTED']);
+        $po->setRelation('workflow', $workflow);
+        $controller = new PoExportController($this->app->make(PoErpService::class));
+        $method = new ReflectionMethod($controller, 'rejectionActor');
+        $this->assertSame('ผู้รีเจค: ผู้รีเจค ทดสอบ', $method->invoke($controller, $po));
+        $po->status_code = 'CANCELLED';
+        $this->assertSame('ผู้ยกเลิก: ผู้ยกเลิก ทดสอบ', $method->invoke($controller, $po));
+        $cancel->setRelation('actor', null);
+        $this->assertSame('ผู้ยกเลิก: User ID 20', $method->invoke($controller, $po));
+    }
 }

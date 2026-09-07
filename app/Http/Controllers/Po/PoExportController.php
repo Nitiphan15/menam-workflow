@@ -496,6 +496,7 @@ class PoExportController extends Controller
                 $pagesToImport = $this->pagesToImportFromErpPdf($document['pdf_path'], $pageCount);
                 $po = $document['po'] ?? null;
                 $rejectionRemark = $this->rejectionRemark($po);
+                $rejectionActor = $rejectionRemark !== null ? $this->rejectionActor($po) : '';
                 $descriptionPages = $this->resolveOverridePages($po->pdf_description_override_pages ?? null, $pagesToImport);
                 $commentsPages = $this->resolveOverridePages($po->pdf_comments_override_pages ?? null, $pagesToImport);
 
@@ -525,7 +526,7 @@ class PoExportController extends Controller
                             ? mb_substr($rejectionRemark, 0, 220) . '... (อ่านต่อหน้าท้าย)'
                             : $rejectionRemark;
                         $stampRemark = preg_replace('/\s+/u', ' ', $stampRemark);
-                        $pdf->rejectionStamp($size['width'], $size['height'], $this->pdfText('เหตุผล: ' . $stampRemark), strtoupper(trim((string) $po->status_code)));
+                        $pdf->rejectionStamp($size['width'], $size['height'], $this->pdfText($rejectionActor . "\nเหตุผล: " . $stampRemark), strtoupper(trim((string) $po->status_code)));
                     }
                 }
 
@@ -540,6 +541,7 @@ class PoExportController extends Controller
                     $pdf->MultiCell(180, 10, strtoupper(trim((string) $po->status_code)) . ' - ' . $this->pdfText((string) $po->ordnumber));
                     $pdf->SetTextColor(0);
                     $pdf->SetFont('THSarabunNew', '', 16);
+                    $pdf->MultiCell(180, 8, $this->pdfText($rejectionActor), 0, 'L');
                     $pdf->MultiCell(180, 8, $this->pdfText('เหตุผล / Remark: ' . $rejectionRemark), 0, 'L');
                     $pdf->SetAutoPageBreak(false);
                 }
@@ -559,14 +561,34 @@ class PoExportController extends Controller
             return null;
         }
 
+        return trim((string) ($this->rejectionHistory($po)?->comment ?? '')) ?: 'ไม่ระบุเหตุผล';
+    }
+
+    private function rejectionActor(PoHeader $po): string
+    {
+        $history = $this->rejectionHistory($po);
+        $name = trim((string) ($history?->actor?->name ?? ''));
+        if ($name === '') {
+            $name = $history?->actor_user_id ? 'User ID ' . $history->actor_user_id : 'ไม่ระบุผู้ดำเนินการ';
+        }
+        $label = strtoupper(trim((string) $po->status_code)) === 'CANCELLED' ? 'ผู้ยกเลิก' : 'ผู้รีเจค';
+
+        return $label . ': ' . $name;
+    }
+
+    private function rejectionHistory(?PoHeader $po): ?object
+    {
+        if (!$po || !in_array(strtoupper(trim((string) $po->status_code)), ['REJECTED', 'CANCELLED'], true)) {
+            return null;
+        }
+
         $actions = strtoupper(trim((string) $po->status_code)) === 'CANCELLED'
             ? ['CANCEL', 'CANCELLED'] : ['REJECT', 'REJECTED', 'REOPEN'];
-        $history = $po->workflow?->histories
+        return $po->workflow?->histories
             ->filter(fn ($row) => in_array(strtoupper((string) $row->action_type), $actions, true))
             ->sortByDesc('id')
             ->first();
 
-        return trim((string) ($history?->comment ?? '')) ?: 'ไม่ระบุเหตุผล';
     }
 
     private function overlayPlusPaperTint(Fpdi $pdf, ?PoHeader $po, float $pageWidth, float $pageHeight): void
