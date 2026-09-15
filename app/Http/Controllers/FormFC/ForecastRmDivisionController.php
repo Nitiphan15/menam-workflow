@@ -2193,6 +2193,16 @@ class ForecastRmDivisionController extends Controller
             })
             ->values();
 
+        $fgDetails = $this->fetchFgPartDetails(
+            $rows->pluck('fg_partnumber')->filter()->unique()->values()->all()
+        );
+        $rows = $rows->map(function (array $row) use ($fgDetails) {
+            $fg = strtoupper(trim((string) $row['fg_partnumber']));
+            $row['product_type'] = (string) (($fgDetails->get($fg, []))['product_type'] ?? '');
+
+            return $row;
+        })->values();
+
         if ($search !== '') {
             $needle = mb_strtoupper($search);
             $rows = $rows->filter(function (array $row) use ($needle) {
@@ -2206,6 +2216,7 @@ class ForecastRmDivisionController extends Controller
                     $row['supplier_code'],
                     $row['supplier_name'],
                     $row['row_remark'],
+                    $row['product_type'],
                 ]));
 
                 return str_contains($haystack, $needle);
@@ -2234,6 +2245,10 @@ class ForecastRmDivisionController extends Controller
                 ?? ($firstForecastMonth ? ($row['forecast_by_month'][$firstForecastMonth] ?? 0) : 0)),
         ];
 
+        if ($request->boolean('export_excel')) {
+            return $this->exportPlanningDivisionOverview($rows, $futureYm, $forecastBaseMonth);
+        }
+
         $perPage = 100;
         $page = max(1, (int) $request->query('page', 1));
         $paginatedRows = new LengthAwarePaginator(
@@ -2256,6 +2271,57 @@ class ForecastRmDivisionController extends Controller
             'forecastHorizonMonths' => self::FORECAST_HORIZON_MONTHS,
             'search' => $search,
             'kpi' => $kpi,
+        ]);
+    }
+
+    private function exportPlanningDivisionOverview($rows, array $futureYm, string $forecastBaseMonth)
+    {
+        $escape = static function ($value): string {
+            $text = (string) ($value ?? '');
+            if ($text !== '' && in_array($text[0], ['=', '+', '-', '@'], true)) {
+                $text = "'" . $text;
+            }
+
+            return htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        };
+        $number = static fn($value): string => number_format((float) $value, 2, '.', '');
+        $firstForecastMonth = $futureYm[0] ?? null;
+        $headers = [
+            'Sales Div.',
+            'Customer Name',
+            'FG Part',
+            'FG Description',
+            'RM Part',
+            'Sales Forecast 1 Month',
+            'Sales Forecast ' . self::FORECAST_HORIZON_MONTHS . ' Months',
+            'Product Type',
+        ];
+
+        $lines = ['<tr>' . collect($headers)->map(fn($header) => '<th>' . $escape($header) . '</th>')->implode('') . '</tr>'];
+        foreach ($rows as $row) {
+            $forecast1m = $firstForecastMonth ? (float) ($row['forecast_by_month'][$firstForecastMonth] ?? 0) : 0;
+            $cells = [
+                $row['sales_code'],
+                $row['customer_name'],
+                $row['fg_partnumber'],
+                $row['fg_description'],
+                $row['rm_partnumber'],
+                $number($forecast1m),
+                $number($forecast1m * self::FORECAST_HORIZON_MONTHS),
+                $row['product_type'],
+            ];
+            $lines[] = '<tr>' . collect($cells)->map(fn($cell) => '<td>' . $escape($cell) . '</td>')->implode('') . '</tr>';
+        }
+
+        $html = '<html><head><meta charset="UTF-8"></head><body><table border="1">'
+            . implode('', $lines)
+            . '</table></body></html>';
+        $filename = 'division_forecast_planning_' . Carbon::parse($forecastBaseMonth)->format('Y_m') . '.xls';
+
+        return response("\xEF\xBB\xBF" . $html, 200, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control' => 'max-age=0, no-cache, no-store, must-revalidate',
         ]);
     }
 
