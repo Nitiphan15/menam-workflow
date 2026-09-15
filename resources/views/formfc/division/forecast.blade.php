@@ -745,13 +745,16 @@
                                             'fg_partnumber' => $r['fg_partnumber'],
                                             'fg_description' => $r['fg_description'],
                                             'rm_partnumber' => $r['rm_partnumber'],
+                                            'product_type' => $r['product_type'] ?? '',
                                             'avg6' => (float) $r['avg6'],
                                             'sales_order_qty' => (float) ($r['sales_order_qty'] ?? 0),
                                             'division_forecast_1m' => (float) ($r['forecast_1m'] ?? 0),
                                             'division_forecast_6m' => (float) ($r['forecast_6m'] ?? 0),
                                         ];
                                     @endphp
-                                    <tr data-row-key="{{ $r['row_key'] }}" data-avg6="{{ (float) $r['avg6'] }}">
+                                    <tr data-row-key="{{ $r['row_key'] }}" data-avg6="{{ (float) $r['avg6'] }}"
+                                        data-product-type="{{ $r['product_type'] ?? '' }}"
+                                        data-sales-forecast-1m="{{ number_format((float) ($r['forecast_1m'] ?? 0), 2, '.', '') }}">
                                         <td>{{ $r['customer_name'] }}</td>
                                         <td class="fw-semibold">{{ $r['fg_partnumber'] }}</td>
                                         <td>{{ $r['fg_description'] }}</td>
@@ -1018,9 +1021,11 @@
                                             'fg_partnumber' => $r['fg_partnumber'] ?? '',
                                             'fg_description' => $r['fg_description'] ?? '',
                                             'rm_partnumber' => $r['rm_partnumber'] ?? '',
+                                            'product_type' => $r['product_type'] ?? '',
                                         ];
                                     @endphp
-                                    <tr class="js-manual-row" data-row-key="{{ $r['row_key'] }}">
+                                    <tr class="js-manual-row" data-row-key="{{ $r['row_key'] }}"
+                                        data-product-type="{{ $r['product_type'] ?? '' }}">
                                         <td>{{ $r['customer_name'] ?? '-' }}</td>
                                         <td class="fw-semibold">{{ $r['fg_partnumber'] ?? '-' }}</td>
                                         <td class="js-manual-rm-cell">{{ $r['rm_partnumber'] ?? '-' }}</td>
@@ -1414,6 +1419,7 @@
                 fg_partnumber: tr.dataset.fgPartnumber || '',
                 fg_description: tr.dataset.fgDescription || '',
                 rm_partnumber: tr.dataset.rmPartnumber || '',
+                product_type: tr.dataset.productType || '',
             };
 
             metaInput.value = JSON.stringify(meta);
@@ -1493,6 +1499,7 @@
                     tr.dataset.fgPartnumber = item.fg_partnumber || '';
                     tr.dataset.fgDescription = item.fg_description || '';
                     tr.dataset.rmPartnumber = item.rm_partnumber || '';
+                    tr.dataset.productType = item.product_type || '';
                     rmCell.textContent = item.rm_partnumber || '-';
                     syncManualMeta(tr);
                 }
@@ -2575,8 +2582,8 @@
         /* ================== EXPORT EXCEL (client-side .xls via HTML) ================== */
         document.getElementById('btnExportExcel')?.addEventListener('click', function() {
             const visibleRows = tableRows().filter(tr => tr.style.display !== 'none');
-            const headers = ['Customer', 'FG Part', 'Description', 'RM Part', 'Sales Order', `Avg ${FORECAST_HORIZON_MONTHS}M`, 'Forecast?',
-                'K', 'Forecast 1M', `Forecast ${FORECAST_HORIZON_MONTHS}M`, 'Supplier', 'Remark'
+            const headers = ['Sales Div.', 'Customer Name', 'FG Part', 'FG Description', 'RM Part',
+                'Sales Forecast 1 Month', `Sales Forecast ${FORECAST_HORIZON_MONTHS} Months`, 'Product Type'
             ];
             const escapeCell = (value) => String(value ?? '')
                 .replace(/&/g, '&amp;')
@@ -2593,28 +2600,24 @@
             lines.push('<tr>' + headers.map(h => `<th>${escapeCell(h)}</th>`).join('') + '</tr>');
 
             visibleRows.forEach(tr => {
-                const cells = [];
-                for (let i = 0; i <= 11; i++) {
-                    const td = tr.children[i];
-                    if (!td) {
-                        cells.push('');
-                        continue;
-                    }
-                    const input = td.querySelector(
-                        'input[type="number"], input[type="text"], input[type="checkbox"]');
-                    let v;
-                    if (input) {
-                        if (input.type === 'checkbox') v = input.checked ? '1' : '0';
-                        else v = input.value || '';
-                    } else {
-                        v = td.innerText.trim();
-                    }
-                    cells.push(escapeCell(v));
-                }
+                const salesForecast1m = @json(!empty($isApprovalMode))
+                    ? tr.dataset.salesForecast1m || '0'
+                    : tr.querySelector('.js-manual-forecast')?.value || '0';
+                const forecast1mNumber = parseFloat(String(salesForecast1m).replace(/,/g, '')) || 0;
+                const cells = [
+                    @json($salesCode),
+                    tr.children[0]?.innerText.trim() || '',
+                    tr.children[1]?.innerText.trim() || '',
+                    tr.children[2]?.innerText.trim() || '',
+                    tr.children[3]?.innerText.trim() || '',
+                    salesForecast1m,
+                    (forecast1mNumber * FORECAST_HORIZON_MONTHS).toFixed(2),
+                    tr.dataset.productType || '',
+                ].map(escapeCell);
                 lines.push('<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>');
             });
 
-            const manualHeaders = ['Customer', 'FG Part', 'RM Part', 'Manual 1M', `Forecast ${FORECAST_HORIZON_MONTHS}M`];
+            const manualHeaders = headers;
             const manualLines = [];
             manualLines.push('<tr>' + manualHeaders.map(h => `<th>${escapeCell(h)}</th>`).join('') + '</tr>');
 
@@ -2625,11 +2628,14 @@
                 const fgInput = tr.querySelector('.js-manual-fg-input');
                 const qtyInput = tr.querySelector('.js-manual-1m-only');
                 const cells = [
+                    @json($salesCode),
                     meta.customer_name || tr.dataset.customerName || customerInput?.value || tr.children[0]?.innerText.trim() || '',
                     meta.fg_partnumber || tr.dataset.fgPartnumber || fgInput?.value || tr.children[1]?.innerText.trim() || '',
+                    meta.fg_description || tr.dataset.fgDescription || '',
                     meta.rm_partnumber || tr.dataset.rmPartnumber || tr.querySelector('.js-manual-rm-cell')?.innerText.trim() || '',
                     qtyInput?.value || '',
                     tr.querySelector('.js-manual-horizon-only')?.innerText.trim() || '',
+                    meta.product_type || tr.dataset.productType || '',
                 ].map(escapeCell);
 
                 manualLines.push('<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>');
