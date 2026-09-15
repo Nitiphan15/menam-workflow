@@ -90,7 +90,13 @@
         <div class="card planning-card mb-3">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                 <span class="fw-semibold">ตัวกรอง Division</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleAllDivisions">เลือก/ยกเลิกทั้งหมด</button>
+                <div class="d-flex gap-2">
+                    <a href="{{ route('fc.division', array_merge(request()->query(), ['export_excel' => 1, 'page' => null])) }}"
+                        class="btn btn-sm btn-success" id="btnExportPlanningExcel">
+                        <i class="fa-solid fa-file-excel me-1"></i> Export Excel
+                    </a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleAllDivisions">เลือก/ยกเลิกทั้งหมด</button>
+                </div>
             </div>
             <div class="card-body">
                 <form method="get" action="{{ route('fc.division') }}">
