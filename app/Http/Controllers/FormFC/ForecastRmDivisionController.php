@@ -2299,7 +2299,9 @@ class ForecastRmDivisionController extends Controller
 
         $lines = ['<tr>' . collect($headers)->map(fn($header) => '<th>' . $escape($header) . '</th>')->implode('') . '</tr>'];
         foreach ($rows as $row) {
-            $forecast1m = $firstForecastMonth ? (float) ($row['forecast_by_month'][$firstForecastMonth] ?? 0) : 0;
+            $forecast1m = $row['approval_forecast_1m'] !== null
+                ? (float) $row['approval_forecast_1m']
+                : ($firstForecastMonth ? (float) ($row['forecast_by_month'][$firstForecastMonth] ?? 0) : 0);
             $cells = [
                 $row['sales_code'],
                 $row['customer_name'],
