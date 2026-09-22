@@ -142,7 +142,7 @@
                 <div class="gp-form-section">
                     <div class="gp-section-title">
                         <span>ขั้นตอนงาน</span>
-                        <small>เลือกขั้นตอนที่ทำจริงจาก Master เท่านั้น</small>
+                        <small>เลือกจาก Master หรือเลือก “อื่น ๆ” แล้วกรอกชื่อ Step เอง</small>
                         <input type="hidden" name="is_field_work" value="{{ old('is_field_work') ? 1 : 0 }}" id="gp-field-toggle">
                     </div>
                     <div class="row g-3">
@@ -162,6 +162,15 @@
                                     </span>
                                 </label>
                             @endforeach
+                            <label class="form-check">
+                                <input class="form-check-input gp-step-checkbox" type="radio" name="step_id" value="" data-custom-step="1" @checked(old('custom_step_name') && !old('step_id'))>
+                                <span class="form-check-label">อื่น ๆ</span>
+                            </label>
+                        </div>
+                        <div id="gp-custom-step-wrap" class="mt-2 {{ old('custom_step_name') && !old('step_id') ? '' : 'd-none' }}">
+                            <label class="form-label" for="gp-custom-step-name">ชื่อ Step</label>
+                            <input type="text" id="gp-custom-step-name" name="custom_step_name" class="form-control" maxlength="160" value="{{ old('custom_step_name') }}" placeholder="กรอกชื่อขั้นตอนงานที่ทำจริง">
+                            <div class="form-text">ระบบจะบันทึกชื่อนี้เป็น Step เพื่อใช้ใน Dashboard และ Inquiry</div>
                         </div>
                         <div class="form-text">1 รายการเลือก step ที่ทำจริงได้เพียง 1 ขั้นตอน ถ้า MFG เดียวกันทำหลายขั้นตอนให้บันทึกเพิ่มอีกแถว</div>
                     </div>
@@ -201,8 +210,8 @@
                     <div class="row g-3 gp-mfg-grid gp-entry-row" data-entry-index="0">
                     {{-- แถว 1: MFG + ช่วงเวลา --}}
                     <div class="col-12 col-lg-6 gp-mfg-wrap">
-                        <label class="form-label">MFG</label>
-                        <input type="text" name="entries[0][mfg_no]" class="form-control gp-mfg-input" value="{{ old('entries.0.mfg_no', old('mfg_no')) }}" autocomplete="off" placeholder="พิมพ์ MFG เช่น G2600..." required>
+                        <label class="form-label">MFG / รายละเอียดงาน <span class="text-muted fw-normal">(ไม่บังคับ)</span></label>
+                        <input type="text" name="entries[0][mfg_no]" class="form-control gp-mfg-input" value="{{ old('entries.0.mfg_no', old('mfg_no')) }}" autocomplete="off" placeholder="กรอก MFG, รายละเอียดสั้น ๆ หรือเว้นว่างได้">
                         <div class="gp-mfg-list"></div>
                         <input type="hidden" name="entries[0][mfg_site]" class="gp-mfg-site" value="{{ old('entries.0.mfg_site') }}">
                         <input type="hidden" name="entries[0][partnumber]" class="gp-partnumber" value="{{ old('entries.0.partnumber') }}">
@@ -214,7 +223,7 @@
                         <input type="hidden" name="entries[0][length_mm]" class="gp-length-mm" value="{{ old('entries.0.length_mm') }}">
                         <input type="hidden" name="entries[0][sqm_per_piece]" class="gp-sqm-per-piece" value="{{ old('entries.0.sqm_per_piece') }}">
                         <div class="gp-mfg-detail"></div>
-                        <div class="form-text">ค้นจากฐาน MFG Wire/Plus และเริ่มต้นเป็นงานเดี่ยวของพนักงานหลัก</div>
+                        <div class="form-text">พิมพ์ข้อความได้อิสระ หรือเลือก MFG จากรายการเพื่อดึงข้อมูลอ้างอิงอัตโนมัติ</div>
                     </div>
                     <div class="col-12 col-lg-6 gp-field-mfg-wrap d-none">
                         <label class="form-label">MFG ที่เกี่ยวข้องกับงานหน้างาน</label>
@@ -354,7 +363,7 @@
         <script>
             const gpEmployees = @json($employeePayload);
             const gpSteps = @json($stepPayload);
-            const gpHasStepOld = @json((bool) old('step_id'));
+            const gpHasStepOld = @json((bool) (old('step_id') || old('custom_step_name')));
             const gpEntrySaved = @json((bool) session('grating_entry_saved'));
             const gpStepBalanceUrl = @json(route('grating-performance.step-balance'));
 
@@ -362,6 +371,8 @@
                 const form = document.querySelector('form[action="{{ route('grating-performance.entries.store') }}"]');
                 const employeeSelect = document.getElementById('gp-employee');
                 const stepCheckboxes = Array.from(document.querySelectorAll('.gp-step-checkbox'));
+                const customStepWrap = document.getElementById('gp-custom-step-wrap');
+                const customStepInput = document.getElementById('gp-custom-step-name');
                 const stepHint = document.getElementById('gp-step-hint');
                 const entryList = document.getElementById('gp-entry-list');
                 const addEntryButton = document.getElementById('gp-add-entry');
@@ -407,6 +418,7 @@
                             input.checked = true;
                         }
                     });
+                    syncCustomStep();
                     syncFieldWork();
                 }
 
@@ -415,6 +427,14 @@
                         .filter(step => step.is_field_work)
                         .map(step => String(step.id));
                     return stepCheckboxes.some(input => input.checked && fieldStepIds.includes(String(input.value)));
+                }
+
+                function syncCustomStep() {
+                    const customSelected = stepCheckboxes.some(input => input.checked && input.dataset.customStep === '1');
+                    customStepWrap?.classList.toggle('d-none', !customSelected);
+                    if (customStepInput) {
+                        customStepInput.required = customSelected;
+                    }
                 }
 
                 function updateEmployeeHint() {
@@ -458,6 +478,7 @@
                     if (input) {
                         input.checked = true;
                         input.focus();
+                        syncCustomStep();
                         syncFieldWork();
                         refreshAllStepBalances();
                     }
@@ -501,7 +522,7 @@
                     entryList?.querySelectorAll('.gp-mfg-wrap').forEach(mfgWrap => {
                         const mfgInput = mfgWrap.querySelector('.gp-mfg-input');
                         const mfgList = mfgWrap.querySelector('.gp-mfg-list');
-                        mfgInput.required = !isFieldWork;
+                        mfgInput.required = false;
                         if (isFieldWork) {
                             mfgInput.value = '';
                             clearMfgMetadata(mfgInput.closest('.gp-entry-row'), false);
@@ -552,10 +573,15 @@
 
                 stepCheckboxes.forEach(input => {
                     input.addEventListener('change', function () {
+                        syncCustomStep();
                         syncFieldWork();
                         refreshAllStepBalances();
+                        if (input.dataset.customStep === '1' && input.checked) {
+                            customStepInput?.focus();
+                        }
                     });
                 });
+                syncCustomStep();
                 syncFieldWork();
 
                 function syncFieldActivityValidity() {
@@ -703,7 +729,8 @@
                     sessionStorage.setItem('gpRepeatContext', JSON.stringify({
                         work_date: form.querySelector('[name="work_date"]')?.value || '',
                         employee_id: employeeSelect?.value || '',
-                        step_id: selectedStep?.value || ''
+                        step_id: selectedStep?.value || '',
+                        custom_step_name: selectedStep?.dataset.customStep === '1' ? (customStepInput?.value || '') : ''
                     }));
                 }
 
@@ -741,7 +768,12 @@
                         }
                         employeeSelect.dispatchEvent(new Event('change'));
                     }
-                    if (context.step_id) {
+                    if (context.custom_step_name) {
+                        const customStep = stepCheckboxes.find(input => input.dataset.customStep === '1');
+                        if (customStep) customStep.checked = true;
+                        if (customStepInput) customStepInput.value = context.custom_step_name;
+                        syncCustomStep();
+                    } else if (context.step_id) {
                         setStepChecks([context.step_id], true);
                     }
                     clearJobFieldsForRepeat();
@@ -885,7 +917,8 @@
                 }
 
                 function selectedStepId() {
-                    return stepCheckboxes.find(input => input.checked)?.value || '';
+                    const selected = stepCheckboxes.find(input => input.checked);
+                    return selected?.dataset.customStep === '1' ? '' : (selected?.value || '');
                 }
 
                 function setStepBalanceText(row, data = null) {

@@ -131,6 +131,73 @@ class DeliveryConfirmationService
     }
 
     /**
+     * Invalidate active Tracking confirmations after FormDP actually postpones
+     * the delivery plan. The event is append-only so the previous confirmation
+     * remains available in history.
+     */
+    public function resetAfterPlanPostpone(
+        ?string $mfgValue,
+        ?string $soNumber,
+        ?string $originalShipDate,
+        ?string $newShipDate,
+        string $reason
+    ): int {
+        $targets = collect(explode(',', (string) $mfgValue))
+            ->map(function ($raw) {
+                $raw = strtoupper(trim((string) $raw, " \t\n\r\0\x0B'\""));
+
+                return [
+                    'mfg_no' => $this->normalizeMfgNo($raw),
+                    'site' => str_starts_with($raw, '+') ? 'PLUS' : 'WIRE',
+                ];
+            })
+            ->filter(fn($target) => $target['mfg_no'] !== '')
+            ->unique(fn($target) => $target['site'] . '|' . $target['mfg_no'])
+            ->values();
+
+        if ($targets->isEmpty()) {
+            return 0;
+        }
+
+        $latest = $this->latestMap(
+            $targets->pluck('mfg_no')->all(),
+            $targets->pluck('site')->unique()->values()->all()
+        );
+        $user = Auth::user();
+        $resetCount = 0;
+
+        foreach ($targets as $target) {
+            $key = $target['site'] . '|' . $target['mfg_no'];
+            $active = $latest->get($key);
+
+            if (!$active || !DeliveryConfirmation::isActiveStatus($active->confirmation_status ?? null)) {
+                continue;
+            }
+
+            DeliveryConfirmation::create([
+                'mfg_no' => $target['mfg_no'],
+                'site' => $target['site'],
+                'so_number' => $soNumber ? trim($soNumber) : ($active->so_number ?? null),
+                'confirmation_status' => DeliveryConfirmation::STATUS_RECONFIRM,
+                'original_ship_date' => $originalShipDate
+                    ? Carbon::parse($originalShipDate)->toDateString()
+                    : null,
+                'new_delivery_date' => $newShipDate
+                    ? Carbon::parse($newShipDate)->toDateString()
+                    : null,
+                'remark' => mb_substr('เลื่อนแผนจริง: ' . trim($reason), 0, 500),
+                'confirmed_by_id' => $user?->id,
+                'confirmed_by_login' => $user?->login ?? $user?->username ?? null,
+                'confirmed_by_name' => $user?->name ?? null,
+                'confirmed_at' => now(),
+            ]);
+            $resetCount++;
+        }
+
+        return $resetCount;
+    }
+
+    /**
      * Latest confirmation per (mfg_no, site).
      * Returns map keyed by "SITE|MFG" => stdClass with the row columns.
      */

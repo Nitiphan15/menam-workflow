@@ -63,6 +63,132 @@
         .due-chart-shell {
             height: 360px;
         }
+
+        .due-comparison-table {
+            min-width: 1180px;
+        }
+
+        .delivery-analysis {
+            border-top: 3px solid #0d6efd;
+            padding-top: 1rem;
+        }
+
+        .delivery-section-heading {
+            background: linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%);
+            border: 1px solid #cfe2ff;
+            border-radius: .65rem .65rem 0 0;
+            padding: 1rem 1.15rem;
+        }
+
+        .delivery-section-eyebrow {
+            color: #0d6efd;
+            font-size: .72rem;
+            font-weight: 700;
+            letter-spacing: .08em;
+        }
+
+        .delivery-division-badge {
+            max-width: 100%;
+            white-space: normal;
+        }
+
+        .delivery-definition-bar {
+            align-items: center;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-top: 0;
+            border-radius: 0 0 .65rem .65rem;
+            color: #59636e;
+            display: flex;
+            flex-wrap: wrap;
+            font-size: .78rem;
+            gap: .45rem 1.25rem;
+            padding: .7rem 1.15rem;
+        }
+
+        .delivery-summary-card,
+        .delivery-data-card {
+            border-color: #dfe4ea;
+            box-shadow: 0 .125rem .35rem rgba(15, 23, 42, .05);
+        }
+
+        .delivery-kpi {
+            border-left: 3px solid transparent;
+            min-height: 66px;
+        }
+
+        .delivery-kpi-order { border-color: #495057; }
+        .delivery-kpi-same { border-color: #198754; }
+        .delivery-kpi-other { border-color: #f59f00; }
+        .delivery-kpi-total { border-color: #0d6efd; }
+
+        .delivery-kpi-label {
+            color: #6c757d;
+            font-size: .78rem;
+            margin-bottom: .2rem;
+        }
+
+        .delivery-kpi-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .delivery-kpi-same .delivery-kpi-value { color: #198754; }
+        .delivery-kpi-other .delivery-kpi-value { color: #d98400; }
+        .delivery-kpi-total .delivery-kpi-value { color: #0d6efd; }
+
+        .delivery-stat-chip {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 999px;
+            color: #495057;
+            font-size: .75rem;
+            padding: .25rem .6rem;
+        }
+
+        .delivery-table-toolbar {
+            align-items: center;
+            display: flex;
+            flex-wrap: wrap;
+            gap: .75rem;
+            justify-content: space-between;
+        }
+
+        .delivery-search {
+            max-width: 310px;
+        }
+
+        .delivery-comparison-wrap {
+            max-height: 560px;
+        }
+
+        .due-comparison-table thead th {
+            background: #f8fafc;
+            position: sticky;
+            top: 0;
+            z-index: 3;
+        }
+
+        .delivery-origin-current > * {
+            background-color: #eaf3ff !important;
+        }
+
+        @media (max-width: 767.98px) {
+            .delivery-search {
+                max-width: none;
+                width: 100%;
+            }
+
+            .delivery-kpi-value {
+                font-size: 1.1rem;
+            }
+        }
+
+        .due-filter-divisions {
+            max-height: 132px;
+            overflow-y: auto;
+        }
     </style>
 @endpush
 
@@ -70,6 +196,9 @@
     @php
         $year = (int) ($filters['year'] ?? now()->year);
         $month = (int) ($filters['month'] ?? now()->month);
+        $selectedDivisions = $filters['divisions'] ?? array_keys($divisionOptions ?? []);
+        $allDivisionsSelected = count($selectedDivisions) === count($divisionOptions ?? []);
+        $comparison = $deliveryComparison ?? ['rows' => [], 'totals' => ['qty' => [], 'baht' => []], 'due_origins' => []];
         $thaiMonths = [
             1 => 'มกราคม',
             2 => 'กุมภาพันธ์',
@@ -111,7 +240,7 @@
     <div class="container-fluid py-3">
         <form class="card card-body mb-3" method="GET" action="{{ route('wos.order_due_date') }}">
             <div class="row g-2 align-items-end">
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-2">
                     <label class="form-label mb-1">เดือน Due Date</label>
                     <select class="form-select" name="month">
                         @foreach ($thaiMonths as $no => $label)
@@ -119,16 +248,38 @@
                         @endforeach
                     </select>
                 </div>
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-2">
                     <label class="form-label mb-1">ปี</label>
                     <input type="number" class="form-control" name="year" value="{{ $year }}">
                 </div>
-                <div class="col-12 col-md-2 d-grid">
-                    <button class="btn btn-primary">ค้นหา</button>
+                <div class="col-12 col-md-3">
+                    <label class="form-label mb-1">Division สำหรับ Actual Delivery / Excel</label>
+                    <div class="border rounded p-2 due-filter-divisions">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="divisions[]" value="ALL"
+                                id="dueDivisionAll" @checked($allDivisionsSelected)>
+                            <label class="form-check-label fw-semibold" for="dueDivisionAll">เลือกทั้งหมด</label>
+                        </div>
+                        <div class="d-flex flex-wrap gap-x-3 gap-1">
+                            @foreach (($divisionOptions ?? []) as $code => $label)
+                                <div class="form-check me-3">
+                                    <input class="form-check-input due-division-option" type="checkbox"
+                                        name="divisions[]" value="{{ $code }}" id="dueDivision{{ $code }}"
+                                        @checked(in_array($code, $selectedDivisions, true))>
+                                    <label class="form-check-label" for="dueDivision{{ $code }}">{{ $code }}</label>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
                 </div>
-                <div class="col-12 col-md-2 d-grid">
-                    <a class="btn btn-outline-primary"
-                        href="{{ route('wos.order_due_date.dashboard', ['year' => $year, 'month' => $month]) }}">Dashboard</a>
+                <div class="col-12 col-md-5">
+                    <div class="d-flex flex-nowrap gap-2">
+                        <button class="btn btn-primary flex-fill" type="submit">ค้นหา</button>
+                        <a class="btn btn-outline-primary flex-fill"
+                            href="{{ route('wos.order_due_date.dashboard', ['year' => $year, 'month' => $month]) }}">Dashboard</a>
+                        <button class="btn btn-success flex-fill" type="submit"
+                            formaction="{{ route('wos.order_due_date.dashboard.excel') }}">Export Excel</button>
+                    </div>
                 </div>
             </div>
         </form>
@@ -278,5 +429,38 @@
             </div>
         </section>
 
+        @include('formwos.order_due_date._delivery_comparison')
+
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        (() => {
+            const all = document.getElementById('dueDivisionAll');
+            const options = Array.from(document.querySelectorAll('.due-division-option'));
+            if (all && options.length > 0) {
+                all.addEventListener('change', () => options.forEach(option => option.checked = all.checked));
+                options.forEach(option => option.addEventListener('change', () => {
+                    all.checked = options.every(item => item.checked);
+                }));
+            }
+
+            const search = document.getElementById('dueComparisonSearch');
+            const rows = Array.from(document.querySelectorAll('[data-comparison-row]'));
+            const noMatch = document.getElementById('dueComparisonNoMatch');
+            if (search && rows.length > 0 && noMatch) {
+                search.addEventListener('input', () => {
+                    const keyword = search.value.trim().toLowerCase();
+                    let visibleCount = 0;
+                    rows.forEach(row => {
+                        const visible = keyword === '' || (row.dataset.search || '').includes(keyword);
+                        row.classList.toggle('d-none', !visible);
+                        if (visible) visibleCount++;
+                    });
+                    noMatch.classList.toggle('d-none', visibleCount !== 0);
+                });
+            }
+        })();
+    </script>
+@endpush

@@ -7,6 +7,9 @@ use Illuminate\Support\Collection;
 
 class ApproverResolver
 {
+    private const PO_DEPARTMENT_APPROVER_TABLE = 'po_department_approvers';
+    private const PO_DEPARTMENT_ALIAS_APPROVER_TABLE = 'po_department_alias_approvers';
+
     /**
      * Return approver user ids for a workflow rule.
      * Supported source_type: ORIGINATOR, SUPERVISOR, DEPARTMENT_MANAGER, ROLE, USER, QUERY
@@ -51,6 +54,14 @@ class ApproverResolver
                 $roleId = (int) $rule->source_ref_id;
 
                 if (isset($json['role_in'])) {
+                    if (self::isPoDomesticSalesApprovalStep($wfForm, $context, $deptId)) {
+                        return self::byDeptManagerOrAbove(
+                            $deptId,
+                            $excludeOriginator ? $originatorId : null,
+                            $appCode,
+                        );
+                    }
+
                     $users = self::byDeptRoleNames(
                         $deptId,
                         (array) $json['role_in'],
@@ -95,6 +106,189 @@ class ApproverResolver
             default:
                 return collect();
         }
+    }
+
+    /**
+     * Resolve an explicit FormPO department approver before the shared
+     * organization-role rules are evaluated. The nearest mapped department
+     * wins, so an exact department mapping overrides a parent mapping.
+     */
+    public static function poDepartmentApprovers(object $wfForm, array $context): Collection
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+
+        if ($appCode !== 'po' || $stepNo !== 3) {
+            return collect();
+        }
+
+        $aliasApprovers = self::poDepartmentAliasApprovers($appCode, $context);
+        if ($aliasApprovers->isNotEmpty()) {
+            return $aliasApprovers;
+        }
+
+        $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+        if ($departmentId <= 0) {
+            return collect();
+        }
+
+        $connection = WorkflowDb::connection($appCode);
+        if (!$connection->getSchemaBuilder()->hasTable(self::PO_DEPARTMENT_APPROVER_TABLE)) {
+            return collect();
+        }
+
+        foreach (self::departmentLineage($departmentId, $appCode) as $candidateDepartmentId) {
+            $approvers = WorkflowDb::table($appCode, self::PO_DEPARTMENT_APPROVER_TABLE . ' as pda')
+                ->join('users as u', 'u.id', '=', 'pda.approver_user_id')
+                ->where('pda.department_id', $candidateDepartmentId)
+                ->where('pda.sequence_no', 1)
+                ->where('pda.is_active', 1)
+                ->where('u.is_active', 1)
+                ->orderBy('pda.id')
+                ->pluck('u.id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($approvers->isNotEmpty()) {
+                return $approvers;
+            }
+        }
+
+        return collect();
+    }
+
+    /**
+     * PO documents owned by departments outside Purchase/Store must first be
+     * acknowledged by an active Purchase/Store assistant. Documents owned by
+     * Purchase/Store keep the configured step-2 rules unchanged.
+     */
+    public static function poPurchaseStoreAssistantApprovers(object $wfForm, array $context): Collection
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+
+        if (!self::shouldRoutePoThroughPurchaseStoreAssistant($wfForm, $context)) {
+            return collect();
+        }
+
+        $departmentIds = WorkflowDb::table($appCode, 'departments')
+            ->where('is_active', 1)
+            ->get(['id', 'name', 'code'])
+            ->filter(fn ($department) => self::looksLikePurchaseStoreDepartment($department))
+            ->sortBy(function ($department) {
+                $code = strtolower(trim((string) ($department->code ?? '')));
+                $text = strtolower(trim((string) ($department->name ?? '') . ' ' . (string) ($department->code ?? '')));
+
+                if ($code === 'ps') {
+                    return 0;
+                }
+
+                return str_contains($text, 'purchase')
+                    || str_contains($text, 'purchasing')
+                    || str_contains($text, 'จัดซื้อ') ? 1 : 2;
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->values();
+
+        return $departmentIds
+            ->flatMap(function (int $departmentId) use ($appCode) {
+                return self::queryDeptRoleUsers($departmentId, null, $appCode)
+                    ->where(function ($query) {
+                        $query->whereRaw('LOWER(dr.name) LIKE ?', ['%assist%'])
+                            ->orWhereRaw('LOWER(dr.name) LIKE ?', ['%asst%']);
+                    })
+                    ->orderByDesc('dru.is_primary')
+                    ->orderByDesc('dru.start_date')
+                    ->pluck('u.id');
+            })
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->take(1)
+            ->values();
+    }
+
+    public static function shouldRoutePoThroughPurchaseStoreAssistant(object $wfForm, array $context): bool
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+
+        return $appCode === 'po'
+            && $stepNo === 2
+            && !self::isPoPurchaseStoreDocument($context, $appCode);
+    }
+
+    /**
+     * Additional FormPO approvers configured as slots 2, 3, 4, ... .
+     * They augment the normal department rule instead of replacing slot 1.
+     */
+    public static function poAdditionalDepartmentApprovers(object $wfForm, array $context): Collection
+    {
+        $appCode = strtolower((string) ($wfForm->app_code ?? ''));
+        $stepNo = (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0);
+        $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+
+        if ($appCode !== 'po' || $stepNo !== 3 || $departmentId <= 0) {
+            return collect();
+        }
+
+        $connection = WorkflowDb::connection($appCode);
+        if (!$connection->getSchemaBuilder()->hasTable(self::PO_DEPARTMENT_APPROVER_TABLE)) {
+            return collect();
+        }
+
+        foreach (self::departmentLineage($departmentId, $appCode) as $candidateDepartmentId) {
+            $approvers = WorkflowDb::table($appCode, self::PO_DEPARTMENT_APPROVER_TABLE . ' as pda')
+                ->join('users as u', 'u.id', '=', 'pda.approver_user_id')
+                ->where('pda.department_id', $candidateDepartmentId)
+                ->where('pda.sequence_no', '>=', 2)
+                ->where('pda.is_active', 1)
+                ->where('u.is_active', 1)
+                ->orderBy('pda.sequence_no')
+                ->orderBy('pda.id')
+                ->pluck('u.id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values();
+
+            if ($approvers->isNotEmpty()) {
+                return $approvers;
+            }
+        }
+
+        return collect();
+    }
+
+    private static function poDepartmentAliasApprovers(string $appCode, array $context): Collection
+    {
+        $departmentName = strtoupper(trim((string) ($context['document_department_name'] ?? '')));
+        if ($departmentName === '') {
+            return collect();
+        }
+
+        $connection = WorkflowDb::connection($appCode);
+        if (!$connection->getSchemaBuilder()->hasTable(self::PO_DEPARTMENT_ALIAS_APPROVER_TABLE)) {
+            return collect();
+        }
+
+        return WorkflowDb::table($appCode, self::PO_DEPARTMENT_ALIAS_APPROVER_TABLE . ' as paa')
+            ->join('users as u', 'u.id', '=', 'paa.approver_user_id')
+            ->where('paa.is_active', 1)
+            ->where('u.is_active', 1)
+            ->get(['paa.alias_key', 'u.id'])
+            ->filter(function ($row) use ($departmentName) {
+                $aliasKey = strtoupper(trim((string) $row->alias_key));
+
+                return $aliasKey !== '' && str_contains($departmentName, $aliasKey);
+            })
+            ->sortByDesc(fn ($row) => strlen((string) $row->alias_key))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
     }
 
     private static function byDeptLevel(int $deptId, int $levelNo, ?int $excludeUserId = null, ?string $appCode = null): Collection
@@ -142,6 +336,27 @@ class ApproverResolver
         return collect();
     }
 
+    private static function byDeptManagerOrAbove(int $deptId, ?int $excludeUserId = null, ?string $appCode = null): Collection
+    {
+        foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
+            $users = self::queryDeptRoleUsers($candidateDeptId, $excludeUserId, $appCode)
+                ->where(function ($query) {
+                    $query->where('dr.name', 'Manager')
+                        ->orWhere('dr.level_no', '>', 3);
+                })
+                ->orderByDesc('dr.level_no')
+                ->orderByDesc('dru.is_primary')
+                ->orderByDesc('dru.start_date')
+                ->pluck('u.id');
+
+            if ($users->isNotEmpty()) {
+                return $users;
+            }
+        }
+
+        return collect();
+    }
+
     private static function byDeptLevelOrAbove(int $deptId, int $minLevelNo, ?int $excludeUserId = null, ?string $appCode = null): Collection
     {
         foreach (self::departmentLineage($deptId, $appCode) as $candidateDeptId) {
@@ -175,6 +390,17 @@ class ApproverResolver
             && (int) ($context['workflow_step_no'] ?? $wfForm->current_step_no ?? 0) === 3;
     }
 
+    private static function isPoDomesticSalesApprovalStep(object $wfForm, array $context, int $deptId): bool
+    {
+        if (!self::isPoDepartmentApprovalStep($wfForm, $context) || $deptId <= 0) {
+            return false;
+        }
+
+        return strtoupper((string) WorkflowDb::table('po', 'departments')
+            ->where('id', $deptId)
+            ->value('code')) === 'IP';
+    }
+
     private static function isPoPurchaseApprovalStep(object $wfForm, array $context): bool
     {
         return strtolower((string) ($wfForm->app_code ?? '')) === 'po'
@@ -206,6 +432,41 @@ class ApproverResolver
         }
 
         return false;
+    }
+
+    private static function isPoPurchaseStoreDocument(array $context, ?string $appCode = null): bool
+    {
+        $departmentId = (int) ($context['document_department_id'] ?? $context['department_id'] ?? 0);
+
+        foreach (self::departmentLineage($departmentId, $appCode) as $candidateDeptId) {
+            $department = WorkflowDb::table($appCode, 'departments')
+                ->where('id', $candidateDeptId)
+                ->first(['name', 'code']);
+
+            if ($department && self::looksLikePurchaseStoreDepartment($department)) {
+                return true;
+            }
+        }
+
+        return self::looksLikePurchaseStoreDepartment((object) [
+            'name' => (string) ($context['document_department_name'] ?? ''),
+            'code' => '',
+        ]);
+    }
+
+    private static function looksLikePurchaseStoreDepartment(object $department): bool
+    {
+        $name = strtolower(trim((string) ($department->name ?? '')));
+        $code = strtolower(trim((string) ($department->code ?? '')));
+        $text = trim($name . ' ' . $code);
+
+        return str_contains($text, 'purchase')
+            || str_contains($text, 'purchasing')
+            || str_contains($text, 'จัดซื้อ')
+            || str_contains($text, 'store')
+            || str_contains($text, 'คลัง')
+            || in_array($code, ['p', 'pur', 'purch', 'purchase', 'ps', 's', 'store'], true)
+            || str_starts_with($code, 'pur');
     }
 
     private static function resolveDepartmentContext(object $rule, object $wfForm, array $context, array $json): int

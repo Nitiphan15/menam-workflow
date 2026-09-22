@@ -7,6 +7,7 @@ use App\Models\Po\PoHeader;
 use App\Models\WF\WfFormAuthorize;
 use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
+use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -104,13 +105,7 @@ class PoController extends Controller
 
     public function myActions(Request $request)
     {
-        $workflowIds = SqlServerDb::table('wf_form_authorizes as wa')
-            ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
-            ->where('wa.approver_user_id', auth()->id())
-            ->where('wa.status', WfFormAuthorize::ST_PENDING)
-            ->whereColumn('wa.step_no', 'wf.current_step_no')
-            ->pluck('wa.wf_form_id')
-            ->all();
+        $workflowIds = $this->workflowIdsVisibleToApprover((int) auth()->id());
 
         $rows = $this->erpService->listOpenPos(
             department: $request->string('department')->toString() ?: null,
@@ -120,6 +115,7 @@ class PoController extends Controller
             status: $request->string('status')->toString() ?: null,
             source: $request->string('source')->toString() ?: null,
             workflowIds: $workflowIds,
+            includeCompletedStatuses: true,
         );
 
         return view('po.my_actions', [
@@ -127,6 +123,100 @@ class PoController extends Controller
             'statusOptions' => $this->statusOptions(),
             'sourceOptions' => $this->sourceOptions(),
         ]);
+    }
+
+    public function departmentTracking(Request $request)
+    {
+        $user = auth()->user();
+        $departmentId = (int) ($user?->department_id ?? 0);
+        $position = (string) ($user?->position ?? '');
+        $trackingScope = PoErpService::isToolingEngineerPosition($position) ? 'Tooling only' : null;
+        $department = $departmentId > 0
+            ? SqlServerDb::table('departments')->where('id', $departmentId)->first(['id', 'code', 'name'])
+            : null;
+
+        $rows = collect();
+        $pendingApproversByWorkflow = collect();
+
+        if ($department) {
+            $rows = $this->erpService->listOpenPos(
+                search: $request->string('search')->toString() ?: null,
+                dateFrom: $request->string('date_from')->toString() ?: null,
+                dateTo: $request->string('date_to')->toString() ?: null,
+                status: $request->string('status')->toString() ?: null,
+                source: $request->string('source')->toString() ?: null,
+                includeCompletedStatuses: true,
+            );
+            $rows = $this->erpService->filterForDepartmentViewer($rows, $departmentId, $position);
+
+            $workflowIds = $rows->pluck('workflow_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
+            if ($workflowIds->isNotEmpty()) {
+                $pendingApproversByWorkflow = SqlServerDb::table('wf_form_authorizes as wa')
+                    ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
+                    ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
+                    ->whereIn('wa.wf_form_id', $workflowIds->all())
+                    ->where(function ($query) {
+                        $query->whereNull('wa.status')
+                            ->orWhere('wa.status', WfFormAuthorize::ST_PENDING);
+                    })
+                    ->whereColumn('wa.step_no', 'wf.current_step_no')
+                    ->orderBy('u.name')
+                    ->get(['wa.wf_form_id', 'wf.current_step_no', 'u.name'])
+                    ->groupBy('wf_form_id');
+            }
+        }
+
+        return view('po.department_tracking', [
+            'department' => $department,
+            'trackingScope' => $trackingScope,
+            'rows' => $rows,
+            'pendingApproversByWorkflow' => $pendingApproversByWorkflow,
+            'statusOptions' => $this->statusOptions(),
+            'sourceOptions' => $this->sourceOptions(),
+        ]);
+    }
+
+    public function departmentTrackingShow($id)
+    {
+        return $this->renderShow($id, true);
+    }
+
+    public function departmentTrackingAttachment($id, $attachmentId)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        $this->ensureCurrentUserCanViewDepartmentPo($po);
+
+        return $this->attachmentResponse($po, $attachmentId);
+    }
+
+    public function departmentTrackingErpShow(string $source, string $ordnumber)
+    {
+        $detailRows = $this->erpService->getDetailRows($ordnumber, $source);
+        abort_if($detailRows->isEmpty(), 404, 'PO document not found in ERP');
+
+        $headerRow = $detailRows->first();
+        $this->ensureCurrentUserCanViewDepartmentName($headerRow->f1 ?? null);
+
+        return view('po.department_tracking_erp_detail', compact('source', 'headerRow', 'detailRows'));
+    }
+
+    private function workflowIdsVisibleToApprover(int $userId): array
+    {
+        return SqlServerDb::table('wf_form_authorizes as wa')
+            ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
+            ->where('wa.approver_user_id', $userId)
+            ->where(function ($query) {
+                $query->where('wa.status', WfFormAuthorize::ST_APPROVED)
+                    ->orWhere(function ($pending) {
+                        $pending->where('wa.status', WfFormAuthorize::ST_PENDING)
+                            ->whereColumn('wa.step_no', 'wf.current_step_no');
+                    });
+            })
+            ->pluck('wa.wf_form_id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function store(Request $request)
@@ -143,27 +233,49 @@ class PoController extends Controller
 
     public function show($id)
     {
-        $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->findOrFail($id);
-        $po = $this->erpService->syncHeaderFromErp($po->ordnumber, auth()->id(), $po->site);
-        $po->load([
-            'attachments.creator',
-            'workflow',
-        ]);
+        return $this->renderShow($id);
+    }
+
+    private function renderShow($id, bool $readOnly = false)
+    {
+        $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->find($id);
+        if (!$po) {
+            return redirect()
+                ->route('po.myActions')
+                ->with('error', 'ไม่พบเอกสาร PO รายการนี้ อาจถูกลบหรือเป็นลิงก์เก่า');
+        }
+
+        if ($readOnly) {
+            $this->ensureCurrentUserCanViewDepartmentPo($po);
+        }
+
         $detailRows = $this->erpService->getDetailRows($po->ordnumber, $po->site);
         $headerRow = $detailRows->first();
         $signatures = $this->erpService->printWorkflowSignatures($po->workflow_id);
         $currentStepNo = (int) ($po->workflow?->current_step_no ?? 0);
 
-        $canPurchaseOperate = Gate::allows('POPUR');
-        $canSubmit = blank($po->workflow_id)
-            && $po->status_code === 'DRAFT'
+        $canPurchaseOperate = !$readOnly && Gate::allows('POPUR');
+        $canSubmit = (
+                (blank($po->workflow_id) && $po->status_code === 'DRAFT')
+                || (
+                    !blank($po->workflow_id)
+                    && $po->status_code === 'REJECTED'
+                    && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_REJECTED
+                    && $currentStepNo === 1
+                )
+            )
             && $po->attachments->isNotEmpty()
             && $canPurchaseOperate;
-        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
+        $canEditAttachment = !$readOnly && $this->canDeleteAttachment($po);
+        $canReopen = $po->status_code === 'CLOSED'
+            && !blank($po->workflow_id)
+            && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_CLOSED
+            && $currentStepNo === 999
             && $canPurchaseOperate;
-        $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
-        $canApprove = $po->workflow_id
-            ? SqlServerDb::table('wf_form_authorizes as wa')
+        $canEditPdfOverride = !$readOnly && $this->canEditPdfOverrideForCurrentUser();
+        $canApprove = false;
+        if (!$readOnly && $po->workflow_id) {
+            $canApprove = SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
                 ->where('wa.wf_form_id', $po->workflow_id)
                 ->where('wa.approver_user_id', auth()->id())
@@ -172,9 +284,9 @@ class PoController extends Controller
                         ->orWhere('wa.status', WfFormAuthorize::ST_PENDING);
                 })
                 ->whereColumn('wa.step_no', 'wf.current_step_no')
-                ->exists()
-            : false;
-        $canAppendApprovalAttachment = $canApprove && $currentStepNo === 2;
+                ->exists();
+        }
+        $canAppendApprovalAttachment = $canApprove && in_array($currentStepNo, [2, 3], true);
         $pendingApprovers = $po->workflow_id
             ? SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
@@ -234,12 +346,14 @@ class PoController extends Controller
             'canSubmit',
             'canEditAttachment',
             'canEditPdfOverride',
+            'canReopen',
             'canApprove',
             'canAppendApprovalAttachment',
             'pendingApprovers',
             'workflowHistories',
             'workflowRemarks',
             'currentStepName',
+            'readOnly',
         ));
     }
 
@@ -251,6 +365,12 @@ class PoController extends Controller
     public function attachment($id, $attachmentId)
     {
         $po = PoHeader::query()->findOrFail($id);
+
+        return $this->attachmentResponse($po, $attachmentId);
+    }
+
+    private function attachmentResponse(PoHeader $po, $attachmentId)
+    {
         $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
         $path = (string) $attachment->file_path;
 
@@ -265,11 +385,47 @@ class PoController extends Controller
         return Storage::disk('public')->response($path, $fileName, $headers, 'inline');
     }
 
+    private function ensureCurrentUserCanViewDepartmentPo(PoHeader $po): void
+    {
+        $this->ensureCurrentUserCanViewDepartmentName($po->f1);
+    }
+
+    private function ensureCurrentUserCanViewDepartmentName(?string $erpDepartment): void
+    {
+        $user = auth()->user();
+        $departmentId = (int) ($user?->department_id ?? 0);
+        $position = (string) ($user?->position ?? '');
+
+        abort_unless(
+            PoErpService::canDepartmentViewerAccess($erpDepartment, $departmentId, $position),
+            403,
+            'You are not authorized to view PO documents from another department',
+        );
+    }
+
+    public function destroyAttachment($id, $attachmentId)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        abort_unless($this->canDeleteAttachment($po), 403, 'You are not authorized to delete attachments from this PO');
+
+        $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
+        $path = trim((string) $attachment->file_path);
+
+        DB::transaction(function () use ($attachment, $path) {
+            $attachment->delete();
+
+            if ($path !== '') {
+                Storage::disk('public')->delete($path);
+            }
+        });
+
+        return redirect()->route('po.show', $po->id)->with('ok', 'ลบไฟล์แนบเรียบร้อยแล้ว');
+    }
+
     public function update(Request $request, $id)
     {
         $po = PoHeader::query()->findOrFail($id);
-        $canEditAttachment = in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
-            && Gate::allows('POPUR');
+        $canEditAttachment = $this->canDeleteAttachment($po);
         $canEditPdfOverride = $this->canEditPdfOverrideForCurrentUser();
 
         $request->validate([
@@ -317,6 +473,7 @@ class PoController extends Controller
                 $request->file('files', []),
                 $request->input('file_remark', []),
                 (int) auth()->id(),
+                workflowStepNo: 1,
             );
         }
 
@@ -324,72 +481,13 @@ class PoController extends Controller
     }
     private function canEditPdfOverrideForCurrentUser(): bool
     {
-        $user = auth()->user();
-
-        return $this->isPurchaseUser($user) || $this->isNitiphanUser($user);
+        return Gate::allows('POUR');
     }
 
-    private function isPurchaseUser($user): bool
+    private function canDeleteAttachment(PoHeader $po): bool
     {
-        if (!$user) {
-            return false;
-        }
-
-        $directText = strtolower(trim(implode(' ', array_filter([
-            $this->valueToText($user->department ?? ''),
-            $this->valueToText($user->department_name ?? ''),
-            $this->valueToText($user->position ?? ''),
-        ]))));
-
-        if ($this->looksLikePurchaseText($directText)) {
-            return true;
-        }
-
-        $departmentId = (int) ($user->department_id ?? 0);
-        if ($departmentId <= 0) {
-            return false;
-        }
-
-        $department = SqlServerDb::table('departments')
-            ->where('id', $departmentId)
-            ->first(['name', 'code']);
-
-        if (!$department) {
-            return false;
-        }
-
-        $departmentText = strtolower(trim((string) ($department->name ?? '') . ' ' . (string) ($department->code ?? '')));
-        $departmentCode = strtolower(trim((string) ($department->code ?? '')));
-
-        return $this->looksLikePurchaseText($departmentText)
-            || in_array($departmentCode, ['pur', 'purch', 'purchase'], true)
-            || str_starts_with($departmentCode, 'pur');
-    }
-
-    private function looksLikePurchaseText(string $value): bool
-    {
-        return str_contains($value, 'purchase')
-            || str_contains($value, 'purchasing')
-            || str_contains($value, 'จัดซื้อ');
-    }
-
-    private function isNitiphanUser($user): bool
-    {
-        if (!$user) {
-            return false;
-        }
-
-        $userText = strtolower(trim(implode(' ', array_filter([
-            $this->valueToText($user->name ?? ''),
-            $this->valueToText($user->email ?? ''),
-        ]))));
-
-        return str_contains($userText, 'nitiphan');
-    }
-
-    private function valueToText($value): string
-    {
-        return is_scalar($value) ? (string) $value : '';
+        return in_array($po->status_code, ['DRAFT', 'REJECTED'], true)
+            && Gate::allows('POPUR');
     }
 
     private function statusOptions(): array

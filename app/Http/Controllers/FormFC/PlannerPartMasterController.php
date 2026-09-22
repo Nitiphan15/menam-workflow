@@ -42,7 +42,7 @@ class PlannerPartMasterController extends Controller
 
         $rows = $q->orderBy('rm_partnumber')->get();
 
-        return view('formfc.planner_part_master', [
+        return view('formfc.planner.part_master', [
             'rows' => $rows,
             'part' => $part,
         ]);

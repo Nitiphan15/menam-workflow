@@ -140,7 +140,7 @@
             <div class="col-md-3">
                 <div class="card fc-card">
                     <div class="card-body py-2">
-                        <div class="kpi-title">Avg 6M รวม</div>
+                        <div class="kpi-title">Avg {{ $forecastPeriodMonths }}M รวม</div>
                         <div class="kpi-val js-kpi-avg6">{{ number_format($kpi['avg6_sum'], 2) }}</div>
                     </div>
                 </div>
@@ -156,7 +156,7 @@
             <div class="col-md-3">
                 <div class="card fc-card">
                     <div class="card-body py-2">
-                        <div class="kpi-title">Forecast 6 เดือน</div>
+                        <div class="kpi-title">Forecast {{ $forecastPeriodMonths }} เดือน</div>
                         <div class="kpi-val js-kpi-f6">{{ number_format($kpi['forecast_6m_sum'], 2) }}</div>
                     </div>
                 </div>
@@ -224,12 +224,12 @@
                                 <tr>
                                     <th>RM Part</th>
                                     <th>Description</th>
-                                    <th>Avg 6M</th>
+                                    <th>Avg {{ $forecastPeriodMonths }}M</th>
                                     <th>Forecast?</th>
                                     <th>K ที่ใช้</th>
                                     <th>Manual Avg 1M</th>
                                     <th>Forecast 1M</th>
-                                    <th>Forecast 6M</th>
+                                    <th>Forecast {{ $forecastPeriodMonths }}M</th>
                                     <th>Remark</th>
                                     <th>History</th>
                                 </tr>
@@ -347,7 +347,7 @@
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <div>
                         <div class="section-title">Manual Forecast</div>
-                        <div class="small text-muted">เฉพาะรายการที่ไม่มีข้อมูลย้อนหลัง 6 เดือน</div>
+                        <div class="small text-muted">เฉพาะรายการที่ไม่มีข้อมูลย้อนหลัง {{ $forecastPeriodMonths }} เดือน</div>
                     </div>
 
                     @if ($manualOnlyRows->isNotEmpty())
@@ -365,7 +365,7 @@
                                     <th>RM Part</th>
                                     <th>FG Part</th>
                                     <th>Manual 1M</th>
-                                    <th>Forecast 6M</th>
+                                    <th>Forecast {{ $forecastPeriodMonths }}M</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -387,7 +387,7 @@
                                                 value="{{ number_format((float) ($r['manual_forecast_1m'] ?? 0), 2, '.', '') }}">
                                         </td>
                                         <td class="num js-manual-6m-only">
-                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * 6), 2) }}
+                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * $forecastPeriodMonths), 2) }}
                                         </td>
                                         <input type="hidden" name="manual_meta[{{ $r['row_key'] }}]"
                                             value='@json($manualMeta)'>
@@ -405,6 +405,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             const defaultKInput = document.getElementById('defaultKInput');
             const hiddenDefaultK = document.getElementById('hiddenDefaultK');
+            const forecastPeriodMonths = @json($forecastPeriodMonths);
 
             function num(v) {
                 const x = parseFloat(v);
@@ -425,7 +426,7 @@
                 if (!input || !f6Cell) return;
 
                 const f1 = num(input.value || 0);
-                f6Cell.textContent = format2(f1 * 6);
+                f6Cell.textContent = format2(f1 * forecastPeriodMonths);
             }
 
             function calcAuto(avg6, k) {
@@ -454,7 +455,7 @@
                     }
                 }
 
-                const forecast6 = checked ? +(forecast1 * 6).toFixed(2) : 0;
+                const forecast6 = checked ? +(forecast1 * forecastPeriodMonths).toFixed(2) : 0;
 
                 if (f1Cell) f1Cell.textContent = format2(forecast1);
                 if (f6Cell) f6Cell.textContent = format2(forecast6);

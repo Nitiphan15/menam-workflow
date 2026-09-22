@@ -94,6 +94,7 @@ use App\Http\Controllers\AutoComplete\MfgLookupController;
 use App\Http\Controllers\FormWOS\SalesInquiryController;
 use App\Http\Controllers\FormWOS\SalesUnitSummaryController;
 use App\Http\Controllers\FormWOS\CustomerOrderInvoiceComparisonController;
+use App\Http\Controllers\FormWOS\InvoicePackingDocumentController;
 use App\Http\Controllers\FormWOS\DeadstockReportController;
 use App\Http\Controllers\FormWOS\OrderDueDateController;
 use Illuminate\Support\Facades\Gate;
@@ -277,6 +278,14 @@ Route::prefix('/wos')
     Route::get('/customer-order-invoice/{customerId}', [CustomerOrderInvoiceComparisonController::class, 'detail'])
       ->whereNumber('customerId')
       ->name('customer_order_invoice.detail');
+
+    Route::get('/invoice-packing-document', [InvoicePackingDocumentController::class, 'index'])
+      ->name('invoice_packing_document.index');
+    Route::get('/invoice-packing-document/invoices', [InvoicePackingDocumentController::class, 'invoices'])
+      ->middleware('throttle:60,1')
+      ->name('invoice_packing_document.invoices');
+    Route::post('/invoice-packing-document/preview', [InvoicePackingDocumentController::class, 'preview'])
+      ->name('invoice_packing_document.preview');
   });
 
 Route::prefix('/deadstock')
