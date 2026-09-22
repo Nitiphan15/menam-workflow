@@ -61,6 +61,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             const chartRows = root.dataset.page === 'monthly' ? rows : rows.slice(0, 15);
             const context = root.querySelector('[data-vc-chart]');
             const colors = ['#2d6a4f', '#b8421f', '#1d4ed8', '#7c3aed', '#0891b2', '#ca8a04'];
+            const isMonthly = root.dataset.page === 'monthly';
+            const chartTitles = {
+                summary: '15 แผนกที่มีค่าใช้จ่ายสูงสุด',
+                monthly: 'ค่าใช้จ่ายรวมรายเดือน',
+                matrix: '15 แผนกที่มีค่าใช้จ่ายสูงสุด',
+                accounts: '15 บัญชีที่มีค่าใช้จ่ายสูงสุด',
+            };
             const data = {
                 labels: chartRows.map(row => row.label),
                 datasets: years.filter(year => loaded[year]).map((year, index) => ({
@@ -74,13 +81,18 @@ document.addEventListener('DOMContentLoaded', async function () {
             };
             if (comparisonChart) comparisonChart.destroy();
             comparisonChart = new Chart(context, {
-                type: root.dataset.page === 'monthly' ? 'line' : 'bar',
+                type: isMonthly ? 'line' : 'bar',
                 data,
                 options: {
-                    indexAxis: root.dataset.page === 'monthly' ? 'x' : 'y',
+                    indexAxis: isMonthly ? 'x' : 'y',
                     maintainAspectRatio: false,
-                    plugins: { tooltip: { callbacks: { label: item => `${item.dataset.label}: ${money(item.raw)}` } } },
-                    scales: { x: { ticks: { callback: root.dataset.page === 'monthly' ? undefined : value => money(value) } }, y: { ticks: { callback: root.dataset.page === 'monthly' ? value => money(value) : undefined } } },
+                    plugins: {
+                        title: { display: true, text: chartTitles[root.dataset.page] || 'เปรียบเทียบค่าใช้จ่ายรายปี' },
+                        tooltip: { callbacks: { label: item => `${item.dataset.label}: ${money(item.raw)}` } },
+                    },
+                    scales: isMonthly
+                        ? { x: {}, y: { ticks: { callback: value => money(value) } } }
+                        : { x: { ticks: { callback: value => money(value) } }, y: { ticks: { autoSkip: false } } },
                 },
             });
             root.querySelector('[data-vc-chart-wrap]').classList.remove('d-none');
