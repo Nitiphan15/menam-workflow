@@ -65,6 +65,8 @@ class VariableCostController extends Controller
     public function yearly(Request $request, VariableCostService $service)
     {
         $filters = $this->filtersFromRequest($request) + [
+            'years' => $this->arrayInput($request, 'years'),
+            // Keep old bookmarks working while the UI moves from year to years[].
             'year' => $request->input('year'),
             'class' => $this->arrayInput($request, 'class'),
         ];

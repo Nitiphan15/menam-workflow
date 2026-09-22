@@ -703,8 +703,9 @@ class VariableCostService
     public function getYearlyData(array $filters): array
     {
         $yearlyFilters = $this->normalizeYearlyFilters($filters);
-        $year = (int) $yearlyFilters['year'];
-        $previousYear = $year - 1;
+        $years = $yearlyFilters['years'];
+        $firstYear = min($years);
+        $lastYear = max($years);
 
         $accountInput = $filters['account'] ?? '';
         $accountArray = $this->normalizeFilterArray($accountInput);
@@ -724,20 +725,19 @@ class VariableCostService
             'notes' => '',
         ];
 
-        $twoYearFilters = $this->normalizeFilters($baseFilters + [
-            'date_from' => "{$previousYear}-01-01",
-            'date_to' => "{$year}-12-31",
+        $rangeFilters = $this->normalizeFilters($baseFilters + [
+            'date_from' => "{$firstYear}-01-01",
+            'date_to' => "{$lastYear}-12-31",
         ]);
-        $combined = $this->fetchYearlyTwoYearsAggregate($twoYearFilters);
+        $selectedYearSet = array_flip($years);
+        $normalized = $this->normalizeYearlyRows(
+            $this->fetchYearlyYearsAggregate($rangeFilters)
+                ->filter(fn($row) => isset($selectedYearSet[(int) $row->year_no]))
+                ->values(),
+            $yearlyFilters['site']
+        );
 
-        $currentRaw = $combined->filter(fn($r) => (int) $r->year_no === $year)->values();
-        $previousRaw = $combined->filter(fn($r) => (int) $r->year_no === $previousYear)->values();
-
-        $currentNormalized = $this->normalizeYearlyRows($currentRaw, $yearlyFilters['site']);
-        $previousNormalized = $this->normalizeYearlyRows($previousRaw, $yearlyFilters['site']);
-
-        $classOptions = $currentNormalized
-            ->concat($previousNormalized)
+        $classOptions = $normalized
             ->groupBy(fn($r) => $this->classKey($r))
             ->map(function (Collection $group, string $key) {
                 $first = $group->first();
@@ -754,44 +754,51 @@ class VariableCostService
 
         $selectedClassKeys = collect($yearlyFilters['class'])->filter()->values();
         if ($selectedClassKeys->isEmpty()) {
-            $currentFiltered = $currentNormalized;
-            $previousFiltered = $previousNormalized;
+            $filteredRows = $normalized;
         } else {
             $keySet = $selectedClassKeys->flip();
-            $currentFiltered = $currentNormalized
-                ->filter(fn($r) => $keySet->has($this->classKey($r)))
-                ->values();
-            $previousFiltered = $previousNormalized
+            $filteredRows = $normalized
                 ->filter(fn($r) => $keySet->has($this->classKey($r)))
                 ->values();
         }
 
-        $previousByAccount = $previousFiltered
+        $yearlyRows = $filteredRows
             ->groupBy(fn($r) => $r->account_code . '|' . $r->account_name)
-            ->map(fn(Collection $g) => (float) $g->sum('total_amount'));
-
-        $yearlyRows = $currentFiltered
-            ->groupBy(fn($r) => $r->account_code . '|' . $r->account_name)
-            ->map(function (Collection $group, string $key) use ($previousByAccount) {
+            ->map(function (Collection $group) use ($years) {
                 $first = $group->first();
-                $months = array_fill(1, 12, 0.0);
-                foreach ($group as $r) {
-                    $months[(int) $r->month_no] = ($months[(int) $r->month_no] ?? 0) + (float) $r->total_amount;
+                $amountsByYear = [];
+                foreach ($years as $year) {
+                    $months = array_fill(1, 12, 0.0);
+                    foreach ($group->where('year_no', $year) as $row) {
+                        $month = (int) $row->month_no;
+                        $months[$month] += (float) $row->total_amount;
+                    }
+                    $amountsByYear[$year] = [
+                        'months' => $months,
+                        'total_amount' => array_sum($months),
+                    ];
                 }
+
                 return (object) [
                     'account_code' => $first->account_code,
                     'account_name' => $first->account_name,
-                    'previous_avg' => (($previousByAccount[$key] ?? 0) / 12),
-                    'months' => $months,
-                    'total_amount' => array_sum($months),
+                    'years' => $amountsByYear,
+                    'total_amount' => array_sum(array_column($amountsByYear, 'total_amount')),
                 ];
             })
             ->sortByDesc('total_amount')
             ->values();
 
-        $monthTotals = [];
-        for ($month = 1; $month <= 12; $month++) {
-            $monthTotals[$month] = (float) $yearlyRows->sum(fn($row) => $row->months[$month] ?? 0);
+        $totalsByYear = [];
+        foreach ($years as $year) {
+            $monthTotals = [];
+            for ($month = 1; $month <= 12; $month++) {
+                $monthTotals[$month] = (float) $yearlyRows->sum(fn($row) => $row->years[$year]['months'][$month] ?? 0);
+            }
+            $totalsByYear[$year] = [
+                'months' => $monthTotals,
+                'total_amount' => array_sum($monthTotals),
+            ];
         }
 
         $selectedClasses = $selectedClassKeys->isEmpty()
@@ -799,7 +806,7 @@ class VariableCostService
             : $classOptions->whereIn('key', $selectedClassKeys->all())->values();
         $selectedClass = $selectedClasses->first();
 
-        $currentClassTotals = $currentFiltered->reduce(function ($carry, $r) {
+        $classTotals = $filteredRows->reduce(function ($carry, $r) {
             $carry['total'] += (float) $r->total_amount;
             $carry['lines'] += (int) ($r->line_count ?? 0);
             $carry['bills'] += (int) ($r->bill_count ?? 0);
@@ -808,30 +815,28 @@ class VariableCostService
 
         return [
             'filters' => [
-                'date_from' => "{$year}-01-01",
-                'date_to' => "{$year}-12-31",
+                'date_from' => "{$firstYear}-01-01",
+                'date_to' => "{$lastYear}-12-31",
                 'site' => $yearlyFilters['site'],
-                'division_group' => $twoYearFilters['division_group'],
-                'division_department_mode' => $twoYearFilters['division_department_mode'],
+                'division_group' => $rangeFilters['division_group'],
+                'division_department_mode' => $rangeFilters['division_department_mode'],
                 'department' => $selectedClasses->isNotEmpty()
                     ? $selectedClasses->pluck('label')->implode(', ')
                     : '',
                 'account' => $accountDisplay,
                 'invoice' => '',
                 'notes' => '',
-                'year' => $year,
+                'years' => $years,
                 'class' => $yearlyFilters['class'],
             ],
-            'year' => $year,
-            'previousYear' => $previousYear,
+            'years' => $years,
             'classOptions' => $classOptions,
             'selectedClass' => $selectedClass,
             'selectedClasses' => $selectedClasses,
             'yearlyRows' => $yearlyRows,
             'yearlyTotals' => (object) [
-                'previous_avg' => (float) $yearlyRows->sum('previous_avg'),
-                'months' => $monthTotals,
-                'total_amount' => array_sum($monthTotals),
+                'years' => $totalsByYear,
+                'total_amount' => (float) $yearlyRows->sum('total_amount'),
             ],
             'divisionGroupOptions' => $this->divisionGroupOptions(),
             'departmentOptions' => $classOptions->pluck('label')->values(),
@@ -840,10 +845,10 @@ class VariableCostService
             ),
             'kpis' => [
                 'total_amount' => (float) $yearlyRows->sum('total_amount'),
-                'bill_count' => (int) $currentClassTotals['bills'],
-                'line_count' => (int) $currentClassTotals['lines'],
-                'avg_per_bill' => $currentClassTotals['bills'] > 0
-                    ? (float) $yearlyRows->sum('total_amount') / $currentClassTotals['bills']
+                'bill_count' => (int) $classTotals['bills'],
+                'line_count' => (int) $classTotals['lines'],
+                'avg_per_bill' => $classTotals['bills'] > 0
+                    ? (float) $yearlyRows->sum('total_amount') / $classTotals['bills']
                     : 0,
                 'account_count' => $yearlyRows->pluck('account_code')->filter()->unique()->count(),
                 'department_count' => $selectedClass ? 1 : 0,
@@ -1514,11 +1519,18 @@ class VariableCostService
     private function normalizeFilters(array $filters): array
     {
         $today = Carbon::today('Asia/Bangkok');
-        $dateFrom = $this->dateOrDefault($filters['date_from'] ?? null, $today->copy()->startOfMonth()->toDateString());
-        $dateTo = $this->dateOrDefault($filters['date_to'] ?? null, $today->copy()->endOfMonth()->toDateString());
+        $fromInput = $filters['date_from'] ?? null;
+        $toInput = $filters['date_to'] ?? null;
+        $dateFrom = $this->periodBoundaryOrDefault($fromInput, $today->copy()->startOfMonth()->toDateString(), false);
+        $dateTo = $this->periodBoundaryOrDefault($toInput, $today->copy()->endOfMonth()->toDateString(), true);
 
         if ($dateFrom > $dateTo) {
-            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+            if ($this->isMonthInput($fromInput) && $this->isMonthInput($toInput)) {
+                $dateFrom = Carbon::parse($toInput, 'Asia/Bangkok')->startOfMonth()->toDateString();
+                $dateTo = Carbon::parse($fromInput, 'Asia/Bangkok')->endOfMonth()->toDateString();
+            } else {
+                [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+            }
         }
 
         $site = Str::upper(trim((string) ($filters['site'] ?? '')));
@@ -1938,9 +1950,20 @@ class VariableCostService
 
     private function normalizeYearlyFilters(array $filters): array
     {
-        $year = (int) ($filters['year'] ?? Carbon::today('Asia/Bangkok')->year);
-        if ($year < 2000 || $year > 2100) {
-            $year = Carbon::today('Asia/Bangkok')->year;
+        $currentYear = Carbon::today('Asia/Bangkok')->year;
+        $years = $this->normalizeFilterArray($filters['years'] ?? []);
+        if (empty($years) && !empty($filters['year'])) {
+            $years = [(string) $filters['year']];
+        }
+        $years = collect($years)
+            ->filter(fn($year) => ctype_digit((string) $year) && (int) $year >= 2000 && (int) $year <= 2100)
+            ->map(fn($year) => (int) $year)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all();
+        if (empty($years)) {
+            $years = [$currentYear, $currentYear - 1];
         }
 
         $site = Str::upper(trim((string) ($filters['site'] ?? '')));
@@ -1949,7 +1972,7 @@ class VariableCostService
         }
 
         return [
-            'year' => $year,
+            'years' => $years,
             'site' => $site,
             'class' => $this->normalizeFilterArray($filters['class'] ?? []),
         ];
@@ -1966,6 +1989,29 @@ class VariableCostService
         } catch (\Throwable $e) {
             return $default;
         }
+    }
+
+    private function periodBoundaryOrDefault(?string $value, string $default, bool $endOfMonth): string
+    {
+        if (!$value) {
+            return $default;
+        }
+
+        try {
+            $date = Carbon::parse($value, 'Asia/Bangkok');
+            if ($this->isMonthInput($value)) {
+                $date = $endOfMonth ? $date->endOfMonth() : $date->startOfMonth();
+            }
+
+            return $date->toDateString();
+        } catch (\Throwable $e) {
+            return $default;
+        }
+    }
+
+    private function isMonthInput(?string $value): bool
+    {
+        return is_string($value) && preg_match('/^\d{4}-\d{2}$/', $value) === 1;
     }
 
     private function fetchRows(array $filters): Collection
@@ -3114,7 +3160,7 @@ SQL
         );
     }
 
-    private function fetchYearlyTwoYearsAggregate(array $filters): Collection
+    private function fetchYearlyYearsAggregate(array $filters): Collection
     {
         return $this->runAggregateAcrossSites(
             $filters,
@@ -3195,6 +3241,7 @@ SQL
                 'department' => $displayName,
                 'account_code' => $parts['code'],
                 'account_name' => $parts['name'],
+                'year_no' => (int) $row->year_no,
                 'month_no' => (int) $row->month_no,
                 'total_amount' => (float) $row->total_amount,
                 'line_count' => (int) ($row->line_count ?? 0),
