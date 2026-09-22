@@ -4,6 +4,7 @@ namespace App\Services\FormDP;
 
 use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
+use App\Support\FormDP\ProductionProcessGroup;
 use App\Support\FormDP\ProductionWeightTolerance;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -30,10 +31,12 @@ class ProductionStatusTrackingService
 
         try {
             $sourceRows = $this->fetchProductionRows($filters)->values();
-            $processFilters = array_merge($filters, ['process_filter' => '']);
+            $processFilters = array_merge($filters, ['process_filter' => []]);
             $processOptions = $sourceRows
                 ->filter(fn($row) => $this->passesFilters($row, $processFilters))
-                ->groupBy(fn($row) => trim((string) ($row->current_process ?? '')) ?: 'Unknown')
+                ->flatMap(fn($row) => $this->routeProcessLabels($row)
+                    ->map(fn($process) => ['process' => $process]))
+                ->groupBy('process')
                 ->map(fn($items, $process) => [
                     'value' => $process,
                     'label' => $process,
@@ -54,13 +57,21 @@ class ProductionStatusTrackingService
             $dataError = $e->getMessage();
         }
 
+        $pendingConfirmationCount = $rows
+            ->filter(fn($r) => !DeliveryConfirmation::isActiveStatus($r->confirmation_status ?? null))
+            ->count();
         $postponeCount = $rows->filter(fn($r) => strtoupper((string) ($r->confirmation_status ?? '')) === 'POSTPONE')->count();
         $confirmationFilter = strtolower(trim((string) ($filters['confirmation_filter'] ?? 'all')));
-        if ($confirmationFilter === 'postpone') {
+        if ($confirmationFilter === 'pending') {
+            $rows = $rows
+                ->filter(fn($r) => !DeliveryConfirmation::isActiveStatus($r->confirmation_status ?? null))
+                ->values();
+        } elseif ($confirmationFilter === 'postpone') {
             $rows = $rows->filter(fn($r) => strtoupper((string) ($r->confirmation_status ?? '')) === 'POSTPONE')->values();
         }
 
         $summary = $this->buildSummary($rows);
+        $summary['pending_confirmation'] = $pendingConfirmationCount;
         $summary['postpone'] = $postponeCount;
 
         return [
@@ -1594,8 +1605,10 @@ SQL;
             }
         }
 
-        $processFilter = trim((string) ($filters['process_filter'] ?? ''));
-        if ($processFilter !== '' && strcasecmp(trim((string) ($row->current_process ?? '')), $processFilter) !== 0) {
+        if (!ProductionProcessGroup::matchesAny(
+            $this->routeProcessLabels($row)->all(),
+            $filters['process_filter'] ?? []
+        )) {
             return false;
         }
 
@@ -1677,12 +1690,14 @@ SQL;
             ->values();
 
         $processSummary = $rows
-            ->groupBy(fn($row) => trim((string) ($row->current_process ?? '')) ?: 'Unknown')
+            ->flatMap(fn($row) => $this->routeProcessLabels($row)
+                ->map(fn($process) => ['process' => $process, 'row' => $row]))
+            ->groupBy('process')
             ->map(fn($items, $process) => [
                 'process' => $process,
                 'count' => $items->count(),
-                'avg_progress' => round((float) $items->avg('progress_pct'), 1),
-                'at_risk' => $items->where('risk_display', 'At Risk')->count(),
+                'avg_progress' => round((float) $items->avg(fn($item) => $item['row']->progress_pct ?? 0), 1),
+                'at_risk' => $items->filter(fn($item) => ($item['row']->risk_display ?? '') === 'At Risk')->count(),
             ])
             ->sortByDesc('count')
             ->values()
@@ -2051,6 +2066,15 @@ SQL;
             ->map(fn($item) => trim($item))
             ->filter()
             ->values();
+
+    }
+
+    private function routeProcessLabels(object $row): Collection
+    {
+        $processes = collect($row->steps ?? [])
+            ->map(fn($step) => $step->code ?? $step->workcenternumber ?? '');
+
+        return collect(ProductionProcessGroup::selectableLabels($processes));
     }
 
     private function dpStatusSummary(Collection $deliveryRows): string

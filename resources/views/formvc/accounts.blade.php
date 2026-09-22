@@ -14,11 +14,7 @@
 
     <div class="vc-wrap">
         @include('formvc.partials.header')
-
-        <div class="vc-card mb-3">
-            <div class="vc-card-header">ค่าใช้จ่ายแยกตามบัญชี</div>
-            <div class="chart-box tall"><canvas id="vcAccountChart"></canvas></div>
-        </div>
+        @include('formvc.partials.year-comparison')
 
         <div class="vc-card">
             <div class="vc-card-header">ตารางบัญชีทั้งหมด</div>
@@ -53,34 +49,3 @@
         </div>
     </div>
 @endsection
-
-@push('scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            if (!window.Chart) return;
-
-            const sourceRows = @json($accountSummary->values());
-            const topRows = sourceRows.slice(0, 15);
-            const otherRows = sourceRows.slice(15);
-            const otherTotal = otherRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
-            const rows = otherTotal > 0
-                ? topRows.concat([{ account_code: 'Other', account_name: 'บัญชีอื่น ๆ', total_amount: otherTotal }])
-                : topRows;
-            const money = value => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
-
-            new Chart(document.getElementById('vcAccountChart'), {
-                type: 'bar',
-                data: {
-                    labels: rows.map(row => `${row.account_code} ${row.account_name}`),
-                    datasets: [{ data: rows.map(row => row.total_amount), backgroundColor: '#b8421f' }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => money(ctx.raw) } } },
-                    scales: { x: { ticks: { callback: money } }, y: { ticks: { font: { size: 10 } }, grid: { display: false } } }
-                }
-            });
-        });
-    </script>
-@endpush

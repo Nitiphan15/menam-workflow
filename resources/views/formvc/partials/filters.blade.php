@@ -17,6 +17,9 @@
     $divisionGroupOptionList = collect($divisionGroupOptions ?? [])->map(fn($v) => (string) $v);
     $departmentOptionList = collect($departmentOptions ?? [])->map(fn($v) => (string) $v);
     $accountOptionList = collect($accountOptions ?? [])->map(fn($v) => (string) $v);
+    $comparisonYearVals = collect((array) request()->input('years', []))
+        ->map(fn($v) => (string) $v)->filter()->values();
+    $comparisonYearOptions = collect(range((int) date('Y') + 1, 2000));
 @endphp
 
 <div class="vc-card mb-3">
@@ -29,13 +32,23 @@
     <div id="vcFilters" class="collapse show">
         <form method="GET" action="{{ route($targetRoute) }}" class="p-3">
             <div class="row g-3 align-items-end">
+                @if ($activePage !== 'details')
+                    <div class="col-lg-2 col-md-4">
+                        <label class="form-label">เปรียบเทียบปี</label>
+                        <select name="years[]" class="form-select vc-tomselect-multi" multiple data-placeholder="-- เลือกปี --" data-create="0">
+                            @foreach ($comparisonYearOptions as $option)
+                                <option value="{{ $option }}" {{ $comparisonYearVals->contains((string) $option) ? 'selected' : '' }}>{{ $option }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
                 <div class="col-lg-2 col-md-4">
-                    <label class="form-label">From Date</label>
-                    <input type="date" name="date_from" class="form-control" value="{{ $filters['date_from'] ?? '' }}">
+                    <label class="form-label">From Month</label>
+                    <input type="month" name="date_from" class="form-control" value="{{ substr((string) ($filters['date_from'] ?? ''), 0, 7) }}">
                 </div>
                 <div class="col-lg-2 col-md-4">
-                    <label class="form-label">To Date</label>
-                    <input type="date" name="date_to" class="form-control" value="{{ $filters['date_to'] ?? '' }}">
+                    <label class="form-label">To Month</label>
+                    <input type="month" name="date_to" class="form-control" value="{{ substr((string) ($filters['date_to'] ?? ''), 0, 7) }}">
                 </div>
                 <div class="col-lg-1 col-md-4">
                     <label class="form-label">Site</label>

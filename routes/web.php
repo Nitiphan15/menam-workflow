@@ -94,6 +94,7 @@ use App\Http\Controllers\AutoComplete\MfgLookupController;
 use App\Http\Controllers\FormWOS\SalesInquiryController;
 use App\Http\Controllers\FormWOS\SalesUnitSummaryController;
 use App\Http\Controllers\FormWOS\CustomerOrderInvoiceComparisonController;
+use App\Http\Controllers\FormWOS\InvoicePackingDocumentController;
 use App\Http\Controllers\FormWOS\DeadstockReportController;
 use App\Http\Controllers\FormWOS\OrderDueDateController;
 use Illuminate\Support\Facades\Gate;
@@ -277,6 +278,14 @@ Route::prefix('/wos')
     Route::get('/customer-order-invoice/{customerId}', [CustomerOrderInvoiceComparisonController::class, 'detail'])
       ->whereNumber('customerId')
       ->name('customer_order_invoice.detail');
+
+    Route::get('/invoice-packing-document', [InvoicePackingDocumentController::class, 'index'])
+      ->name('invoice_packing_document.index');
+    Route::get('/invoice-packing-document/invoices', [InvoicePackingDocumentController::class, 'invoices'])
+      ->middleware('throttle:60,1')
+      ->name('invoice_packing_document.invoices');
+    Route::post('/invoice-packing-document/preview', [InvoicePackingDocumentController::class, 'preview'])
+      ->name('invoice_packing_document.preview');
   });
 
 Route::prefix('/deadstock')
@@ -690,6 +699,7 @@ Route::prefix('variable-cost')
     Route::get('/matrix', [VariableCostController::class, 'matrix'])->name('matrix');
     Route::get('/accounts', [VariableCostController::class, 'accounts'])->name('accounts');
     Route::get('/yearly', [VariableCostController::class, 'yearly'])->name('yearly');
+    Route::get('/year-comparison', [VariableCostController::class, 'yearComparison'])->name('year-comparison');
     Route::get('/details', [VariableCostController::class, 'details'])->name('details');
     Route::get('/export', [VariableCostController::class, 'export'])->name('export');
     Route::post('/truck-weight-log', [VariableCostController::class, 'storeTruckWeightLog'])->middleware('permission.any:VCM')->name('truck-weight-log.store');

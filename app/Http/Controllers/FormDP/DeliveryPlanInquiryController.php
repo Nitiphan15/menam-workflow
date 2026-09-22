@@ -2257,6 +2257,14 @@ class DeliveryPlanInquiryController extends Controller
                 'edit_remark' => 'เลื่อนไป วันที่ ' . $newShipDateText . ' เหตุผล : ' . $reason,
             ]);
 
+        app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
+            $row->mfg_no ?? null,
+            $row->so_number ?? null,
+            $originalShipDate->toDateString(),
+            $newShipDate->toDateString(),
+            $reason
+        );
+
         return [
             'ord_id' => $ordId,
             'new_ord_id' => $newOrdId,

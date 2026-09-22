@@ -133,6 +133,7 @@
             <div class="alert alert-danger">{{ $errors->first('erp_phpsessid') }}</div>
         @endif
 
+        @if (!$readOnly)
         @can('POPUR')
             <div class="card po-cpa-card shadow-sm mb-3">
                 <div class="card-body d-flex flex-wrap align-items-end gap-2">
@@ -183,15 +184,23 @@
                 </div>
             </div>
         @endcan
+        @endif
 
         <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
             <div>
                 <h4 class="mb-1">{{ $po->ordnumber }}</h4>
                 <div class="text-muted">{{ $po->vendor_name }} | {{ $po->f1 ?: 'ไม่ระบุแผนก' }}</div>
+                @if ($readOnly)
+                    <span class="badge bg-secondary-subtle text-secondary mt-2">
+                        <i class="fa-solid fa-eye me-1"></i> ดูรายละเอียดอย่างเดียว
+                    </span>
+                @endif
             </div>
             <div class="d-flex gap-2">
-                <a href="{{ route('po.print', $po->id) }}" class="btn btn-outline-dark">Download PDF</a>
-                <a href="{{ route('po.index') }}" class="btn btn-outline-secondary">กลับหน้ารายการ</a>
+                @if (!$readOnly)
+                    <a href="{{ route('po.print', $po->id) }}" class="btn btn-outline-dark">Download PDF</a>
+                @endif
+                <a href="{{ $readOnly ? route('po.departmentTracking') : route('po.index') }}" class="btn btn-outline-secondary">กลับหน้ารายการ</a>
             </div>
         </div>
 
@@ -294,6 +303,7 @@
                     </div>
                 </div>
 
+                @if ($canEditPdfOverride)
                 @php
                     $pdfDescriptionOverrideText = collect(old('pdf_description_overrides', $po->pdf_description_overrides ?? []))
                         ->map(fn ($value) => trim((string) $value))
@@ -378,6 +388,7 @@
                         </form>
                     </div>
                 </div>
+                @endif
 
                 <div class="card po-attach-card shadow-sm">
                     <div class="card-header d-flex justify-content-between align-items-center gap-2">
@@ -385,6 +396,7 @@
                         <span class="badge text-bg-light">{{ number_format($po->attachments->count()) }} files</span>
                     </div>
                     <div class="card-body">
+                        @if (!$readOnly)
                         <div class="d-flex flex-wrap gap-2 mb-3">
                             <button type="button" class="btn btn-sm btn-outline-primary" data-po-edit-focus="notes">
                                 แก้หมายเหตุ
@@ -393,10 +405,13 @@
                                 เพิ่มไฟล์แนบ
                             </button>
                         </div>
+                        @endif
 
+                        @if (!$readOnly)
                         <form method="POST" action="{{ route('po.update', $po->id) }}" enctype="multipart/form-data">
                             @csrf
                             @method('PUT')
+                        @endif
 
                             <div class="mb-3">
                                 <label class="form-label">หมายเหตุเพิ่มเติม</label>
@@ -419,10 +434,13 @@
 
                                 <button class="btn btn-primary">บันทึกเอกสาร</button>
                             @else
-                                <div class="alert alert-secondary mb-0">เอกสารถูกส่งเข้า workflow แล้ว
-                                    แก้ไขไฟล์แนบไม่ได้จนกว่าจะถูกตีกลับ</div>
+                                <div class="alert alert-secondary mb-0">
+                                    {{ $readOnly ? 'หน้านี้สำหรับดูรายละเอียดเท่านั้น ไม่สามารถแก้ไขหรือดำเนินการกับ PO ได้' : 'เอกสารถูกส่งเข้า workflow แล้ว แก้ไขไฟล์แนบไม่ได้จนกว่าจะถูกตีกลับ' }}
+                                </div>
                             @endif
+                        @if (!$readOnly)
                         </form>
+                        @endif
 
                         <hr>
 
@@ -433,36 +451,76 @@
                                         <th>File</th>
                                         <th>Remark</th>
                                         <th>Uploaded By</th>
+                                        @if ($canEditAttachment)
+                                            <th class="text-end">ลบ</th>
+                                        @endif
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @forelse ($po->attachments as $attachmentIndex => $attachment)
-                                        @php
-                                            $attachmentExt =
-                                                $attachment->file_ext ?:
-                                                pathinfo((string) $attachment->file_name, PATHINFO_EXTENSION);
-                                            $fallbackName = sprintf(
-                                                '%s_%02d%s',
-                                                $po->ordnumber,
-                                                $attachmentIndex + 1,
-                                                $attachmentExt ? ".{$attachmentExt}" : '',
-                                            );
-                                            $displayFileName = str_starts_with(
-                                                (string) $attachment->file_name,
-                                                (string) $po->ordnumber,
-                                            )
-                                                ? $attachment->file_name
-                                                : $fallbackName;
-                                        @endphp
-                                        <tr>
-                                            <td><a href="{{ route('po.attachments.show', [$po->id, $attachment->id]) }}"
-                                                    target="_blank">{{ $displayFileName }}</a></td>
-                                            <td>{{ $attachment->remark ?: '-' }}</td>
-                                            <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
+                                    @php
+                                        $attachmentStepLabels = [
+                                            1 => 'Purchase Submit',
+                                            2 => 'Purchase Approve',
+                                            3 => 'Head of Department Approve',
+                                            0 => 'Existing Attachments',
+                                        ];
+                                        $attachmentGroups = $po->attachments
+                                            ->groupBy(fn ($attachment) => (int) ($attachment->workflow_step_no ?? 0))
+                                            ->sortBy(fn ($attachments, $stepNo) => array_search((int) $stepNo, [1, 2, 3, 0], true));
+                                    @endphp
+
+                                    @forelse ($attachmentGroups as $stepNo => $attachments)
+                                        <tr class="table-secondary">
+                                            <th colspan="{{ $canEditAttachment ? 4 : 3 }}">
+                                                {{ $attachmentStepLabels[(int) $stepNo] ?? "Workflow Step {$stepNo}" }}
+                                                <span class="badge text-bg-light ms-1">{{ $attachments->count() }} files</span>
+                                            </th>
                                         </tr>
+
+                                        @foreach ($attachments as $attachment)
+                                            @php
+                                                $attachmentIndex = $po->attachments->search(fn ($item) => $item->getKey() === $attachment->getKey());
+                                                $attachmentExt =
+                                                    $attachment->file_ext ?:
+                                                    pathinfo((string) $attachment->file_name, PATHINFO_EXTENSION);
+                                                $fallbackName = sprintf(
+                                                    '%s_%02d%s',
+                                                    $po->ordnumber,
+                                                    $attachmentIndex + 1,
+                                                    $attachmentExt ? ".{$attachmentExt}" : '',
+                                                );
+                                                $displayFileName = str_starts_with(
+                                                    (string) $attachment->file_name,
+                                                    (string) $po->ordnumber,
+                                                )
+                                                    ? $attachment->file_name
+                                                    : $fallbackName;
+                                            @endphp
+                                            <tr>
+                                                <td><a href="{{ route($readOnly ? 'po.departmentTracking.attachments.show' : 'po.attachments.show', [$po->id, $attachment->id]) }}"
+                                                        target="_blank">{{ $displayFileName }}</a></td>
+                                                <td>{{ $attachment->remark ?: '-' }}</td>
+                                                <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
+                                                @if ($canEditAttachment)
+                                                    <td class="text-end">
+                                                        <form method="POST"
+                                                            action="{{ route('po.attachments.destroy', [$po->id, $attachment->id]) }}"
+                                                            class="d-inline"
+                                                            onsubmit="return confirm('ยืนยันลบไฟล์ {{ addslashes($displayFileName) }}?')">
+                                                            @csrf
+                                                            @method('DELETE')
+                                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                                title="ลบไฟล์" aria-label="ลบไฟล์ {{ $displayFileName }}">
+                                                                <i class="fa-solid fa-xmark"></i>
+                                                            </button>
+                                                        </form>
+                                                    </td>
+                                                @endif
+                                            </tr>
+                                        @endforeach
                                     @empty
                                         <tr>
-                                            <td colspan="3" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>
+                                            <td colspan="{{ $canEditAttachment ? 4 : 3 }}" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -508,6 +566,9 @@
                                         @endif
                                         <div class="form-text">
                                             ไฟล์ใหม่จะเพิ่มต่อท้ายรายการเดิม ไม่ลบหรือแทนที่ไฟล์ที่แนบไว้แล้ว
+                                            @if (($po->workflow?->current_step_no ?? 0) == 3)
+                                                และจะบันทึกชื่อเป็น {{ $po->ordnumber }}-ชื่อไฟล์เดิม
+                                            @endif
                                         </div>
                                     </div>
                                 @endif
@@ -519,6 +580,26 @@
                                 data-bs-target="#rejectModal">
                                 Send Back / Reject
                             </button>
+                            @if ((int) ($po->workflow?->current_step_no ?? 0) === 3)
+                                <button class="btn btn-danger w-100 mt-2" data-bs-toggle="modal" data-bs-target="#cancelPoModal">
+                                    ยกเลิก PO / Cancel
+                                </button>
+                            @endif
+                        @elseif ($canReopen)
+                            <div class="alert alert-warning">
+                                PO นี้อนุมัติครบแล้ว หากราคาเปลี่ยน สามารถยกเลิกผลอนุมัติเดิมเพื่อกลับไปแก้ไขไฟล์แนบ
+                                แล้วส่งอนุมัติใหม่ตั้งแต่ต้นได้
+                            </div>
+                            <form method="POST" action="{{ route('po.reopen', $po->id) }}"
+                                onsubmit="return confirm('ยืนยันยกเลิกผลอนุมัติเดิมและกลับไปแก้ไขไฟล์แนบใช่หรือไม่?')">
+                                @csrf
+                                <label class="form-label">เหตุผลที่ต้องอนุมัติใหม่</label>
+                                <textarea name="comment" class="form-control mb-3" rows="3" required
+                                    maxlength="1000" placeholder="เช่น มีการแก้ไขราคา"></textarea>
+                                <button class="btn btn-outline-danger w-100">
+                                    ยกเลิกผลอนุมัติและกลับไปแก้ไฟล์
+                                </button>
+                            </form>
                         @else
                             <div class="alert alert-info mb-0">เอกสารนี้ยังไม่มี action ที่ต้องทำสำหรับผู้ใช้ปัจจุบัน</div>
                         @endif
@@ -564,7 +645,7 @@
                                     'APPROVE', 'APPROVED' => 'text-bg-success',
                                     'REJECT', 'REJECTED', 'RETURN', 'CANCEL', 'CANCELLED' => 'text-bg-danger',
                                     'SUBMIT', 'PENDING' => 'text-bg-primary',
-                                    'SKIP', 'SKIPPED' => 'text-bg-warning',
+                                    'REOPEN', 'SKIP', 'SKIPPED' => 'text-bg-warning',
                                     'COMPLETE', 'CLOSED' => 'text-bg-secondary',
                                     default => 'text-bg-primary',
                                 };
@@ -592,6 +673,16 @@
                     <div class="card-body">
                         @php
                             $signatureCards = [
+                                [
+                                    'label' => 'Submitted by',
+                                    'name' => $signatures['submitted_by']->actor_name ?? '',
+                                    'image' => $signatures['submitted_by']->signature_data_uri ?? null,
+                                    'date' => !empty($signatures['submitted_by']?->created_at)
+                                        ? \Illuminate\Support\Carbon::parse(
+                                            $signatures['submitted_by']->created_at,
+                                        )->format('d-M-Y')
+                                        : '',
+                                ],
                                 [
                                     'label' => 'Ordered by',
                                     'name' => collect($signatures['ordered_by'] ?? [])
@@ -647,6 +738,7 @@
         </div>
     </div>
 
+    @if ($canApprove)
     <div class="modal fade" id="rejectModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <form class="modal-content" method="POST" action="{{ route('po.reject', $po->id) }}">
@@ -665,6 +757,30 @@
             </form>
         </div>
     </div>
+    @endif
+
+    @if ($canApprove && (int) ($po->workflow?->current_step_no ?? 0) === 3)
+    <div class="modal fade" id="cancelPoModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <form class="modal-content" method="POST" action="{{ route('po.cancelByManager', $po->id) }}">
+                @csrf
+                <div class="modal-header">
+                    <h5 class="modal-title">ยกเลิก PO</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-danger">ยกเลิกแล้วจะจบรายการ ไม่สามารถแก้ไขและส่งอนุมัติใหม่ได้</p>
+                    <label class="form-label" for="cancelPoReason">เหตุผลการยกเลิก</label>
+                    <textarea id="cancelPoReason" name="comment" class="form-control" rows="4" maxlength="1000" required></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-danger">ยืนยันยกเลิก PO</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    @endif
 
     <script>
         (() => {

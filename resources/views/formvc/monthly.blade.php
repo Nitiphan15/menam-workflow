@@ -23,6 +23,7 @@
 
     <div class="vc-wrap">
         @include('formvc.partials.header')
+        @include('formvc.partials.year-comparison')
 
         <div class="vc-card mb-3">
             <div class="vc-card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -125,41 +126,5 @@
             </div>
         </div>
 
-        <div class="vc-card">
-            <div class="vc-card-header">แนวโน้มค่าใช้จ่ายรวมรายเดือน</div>
-            <div class="chart-box"><canvas id="vcMonthChart"></canvas></div>
-        </div>
     </div>
 @endsection
-
-@push('scripts')
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            if (!window.Chart) return;
-
-            const rows = @json($monthlySummary->values());
-            const comparePrevious = @json($comparePrevious);
-            const money = value => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
-
-            const datasets = [
-                { label: '{{ $year ?? '' }}', data: rows.map(row => row.total_amount), borderColor: '#2d6a4f', backgroundColor: 'rgba(45,106,79,.12)', tension: .25, fill: true }
-            ];
-            if (comparePrevious) {
-                datasets.push({ label: '{{ $previousYear }}', data: rows.map(row => row.previous_total_amount), borderColor: '#b8421f', backgroundColor: 'rgba(184,66,31,.08)', borderDash: [6, 4], tension: .25, fill: false });
-            }
-
-            new Chart(document.getElementById('vcMonthChart'), {
-                type: 'line',
-                data: {
-                    labels: rows.map(row => row.month),
-                    datasets: datasets
-                },
-                options: {
-                    maintainAspectRatio: false,
-                    plugins: { tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${money(ctx.raw)}` } } },
-                    scales: { y: { ticks: { callback: money } } }
-                }
-            });
-        });
-    </script>
-@endpush

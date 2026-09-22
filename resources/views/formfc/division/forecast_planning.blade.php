@@ -90,7 +90,13 @@
         <div class="card planning-card mb-3">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
                 <span class="fw-semibold">ตัวกรอง Division</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleAllDivisions">เลือก/ยกเลิกทั้งหมด</button>
+                <div class="d-flex gap-2">
+                    <a href="{{ route('fc.division', array_merge(request()->query(), ['export_excel' => 1, 'page' => null])) }}"
+                        class="btn btn-sm btn-success" id="btnExportPlanningExcel">
+                        <i class="fa-solid fa-file-excel me-1"></i> Export Excel
+                    </a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleAllDivisions">เลือก/ยกเลิกทั้งหมด</button>
+                </div>
             </div>
             <div class="card-body">
                 <form method="get" action="{{ route('fc.division') }}">
@@ -166,13 +172,13 @@
                                 <th>FG Part</th>
                                 <th>FG Description</th>
                                 <th>RM Part</th>
-                                <th>Avg 6M</th>
+                                <th>Avg {{ $forecastHorizonMonths }}M</th>
                                 <th>K</th>
                                 @foreach ($futureLabels as $label)
                                     <th>{{ $label }}</th>
                                 @endforeach
                                 <th>Approved 1M</th>
-                                <th>Approved 6M</th>
+                                <th>Approved {{ $forecastHorizonMonths }}M</th>
                                 <th>Supplier</th>
                                 <th>Sales Remark</th>
                                 <th>Approval Remark</th>

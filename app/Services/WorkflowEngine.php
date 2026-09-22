@@ -60,6 +60,73 @@ class WorkflowEngine
         });
     }
 
+    public static function resubmit(
+        int $wfId,
+        int $actorUserId,
+        ?string $comment = null,
+        int $initialStepNo = 1,
+        ?string $appCode = null
+    ): void {
+        $appCode = self::resolveAppCode($wfId, $appCode);
+
+        WorkflowDb::transaction($appCode, function () use ($wfId, $actorUserId, $comment, $initialStepNo, $appCode) {
+            $wf = WorkflowDb::table($appCode, 'wf_forms')->lockForUpdate()->find($wfId);
+            abort_unless($wf, 404);
+            abort_unless(
+                (string) $wf->form_status === self::ST_REJECTED && (int) $wf->current_step_no === 1,
+                422,
+                'Only a workflow returned for revision can be submitted again'
+            );
+
+            WorkflowDb::table($appCode, 'wf_action_histories')->insert([
+                'wf_form_id' => $wfId,
+                'step_no' => 1,
+                'actor_user_id' => $actorUserId,
+                'action_type' => 'SUBMIT',
+                'comment' => $comment ?: 'Resubmitted after revision',
+                'created_at' => now(),
+            ]);
+
+            $context = self::buildContextFromRef($wf);
+            self::moveToStep($wfId, max(1, $initialStepNo), $actorUserId, $context, [], $appCode);
+        });
+    }
+
+    public static function reopenCompleted(
+        int $wfId,
+        int $actorUserId,
+        string $reason,
+        ?string $appCode = null
+    ): void {
+        $appCode = self::resolveAppCode($wfId, $appCode);
+
+        WorkflowDb::transaction($appCode, function () use ($wfId, $actorUserId, $reason, $appCode) {
+            $wf = WorkflowDb::table($appCode, 'wf_forms')->lockForUpdate()->find($wfId);
+            abort_unless($wf, 404);
+            abort_unless(
+                (string) $wf->form_status === self::ST_CLOSED && (int) $wf->current_step_no === 999,
+                422,
+                'Only a completed workflow can be reopened'
+            );
+
+            WorkflowDb::table($appCode, 'wf_forms')->where('id', $wfId)->update([
+                'form_status' => self::ST_REJECTED,
+                'current_step_no' => 1,
+                'last_action_dt' => now(),
+                'updated_at' => now(),
+            ]);
+
+            WorkflowDb::table($appCode, 'wf_action_histories')->insert([
+                'wf_form_id' => $wfId,
+                'step_no' => 1,
+                'actor_user_id' => $actorUserId,
+                'action_type' => 'REOPEN',
+                'comment' => $reason,
+                'created_at' => now(),
+            ]);
+        });
+    }
+
     public static function approve(int $wfId, int $actorUserId, ?string $comment = null, ?string $appCode = null): void
     {
         $appCode = self::resolveAppCode($wfId, $appCode);
@@ -257,14 +324,25 @@ class WorkflowEngine
         });
     }
 
-    public static function void(int $wfId, int $actorUserId, ?string $reason = null, ?string $appCode = null): void
+    public static function void(int $wfId, int $actorUserId, ?string $reason = null, ?string $appCode = null, bool $poManagerOnly = false): void
     {
         $appCode = self::resolveAppCode($wfId, $appCode);
 
-        WorkflowDb::transaction($appCode, function () use ($wfId, $actorUserId, $reason, $appCode) {
+        WorkflowDb::transaction($appCode, function () use ($wfId, $actorUserId, $reason, $appCode, $poManagerOnly) {
             $wf = WorkflowDb::table($appCode, 'wf_forms')->lockForUpdate()->find($wfId);
             abort_unless($wf, 404);
-            abort_unless((int) $wf->request_by_user_id === $actorUserId, 403, 'Only originator can void');
+            if ($poManagerOnly) {
+                abort_unless($appCode === 'po' && (string) $wf->app_code === 'po'
+                    && (int) $wf->current_step_no === 3, 403, 'Only the current PO manager can cancel');
+                abort_unless(WorkflowDb::table($appCode, 'wf_form_authorizes')
+                    ->where('wf_form_id', $wfId)->where('step_no', 3)
+                    ->where('approver_user_id', $actorUserId)
+                    ->where(fn ($q) => $q->whereNull('status')->orWhere('status', 'PENDING'))
+                    ->exists(), 403, 'Only the current PO manager can cancel');
+                abort_if(trim((string) $reason) === '', 422, 'Cancellation reason is required');
+            } else {
+                abort_unless((int) $wf->request_by_user_id === $actorUserId, 403, 'Only originator can void');
+            }
             abort_if(in_array((string) $wf->form_status, [self::ST_CLOSED, self::ST_VOID], true), 422, 'Already finished');
 
             WorkflowDb::table($appCode, 'wf_forms')->where('id', $wfId)->update([
@@ -276,7 +354,7 @@ class WorkflowEngine
 
             WorkflowDb::table($appCode, 'wf_action_histories')->insert([
                 'wf_form_id' => $wfId,
-                'step_no' => 998,
+                'step_no' => $poManagerOnly ? 3 : 998,
                 'actor_user_id' => $actorUserId,
                 'action_type' => 'CANCEL',
                 'comment' => $reason ?: 'Void by originator',
@@ -302,13 +380,28 @@ class WorkflowEngine
             ->orderBy('priority')
             ->get();
 
-        $approvers = collect();
-        foreach ($rules as $rule) {
-            $stepContext = array_merge($context, ['workflow_step_no' => $stepNo]);
-            $list = ApproverResolver::resolve($rule, $wf, $stepContext, $skipFlags);
-            $ruleApprovers = $list instanceof Collection ? $list : collect($list);
-            $approvers = $approvers->merge($ruleApprovers->unique()->values());
+        $stepContext = array_merge($context, ['workflow_step_no' => $stepNo]);
+        $requiresPurchaseStoreAssistant = ApproverResolver::shouldRoutePoThroughPurchaseStoreAssistant($wf, $stepContext);
+        $approvers = $requiresPurchaseStoreAssistant
+            ? ApproverResolver::poPurchaseStoreAssistantApprovers($wf, $stepContext)
+            : collect();
+
+        if (!$requiresPurchaseStoreAssistant) {
+            $approvers = ApproverResolver::poDepartmentApprovers($wf, $stepContext);
         }
+
+        if ($approvers->isEmpty() && !$requiresPurchaseStoreAssistant) {
+            foreach ($rules as $rule) {
+                $list = ApproverResolver::resolve($rule, $wf, $stepContext, $skipFlags);
+                $ruleApprovers = $list instanceof Collection ? $list : collect($list);
+                $approvers = $approvers->merge($ruleApprovers->unique()->values());
+            }
+        }
+
+        $additionalApprovers = ApproverResolver::poAdditionalDepartmentApprovers($wf, $stepContext)
+            ->reject(fn ($userId) => $approvers->contains($userId))
+            ->values();
+        $approvers = $approvers->merge($additionalApprovers);
         $allowDuplicateApprovers = strtolower((string) ($wf->app_code ?? '')) === 'po';
         $approvers = $allowDuplicateApprovers
             ? $approvers->filter()->values()
@@ -493,6 +586,7 @@ class WorkflowEngine
             return [
                 'department_id' => $departmentId ? (int) $departmentId : 0,
                 'document_department_id' => $departmentId ? (int) $departmentId : 0,
+                'document_department_name' => (string) ($po->f1 ?? ''),
                 'submitter_department_id' => $submitterDepartmentId ? (int) $submitterDepartmentId : 0,
                 'originator_id' => (int) ($wf->request_by_user_id ?? 0),
             ];
