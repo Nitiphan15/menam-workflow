@@ -73,13 +73,14 @@ class VariableCostPeriodFilterTest extends TestCase
         foreach (['summary', 'monthly', 'matrix', 'accounts'] as $page) {
             $view = file_get_contents($base."/resources/views/formvc/{$page}.blade.php");
             $this->assertStringContainsString("formvc.partials.year-comparison", $view);
+            $this->assertStringNotContainsString('<canvas', $view);
+            $this->assertStringNotContainsString('new Chart', $view);
         }
 
         $this->assertStringContainsString('for (let i = 0; i < years.length; i++)', $partial);
         $this->assertStringContainsString("request()->input('years', [])", $partial);
-        $this->assertStringContainsString("new Chart(context", $partial);
-        $this->assertStringContainsString("15 แผนกที่มีค่าใช้จ่ายสูงสุด", $partial);
-        $this->assertStringContainsString("y: { ticks: { autoSkip: false } }", $partial);
+        $this->assertStringNotContainsString('<canvas', $partial);
+        $this->assertStringNotContainsString('new Chart', $partial);
         $this->assertStringContainsString("Route::get('/year-comparison'", $routes);
     }
 
