@@ -30,12 +30,12 @@
         <form method="GET" action="{{ route($targetRoute) }}" class="p-3">
             <div class="row g-3 align-items-end">
                 <div class="col-lg-2 col-md-4">
-                    <label class="form-label">From Date</label>
-                    <input type="date" name="date_from" class="form-control" value="{{ $filters['date_from'] ?? '' }}">
+                    <label class="form-label">From Month</label>
+                    <input type="month" name="date_from" class="form-control" value="{{ substr((string) ($filters['date_from'] ?? ''), 0, 7) }}">
                 </div>
                 <div class="col-lg-2 col-md-4">
-                    <label class="form-label">To Date</label>
-                    <input type="date" name="date_to" class="form-control" value="{{ $filters['date_to'] ?? '' }}">
+                    <label class="form-label">To Month</label>
+                    <input type="month" name="date_to" class="form-control" value="{{ substr((string) ($filters['date_to'] ?? ''), 0, 7) }}">
                 </div>
                 <div class="col-lg-1 col-md-4">
                     <label class="form-label">Site</label>

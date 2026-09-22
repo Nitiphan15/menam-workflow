@@ -7,7 +7,8 @@
     @php
         $yearlyRows = collect($yearlyRows ?? []);
         $classOptions = collect($classOptions ?? []);
-        $yearlyTotals = $yearlyTotals ?? (object) ['previous_avg' => 0, 'months' => [], 'total_amount' => 0];
+        $years = collect($years ?? [date('Y'), date('Y') - 1]);
+        $yearlyTotals = $yearlyTotals ?? (object) ['years' => [], 'total_amount' => 0];
         $fmt = fn($value, $decimals = 2) => ((float) $value) == 0.0 ? '-' : number_format((float) $value, $decimals);
         $monthLabels = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
     @endphp
@@ -21,9 +22,13 @@
             <div class="vc-card-header">Filter รายปีตาม Class</div>
             <form method="GET" action="{{ route('variable-cost.yearly') }}" class="p-3">
                 <div class="row g-3 align-items-end">
-                    <div class="col-lg-2 col-md-4">
-                        <label class="form-label">Year</label>
-                        <input type="number" name="year" class="form-control" value="{{ $year }}" min="2000" max="2100">
+                    <div class="col-lg-3 col-md-6">
+                        <label class="form-label">Years (เลือกได้หลายปี)</label>
+                        <select name="years[]" class="form-select vc-yearly-years" multiple>
+                            @foreach (range((int) date('Y') + 1, 2000) as $optionYear)
+                                <option value="{{ $optionYear }}" {{ $years->contains($optionYear) ? 'selected' : '' }}>{{ $optionYear }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <div class="col-lg-2 col-md-4">
                         <label class="form-label">Site</label>
@@ -74,18 +79,25 @@
                         ทุก Class
                     @endif
                 </span>
-                <span class="text-muted small">เฉลี่ย {{ $previousYear }} เทียบกับรายเดือน {{ $year }}</span>
+                <span class="text-muted small">เปรียบเทียบปี {{ $years->implode(', ') }}</span>
             </div>
             <div class="vc-table-wrap">
                 <table class="table table-bordered table-sm vc-table vc-matrix-table mb-0">
                     <thead>
                         <tr>
-                            <th class="dept-col">บัญชี</th>
-                            <th class="num">เฉลี่ย {{ $previousYear }}</th>
-                            @foreach ($monthLabels as $label)
-                                <th class="num">{{ $label }}</th>
+                            <th class="dept-col" rowspan="2">บัญชี</th>
+                            @foreach ($years as $year)
+                                <th class="text-center" colspan="13">{{ $year }}</th>
                             @endforeach
-                            <th class="num">รวม</th>
+                            <th class="num" rowspan="2">รวมทุกปี</th>
+                        </tr>
+                        <tr>
+                            @foreach ($years as $year)
+                                @foreach ($monthLabels as $label)
+                                    <th class="num">{{ $label }}</th>
+                                @endforeach
+                                <th class="num">รวม {{ $year }}</th>
+                            @endforeach
                         </tr>
                     </thead>
                     <tbody>
@@ -95,23 +107,27 @@
                                     <div class="fw-bold">{{ $row->account_code }}</div>
                                     <div>{{ $row->account_name }}</div>
                                 </td>
-                                <td class="num">{{ $fmt($row->previous_avg) }}</td>
-                                @foreach ($monthLabels as $month => $label)
-                                    <td class="num">{{ $fmt($row->months[$month] ?? 0) }}</td>
+                                @foreach ($years as $year)
+                                    @foreach ($monthLabels as $month => $label)
+                                        <td class="num">{{ $fmt($row->years[$year]['months'][$month] ?? 0) }}</td>
+                                    @endforeach
+                                    <td class="num fw-bold">{{ $fmt($row->years[$year]['total_amount'] ?? 0) }}</td>
                                 @endforeach
                                 <td class="num fw-bold">{{ $fmt($row->total_amount) }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="15" class="text-center text-muted py-4">No data</td></tr>
+                            <tr><td colspan="{{ 2 + ($years->count() * 13) }}" class="text-center text-muted py-4">No data</td></tr>
                         @endforelse
                     </tbody>
                     @if ($yearlyRows->isNotEmpty())
                         <tfoot>
                             <tr>
                                 <td class="dept-col">Total</td>
-                                <td class="num">{{ $fmt($yearlyTotals->previous_avg ?? 0) }}</td>
-                                @foreach ($monthLabels as $month => $label)
-                                    <td class="num">{{ $fmt($yearlyTotals->months[$month] ?? 0) }}</td>
+                                @foreach ($years as $year)
+                                    @foreach ($monthLabels as $month => $label)
+                                        <td class="num">{{ $fmt($yearlyTotals->years[$year]['months'][$month] ?? 0) }}</td>
+                                    @endforeach
+                                    <td class="num">{{ $fmt($yearlyTotals->years[$year]['total_amount'] ?? 0) }}</td>
                                 @endforeach
                                 <td class="num">{{ $fmt($yearlyTotals->total_amount ?? 0) }}</td>
                             </tr>
@@ -127,12 +143,12 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             if (!window.TomSelect) return;
-            document.querySelectorAll('.vc-yearly-class').forEach(function (el) {
+            document.querySelectorAll('.vc-yearly-class, .vc-yearly-years').forEach(function (el) {
                 if (el.tomselect) return;
                 new TomSelect(el, {
                     plugins: ['remove_button'],
                     persist: false,
-                    placeholder: '-- เลือก class --',
+                    placeholder: el.classList.contains('vc-yearly-years') ? '-- เลือกปี --' : '-- เลือก class --',
                     maxOptions: 1000,
                     dropdownParent: 'body',
                 });
