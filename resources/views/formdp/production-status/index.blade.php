@@ -1781,8 +1781,9 @@
                                         <div class="d-flex align-items-center gap-1 flex-wrap">
                                             <select class="form-select form-select-sm pst-confirm-status"
                                                 style="width:130px;flex:0 0 130px;">
+                                                <option value="" {{ !$confStatus ? 'selected' : '' }}>รอจัดแผน</option>
                                                 <option value="CONFIRM"
-                                                    {{ !$confStatus || $confStatus === 'CONFIRM' ? 'selected' : '' }}>
+                                                    {{ $confStatus === 'CONFIRM' ? 'selected' : '' }}>
                                                     ยืนยันการส่ง</option>
                                                 <option value="POSTPONE"
                                                     {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>ขอเลื่อนการส่ง

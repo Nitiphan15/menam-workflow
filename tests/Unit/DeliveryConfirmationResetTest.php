@@ -92,4 +92,60 @@ class DeliveryConfirmationResetTest extends TestCase
         $this->assertSame(0, $count);
         $this->assertSame(1, DeliveryConfirmation::count());
     }
+
+    public function test_logistics_postpone_can_reset_without_a_new_delivery_date(): void
+    {
+        DeliveryConfirmation::create([
+            'mfg_no' => 'W400',
+            'site' => 'WIRE',
+            'so_number' => 'SO-3',
+            'confirmation_status' => DeliveryConfirmation::STATUS_CONFIRM,
+            'original_ship_date' => '2026-09-22',
+            'confirmed_at' => now(),
+        ]);
+
+        $count = app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
+            'W400',
+            'SO-3',
+            '2026-09-22',
+            null,
+            'Logistics เลื่อนแผน'
+        );
+
+        $this->assertSame(1, $count);
+        $latest = app(DeliveryConfirmationService::class)->latestMap(['W400'], ['WIRE']);
+        $this->assertSame(DeliveryConfirmation::STATUS_RECONFIRM, $latest['WIRE|W400']->confirmation_status);
+        $this->assertNull($latest['WIRE|W400']->new_delivery_date);
+    }
+
+    public function test_all_plan_change_entry_points_reset_tracking_confirmation(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $salesController = file_get_contents(
+            $root . '/app/Http/Controllers/FormDP/DeliveryPlanController.php'
+        );
+        $inquiryController = file_get_contents(
+            $root . '/app/Http/Controllers/FormDP/DeliveryPlanInquiryController.php'
+        );
+        $trackingView = file_get_contents(
+            $root . '/resources/views/formdp/production-status/index.blade.php'
+        );
+
+        $this->assertStringContainsString(
+            'if ($originalShipDate !== $newShipDate)',
+            $salesController
+        );
+        $this->assertStringContainsString(
+            "if (\$dispatchType === 'POSTPONED')",
+            $inquiryController
+        );
+        $this->assertGreaterThanOrEqual(
+            3,
+            substr_count($salesController . $inquiryController, 'resetAfterPlanPostpone(')
+        );
+        $this->assertStringContainsString(
+            '<option value="" {{ !$confStatus ? \'selected\' : \'\' }}>รอจัดแผน</option>',
+            $trackingView
+        );
+    }
 }

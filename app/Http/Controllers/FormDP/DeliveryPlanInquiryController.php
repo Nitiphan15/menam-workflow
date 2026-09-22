@@ -6318,7 +6318,7 @@ class DeliveryPlanInquiryController extends Controller
             $rows = $this->conn()
                 ->table('delivery_plan_data')
                 ->whereIn('ord_id', $ordIds->all())
-                ->get(['ord_id', 'status']);
+                ->get(['ord_id', 'status', 'mfg_no', 'so_number', 'ship_posted_at']);
 
             if ($rows->count() !== $ordIds->count()) {
                 throw ValidationException::withMessages(['ord_ids' => ['พบรายการไม่ครบตามที่เลือก']]);
@@ -6370,6 +6370,20 @@ class DeliveryPlanInquiryController extends Controller
                     'status' => $status,
                     'revise_by' => $userId,
                 ]);
+
+            if ($dispatchType === 'POSTPONED') {
+                foreach ($rows as $row) {
+                    app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
+                        $row->mfg_no ?? null,
+                        $row->so_number ?? null,
+                        !empty($row->ship_posted_at)
+                            ? Carbon::parse($row->ship_posted_at)->toDateString()
+                            : null,
+                        null,
+                        $remark !== '' ? $remark : 'Logistics เลื่อนแผน'
+                    );
+                }
+            }
         });
 
         return redirect($data['return_url'] ?? url()->previous())->with('success', 'บันทึกช่องทางพิเศษแล้ว');

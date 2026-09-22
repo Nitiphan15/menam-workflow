@@ -139,7 +139,7 @@ class DeliveryConfirmationService
         ?string $mfgValue,
         ?string $soNumber,
         ?string $originalShipDate,
-        string $newShipDate,
+        ?string $newShipDate,
         string $reason
     ): int {
         $targets = collect(explode(',', (string) $mfgValue))
@@ -182,7 +182,9 @@ class DeliveryConfirmationService
                 'original_ship_date' => $originalShipDate
                     ? Carbon::parse($originalShipDate)->toDateString()
                     : null,
-                'new_delivery_date' => Carbon::parse($newShipDate)->toDateString(),
+                'new_delivery_date' => $newShipDate
+                    ? Carbon::parse($newShipDate)->toDateString()
+                    : null,
                 'remark' => mb_substr('เลื่อนแผนจริง: ' . trim($reason), 0, 500),
                 'confirmed_by_id' => $user?->id,
                 'confirmed_by_login' => $user?->login ?? $user?->username ?? null,
