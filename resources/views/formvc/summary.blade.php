@@ -75,6 +75,21 @@
         @include('formvc.partials.header')
         @include('formvc.partials.year-comparison')
 
+        <div class="row g-3 mb-3">
+            <div class="col-xl-7">
+                <div class="vc-card h-100">
+                    <div class="vc-card-header">Top แผนก ค่าใช้จ่ายสูงสุด</div>
+                    <div class="chart-box tall"><canvas id="vcDepartmentChart"></canvas></div>
+                </div>
+            </div>
+            <div class="col-xl-5">
+                <div class="vc-card h-100">
+                    <div class="vc-card-header">สัดส่วนค่าใช้จ่ายตามแผนก</div>
+                    <div class="chart-box tall"><canvas id="vcDepartmentPieChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
         <div class="vc-card vc-summary-card">
             <div class="vc-card-header d-flex justify-content-between align-items-center">
                 <span>ตารางสรุปค่าใช้จ่ายรายแผนก</span>
@@ -317,3 +332,39 @@
         </div>
     @endif
 @endsection
+
+@push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            if (!window.Chart) return;
+
+            const sourceRows = @json($departmentSummary->values());
+            const topRows = sourceRows.slice(0, 10);
+            const otherRows = sourceRows.slice(10);
+            const otherTotal = otherRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+            const rows = otherTotal > 0
+                ? topRows.concat([{ department_code: 'Other', department: 'แผนกอื่น ๆ', total_amount: otherTotal }])
+                : topRows;
+            const palette = ['#b8421f','#2d6a4f','#b8860b','#5a3a8a','#c9302c','#1a6b85','#7d4f3c','#3a6b2d','#85591a','#6b1a4a','#1a5a85','#854a1a'];
+            const money = value => Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+            const deptLabel = row => row.department_code ? `${row.department_code} ${row.department}` : row.department;
+
+            new Chart(document.getElementById('vcDepartmentChart'), {
+                type: 'bar',
+                data: { labels: rows.map(deptLabel), datasets: [{ data: rows.map(row => row.total_amount), backgroundColor: rows.map((_, i) => palette[i % palette.length]) }] },
+                options: {
+                    indexAxis: 'y',
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => money(ctx.raw) } } },
+                    scales: { x: { ticks: { callback: money } }, y: { grid: { display: false } } }
+                }
+            });
+
+            new Chart(document.getElementById('vcDepartmentPieChart'), {
+                type: 'doughnut',
+                data: { labels: rows.map(row => row.department_code || row.department), datasets: [{ data: rows.map(row => row.total_amount), backgroundColor: rows.map((_, i) => palette[i % palette.length]) }] },
+                options: { maintainAspectRatio: false, plugins: { tooltip: { callbacks: { label: ctx => `${ctx.label}: ${money(ctx.raw)}` } } } }
+            });
+        });
+    </script>
+@endpush
