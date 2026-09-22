@@ -76,6 +76,8 @@ class VariableCostPeriodFilterTest extends TestCase
         }
 
         $this->assertStringContainsString('for (let i = 0; i < years.length; i++)', $partial);
+        $this->assertStringContainsString("request()->input('years', [])", $partial);
+        $this->assertStringContainsString("new Chart(context", $partial);
         $this->assertStringContainsString("Route::get('/year-comparison'", $routes);
     }
 
