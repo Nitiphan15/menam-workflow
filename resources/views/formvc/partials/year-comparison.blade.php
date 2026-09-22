@@ -11,9 +11,6 @@
             <div class="small text-muted mb-2">กำลังโหลดทีละปี...</div>
             <div class="progress" style="height:8px"><div class="progress-bar" data-vc-progress style="width:0%"></div></div>
         </div>
-        <div class="p-3 d-none" data-vc-chart-wrap>
-            <div class="chart-box tall"><canvas data-vc-chart></canvas></div>
-        </div>
         <div class="vc-table-wrap d-none" data-vc-result>
             <table class="table table-bordered table-sm vc-table mb-0">
                 <thead><tr><th>รายการ</th>@foreach ($comparisonYears as $year)<th class="num">{{ $year }}</th>@endforeach</tr></thead>
@@ -34,7 +31,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     params.delete('years[]'); params.delete('years');
     params.set('comparison_page', root.dataset.page);
     const loaded = {}, failed = {};
-    let comparisonChart = null;
     const money = value => Number(value || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const escapeHtml = text => { const div = document.createElement('div'); div.textContent = text || ''; return div.innerHTML; };
     const requestJson = url => new Promise((resolve, reject) => {
@@ -57,46 +53,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
         root.querySelector('[data-vc-result]').classList.remove('d-none');
 
-        if (window.Chart && rows.length) {
-            const chartRows = root.dataset.page === 'monthly' ? rows : rows.slice(0, 15);
-            const context = root.querySelector('[data-vc-chart]');
-            const colors = ['#2d6a4f', '#b8421f', '#1d4ed8', '#7c3aed', '#0891b2', '#ca8a04'];
-            const isMonthly = root.dataset.page === 'monthly';
-            const chartTitles = {
-                summary: '15 แผนกที่มีค่าใช้จ่ายสูงสุด',
-                monthly: 'ค่าใช้จ่ายรวมรายเดือน',
-                matrix: '15 แผนกที่มีค่าใช้จ่ายสูงสุด',
-                accounts: '15 บัญชีที่มีค่าใช้จ่ายสูงสุด',
-            };
-            const data = {
-                labels: chartRows.map(row => row.label),
-                datasets: years.filter(year => loaded[year]).map((year, index) => ({
-                    label: String(year),
-                    data: chartRows.map(row => Number(row.amounts[year] || 0)),
-                    borderColor: colors[index % colors.length],
-                    backgroundColor: colors[index % colors.length] + '99',
-                    tension: .25,
-                    fill: false,
-                })),
-            };
-            if (comparisonChart) comparisonChart.destroy();
-            comparisonChart = new Chart(context, {
-                type: isMonthly ? 'line' : 'bar',
-                data,
-                options: {
-                    indexAxis: isMonthly ? 'x' : 'y',
-                    maintainAspectRatio: false,
-                    plugins: {
-                        title: { display: true, text: chartTitles[root.dataset.page] || 'เปรียบเทียบค่าใช้จ่ายรายปี' },
-                        tooltip: { callbacks: { label: item => `${item.dataset.label}: ${money(item.raw)}` } },
-                    },
-                    scales: isMonthly
-                        ? { x: {}, y: { ticks: { callback: value => money(value) } } }
-                        : { x: { ticks: { callback: value => money(value) } }, y: { ticks: { autoSkip: false } } },
-                },
-            });
-            root.querySelector('[data-vc-chart-wrap]').classList.remove('d-none');
-        }
     };
     for (let i = 0; i < years.length; i++) {
         const year = years[i]; params.set('comparison_year', year);
