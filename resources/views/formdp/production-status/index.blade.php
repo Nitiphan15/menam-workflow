@@ -1711,6 +1711,9 @@
                                 </td>
                                 <td>
                                     <div>{{ $fmtDate($row->ship_date ?? $row->due_date) }}</div>
+                                    @if (!empty($row->postponed_from_note))
+                                        <div class="small text-warning-emphasis">{{ $row->postponed_from_note }}</div>
+                                    @endif
                                     <div class="pst-muted">
                                         {{ is_numeric($row->days_to_due) ? $row->days_to_due . ' days' : '-' }}
                                     </div>
