@@ -78,6 +78,8 @@ class VariableCostPeriodFilterTest extends TestCase
         $this->assertStringContainsString('for (let i = 0; i < years.length; i++)', $partial);
         $this->assertStringContainsString("request()->input('years', [])", $partial);
         $this->assertStringContainsString("new Chart(context", $partial);
+        $this->assertStringContainsString("15 แผนกที่มีค่าใช้จ่ายสูงสุด", $partial);
+        $this->assertStringContainsString("y: { ticks: { autoSkip: false } }", $partial);
         $this->assertStringContainsString("Route::get('/year-comparison'", $routes);
     }
 
