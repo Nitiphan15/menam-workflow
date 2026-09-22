@@ -690,6 +690,7 @@ Route::prefix('variable-cost')
     Route::get('/matrix', [VariableCostController::class, 'matrix'])->name('matrix');
     Route::get('/accounts', [VariableCostController::class, 'accounts'])->name('accounts');
     Route::get('/yearly', [VariableCostController::class, 'yearly'])->name('yearly');
+    Route::get('/year-comparison', [VariableCostController::class, 'yearComparison'])->name('year-comparison');
     Route::get('/details', [VariableCostController::class, 'details'])->name('details');
     Route::get('/export', [VariableCostController::class, 'export'])->name('export');
     Route::post('/truck-weight-log', [VariableCostController::class, 'storeTruckWeightLog'])->middleware('permission.any:VCM')->name('truck-weight-log.store');

@@ -1991,6 +1991,43 @@ class VariableCostService
         }
     }
 
+    public function getYearComparisonRows(string $page, array $filters): array
+    {
+        $filters = $this->normalizeFilters($filters);
+        $rows = $this->normalizeYearlyRows($this->fetchYearlyYearsAggregate($filters), $filters['site']);
+
+        if ($page === 'monthly') {
+            $labels = [1=>'ม.ค.',2=>'ก.พ.',3=>'มี.ค.',4=>'เม.ย.',5=>'พ.ค.',6=>'มิ.ย.',7=>'ก.ค.',8=>'ส.ค.',9=>'ก.ย.',10=>'ต.ค.',11=>'พ.ย.',12=>'ธ.ค.'];
+            return collect(range(1, 12))->map(fn($month) => [
+                'key' => (string) $month,
+                'label' => $labels[$month],
+                'amount' => (float) $rows->where('month_no', $month)->sum('total_amount'),
+            ])->all();
+        }
+
+        if ($page === 'accounts') {
+            return $rows->groupBy(fn($row) => ($row->account_code ?: '-') . '|' . $row->account_name)
+                ->map(function ($group, $key) {
+                    $row = $group->first();
+                    return [
+                        'key' => $key,
+                        'label' => trim(($row->account_code ? $row->account_code . ' - ' : '') . $row->account_name),
+                        'amount' => (float) $group->sum('total_amount'),
+                    ];
+                })->values()->all();
+        }
+
+        return $rows->groupBy(fn($row) => $this->classKey($row))
+            ->map(function ($group, $key) {
+                $row = $group->first();
+                return [
+                    'key' => $key,
+                    'label' => trim(($row->department_code ? $row->department_code . ' - ' : '') . $row->department),
+                    'amount' => (float) $group->sum('total_amount'),
+                ];
+            })->values()->all();
+    }
+
     private function periodBoundaryOrDefault(?string $value, string $default, bool $endOfMonth): string
     {
         if (!$value) {
