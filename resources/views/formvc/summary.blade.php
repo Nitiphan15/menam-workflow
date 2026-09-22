@@ -73,6 +73,7 @@
 
     <div class="vc-wrap">
         @include('formvc.partials.header')
+        @include('formvc.partials.year-comparison')
 
         <div class="row g-3 mb-3">
             <div class="col-xl-7">

@@ -136,6 +136,24 @@ class VariableCostController extends Controller
         ), fn($v) => $v !== ''));
     }
 
+    public function yearComparison(Request $request, VariableCostService $service)
+    {
+        $validated = $request->validate([
+            'comparison_page' => ['required', 'in:summary,monthly,matrix,accounts'],
+            'comparison_year' => ['required', 'integer', 'between:2000,2100'],
+        ]);
+        $filters = $this->filtersFromRequest($request);
+        $year = (int) $validated['comparison_year'];
+        $filters['date_from'] = "{$year}-01-01";
+        $filters['date_to'] = "{$year}-12-31";
+
+        $rows = $service->getYearComparisonRows($validated['comparison_page'], $filters);
+        return response()->json([
+            'year' => $year,
+            'rows' => $rows,
+        ]);
+    }
+
     private function shouldGuardDetail(array $filters): bool
     {
         if (

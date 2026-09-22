@@ -64,6 +64,21 @@ class VariableCostPeriodFilterTest extends TestCase
         $this->assertStringContainsString('vc-yearly-years', $yearlyView);
     }
 
+    public function test_shared_year_comparison_loads_each_year_sequentially(): void
+    {
+        $base = dirname(__DIR__, 2);
+        $partial = file_get_contents($base.'/resources/views/formvc/partials/year-comparison.blade.php');
+        $routes = file_get_contents($base.'/routes/web.php');
+
+        foreach (['summary', 'monthly', 'matrix', 'accounts'] as $page) {
+            $view = file_get_contents($base."/resources/views/formvc/{$page}.blade.php");
+            $this->assertStringContainsString("formvc.partials.year-comparison", $view);
+        }
+
+        $this->assertStringContainsString('for (let i = 0; i < years.length; i++)', $partial);
+        $this->assertStringContainsString("Route::get('/year-comparison'", $routes);
+    }
+
     private function invokePrivate(string $method, array $arguments)
     {
         $reflection = new ReflectionMethod(VariableCostService::class, $method);

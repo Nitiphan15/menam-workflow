@@ -17,6 +17,7 @@
 
     <div class="vc-wrap">
         @include('formvc.partials.header')
+        @include('formvc.partials.year-comparison')
 
         <div class="vc-card">
             <div class="vc-card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
