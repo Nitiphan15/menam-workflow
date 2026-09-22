@@ -6,6 +6,39 @@ Run in SSMS against the workflow SQL Server database.
 SET NOCOUNT ON;
 
 DECLARE @mfg_no nvarchar(80) = N'SOD260800379';
+DECLARE @so_number nvarchar(80) = N'S2600566';
+
+-- Verify that SSMS is connected to the same server/database used by production.
+SELECT
+    @@SERVERNAME AS sql_server,
+    DB_NAME() AS database_name,
+    @mfg_no AS searched_mfg,
+    @so_number AS searched_so;
+
+IF OBJECT_ID('tempdb..#target_ord_ids') IS NOT NULL
+    DROP TABLE #target_ord_ids;
+
+SELECT DISTINCT d.ord_id
+INTO #target_ord_ids
+FROM dbo.delivery_plan_data FOR SYSTEM_TIME ALL AS d
+WHERE
+    UPPER(REPLACE(LTRIM(RTRIM(ISNULL(d.mfg_no, N''))), N'+', N''))
+        LIKE N'%' + UPPER(REPLACE(LTRIM(RTRIM(@mfg_no)), N'+', N'')) + N'%'
+    OR UPPER(LTRIM(RTRIM(ISNULL(d.so_number, N'')))) = UPPER(LTRIM(RTRIM(@so_number)));
+
+-- Fast candidate check. If this is empty, wrong server/database is likely.
+SELECT
+    d.ord_id,
+    d.mfg_no,
+    d.so_number,
+    d.ship_posted_at,
+    d.status,
+    d.revision_number,
+    d.edit_remark,
+    d.revise_by
+FROM dbo.delivery_plan_data AS d
+WHERE d.ord_id IN (SELECT ord_id FROM #target_ord_ids)
+ORDER BY d.ord_id;
 
 ;WITH plan_history AS (
     SELECT
@@ -27,7 +60,7 @@ DECLARE @mfg_no nvarchar(80) = N'SOD260800379';
             PARTITION BY d.ord_id ORDER BY d.SysStartTime
         ) AS previous_status
     FROM dbo.delivery_plan_data FOR SYSTEM_TIME ALL AS d
-    WHERE UPPER(LTRIM(RTRIM(d.mfg_no))) = UPPER(LTRIM(RTRIM(@mfg_no)))
+    WHERE d.ord_id IN (SELECT ord_id FROM #target_ord_ids)
 )
 SELECT
     h.ord_id,
@@ -76,7 +109,10 @@ SELECT
     c.confirmed_by_login,
     c.confirmed_by_name
 FROM dbo.dp_delivery_confirmation AS c
-WHERE UPPER(LTRIM(RTRIM(c.mfg_no))) = UPPER(LTRIM(RTRIM(@mfg_no)))
+WHERE
+    UPPER(REPLACE(LTRIM(RTRIM(ISNULL(c.mfg_no, N''))), N'+', N''))
+        LIKE N'%' + UPPER(REPLACE(LTRIM(RTRIM(@mfg_no)), N'+', N'')) + N'%'
+    OR UPPER(LTRIM(RTRIM(ISNULL(c.so_number, N'')))) = UPPER(LTRIM(RTRIM(@so_number)))
 ORDER BY c.id;
 
 -- Logistics special-dispatch actions, including POSTPONED.
@@ -100,5 +136,7 @@ FROM dbo.delivery_plan_special_dispatch AS sd
 INNER JOIN dbo.delivery_plan_data AS d ON d.ord_id = sd.ord_id
 LEFT JOIN dbo.users AS u_action ON u_action.id = sd.action_by
 LEFT JOIN dbo.users AS u_close ON u_close.id = sd.closed_by
-WHERE UPPER(LTRIM(RTRIM(d.mfg_no))) = UPPER(LTRIM(RTRIM(@mfg_no)))
+WHERE sd.ord_id IN (SELECT ord_id FROM #target_ord_ids)
 ORDER BY sd.id;
+
+DROP TABLE #target_ord_ids;
