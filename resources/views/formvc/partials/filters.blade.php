@@ -17,7 +17,7 @@
     $divisionGroupOptionList = collect($divisionGroupOptions ?? [])->map(fn($v) => (string) $v);
     $departmentOptionList = collect($departmentOptions ?? [])->map(fn($v) => (string) $v);
     $accountOptionList = collect($accountOptions ?? [])->map(fn($v) => (string) $v);
-    $comparisonYearVals = collect((array) request()->input('years', [(int) date('Y'), (int) date('Y') - 1]))
+    $comparisonYearVals = collect((array) request()->input('years', []))
         ->map(fn($v) => (string) $v)->filter()->values();
     $comparisonYearOptions = collect(range((int) date('Y') + 1, 2000));
 @endphp
