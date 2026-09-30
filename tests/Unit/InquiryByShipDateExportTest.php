@@ -128,6 +128,7 @@ class InquiryByShipDateExportTest extends TestCase
         $method->setAccessible(true);
 
         $this->assertTrue($method->invoke($controller, (object) ['department' => ' planner ']));
+        $this->assertTrue($method->invoke($controller, (object) ['id' => 2, 'department' => 'Sales']));
         $this->assertFalse($method->invoke($controller, (object) ['department' => 'Sales']));
         $this->assertFalse($method->invoke($controller, null));
     }

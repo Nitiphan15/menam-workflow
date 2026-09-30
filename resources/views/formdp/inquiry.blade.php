@@ -25,7 +25,9 @@
                 (method_exists($u, 'hasRoleCode') && $u->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
 
         $isPlannerDepartment =
-            $isLoggedIn && strcasecmp(trim((string) ($u->department ?? '')), 'Planner') === 0;
+            $isLoggedIn &&
+            (strcasecmp(trim((string) ($u->department ?? '')), 'Planner') === 0 ||
+                (int) ($u->id ?? 0) === 2);
 
         $tableColspan = 18 + ($canDp ? 1 : 0) + ($showInquiryBulkTruck ? 1 : 0);
 
