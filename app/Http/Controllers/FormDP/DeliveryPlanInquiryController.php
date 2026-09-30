@@ -4,6 +4,7 @@ namespace App\Http\Controllers\FormDP;
 
 use App\Http\Controllers\Controller;
 use App\Exports\FormOTD\InquiryByShipDateExport;
+use App\Exports\FormOTD\PlannerConfirmedInquiryExport;
 use App\Mail\AssignedTruckBoardMail;
 use App\Mail\DeliveryPlanMail;
 use App\Models\FormDP\DeliveryConfirmation;
@@ -210,6 +211,31 @@ class DeliveryPlanInquiryController extends Controller
             new InquiryByShipDateExport($filters),
             'Inquiry_By_ShipDate.xlsx'
         );
+    }
+
+    public function exportPlannerConfirmed(Request $request)
+    {
+        if (!$this->isPlannerDepartment($request->user())) {
+            abort(403, 'Export นี้สำหรับแผนก Planner เท่านั้น');
+        }
+
+        $filters = $request->all();
+        unset(
+            $filters['revision_number'],
+            $filters['revision_max_number'],
+            $filters['display_revision_number']
+        );
+
+        return Excel::download(
+            new PlannerConfirmedInquiryExport($filters),
+            'Inquiry_Confirm_By_Planner.xlsx'
+        );
+    }
+
+    private function isPlannerDepartment($user): bool
+    {
+        return $user !== null
+            && strcasecmp(trim((string) ($user->department ?? '')), 'Planner') === 0;
     }
 
     public function exportPdf(Request $request)

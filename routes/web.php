@@ -458,6 +458,8 @@ Route::middleware(['auth'])
     // ใช้ได้ทั้ง DP และ DPA
     Route::middleware(['permission.any:DP,DPA'])->group(function () {
       Route::get('/inquiry/export', [DeliveryPlanInquiryController::class, 'export'])->name('inquiry.export');
+      Route::get('/inquiry/export-planner-confirmed', [DeliveryPlanInquiryController::class, 'exportPlannerConfirmed'])
+        ->name('inquiry.export-planner-confirmed');
       Route::get('/inquiry/export-pdf', [DeliveryPlanInquiryController::class, 'exportPdf'])->name('inquiry.export-pdf');
 
       Route::get('/truck-capacity', [DeliveryPlanInquiryController::class, 'truckCapacity'])->name('truck.capacity');

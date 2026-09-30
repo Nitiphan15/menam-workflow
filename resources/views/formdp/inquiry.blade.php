@@ -24,6 +24,9 @@
             (($u->is_superadmin ?? 0) == 1 ||
                 (method_exists($u, 'hasRoleCode') && $u->hasRoleCode(['DPEMAIL', 'DPMAIL'])));
 
+        $isPlannerDepartment =
+            $isLoggedIn && strcasecmp(trim((string) ($u->department ?? '')), 'Planner') === 0;
+
         $tableColspan = 18 + ($canDp ? 1 : 0) + ($showInquiryBulkTruck ? 1 : 0);
 
         // return URL หลัง assign truck — เก็บแค่ filter ระดับวันที่/สถานะ ไม่เก็บ SO/MFG/Customer/Ord ID
@@ -226,6 +229,17 @@
                             <i class="fa fa-download me-1"></i> Export
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
+                            @if ($isPlannerDepartment)
+                                <li>
+                                    <a class="dropdown-item" id="btnExportPlannerConfirmed"
+                                        href="{{ route('dp.inquiry.export-planner-confirmed', request()->query()) }}">
+                                        <i class="fa fa-file-excel text-success me-2"></i> Export Excel - Confirm By Planner
+                                    </a>
+                                </li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                            @endif
                             <li>
                                 <a class="dropdown-item" id="btnExportExcel"
                                     href="{{ route('dp.inquiry.export', request()->query()) }}">

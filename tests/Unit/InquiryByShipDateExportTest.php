@@ -4,6 +4,8 @@ namespace Tests\Unit;
 
 use App\Exports\FormOTD\InquiryByShipDateExport;
 use App\Exports\FormOTD\InquiryShipDateSheet;
+use App\Exports\FormOTD\PlannerConfirmedInquiryExport;
+use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
 use App\Models\FormDP\DeliveryConfirmation;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -41,7 +43,7 @@ class InquiryByShipDateExportTest extends TestCase
         });
     }
 
-    public function test_export_places_confirm_by_planner_sheet_first_with_same_filters(): void
+    public function test_original_export_contains_only_date_sheets(): void
     {
         $filters = [
             'ship_from' => '2026-09-30',
@@ -70,9 +72,18 @@ class InquiryByShipDateExportTest extends TestCase
 
         $sheets = $export->sheets();
 
-        $this->assertCount(2, $sheets);
+        $this->assertCount(1, $sheets);
+        $this->assertSame('2026-09-30', $sheets[0]->title());
+        $headings = $sheets[0]->headings();
+        $this->assertNotSame('Confirm By Planner', end($headings));
+    }
+
+    public function test_planner_confirmed_export_contains_only_confirm_sheet(): void
+    {
+        $sheets = (new PlannerConfirmedInquiryExport(['customer' => 'ACME']))->sheets();
+
+        $this->assertCount(1, $sheets);
         $this->assertSame('Confirm By Planner', $sheets[0]->title());
-        $this->assertSame('2026-09-30', $sheets[1]->title());
         $headings = $sheets[0]->headings();
         $this->assertSame('Confirm By Planner', end($headings));
     }
@@ -108,5 +119,16 @@ class InquiryByShipDateExportTest extends TestCase
 
         $this->assertSame(['W100'], $confirmed->pluck('mfg_no')->all());
         $this->assertSame('Confirm Delivery', $confirmed->first()->planner_confirmation_label);
+    }
+
+    public function test_planner_department_check_is_trimmed_and_case_insensitive(): void
+    {
+        $controller = new DeliveryPlanInquiryController();
+        $method = new \ReflectionMethod($controller, 'isPlannerDepartment');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke($controller, (object) ['department' => ' planner ']));
+        $this->assertFalse($method->invoke($controller, (object) ['department' => 'Sales']));
+        $this->assertFalse($method->invoke($controller, null));
     }
 }
