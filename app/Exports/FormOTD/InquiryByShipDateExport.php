@@ -25,13 +25,20 @@ class InquiryByShipDateExport implements WithMultipleSheets
             $dates = ['NO_SHIP_DATE'];
         }
 
-        return array_map(
+        $sheets = array_map(
             fn($d) => new InquiryShipDateSheet($d, $this->filters),
             $dates
         );
+
+        $sheets[] = new InquiryShipDateSheet(
+            InquiryShipDateSheet::CONFIRM_BY_PLANNER_SHEET,
+            $this->filters
+        );
+
+        return $sheets;
     }
 
-    private function baseQuery()
+    protected function baseQuery()
     {
         $q = DB::connection('sqlsrv_menam')
             ->table('delivery_plan_data as d')
