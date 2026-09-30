@@ -2,6 +2,8 @@
 
 namespace App\Exports\FormOTD;
 
+use App\Models\FormDP\DeliveryConfirmation;
+use App\Services\FormDP\DeliveryConfirmationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\FromCollection;
@@ -13,6 +15,8 @@ use Maatwebsite\Excel\Events\AfterSheet;
 
 class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, WithMapping, WithEvents
 {
+    public const CONFIRM_BY_PLANNER_SHEET = 'CONFIRM_BY_PLANNER';
+
     private array $docMap = [];
     private array $userMap = [];
     private array $groupRows = [];
@@ -21,12 +25,16 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
     public function title(): string
     {
+        if ($this->isConfirmByPlannerSheet()) {
+            return 'Confirm By Planner';
+        }
+
         return $this->shipDate === 'NO_SHIP_DATE' ? 'NO_SHIP' : $this->shipDate;
     }
 
     public function headings(): array
     {
-        return [
+        $headings = [
             'Due date',
             'วันที่แท่งส่ง',
             'ช่วงเวลารับส่ง',
@@ -49,12 +57,18 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
             'สร้างเมื่อ',
             'สร้างโดย',
         ];
+
+        if ($this->isConfirmByPlannerSheet()) {
+            $headings[] = 'Confirm By Planner';
+        }
+
+        return $headings;
     }
 
     public function map($row): array
     {
         if (!empty($row->__group_row)) {
-            return [
+            $groupRow = [
                 (string) $row->group_label,
                 '',
                 '',
@@ -77,6 +91,12 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                 '',
                 '',
             ];
+
+            if ($this->isConfirmByPlannerSheet()) {
+                $groupRow[] = '';
+            }
+
+            return $groupRow;
         }
 
         $codes = $this->normalizeDocCodes((string) ($row->attach_docs ?? ''));
@@ -95,7 +115,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         $createdBy = (int) ($row->created_by ?? 0);
         $createdByName = $this->userMap[$createdBy] ?? ($createdBy > 0 ? (string) $createdBy : '');
 
-        return [
+        $mapped = [
             $row->due_date,
             $row->ship_posted_at,
             $row->window_at,
@@ -118,15 +138,23 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
             $row->created_at,
             $createdByName,
         ];
+
+        if ($this->isConfirmByPlannerSheet()) {
+            $mapped[] = $row->planner_confirmation_label ?? 'Confirm Delivery';
+        }
+
+        return $mapped;
     }
 
     public function registerEvents(): array
     {
         return [
             AfterSheet::class => function (AfterSheet $event) {
+                $lastColumn = $this->isConfirmByPlannerSheet() ? 'V' : 'U';
+
                 foreach ($this->groupRows as $rowNumber) {
-                    $event->sheet->mergeCells("A{$rowNumber}:U{$rowNumber}");
-                    $event->sheet->getStyle("A{$rowNumber}:U{$rowNumber}")->applyFromArray([
+                    $event->sheet->mergeCells("A{$rowNumber}:{$lastColumn}{$rowNumber}");
+                    $event->sheet->getStyle("A{$rowNumber}:{$lastColumn}{$rowNumber}")->applyFromArray([
                         'font' => [
                             'bold' => true,
                         ],
@@ -135,6 +163,26 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                             'startColor' => ['argb' => 'FFE5E7EB'],
                         ],
                     ]);
+                }
+
+                if ($this->isConfirmByPlannerSheet()) {
+                    $event->sheet->getStyle('V1')->applyFromArray([
+                        'font' => ['bold' => true],
+                        'fill' => [
+                            'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                            'startColor' => ['argb' => 'FFFFFF00'],
+                        ],
+                    ]);
+
+                    $highestRow = $event->sheet->getHighestRow();
+                    if ($highestRow >= 2) {
+                        $event->sheet->getStyle("V2:V{$highestRow}")->applyFromArray([
+                            'fill' => [
+                                'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                                'startColor' => ['argb' => 'FFFCE4D6'],
+                            ],
+                        ]);
+                    }
                 }
             },
         ];
@@ -215,7 +263,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
         if ($this->shipDate === 'NO_SHIP_DATE') {
             $q->whereNull('d.ship_posted_at');
-        } else {
+        } elseif (!$this->isConfirmByPlannerSheet()) {
             $q->whereRaw("CONVERT(date, d.ship_posted_at) = ?", [$this->shipDate]);
         }
 
@@ -247,6 +295,10 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
         $rows = $q->get();
 
+        if ($this->isConfirmByPlannerSheet()) {
+            $rows = $this->onlyConfirmedByPlanner($rows);
+        }
+
         $stockMap = $this->trackingStockFgMapForRows($rows);
 
         foreach ($rows as $r) {
@@ -263,6 +315,63 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         );
 
         return $this->withDivisionGroupRows($rows);
+    }
+
+    private function isConfirmByPlannerSheet(): bool
+    {
+        return $this->shipDate === self::CONFIRM_BY_PLANNER_SHEET;
+    }
+
+    private function onlyConfirmedByPlanner($rows)
+    {
+        $tokenize = fn($value) => collect(explode(',', (string) $value))
+            ->map(fn($token) => strtoupper(ltrim(trim((string) $token), " \t\n\r\0\x0B'\"+")))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $mfgNos = collect($rows)
+            ->flatMap(fn($row) => $tokenize($row->mfg_no ?? ''))
+            ->unique()
+            ->values()
+            ->all();
+
+        $latestMap = app(DeliveryConfirmationService::class)->latestMap($mfgNos);
+
+        return collect($rows)->filter(function ($row) use ($tokenize, $latestMap) {
+            $entry = null;
+
+            foreach ($tokenize($row->mfg_no ?? '') as $token) {
+                foreach ($latestMap as $key => $candidate) {
+                    if (!str_ends_with((string) $key, '|' . $token)) {
+                        continue;
+                    }
+
+                    $candidateStatus = strtoupper((string) ($candidate->confirmation_status ?? ''));
+                    $currentStatus = strtoupper((string) ($entry->confirmation_status ?? ''));
+
+                    if (
+                        $entry === null
+                        || ($candidateStatus === DeliveryConfirmation::STATUS_POSTPONE
+                            && $currentStatus !== DeliveryConfirmation::STATUS_POSTPONE)
+                        || ($candidateStatus === $currentStatus
+                            && ($candidate->confirmed_at ?? '') > ($entry->confirmed_at ?? ''))
+                    ) {
+                        $entry = $candidate;
+                    }
+                }
+            }
+
+            if (($entry->confirmation_status ?? null) !== DeliveryConfirmation::STATUS_CONFIRM) {
+                return false;
+            }
+
+            $row->planner_confirmation_label = DeliveryConfirmation::statusLabel(
+                $entry->confirmation_status
+            );
+
+            return true;
+        })->values();
     }
 
     private function trackingStockFgMapForRows($rows): array
