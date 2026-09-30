@@ -25,15 +25,17 @@ class InquiryByShipDateExport implements WithMultipleSheets
             $dates = ['NO_SHIP_DATE'];
         }
 
-        $sheets = array_map(
+        $sheets = [
+            new InquiryShipDateSheet(
+                InquiryShipDateSheet::CONFIRM_BY_PLANNER_SHEET,
+                $this->filters
+            ),
+        ];
+
+        array_push($sheets, ...array_map(
             fn($d) => new InquiryShipDateSheet($d, $this->filters),
             $dates
-        );
-
-        $sheets[] = new InquiryShipDateSheet(
-            InquiryShipDateSheet::CONFIRM_BY_PLANNER_SHEET,
-            $this->filters
-        );
+        ));
 
         return $sheets;
     }

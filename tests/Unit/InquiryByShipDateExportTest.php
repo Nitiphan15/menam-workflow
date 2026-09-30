@@ -41,7 +41,7 @@ class InquiryByShipDateExportTest extends TestCase
         });
     }
 
-    public function test_export_appends_confirm_by_planner_sheet_with_same_filters(): void
+    public function test_export_places_confirm_by_planner_sheet_first_with_same_filters(): void
     {
         $filters = [
             'ship_from' => '2026-09-30',
@@ -71,9 +71,9 @@ class InquiryByShipDateExportTest extends TestCase
         $sheets = $export->sheets();
 
         $this->assertCount(2, $sheets);
-        $this->assertSame('2026-09-30', $sheets[0]->title());
-        $this->assertSame('Confirm By Planner', $sheets[1]->title());
-        $headings = $sheets[1]->headings();
+        $this->assertSame('Confirm By Planner', $sheets[0]->title());
+        $this->assertSame('2026-09-30', $sheets[1]->title());
+        $headings = $sheets[0]->headings();
         $this->assertSame('Confirm By Planner', end($headings));
     }
 
