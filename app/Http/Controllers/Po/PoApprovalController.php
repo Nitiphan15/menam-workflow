@@ -15,7 +15,10 @@ use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Throwable;
 
 class PoApprovalController extends Controller
 {
@@ -28,30 +31,45 @@ class PoApprovalController extends Controller
 
     public function submit(Request $request, $id)
     {
-        $po = PoHeader::query()->findOrFail($id);
-        abort_if($po->workflow_id, 422, 'PO already submitted');
+        $po = PoHeader::query()->with('workflow')->findOrFail($id);
+        $isResubmission = !blank($po->workflow_id)
+            && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_REJECTED;
+
+        abort_if($po->workflow_id && !$isResubmission, 422, 'PO already submitted');
         abort_if(!$po->attachments()->exists(), 422, 'Please attach document before submitting PO');
 
         $po = $this->erpService->syncHeaderFromErp($po->ordnumber, auth()->id(), $po->site);
-        $departmentId = $this->erpService->findDepartmentId($po->f1);
-        $submitterDepartmentId = (int) (auth()->user()?->department_id ?? 0);
+        if ($isResubmission) {
+            $wfId = (int) $po->workflow_id;
+            WorkflowEngine::resubmit(
+                wfId: $wfId,
+                actorUserId: (int) auth()->id(),
+                comment: $request->input('comment'),
+                initialStepNo: 2,
+                appCode: 'po',
+            );
+        } else {
+            $departmentId = $this->erpService->findDepartmentId($po->f1);
+            $submitterDepartmentId = (int) (auth()->user()?->department_id ?? 0);
 
-        $wfId = WorkflowEngine::submit(
-            appCode: 'po',
-            refType: PoHeader::class,
-            refId: $po->id,
-            options: [
-                'form_no' => $po->ordnumber,
-                'request_by_user_id' => (int) auth()->id(),
-                'context' => [
-                    'department_id' => $departmentId,
-                    'document_department_id' => $departmentId,
-                    'submitter_department_id' => $submitterDepartmentId,
+            $wfId = WorkflowEngine::submit(
+                appCode: 'po',
+                refType: PoHeader::class,
+                refId: $po->id,
+                options: [
+                    'form_no' => $po->ordnumber,
+                    'request_by_user_id' => (int) auth()->id(),
+                    'context' => [
+                        'department_id' => $departmentId,
+                        'document_department_id' => $departmentId,
+                        'document_department_name' => (string) $po->f1,
+                        'submitter_department_id' => $submitterDepartmentId,
+                    ],
+                    'submit_comment' => $request->input('comment'),
+                    'initial_step_no' => 2,
                 ],
-                'submit_comment' => $request->input('comment'),
-                'initial_step_no' => 2,
-            ],
-        );
+            );
+        }
 
         $wf = WfForm::query()->find($wfId);
         $po->workflow_id = $wfId;
@@ -64,6 +82,39 @@ class PoApprovalController extends Controller
         $this->notifySubmittersOnSubmitted(collect([$po]));
 
         return redirect()->route('po.show', $po->id)->with('ok', 'ส่ง PO เข้า workflow และแจ้งผู้อนุมัติเรียบร้อยแล้ว');
+    }
+
+    public function reopen(Request $request, $id)
+    {
+        $data = $request->validate([
+            'comment' => 'required|string|max:1000',
+        ]);
+
+        $po = PoHeader::query()->with('workflow')->findOrFail($id);
+        abort_unless(
+            strtoupper((string) $po->status_code) === 'CLOSED'
+                && !blank($po->workflow_id)
+                && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_CLOSED
+                && (int) ($po->workflow?->current_step_no ?? 0) === 999,
+            422,
+            'Only a completed PO can be reopened'
+        );
+
+        WorkflowEngine::reopenCompleted(
+            wfId: (int) $po->workflow_id,
+            actorUserId: (int) auth()->id(),
+            reason: $data['comment'],
+            appCode: 'po',
+        );
+
+        $po->status_code = 'REJECTED';
+        $po->updated_at = now();
+        $po->updated_by = auth()->id();
+        $po->save();
+
+        return redirect()
+            ->route('po.show', $po->id)
+            ->with('ok', 'เปิด PO กลับมาแก้ไขไฟล์แนบแล้ว กรุณาแก้ไขเอกสารและส่งอนุมัติใหม่');
     }
 
     public function submitDepartment(Request $request)
@@ -114,6 +165,7 @@ class PoApprovalController extends Controller
                     'context' => [
                         'department_id' => $departmentId,
                         'document_department_id' => $departmentId,
+                        'document_department_name' => (string) $header->f1,
                         'submitter_department_id' => $submitterDepartmentId,
                     ],
                     'submit_comment' => 'Submitted from PO Online department group',
@@ -225,13 +277,19 @@ class PoApprovalController extends Controller
             'files.*' => 'file|max:20480',
         ]);
 
-        $po = PoHeader::query()->with('workflow')->findOrFail($id);
+        $po = PoHeader::query()->with('workflow')->find($id);
+        if (!$po) {
+            return redirect()
+                ->route('po.myActions')
+                ->with('error', 'ไม่พบเอกสาร PO ที่ต้องการอนุมัติ อาจเป็นลิงก์เก่าหรือรายการถูกลบแล้ว');
+        }
+
         abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
         $stepBeforeApprove = (int) ($po->workflow?->current_step_no ?? 0);
 
         if ($request->hasFile('files')) {
-            abort_unless($stepBeforeApprove === 2, 422, 'Attachments can only be added while approving step 2');
+            abort_unless(in_array($stepBeforeApprove, [2, 3], true), 422, 'Attachments can only be added while approving step 2 or step 3');
 
             $isCurrentApprover = SqlServerDb::table('wf_form_authorizes as wa')
                 ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
@@ -251,10 +309,18 @@ class PoApprovalController extends Controller
                 $request->file('files', []),
                 [],
                 (int) auth()->id(),
+                keepOriginalName: $stepBeforeApprove === 3,
+                workflowStepNo: $stepBeforeApprove,
             );
         }
 
-        WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
+        try {
+            WorkflowEngine::approve((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
+        } catch (NotFoundHttpException $exception) {
+            return redirect()
+                ->route('po.myActions')
+                ->with('error', 'เอกสาร PO นี้ถูกดำเนินการ ปิด หรือยกเลิกไปแล้ว กรุณาตรวจสอบสถานะล่าสุด');
+        }
 
         $wf = WfForm::query()->find($po->workflow_id);
         $stepAfterApprove = (int) ($wf?->current_step_no ?? 0);
@@ -263,13 +329,30 @@ class PoApprovalController extends Controller
         $po->updated_by = auth()->id();
         $po->save();
 
-        if ($po->status_code === 'CLOSED') {
-            $this->notifyPurchaseDepartmentOnClosed($po);
-        } elseif ($stepAfterApprove !== $stepBeforeApprove) {
-            $this->notifyPendingApprovers(collect([$po]));
+        $notificationFailed = false;
+        try {
+            if ($po->status_code === 'CLOSED') {
+                $this->notifyPurchaseDepartmentOnClosed($po);
+            } elseif ($stepAfterApprove !== $stepBeforeApprove) {
+                $this->notifyPendingApprovers(collect([$po]));
+            }
+        } catch (Throwable $exception) {
+            $notificationFailed = true;
+            Log::error('PO approval saved but notification failed', [
+                'po_id' => $po->id,
+                'ordnumber' => $po->ordnumber,
+                'workflow_id' => $po->workflow_id,
+                'approver_user_id' => auth()->id(),
+                'exception' => get_class($exception),
+                'message' => $exception->getMessage(),
+            ]);
         }
 
-        return redirect()->route('po.show', $po->id)->with('ok', 'อนุมัติ PO เรียบร้อยแล้ว');
+        $message = $notificationFailed
+            ? 'อนุมัติ PO เรียบร้อยแล้ว แต่ส่งอีเมลแจ้งเตือนไม่สำเร็จ ระบบบันทึกข้อผิดพลาดไว้แล้ว'
+            : 'อนุมัติ PO เรียบร้อยแล้ว';
+
+        return redirect()->route('po.myActions')->with('ok', $message);
     }
 
     public function reject(Request $request, $id)
@@ -298,17 +381,30 @@ class PoApprovalController extends Controller
 
     public function cancel(Request $request, $id)
     {
-        $po = PoHeader::query()->findOrFail($id);
-        abort_if(!$po->workflow_id, 422, 'Workflow not found');
+        return $this->cancelPo($request, $id, false);
+    }
 
-        WorkflowEngine::void((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
+    public function cancelByManager(Request $request, $id)
+    {
+        return $this->cancelPo($request, $id, true);
+    }
 
-        $po->status_code = 'CANCELLED';
-        $po->updated_at = now();
-        $po->updated_by = auth()->id();
-        $po->save();
+    private function cancelPo(Request $request, $id, bool $managerOnly)
+    {
+        $request->validate(['comment' => 'required|string|max:1000']);
+        return \App\Support\WorkflowDb::transaction('po', function () use ($request, $id, $managerOnly) {
+            $po = PoHeader::query()->findOrFail($id);
+            abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
-        return redirect()->route('po.show', $po->id)->with('ok', 'ยกเลิก PO เรียบร้อยแล้ว');
+            WorkflowEngine::void((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po', $managerOnly);
+
+            $po->status_code = 'CANCELLED';
+            $po->updated_at = now();
+            $po->updated_by = auth()->id();
+            $po->save();
+
+            return redirect()->route('po.show', $po->id)->with('ok', 'ยกเลิก PO เรียบร้อยแล้ว');
+        });
     }
 
     private function resolveStatusFromWorkflow(?WfForm $wf): string
@@ -433,27 +529,77 @@ class PoApprovalController extends Controller
     private function notifyPurchaseDepartmentOnClosed(PoHeader $po): void
     {
         $recipients = $this->workflowSubmitterRecipients($po)
+            ->merge($this->purchaseApproverRecipients($po))
             ->merge($this->purchaseDepartmentRecipients($po))
             ->filter(fn ($recipient) => !blank($recipient?->email ?? null))
             ->unique(fn ($recipient) => strtolower((string) $recipient->email))
             ->values();
 
-        foreach ($recipients as $recipient) {
-            Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
-                recipientName: (string) ($recipient->name ?: 'Purchase'),
-                poItem: [
-                    'ordnumber' => $po->ordnumber,
-                    'source_label' => PoErpService::sourceLabel($po->site),
-                    'department' => $po->f1,
-                    'vendor_name' => $po->vendor_name,
-                    'step_no' => 999,
-                    'step_label' => $this->workflowStepLabel(999),
-                    'flow_steps' => $this->poFlowSteps(),
-                    'show_url' => route('po.show', $po->id),
-                    'print_url' => route('po.print', $po->id),
-                ],
-            ));
+        $context = [
+            'po_id' => $po->id,
+            'ordnumber' => $po->ordnumber,
+            'workflow_id' => $po->workflow_id,
+            'recipient_count' => $recipients->count(),
+        ];
+
+        if ($recipients->isEmpty()) {
+            Log::warning('PO closed mail has no eligible recipients', $context);
+
+            return;
         }
+
+        Log::info('PO closed mail dispatch started', $context);
+        $sent = 0;
+        $failed = 0;
+
+        foreach ($recipients as $recipient) {
+            try {
+                Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
+                    recipientName: (string) ($recipient->name ?: 'Purchase'),
+                    poItem: [
+                        'ordnumber' => $po->ordnumber,
+                        'source_label' => PoErpService::sourceLabel($po->site),
+                        'department' => $po->f1,
+                        'vendor_name' => $po->vendor_name,
+                        'step_no' => 999,
+                        'step_label' => $this->workflowStepLabel(999),
+                        'flow_steps' => $this->poFlowSteps(),
+                        'show_url' => route('po.show', $po->id),
+                        'print_url' => route('po.print', $po->id),
+                    ],
+                ));
+                $sent++;
+                Log::info('PO closed mail sent', $context + ['recipient' => (string) $recipient->email]);
+            } catch (Throwable $exception) {
+                $failed++;
+                Log::error('PO closed mail failed', $context + [
+                    'recipient' => (string) $recipient->email,
+                    'exception' => $exception::class,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('PO closed mail dispatch finished', $context + ['sent' => $sent, 'failed' => $failed]);
+    }
+
+    private function purchaseApproverRecipients(PoHeader $po): Collection
+    {
+        if (blank($po->workflow_id)) {
+            return collect();
+        }
+
+        return SqlServerDb::table('wf_form_authorizes as wa')
+            ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
+            ->where('wa.wf_form_id', $po->workflow_id)
+            ->where('wa.step_no', 2)
+            ->where('u.is_active', 1)
+            ->whereNotNull('u.email')
+            ->orderBy('u.name')
+            ->get(['u.name', 'u.email'])
+            ->filter(fn ($recipient) => !blank(trim((string) $recipient->email)))
+            ->unique(fn ($recipient) => strtolower(trim((string) $recipient->email)))
+            ->values();
     }
 
     private function workflowSubmitterRecipients(PoHeader $po): Collection

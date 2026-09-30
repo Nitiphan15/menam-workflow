@@ -488,15 +488,9 @@ class DeadstockReportController extends Controller
             $to = $this->monthBoundary($request->query('month_to'));
 
             if ($from || $to) {
-                $monthIds = $months
-                    ->filter(function (DeadstockSnapshotMonth $month) use ($from, $to) {
-                        return $this->deadstockMonthMatchesRange($month, $from, $to);
-                    })
-                    ->pluck('id')
-                    ->map(fn($id) => (int) $id)
-                    ->all();
-
-                return $monthIds;
+                // The requested range applies to purchase_date, not the snapshot date.
+                // Old stock may first appear in a newer snapshot after a serial split.
+                return $months->pluck('id')->map(fn($id) => (int) $id)->all();
             }
         }
 

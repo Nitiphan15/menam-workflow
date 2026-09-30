@@ -72,6 +72,7 @@ return [
                     ['icon' => 'fa-calendar-check', 'text' => 'Order By Due Date', 'route' => 'wos.order_due_date'],
                     ['icon' => 'fa-table', 'text' => 'Delivery Volume', 'route' => 'wos.sales_unit_summary'],
                     ['icon' => 'fa-ranking-star', 'text' => 'Customer Ranking & Tier', 'route' => 'wos.customer_order_invoice.index'],
+                    ['icon' => 'fa-file-invoice', 'text' => 'Invoice Packing List', 'route' => 'wos.invoice_packing_document.index'],
 
                 ],
             ],
@@ -180,10 +181,12 @@ return [
             [
                 'icon' => 'fa-shopping-cart',
                 'text' => 'PO Online',
-                'permission' => ['PO', 'POPUR'],
+                'permission' => ['PO', 'POPUR', 'POM', 'POV'],
                 'children' => [
                     ['icon' => 'fa-tasks', 'text' => 'เอกสารที่ต้องทำ', 'route' => 'po.myActions', 'permission' => 'PO'],
+                    ['icon' => 'fa-route', 'text' => 'ติดตาม PO แผนกของฉัน', 'route' => 'po.departmentTracking', 'permission' => 'POV'],
                     ['icon' => 'fa-list', 'text' => 'รายการ PO', 'route' => 'po.index', 'permission' => 'POPUR'],
+                    ['icon' => 'fa-users-gear', 'text' => 'PO Approver Master', 'route' => 'po.approver-master.index', 'permission' => 'POM'],
                 ],
             ],
         ],
@@ -357,6 +360,7 @@ return [
                     ['icon' => 'fa-chart-column', 'text' => 'Weekly Summary', 'route' => 'wos.sales_weekly', 'permission' => 'WOS'],
                     ['icon' => 'fa-table', 'text' => 'Delivery Volume', 'route' => 'wos.sales_unit_summary', 'permission' => 'WDV'],
                     ['icon' => 'fa-scale-balanced', 'text' => 'Customer SO vs Invoice', 'route' => 'wos.customer_order_invoice.index', 'permission' => ['WOS', 'WDV']],
+                    ['icon' => 'fa-file-invoice', 'text' => 'Invoice Packing List', 'route' => 'wos.invoice_packing_document.index', 'permission' => ['WOS', 'WDV']],
                     // Deadstock Dashboard/Review ย้ายไป menu.auth แล้ว (เปิดให้ทุกคนที่ login เห็น)
                 ],
             ],

@@ -402,6 +402,39 @@
                 color: #64748b;
                 font-size: 11px;
             }
+
+            .column-filter-group-menu {
+                position: fixed;
+                z-index: 2000;
+                max-height: 280px;
+                overflow-y: auto;
+                border-radius: 10px;
+                box-shadow: 0 12px 28px rgba(15, 23, 42, .18);
+            }
+
+            .column-filter-group-menu .list-group-item {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 7px 10px;
+                font-size: 12px;
+                text-align: left;
+            }
+
+            .column-filter-group-menu .filter-group-value {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .column-filter-group-menu .filter-group-count {
+                flex: 0 0 auto;
+                min-width: 28px;
+                color: #64748b;
+                font-variant-numeric: tabular-nums;
+                text-align: right;
+            }
         </style>
 
         @if (!empty($isSubmitted) && empty($isApprovalMode))
@@ -547,7 +580,7 @@
             <div class="col-md-3">
                 <div class="card fc-card">
                     <div class="card-body py-2">
-                        <div class="kpi-title">Avg 6M รวม</div>
+                        <div class="kpi-title">Avg {{ $forecastHorizonMonths }}M รวม</div>
                         <div class="kpi-val js-kpi-avg6">{{ number_format($kpi['avg6_sum'], 2) }}</div>
                     </div>
                 </div>
@@ -563,7 +596,7 @@
             <div class="col-md-3">
                 <div class="card fc-card">
                     <div class="card-body py-2">
-                        <div class="kpi-title">Forecast 6 เดือน</div>
+                        <div class="kpi-title">Forecast {{ $forecastHorizonMonths }} เดือน</div>
                         <div class="kpi-val js-kpi-f6">{{ number_format($kpi['forecast_6m_sum'], 2) }}</div>
                     </div>
                 </div>
@@ -654,7 +687,7 @@
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="4" data-sort-type="num">Sales Order<span
                                             class="sort-ind"></span></th>
-                                    <th class="sortable" data-sort-col="5" data-sort-type="num">Avg 6M<span
+                                    <th class="sortable" data-sort-col="5" data-sort-type="num">Avg {{ $forecastHorizonMonths }}M<span
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="6" data-sort-type="num">Forecast?<span
                                             class="sort-ind"></span></th>
@@ -662,7 +695,7 @@
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="8" data-sort-type="num">{{ !empty($isApprovalMode) ? 'Approval 1M' : 'Forecast 1M' }}<span
                                             class="sort-ind"></span></th>
-                                    <th class="sortable" data-sort-col="9" data-sort-type="num">{{ !empty($isApprovalMode) ? 'Approval 6M' : 'Forecast 6M' }}<span
+                                    <th class="sortable" data-sort-col="9" data-sort-type="num">{{ !empty($isApprovalMode) ? 'Approval '.$forecastHorizonMonths.'M' : 'Forecast '.$forecastHorizonMonths.'M' }}<span
                                             class="sort-ind"></span></th>
                                     <th class="sortable" data-sort-col="10" data-sort-type="text">Supplier<span
                                             class="sort-ind"></span></th>
@@ -712,13 +745,16 @@
                                             'fg_partnumber' => $r['fg_partnumber'],
                                             'fg_description' => $r['fg_description'],
                                             'rm_partnumber' => $r['rm_partnumber'],
+                                            'product_type' => $r['product_type'] ?? '',
                                             'avg6' => (float) $r['avg6'],
                                             'sales_order_qty' => (float) ($r['sales_order_qty'] ?? 0),
                                             'division_forecast_1m' => (float) ($r['forecast_1m'] ?? 0),
                                             'division_forecast_6m' => (float) ($r['forecast_6m'] ?? 0),
                                         ];
                                     @endphp
-                                    <tr data-row-key="{{ $r['row_key'] }}" data-avg6="{{ (float) $r['avg6'] }}">
+                                    <tr data-row-key="{{ $r['row_key'] }}" data-avg6="{{ (float) $r['avg6'] }}"
+                                        data-product-type="{{ $r['product_type'] ?? '' }}"
+                                        data-sales-forecast-1m="{{ number_format((float) ($r['forecast_1m'] ?? 0), 2, '.', '') }}">
                                         <td>{{ $r['customer_name'] }}</td>
                                         <td class="fw-semibold">{{ $r['fg_partnumber'] }}</td>
                                         <td>{{ $r['fg_description'] }}</td>
@@ -935,7 +971,7 @@
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <div>
                         <div class="section-title">Manual Forecast</div>
-                        <div class="small text-muted">เฉพาะรายการที่ sales ดูแล แต่ไม่มีข้อมูลย้อนหลัง 6 เดือน</div>
+                        <div class="small text-muted">เฉพาะรายการที่ sales ดูแล แต่ไม่มีข้อมูลย้อนหลัง {{ $forecastHorizonMonths }} เดือน</div>
                     </div>
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="addManualRow" @disabled(!empty($isSubmitted))>
@@ -957,15 +993,23 @@
                             customer และ FG เองได้</div>
                     @endif
                     <div class="excel-wrap">
-                        <table class="excel">
+                        <table class="excel" id="manualForecastTable">
                             <thead>
                                 <tr>
-                                    <th>Customer</th>
-                                    <th>FG Part</th>
-                                    <th>RM Part</th>
-                                    <th>Manual 1M</th>
-                                    <th>Forecast 6M</th>
+                                    <th class="sortable manual-sortable" data-sort-col="0" data-sort-type="text">Customer<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="1" data-sort-type="text">FG Part<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="2" data-sort-type="text">RM Part<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="3" data-sort-type="num">Manual 1M<span class="sort-ind"></span></th>
+                                    <th class="sortable manual-sortable" data-sort-col="4" data-sort-type="num">Forecast {{ $forecastHorizonMonths }}M<span class="sort-ind"></span></th>
                                     <th>Action</th>
+                                </tr>
+                                <tr class="filter-row">
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="0" placeholder="กรอง"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="1" placeholder="กรอง"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="2" placeholder="กรอง RM"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="3" placeholder=">= ตัวเลข"></th>
+                                    <th><input type="text" class="form-control form-control-sm manual-col-filter" data-filter-col="4" placeholder=">= ตัวเลข"></th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody id="manualForecastBody">
@@ -977,9 +1021,11 @@
                                             'fg_partnumber' => $r['fg_partnumber'] ?? '',
                                             'fg_description' => $r['fg_description'] ?? '',
                                             'rm_partnumber' => $r['rm_partnumber'] ?? '',
+                                            'product_type' => $r['product_type'] ?? '',
                                         ];
                                     @endphp
-                                    <tr class="js-manual-row" data-row-key="{{ $r['row_key'] }}">
+                                    <tr class="js-manual-row" data-row-key="{{ $r['row_key'] }}"
+                                        data-product-type="{{ $r['product_type'] ?? '' }}">
                                         <td>{{ $r['customer_name'] ?? '-' }}</td>
                                         <td class="fw-semibold">{{ $r['fg_partnumber'] ?? '-' }}</td>
                                         <td class="js-manual-rm-cell">{{ $r['rm_partnumber'] ?? '-' }}</td>
@@ -989,8 +1035,8 @@
                                                 name="manual_rows[{{ $r['row_key'] }}]"
                                                 value="{{ number_format((float) ($r['manual_forecast_1m'] ?? 0), 2, '.', '') }}">
                                         </td>
-                                        <td class="num js-manual-6m-only">
-                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * 6), 2) }}
+                                        <td class="num js-manual-horizon-only">
+                                            {{ number_format((float) (($r['manual_forecast_1m'] ?? 0) * $forecastHorizonMonths), 2) }}
                                         </td>
                                         <td class="text-center text-muted">-</td>
                                         <input type="hidden" name="manual_meta[{{ $r['row_key'] }}]"
@@ -1024,7 +1070,7 @@
                     <input type="number" step="0.01" min="0"
                         class="form-control form-control-sm text-end js-manual-1m-only">
                 </td>
-                <td class="num js-manual-6m-only">0.00</td>
+                <td class="num js-manual-horizon-only">0.00</td>
                 <td class="text-center">
                     <button type="button" class="btn btn-sm btn-outline-danger js-remove-manual-row">ลบ</button>
                 </td>
@@ -1049,7 +1095,7 @@
                                         <th>เดือนที่บันทึก</th>
                                         <th class="text-end">K Factor</th>
                                         <th class="text-end">Forecast 1M</th>
-                                        <th class="text-end">Forecast 6M</th>
+                                        <th class="text-end">Forecast {{ $forecastHorizonMonths }}M</th>
                                         <th>Source</th>
                                         <th>เวลาบันทึก</th>
                                     </tr>
@@ -1067,7 +1113,7 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <div>
-                            <div class="fw-semibold" id="avg6ModalTitle">Avg 6M รายเดือน</div>
+                            <div class="fw-semibold" id="avg6ModalTitle">Avg {{ $forecastHorizonMonths }}M รายเดือน</div>
                             <div class="small text-muted" id="avg6ModalSub"></div>
                         </div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1086,7 +1132,7 @@
                                 <tbody id="avg6ModalBody"></tbody>
                                 <tfoot>
                                     <tr class="table-light">
-                                        <th>รวม 6 เดือน</th>
+                                        <th>รวม {{ $forecastHorizonMonths }} เดือน</th>
                                         <th class="text-end" id="avg6FootWire">0.00</th>
                                         <th class="text-end" id="avg6FootPlus">0.00</th>
                                         <th class="text-end" id="avg6FootTotal">0.00</th>
@@ -1138,8 +1184,12 @@
         </div>
     </div>
 
+    <div id="columnFilterGroupMenu" class="list-group column-filter-group-menu d-none" role="listbox"
+        aria-label="ค่าที่จัดกลุ่มสำหรับตัวกรอง"></div>
+
     <script>
         const OLD_PAYLOAD_JSON = @json(old('payload'));
+        const FORECAST_HORIZON_MONTHS = @json($forecastHorizonMonths);
 
         document.getElementById('checkAllForecast')?.addEventListener('click', () => {
             document.querySelectorAll('table.excel tbody .js-forecast-flag').forEach(el => el.checked = true);
@@ -1163,11 +1213,11 @@
         function recalcManualOnlyRow(tr) {
             if (!tr) return;
             const input = tr.querySelector('.js-manual-1m-only');
-            const f6El = tr.querySelector('.js-manual-6m-only');
-            if (!input || !f6El) return;
+            const horizonEl = tr.querySelector('.js-manual-horizon-only');
+            if (!input || !horizonEl) return;
 
             const f1 = parseFloat(input.value || '0') || 0;
-            f6El.textContent = formatNum(f1 * 6);
+            horizonEl.textContent = formatNum(f1 * FORECAST_HORIZON_MONTHS);
         }
 
         function bindManual1mInput(input) {
@@ -1369,6 +1419,7 @@
                 fg_partnumber: tr.dataset.fgPartnumber || '',
                 fg_description: tr.dataset.fgDescription || '',
                 rm_partnumber: tr.dataset.rmPartnumber || '',
+                product_type: tr.dataset.productType || '',
             };
 
             metaInput.value = JSON.stringify(meta);
@@ -1448,6 +1499,7 @@
                     tr.dataset.fgPartnumber = item.fg_partnumber || '';
                     tr.dataset.fgDescription = item.fg_description || '';
                     tr.dataset.rmPartnumber = item.rm_partnumber || '';
+                    tr.dataset.productType = item.product_type || '';
                     rmCell.textContent = item.rm_partnumber || '-';
                     syncManualMeta(tr);
                 }
@@ -1574,9 +1626,9 @@
             const forecastFlagEl = tr.querySelector('.js-forecast-flag');
             const rowKEl = tr.querySelector('.js-row-kfactor');
             const manualInput = tr.querySelector('.js-manual-forecast');
-            const f6El = tr.querySelector('.js-f6');
+            const horizonEl = tr.querySelector('.js-f6');
 
-            if (!forecastFlagEl || !rowKEl || !manualInput || !f6El) {
+            if (!forecastFlagEl || !rowKEl || !manualInput || !horizonEl) {
                 return;
             }
 
@@ -1590,10 +1642,10 @@
             const hasManualValue = manual !== null && !Number.isNaN(manual) && Math.abs(manual) > 0.0001;
 
             let f1 = 0;
-            let f6 = 0;
+            let horizonForecast = 0;
 
             if (checked) {
-                // ถ้าติ๊ก Forecast ใหม่และช่อง 1M ยังว่าง/0 ให้คำนวณจาก Avg6*K ทันที
+                // ถ้าติ๊ก Forecast ใหม่และช่อง 1M ยังว่าง/0 ให้คำนวณจากค่าเฉลี่ยตามช่วง * K ทันที
                 if (!forceAuto && userEdited && hasManualValue) {
                     f1 = manual;
                 } else {
@@ -1601,7 +1653,7 @@
                     manualInput.value = f1.toFixed(2);
                     manualInput.dataset.userEdited = '0';
                 }
-                f6 = f1 * 6;
+                horizonForecast = f1 * FORECAST_HORIZON_MONTHS;
                 manualInput.dataset.forceAutoOnce = '0';
             } else {
                 if (!userEdited || !hasManualValue) {
@@ -1610,7 +1662,7 @@
                 }
             }
 
-            f6El.textContent = formatNum(f6);
+            horizonEl.textContent = formatNum(horizonForecast);
         }
 
         function recalcKpi() {
@@ -1701,7 +1753,7 @@
                 const manualInput = tr?.querySelector('.js-manual-forecast');
                 const manual = parseFloat(String(manualInput?.value || '0').replace(/,/g, '')) || 0;
 
-                // เมื่อติ๊กเลือก Forecast ให้คำนวณ 1M/6M จาก Avg6*K ทันที ไม่ต้องขยับ K ก่อน
+                // เมื่อติ๊กเลือก Forecast ให้คำนวณ 1M/ยอดรวมตามช่วงทันที ไม่ต้องขยับ K ก่อน
                 if (this.checked && manualInput) {
                     manualInput.dataset.userEdited = '0';
                     manualInput.dataset.forceAutoOnce = '1';
@@ -1998,7 +2050,7 @@
             }
         });
 
-        /* ================== AVG 6M MODAL ================== */
+        /* ================== PERIOD AVERAGE MODAL ================== */
         document.addEventListener('click', function(e) {
             const btn = e.target.closest('.avg6-link');
             if (!btn) return;
@@ -2020,7 +2072,7 @@
                 history = [];
             }
 
-            titleEl.textContent = `Avg 6M | ${customer} | ${fg}`;
+            titleEl.textContent = `Avg ${FORECAST_HORIZON_MONTHS}M | ${customer} | ${fg}`;
             subEl.textContent = desc;
 
             let sumW = 0,
@@ -2112,9 +2164,36 @@
 
         function getRowSearchText(tr) {
             return Array.from(tr.children)
-                .map(td => getCellInputAwareValue(td))
+                .map((td, col) => getCachedCellFilterValue(tr, col))
                 .join(' ')
                 .toLowerCase();
+        }
+
+        const rowFilterValueCache = new WeakMap();
+        let mainGroupedValueVersion = 0;
+        let manualGroupedValueVersion = 0;
+
+        function getCachedCellFilterValue(tr, col) {
+            let values = rowFilterValueCache.get(tr);
+            if (!values) {
+                values = [];
+                rowFilterValueCache.set(tr, values);
+            }
+            if (values[col] === undefined) {
+                values[col] = String(getCellInputAwareValue(tr.children[col]) ?? '');
+            }
+            return values[col];
+        }
+
+        function invalidateFilterRow(target) {
+            const tr = target?.closest?.('tbody tr');
+            if (!tr) return;
+            rowFilterValueCache.delete(tr);
+            if (tr.classList.contains('js-manual-row')) {
+                manualGroupedValueVersion += 1;
+            } else {
+                mainGroupedValueVersion += 1;
+            }
         }
 
         function getCellSortValue(tr, col, type) {
@@ -2126,6 +2205,210 @@
             }
             return String(v).toLowerCase();
         }
+
+        function groupedColumnValues(input) {
+            const col = parseInt(input?.dataset.filterCol || '-1', 10);
+            if (col < 0) return [];
+
+            const isManualFilter = input.classList.contains('manual-col-filter');
+            const version = isManualFilter ? manualGroupedValueVersion : mainGroupedValueVersion;
+            const cached = groupedColumnValueCache.get(input);
+            if (cached?.version === version) return cached.values;
+
+            const rows = isManualFilter ? manualTableRows() : tableRows();
+            const groups = new Map();
+
+            rows.forEach(tr => {
+                const value = getCachedCellFilterValue(tr, col).trim();
+                if (value === '') return;
+
+                const key = value.toLocaleLowerCase();
+                const current = groups.get(key);
+                if (current) {
+                    current.count += 1;
+                } else {
+                    groups.set(key, { value, count: 1 });
+                }
+            });
+
+            const values = Array.from(groups.values()).sort((a, b) =>
+                a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: 'base' }));
+            groupedColumnValueCache.set(input, { version, values });
+
+            return values;
+        }
+
+        const columnFilterGroupMenu = document.getElementById('columnFilterGroupMenu');
+        const groupedColumnValueCache = new WeakMap();
+        const columnFilterRefreshTimers = new WeakMap();
+        let columnFilterApplyFrame = null;
+        let activeColumnFilterInput = null;
+        let columnFilterMenuPointerDown = false;
+
+        function hideColumnFilterGroups() {
+            activeColumnFilterInput = null;
+            columnFilterGroupMenu?.classList.add('d-none');
+            columnFilterGroupMenu?.replaceChildren();
+        }
+
+        function positionColumnFilterGroups(input = activeColumnFilterInput) {
+            if (!input || !columnFilterGroupMenu) return;
+
+            const rect = input.getBoundingClientRect();
+            const outsideViewport = rect.bottom < 0 || rect.top > window.innerHeight ||
+                rect.right < 0 || rect.left > window.innerWidth;
+            if (outsideViewport) {
+                hideColumnFilterGroups();
+                return;
+            }
+
+            columnFilterGroupMenu.style.left = `${Math.max(8, rect.left)}px`;
+            columnFilterGroupMenu.style.top = `${rect.bottom + 4}px`;
+            columnFilterGroupMenu.style.width = `${Math.max(180, rect.width)}px`;
+        }
+
+        function showColumnFilterGroups(input) {
+            if (!input || !columnFilterGroupMenu) return;
+
+            const query = String(input.value || '').trim().toLocaleLowerCase();
+            const options = groupedColumnValues(input)
+                .filter(group => query === '' || group.value.toLocaleLowerCase().includes(query))
+                .slice(0, 100);
+
+            activeColumnFilterInput = input;
+            columnFilterGroupMenu.replaceChildren();
+
+            if (options.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'list-group-item text-muted';
+                empty.textContent = 'ไม่พบค่าที่ตรงกัน';
+                columnFilterGroupMenu.appendChild(empty);
+            } else {
+                options.forEach(group => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'list-group-item list-group-item-action';
+                    button.dataset.filterValue = group.value;
+
+                    const value = document.createElement('span');
+                    value.className = 'filter-group-value';
+                    value.textContent = group.value;
+
+                    const count = document.createElement('span');
+                    count.className = 'filter-group-count';
+                    count.textContent = `(${group.count})`;
+
+                    button.append(value, count);
+                    columnFilterGroupMenu.appendChild(button);
+                });
+            }
+
+            positionColumnFilterGroups(input);
+            columnFilterGroupMenu.classList.remove('d-none');
+        }
+
+        function bindGroupedColumnFilter(input) {
+            input.addEventListener('focus', () => requestAnimationFrame(() => showColumnFilterGroups(input)));
+            input.addEventListener('click', () => showColumnFilterGroups(input));
+            input.addEventListener('input', () => {
+                delete input.dataset.filterExact;
+                scheduleColumnFilterRefresh(input);
+            });
+            input.addEventListener('blur', () => setTimeout(() => {
+                if (activeColumnFilterInput === input && !columnFilterMenuPointerDown) {
+                    hideColumnFilterGroups();
+                }
+            }, 150));
+        }
+
+        /* ================== MANUAL FORECAST EXCEL-STYLE FILTER / GROUP ORDER ================== */
+        function manualTableRows() {
+            return manualBodyEl ? Array.from(manualBodyEl.querySelectorAll('.js-manual-row')) : [];
+        }
+
+        function matchesManualFilter(cellValue, query) {
+            const cellText = String(cellValue ?? '').trim().toLowerCase();
+            const numericCell = parseFloat(cellText.replace(/,/g, ''));
+            const terms = String(query ?? '')
+                .split(',')
+                .map(term => term.trim().toLowerCase())
+                .filter(Boolean);
+
+            if (terms.length === 0) return true;
+
+            return terms.some(term => {
+                const numericFilter = term.match(/^(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)$/);
+                if (!numericFilter || Number.isNaN(numericCell)) {
+                    return cellText.includes(term);
+                }
+
+                const operator = numericFilter[1] || '=';
+                const expected = parseFloat(numericFilter[2]);
+                if (operator === '>=') return numericCell >= expected;
+                if (operator === '<=') return numericCell <= expected;
+                if (operator === '>') return numericCell > expected;
+                if (operator === '<') return numericCell < expected;
+                return numericCell === expected;
+            });
+        }
+
+        function applyManualFilters() {
+            const filters = Array.from(document.querySelectorAll('#manualForecastTable .manual-col-filter'))
+                .map(el => ({
+                    col: parseInt(el.dataset.filterCol, 10),
+                    value: (el.value || '').trim(),
+                    exact: (el.dataset.filterExact || '').trim().toLowerCase(),
+                }))
+                .filter(filter => filter.value !== '');
+
+            manualTableRows().forEach(tr => {
+                const visible = filters.every(filter => {
+                    const cellValue = getCachedCellFilterValue(tr, filter.col);
+                    if (filter.exact !== '') {
+                        return String(cellValue ?? '').trim().toLowerCase() === filter.exact;
+                    }
+                    return matchesManualFilter(cellValue, filter.value);
+                });
+                tr.style.display = visible ? '' : 'none';
+            });
+        }
+
+        function sortManualRows(col = 0, type = 'text', dir = 1) {
+            if (!manualBodyEl) return;
+
+            const rows = manualTableRows();
+            rows.sort((a, b) => {
+                const aValue = getCellSortValue(a, col, type);
+                const bValue = getCellSortValue(b, col, type);
+                if (aValue < bValue) return -1 * dir;
+                if (aValue > bValue) return 1 * dir;
+
+                // Keep equal values grouped like Excel: Customer, then FG Part.
+                const aCustomer = getCellSortValue(a, 0, 'text');
+                const bCustomer = getCellSortValue(b, 0, 'text');
+                if (aCustomer !== bCustomer) return aCustomer.localeCompare(bCustomer);
+                return getCellSortValue(a, 1, 'text').localeCompare(getCellSortValue(b, 1, 'text'));
+            });
+            rows.forEach(row => manualBodyEl.appendChild(row));
+        }
+
+        let currentManualSort = { col: 0, dir: 1 };
+        document.querySelectorAll('#manualForecastTable th.manual-sortable').forEach(th => {
+            th.addEventListener('click', function() {
+                const col = parseInt(this.dataset.sortCol, 10);
+                const type = this.dataset.sortType || 'text';
+                const dir = currentManualSort.col === col ? -currentManualSort.dir : 1;
+                currentManualSort = { col, dir };
+
+                document.querySelectorAll('#manualForecastTable th.manual-sortable .sort-ind')
+                    .forEach(indicator => indicator.textContent = '');
+                this.querySelector('.sort-ind').textContent = dir === 1 ? '▲' : '▼';
+                sortManualRows(col, type, dir);
+            });
+        });
+
+        sortManualRows();
+        applyManualFilters();
 
         let currentSort = {
             col: -1,
@@ -2162,6 +2445,7 @@
             const filters = Array.from(document.querySelectorAll('#gen-form table.excel thead .col-filter')).map(el => ({
                 col: parseInt(el.dataset.filterCol, 10),
                 value: (el.value || '').trim().toLowerCase(),
+                exact: (el.dataset.filterExact || '').trim().toLowerCase(),
                 type: el.tagName === 'SELECT' ? 'select' : 'text',
             })).filter(f => f.value !== '');
 
@@ -2179,10 +2463,15 @@
                     for (const f of filters) {
                         const td = tr.children[f.col];
                         if (!td) continue;
-                        let cellVal = getCellInputAwareValue(td);
+                        const cellVal = getCachedCellFilterValue(tr, f.col);
 
                         if (f.type === 'select') {
                             if (String(cellVal) !== f.value) {
+                                show = false;
+                                break;
+                            }
+                        } else if (f.exact !== '') {
+                            if (String(cellVal).trim().toLowerCase() !== f.exact) {
                                 show = false;
                                 break;
                             }
@@ -2207,17 +2496,94 @@
             });
         }
         document.querySelectorAll('#gen-form table.excel thead .col-filter').forEach(el => {
-            el.addEventListener('input', applyFilters);
-            el.addEventListener('change', applyFilters);
+            if (el.tagName === 'SELECT') el.addEventListener('change', applyFilters);
         });
         document.getElementById('globalSearch')?.addEventListener('input', applyFilters);
         applyFilters();
 
+        document.querySelectorAll(
+            '#gen-form table.excel thead input.col-filter, #manualForecastTable input.manual-col-filter'
+        ).forEach(bindGroupedColumnFilter);
+
+        [mainTable, manualBodyEl].forEach(table => {
+            table?.addEventListener('input', event => invalidateFilterRow(event.target));
+            table?.addEventListener('change', event => invalidateFilterRow(event.target));
+        });
+
+        if (manualBodyEl) {
+            new MutationObserver(() => {
+                manualGroupedValueVersion += 1;
+            }).observe(manualBodyEl, { childList: true });
+        }
+
+        function applySelectedColumnFilter(input) {
+            if (columnFilterApplyFrame) cancelAnimationFrame(columnFilterApplyFrame);
+            columnFilterApplyFrame = requestAnimationFrame(() => {
+                columnFilterApplyFrame = null;
+                if (!input?.isConnected) return;
+                if (input.classList.contains('manual-col-filter')) {
+                    applyManualFilters();
+                } else {
+                    applyFilters();
+                }
+            });
+        }
+
+        function scheduleColumnFilterRefresh(input) {
+            const previousTimer = columnFilterRefreshTimers.get(input);
+            if (previousTimer) clearTimeout(previousTimer);
+
+            const timer = setTimeout(() => {
+                columnFilterRefreshTimers.delete(input);
+                if (input.classList.contains('manual-col-filter')) {
+                    applyManualFilters();
+                } else {
+                    applyFilters();
+                }
+                if (document.activeElement === input) showColumnFilterGroups(input);
+            }, 80);
+            columnFilterRefreshTimers.set(input, timer);
+        }
+
+        function selectColumnFilterGroup(option) {
+            const input = activeColumnFilterInput;
+            if (!option || !input) return;
+
+            const selectedValue = option.dataset.filterValue || '';
+            const pendingTimer = columnFilterRefreshTimers.get(input);
+            if (pendingTimer) clearTimeout(pendingTimer);
+            columnFilterRefreshTimers.delete(input);
+
+            input.value = selectedValue;
+            input.dataset.filterExact = selectedValue.trim().toLowerCase();
+            hideColumnFilterGroups();
+            applySelectedColumnFilter(input);
+        }
+
+        columnFilterGroupMenu?.addEventListener('pointerdown', event => {
+            columnFilterMenuPointerDown = true;
+            const option = event.target.closest('[data-filter-value]');
+            if (!option) return;
+
+            event.preventDefault();
+            selectColumnFilterGroup(option);
+        });
+        document.addEventListener('pointerup', () => {
+            setTimeout(() => columnFilterMenuPointerDown = false, 0);
+        });
+
+        window.addEventListener('resize', () => positionColumnFilterGroups());
+        document.addEventListener('scroll', event => {
+            if (!activeColumnFilterInput || event.target === columnFilterGroupMenu ||
+                columnFilterGroupMenu?.contains(event.target)) return;
+            positionColumnFilterGroups();
+        }, true);
+
         /* ================== EXPORT EXCEL (client-side .xls via HTML) ================== */
         document.getElementById('btnExportExcel')?.addEventListener('click', function() {
             const visibleRows = tableRows().filter(tr => tr.style.display !== 'none');
-            const headers = ['Customer', 'FG Part', 'Description', 'RM Part', 'Sales Order', 'Avg 6M', 'Forecast?',
-                'K', 'Forecast 1M', 'Forecast 6M', 'Supplier', 'Remark'
+            const headers = ['Sales Div.', 'Customer Name', 'FG Part', 'FG Description', 'RM Part',
+                'Sales Forecast 1 Month', `Sales Forecast ${FORECAST_HORIZON_MONTHS} Months`, 'Product Type'
             ];
             const escapeCell = (value) => String(value ?? '')
                 .replace(/&/g, '&amp;')
@@ -2234,42 +2600,42 @@
             lines.push('<tr>' + headers.map(h => `<th>${escapeCell(h)}</th>`).join('') + '</tr>');
 
             visibleRows.forEach(tr => {
-                const cells = [];
-                for (let i = 0; i <= 11; i++) {
-                    const td = tr.children[i];
-                    if (!td) {
-                        cells.push('');
-                        continue;
-                    }
-                    const input = td.querySelector(
-                        'input[type="number"], input[type="text"], input[type="checkbox"]');
-                    let v;
-                    if (input) {
-                        if (input.type === 'checkbox') v = input.checked ? '1' : '0';
-                        else v = input.value || '';
-                    } else {
-                        v = td.innerText.trim();
-                    }
-                    cells.push(escapeCell(v));
-                }
+                const salesForecast1m = @json(!empty($isApprovalMode))
+                    ? tr.dataset.salesForecast1m || '0'
+                    : tr.querySelector('.js-manual-forecast')?.value || '0';
+                const forecast1mNumber = parseFloat(String(salesForecast1m).replace(/,/g, '')) || 0;
+                const cells = [
+                    @json($salesCode),
+                    tr.children[0]?.innerText.trim() || '',
+                    tr.children[1]?.innerText.trim() || '',
+                    tr.children[2]?.innerText.trim() || '',
+                    tr.children[3]?.innerText.trim() || '',
+                    salesForecast1m,
+                    (forecast1mNumber * FORECAST_HORIZON_MONTHS).toFixed(2),
+                    tr.dataset.productType || '',
+                ].map(escapeCell);
                 lines.push('<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>');
             });
 
-            const manualHeaders = ['Customer', 'FG Part', 'RM Part', 'Manual 1M', 'Forecast 6M'];
+            const manualHeaders = headers;
             const manualLines = [];
             manualLines.push('<tr>' + manualHeaders.map(h => `<th>${escapeCell(h)}</th>`).join('') + '</tr>');
 
             document.querySelectorAll('#manualForecastBody .js-manual-row').forEach(tr => {
+                if (tr.style.display === 'none') return;
                 const meta = manualRowMeta(tr);
                 const customerInput = tr.querySelector('.js-manual-customer-input');
                 const fgInput = tr.querySelector('.js-manual-fg-input');
                 const qtyInput = tr.querySelector('.js-manual-1m-only');
                 const cells = [
+                    @json($salesCode),
                     meta.customer_name || tr.dataset.customerName || customerInput?.value || tr.children[0]?.innerText.trim() || '',
                     meta.fg_partnumber || tr.dataset.fgPartnumber || fgInput?.value || tr.children[1]?.innerText.trim() || '',
+                    meta.fg_description || tr.dataset.fgDescription || '',
                     meta.rm_partnumber || tr.dataset.rmPartnumber || tr.querySelector('.js-manual-rm-cell')?.innerText.trim() || '',
                     qtyInput?.value || '',
-                    tr.querySelector('.js-manual-6m-only')?.innerText.trim() || '',
+                    tr.querySelector('.js-manual-horizon-only')?.innerText.trim() || '',
+                    meta.product_type || tr.dataset.productType || '',
                 ].map(escapeCell);
 
                 manualLines.push('<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>');

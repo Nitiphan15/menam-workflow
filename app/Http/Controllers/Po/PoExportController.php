@@ -409,6 +409,29 @@ class PoExportController extends Controller
         $pdf = new class extends Fpdi {
             protected array $extGStates = [];
 
+            public function rejectionStamp(float $width, float $height, string $remark, string $status = 'REJECTED'): void
+            {
+                $x = $width / 2 * $this->k;
+                $y = $height / 2 * $this->k;
+                $angle = deg2rad(35);
+                $this->_out(sprintf('q %.5F %.5F %.5F %.5F %.5F %.5F cm 1 0 0 1 %.5F %.5F cm', cos($angle), sin($angle), -sin($angle), cos($angle), $x, $y, -$x, -$y));
+                $this->setAlpha(0.45);
+                $this->SetDrawColor(190, 30, 30);
+                $this->SetTextColor(190, 30, 30);
+                $this->SetLineWidth(1);
+                $this->SetFont('Helvetica', 'B', 38);
+                $this->SetXY(($width - 120) / 2, $height / 2 - 13);
+                $this->Cell(120, 26, $status, 1, 0, 'C');
+                $this->setAlpha(0.7);
+                $this->SetFont('THSarabunNew', 'B', 18);
+                $this->SetXY(($width - 120) / 2, $height / 2 + 13);
+                $this->MultiCell(120, 8, $remark, 0, 'C');
+                $this->_out('Q');
+                $this->SetTextColor(0);
+                $this->SetDrawColor(0);
+                $this->SetLineWidth(0.2);
+            }
+
             public function useFontPath(string $path): void
             {
                 $this->fontpath = rtrim($path, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
@@ -462,6 +485,7 @@ class PoExportController extends Controller
         $pdf->SetAutoPageBreak(false);
         $pdf->useFontPath(public_path('fonts/fpdf'));
         $pdf->AddFont('THSarabunNew', '', 'THSarabunNew.php');
+        $pdf->AddFont('THSarabunNew', 'B', 'THSarabunNew-Bold.php');
         $pdf->AddFont('PoTahomaThai', '', 'PoTahomaThai.php');
         $pdf->AddFont('PoAngsanaThai', '', 'PoAngsanaThai.php');
         $tempImages = [];
@@ -471,6 +495,8 @@ class PoExportController extends Controller
                 $pageCount = $pdf->setSourceFile($document['pdf_path']);
                 $pagesToImport = $this->pagesToImportFromErpPdf($document['pdf_path'], $pageCount);
                 $po = $document['po'] ?? null;
+                $rejectionRemark = $this->rejectionRemark($po);
+                $rejectionActor = $rejectionRemark !== null ? $this->rejectionActor($po) : '';
                 $descriptionPages = $this->resolveOverridePages($po->pdf_description_override_pages ?? null, $pagesToImport);
                 $commentsPages = $this->resolveOverridePages($po->pdf_comments_override_pages ?? null, $pagesToImport);
 
@@ -495,6 +521,29 @@ class PoExportController extends Controller
                         $pageNo
                     );
                     $this->overlaySignatures($pdf, $document['signatures'], $size['width'], $size['height'], $tempImages);
+                    if ($rejectionRemark !== null) {
+                        $stampRemark = mb_strlen($rejectionRemark) > 220
+                            ? mb_substr($rejectionRemark, 0, 220) . '... (อ่านต่อหน้าท้าย)'
+                            : $rejectionRemark;
+                        $stampRemark = preg_replace('/\s+/u', ' ', $stampRemark);
+                        $pdf->rejectionStamp($size['width'], $size['height'], $this->pdfText($rejectionActor . "\nเหตุผล: " . $stampRemark), strtoupper(trim((string) $po->status_code)));
+                    }
+                }
+
+                if ($rejectionRemark !== null && mb_strlen($rejectionRemark) > 220) {
+                    // Keep the complete reason readable without covering ERP line items.
+                    $pdf->AddPage('P', 'A4');
+                    $pdf->SetMargins(15, 15, 15);
+                    $pdf->SetAutoPageBreak(true, 15);
+                    $pdf->SetXY(15, 15);
+                    $pdf->SetTextColor(190, 30, 30);
+                    $pdf->SetFont('Helvetica', 'B', 20);
+                    $pdf->MultiCell(180, 10, strtoupper(trim((string) $po->status_code)) . ' - ' . $this->pdfText((string) $po->ordnumber));
+                    $pdf->SetTextColor(0);
+                    $pdf->SetFont('THSarabunNew', '', 16);
+                    $pdf->MultiCell(180, 8, $this->pdfText($rejectionActor), 0, 'L');
+                    $pdf->MultiCell(180, 8, $this->pdfText('เหตุผล / Remark: ' . $rejectionRemark), 0, 'L');
+                    $pdf->SetAutoPageBreak(false);
                 }
             }
 
@@ -504,6 +553,42 @@ class PoExportController extends Controller
                 File::delete($path);
             }
         }
+    }
+
+    private function rejectionRemark(?PoHeader $po): ?string
+    {
+        if (!$po || !in_array(strtoupper(trim((string) $po->status_code)), ['REJECTED', 'CANCELLED'], true)) {
+            return null;
+        }
+
+        return trim((string) ($this->rejectionHistory($po)?->comment ?? '')) ?: 'ไม่ระบุเหตุผล';
+    }
+
+    private function rejectionActor(PoHeader $po): string
+    {
+        $history = $this->rejectionHistory($po);
+        $name = trim((string) ($history?->actor?->name ?? ''));
+        if ($name === '') {
+            $name = $history?->actor_user_id ? 'User ID ' . $history->actor_user_id : 'ไม่ระบุผู้ดำเนินการ';
+        }
+        $label = strtoupper(trim((string) $po->status_code)) === 'CANCELLED' ? 'ผู้ยกเลิก' : 'ผู้รีเจค';
+
+        return $label . ': ' . $name;
+    }
+
+    private function rejectionHistory(?PoHeader $po): ?object
+    {
+        if (!$po || !in_array(strtoupper(trim((string) $po->status_code)), ['REJECTED', 'CANCELLED'], true)) {
+            return null;
+        }
+
+        $actions = strtoupper(trim((string) $po->status_code)) === 'CANCELLED'
+            ? ['CANCEL', 'CANCELLED'] : ['REJECT', 'REJECTED', 'REOPEN'];
+        return $po->workflow?->histories
+            ->filter(fn ($row) => in_array(strtoupper((string) $row->action_type), $actions, true))
+            ->sortByDesc('id')
+            ->first();
+
     }
 
     private function overlayPlusPaperTint(Fpdi $pdf, ?PoHeader $po, float $pageWidth, float $pageHeight): void
@@ -1002,22 +1087,32 @@ class PoExportController extends Controller
 
         $this->overlaySignatureSlot($pdf, $submittedBy, 0.105 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.132 * $pageWidth, 0.090 * $pageWidth);
         $this->overlaySignatureSlot($pdf, $purchaseApprovedBy, 0.225 * $pageWidth, 0.878 * $pageHeight, 0.115 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages, 0.252 * $pageWidth, 0.090 * $pageWidth);
-        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.43 * $pageWidth, 0.878 * $pageHeight, 0.20 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages);
+        $this->overlaySignatureSlot($pdf, $authorizedBy, 0.39 * $pageWidth, 0.873 * $pageHeight, 0.22 * $pageWidth, 0.051 * $pageHeight, 0.955 * $pageHeight, $tempImages, strokeBoost: 0.02, trimTransparent: true);
     }
 
-    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null): void
+    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null, float $strokeBoost = 0, bool $trimTransparent = false): void
     {
         if (!$signature || empty($signature->signature_data_uri)) {
             return;
         }
 
-        $imagePath = $this->signatureTempImage((string) $signature->signature_data_uri);
+        $imagePath = $this->signatureTempImage((string) $signature->signature_data_uri, $trimTransparent);
         if (!$imagePath) {
             return;
         }
 
         $tempImages[] = $imagePath;
         [$imageX, $imageY, $imageWidth, $imageHeight] = $this->signatureImageBox($imagePath, $x, $y, $width, $height);
+        if ($strokeBoost > 0) {
+            $diagonalBoost = $strokeBoost * 0.7;
+            foreach ([
+                [-$strokeBoost, 0], [$strokeBoost, 0], [0, -$strokeBoost], [0, $strokeBoost],
+                [-$diagonalBoost, -$diagonalBoost], [$diagonalBoost, -$diagonalBoost],
+                [-$diagonalBoost, $diagonalBoost], [$diagonalBoost, $diagonalBoost],
+            ] as [$offsetX, $offsetY]) {
+                $pdf->Image($imagePath, $imageX + $offsetX, $imageY + $offsetY, $imageWidth, $imageHeight, 'PNG');
+            }
+        }
         $pdf->Image($imagePath, $imageX, $imageY, $imageWidth, $imageHeight, 'PNG');
 
         if (!empty($signature->created_at)) {
@@ -1052,7 +1147,7 @@ class PoExportController extends Controller
         ];
     }
 
-    private function signatureTempImage(string $dataUri): ?string
+    private function signatureTempImage(string $dataUri, bool $trimTransparent = false): ?string
     {
         if (!preg_match('/^data:image\/png;base64,(.+)$/', $dataUri, $matches)) {
             return null;
@@ -1063,10 +1158,77 @@ class PoExportController extends Controller
             return null;
         }
 
+        if ($trimTransparent) {
+            $trimmed = $this->trimTransparentSignaturePng($contents);
+            if ($trimmed !== false) {
+                $contents = $trimmed;
+            }
+        }
+
         $path = storage_path('app/tmp/po-pdf/' . Str::uuid() . '-signature.png');
         File::put($path, $contents);
 
         return $path;
+    }
+
+    private function trimTransparentSignaturePng(string $contents): string|false
+    {
+        $image = @imagecreatefromstring($contents);
+        if (!$image) {
+            return false;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $minX = $width;
+        $minY = $height;
+        $maxX = -1;
+        $maxY = -1;
+
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $alpha = (imagecolorat($image, $x, $y) >> 24) & 0x7F;
+                if ($alpha >= 120) {
+                    continue;
+                }
+
+                $minX = min($minX, $x);
+                $minY = min($minY, $y);
+                $maxX = max($maxX, $x);
+                $maxY = max($maxY, $y);
+            }
+        }
+
+        if ($maxX < $minX || $maxY < $minY) {
+            imagedestroy($image);
+            return false;
+        }
+
+        $padding = 4;
+        $cropX = max(0, $minX - $padding);
+        $cropY = max(0, $minY - $padding);
+        $cropWidth = min($width - $cropX, ($maxX - $minX + 1) + ($padding * 2));
+        $cropHeight = min($height - $cropY, ($maxY - $minY + 1) + ($padding * 2));
+        $cropped = imagecrop($image, [
+            'x' => $cropX,
+            'y' => $cropY,
+            'width' => $cropWidth,
+            'height' => $cropHeight,
+        ]);
+        imagedestroy($image);
+
+        if (!$cropped) {
+            return false;
+        }
+
+        imagealphablending($cropped, false);
+        imagesavealpha($cropped, true);
+        ob_start();
+        imagepng($cropped, null, 6);
+        $png = ob_get_clean();
+        imagedestroy($cropped);
+
+        return $png === false ? false : $png;
     }
 
     private function safePdfFileName(string $fileName): string

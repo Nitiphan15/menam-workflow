@@ -11,6 +11,35 @@ use Illuminate\Support\Facades\Storage;
 
 class PoErpService
 {
+    private const ERP_DEPARTMENT_ALIASES = [
+        'BAR1' => ['SH1'],
+        'BAR2' => ['SH2'],
+        'CGM' => ['CG'],
+        'ANNEAL' => ['ANL'],
+        'SHOTBLAST' => ['SB'],
+        'COATING' => ['CT'],
+        'PROFILE' => ['PF'],
+        'DIE' => ['DD'],
+        'DRAWING' => ['SQR'],
+        'TOOLING' => ['R'],
+        'LOGISTIC' => ['SP'],
+        'TRANSPORT' => ['SP'],
+        'PACK' => ['PK'],
+        'STOCK' => ['ST'],
+        'AUTOMOTIVE' => ['AM'],
+        'W&F' => ['GT'],
+        'GRATING' => ['GT'],
+        'MARKETING' => ['MKT'],
+        'SAFETY' => ['SE'],
+        'PLANNING' => ['PN'],
+        'ACCOUNT' => ['AC'],
+        'FINANCE' => ['FN'],
+        'PURCHASE' => ['P'],
+        'STORE' => ['S'],
+        'SALE' => ['IP', 'IM', 'ขายในประเทศ', 'DOMESTIC', 'SL02'],
+        'EXPORT' => ['EP', 'ขายต่างประเทศ', 'EXPORT', 'SL01'],
+    ];
+
     public const SOURCE_WIRE = 'wire';
     public const SOURCE_PLUS = 'plus';
 
@@ -30,6 +59,7 @@ class PoErpService
         ?string $status = null,
         ?string $source = null,
         ?array $workflowIds = null,
+        bool $includeCompletedStatuses = false,
     ): Collection
     {
         $wantedSource = self::normalizeSource($source);
@@ -125,16 +155,82 @@ class PoErpService
             return $allowed->isEmpty()
                 ? collect()
                 : $items->filter(fn ($row) => $allowed->contains((int) ($row->workflow_id ?? 0)))->values();
-        })->filter(function ($row) use ($status) {
+        })->filter(function ($row) use ($status, $includeCompletedStatuses) {
             $rowStatus = strtoupper((string) $row->status_code);
             $wantedStatus = strtoupper(trim((string) $status));
 
-            if ($wantedStatus !== '') {
-                return $rowStatus !== 'APPROVED';
+            return $this->isListStatusVisible($rowStatus, $wantedStatus, $includeCompletedStatuses);
+        });
+    }
+
+    public function filterByDepartmentId(Collection $rows, int $departmentId): Collection
+    {
+        if ($departmentId <= 0) {
+            return collect();
+        }
+
+        $resolved = [];
+
+        return $rows->filter(function ($row) use ($departmentId, &$resolved) {
+            $erpDepartment = trim((string) ($row->department ?? ''));
+            $key = strtoupper($erpDepartment);
+
+            if (!array_key_exists($key, $resolved)) {
+                $resolved[$key] = self::resolveDepartmentId($erpDepartment);
             }
 
-            return !in_array($rowStatus, ['APPROVED', 'CLOSED'], true);
-        });
+            return (int) ($resolved[$key] ?? 0) === $departmentId;
+        })->values();
+    }
+
+    public function filterForDepartmentViewer(Collection $rows, int $departmentId, ?string $position): Collection
+    {
+        if (self::isToolingEngineerPosition($position)) {
+            return $rows->filter(
+                fn ($row) => self::isToolingDepartment($row->department ?? null)
+            )->values();
+        }
+
+        return $this->filterByDepartmentId($rows, $departmentId);
+    }
+
+    public static function canDepartmentViewerAccess(
+        ?string $erpDepartment,
+        int $departmentId,
+        ?string $position,
+    ): bool {
+        if (self::isToolingEngineerPosition($position)) {
+            return self::isToolingDepartment($erpDepartment);
+        }
+
+        $poDepartmentId = self::resolveDepartmentId($erpDepartment);
+
+        return $departmentId > 0
+            && $poDepartmentId !== null
+            && $departmentId === $poDepartmentId;
+    }
+
+    public static function isToolingEngineerPosition(?string $position): bool
+    {
+        return strcasecmp(trim((string) $position), 'Tooling Engineer') === 0;
+    }
+
+    private static function isToolingDepartment(?string $erpDepartment): bool
+    {
+        return strcasecmp(self::departmentGroupName($erpDepartment), 'Tooling') === 0;
+    }
+
+    private function isListStatusVisible(string $rowStatus, string $wantedStatus, bool $includeCompletedStatuses): bool
+    {
+        if ($includeCompletedStatuses) {
+            return true;
+        }
+
+        if ($wantedStatus !== '') {
+            return $rowStatus !== 'APPROVED';
+        }
+
+        return !in_array($rowStatus, ['APPROVED', 'CLOSED'], true);
     }
 
     public function getDetailRows(string $ordnumber, ?string $sourceSystem = null): Collection
@@ -269,6 +365,7 @@ class PoErpService
             return [1 => null, 2 => null, 3 => null];
         }
 
+        $latestReopenId = $this->latestWorkflowReopenHistoryId($workflowId);
         $selects = [
             'h.step_no',
             'h.actor_user_id',
@@ -283,7 +380,9 @@ class PoErpService
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
             ->where('h.action_type', 'APPROVE')
+            ->when($latestReopenId, fn ($query) => $query->where('h.id', '>', $latestReopenId))
             ->orderBy('h.created_at')
+            ->orderBy('h.id')
             ->get($selects)
             ->map(fn ($row) => $this->decorateSignatureRow($row))
             ->keyBy('step_no');
@@ -306,6 +405,7 @@ class PoErpService
             ];
         }
 
+        $latestReopenId = $this->latestWorkflowReopenHistoryId($workflowId);
         $selects = [
             'h.step_no',
             'h.action_type',
@@ -321,7 +421,9 @@ class PoErpService
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
             ->whereIn('h.action_type', ['SUBMIT', 'APPROVE'])
+            ->when($latestReopenId, fn ($query) => $query->where('h.id', '>', $latestReopenId))
             ->orderBy('h.created_at')
+            ->orderBy('h.id')
             ->get($selects);
 
         $logs = $logs->map(fn ($row) => $this->decorateSignatureRow($row));
@@ -334,6 +436,16 @@ class PoErpService
             'authorized_by' => $approvals->firstWhere('step_no', 3),
             'po_confirmed_by' => null,
         ];
+    }
+
+    private function latestWorkflowReopenHistoryId(int $workflowId): ?int
+    {
+        $historyId = SqlServerDb::table('wf_action_histories')
+            ->where('wf_form_id', $workflowId)
+            ->where('action_type', 'REOPEN')
+            ->max('id');
+
+        return $historyId ? (int) $historyId : null;
     }
 
     public static function normalizeSource(?string $sourceSystem): ?string
@@ -376,6 +488,27 @@ class PoErpService
         $name = trim((string) $erpDepartment);
         if ($name === '') {
             return null;
+        }
+
+        $normalizedName = strtoupper($name);
+        foreach (self::ERP_DEPARTMENT_ALIASES as $alias => $departmentCandidates) {
+            if (!str_contains($normalizedName, $alias)) {
+                continue;
+            }
+
+            foreach ($departmentCandidates as $departmentCandidate) {
+                $aliasedDepartmentId = SqlServerDb::table('departments')
+                    ->where(function ($query) use ($departmentCandidate) {
+                        $query->where('code', $departmentCandidate)
+                            ->orWhere('name', $departmentCandidate);
+                    })
+                    ->where('is_active', 1)
+                    ->value('id');
+
+                if ($aliasedDepartmentId) {
+                    return (int) $aliasedDepartmentId;
+                }
+            }
         }
 
         $group = self::departmentGroupName($name);
@@ -446,6 +579,8 @@ class PoErpService
             ->whereDate('oe.transdate', '>=', '2026-04-01')
             ->whereRaw("oe.ordnumber ~ '^POR?[0-9]'")
             ->where('oe.shipped_or_received', false)
+            ->whereNotNull('oe.f1')
+            ->whereRaw("BTRIM(oe.f1) <> ''")
             ->whereNotExists(function ($query) {
                 $query->select(DB::raw(1))
                     ->from('ap')

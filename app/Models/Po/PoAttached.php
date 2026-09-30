@@ -20,11 +20,13 @@ class PoAttached extends Model
         'mime_type',
         'file_size',
         'remark',
+        'workflow_step_no',
         'created_at',
         'created_by',
     ];
 
     protected $casts = [
+        'workflow_step_no' => 'integer',
         'created_at' => 'datetime',
     ];
 

@@ -293,7 +293,8 @@ class GratingPerformanceController extends Controller
 
         $validated = $request->validate([
             'work_date' => ['required', 'date'],
-            'step_id' => ['required', Rule::exists(SqlServerDb::qualifyTable('grating_steps'), 'id')],
+            'step_id' => ['nullable', Rule::exists(SqlServerDb::qualifyTable('grating_steps'), 'id')],
+            'custom_step_name' => ['nullable', 'required_without:step_id', 'string', 'max:160'],
             'is_field_work' => ['nullable', 'boolean'],
             'field_activity' => ['nullable', 'array'],
             'field_activity.*' => ['required', $this->fieldActivityExistsRule()],
@@ -356,10 +357,6 @@ class GratingPerformanceController extends Controller
             $batchTotals = [];
 
             foreach ($validated['entries'] as $index => $entry) {
-                if (!$isFieldWork && trim((string) ($entry['mfg_no'] ?? '')) === '') {
-                    throw ValidationException::withMessages(["entries.$index.mfg_no" => 'Please fill MFG.']);
-                }
-
                 if ($isFieldWork && trim((string) ($entry['project'] ?? '')) === '') {
                     throw ValidationException::withMessages(["entries.$index.project" => 'Please fill project for field work.']);
                 }
@@ -385,9 +382,13 @@ class GratingPerformanceController extends Controller
                 }
 
                 $quantity = $this->entryQuantityPayload($entry, $isFieldWork);
+                $mfgInput = trim((string) ($entry['mfg_no'] ?? ''));
                 $mfgNo = $isFieldWork
                     ? 'FIELD'
-                    : strtoupper(trim((string) ($entry['mfg_no'] ?? '')));
+                    : (preg_match('/^[A-Za-z0-9_-]+$/', $mfgInput) ? strtoupper($mfgInput) : $mfgInput);
+                if (!$isFieldWork && $mfgNo === '') {
+                    $mfgNo = 'OTHER-' . strtoupper(substr(md5(uniqid((string) $index, true)), 0, 8));
+                }
 
                 if (!$isFieldWork) {
                     $this->assertEntryDoesNotExceedPlan($entry, $quantity, $stepIds, $mfgNo, $index, null, $batchTotals);
@@ -2469,11 +2470,36 @@ class GratingPerformanceController extends Controller
     {
         $selectedStepId = (int) ($validated['step_id'] ?? 0);
 
-        if ($selectedStepId <= 0) {
-            throw ValidationException::withMessages(['step_id' => 'Please choose one step.']);
+        if ($selectedStepId > 0) {
+            return collect([$selectedStepId]);
         }
 
-        return collect([$selectedStepId]);
+        $customStepName = preg_replace('/\s+/u', ' ', trim((string) ($validated['custom_step_name'] ?? '')));
+        if ($customStepName === '') {
+            throw ValidationException::withMessages(['custom_step_name' => 'กรุณากรอกชื่อ Step อื่น ๆ']);
+        }
+
+        $stepCode = 'CUSTOM_' . strtoupper(substr(hash('sha256', mb_strtolower($customStepName)), 0, 12));
+        $customStepId = SqlServerDb::table('grating_steps')
+            ->where('step_code', $stepCode)
+            ->value('id');
+
+        if (!$customStepId) {
+            $customStepId = SqlServerDb::table('grating_steps')->insertGetId(
+                $this->withAudit('grating_steps', [
+                    'step_code' => $stepCode,
+                    'step_name' => $customStepName,
+                    'is_field_work' => false,
+                    'target_kg_per_hour' => null,
+                    'sort_order' => 999,
+                    'active' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ])
+            );
+        }
+
+        return collect([(int) $customStepId]);
     }
 
     private function employeeRules(array $overrides = []): array

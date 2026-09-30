@@ -231,7 +231,7 @@ class DivisionGroupController extends Controller
                 ->sort()
                 ->values();
 
-        return view('formfc.division_group', [
+        return view('formfc.division.group', [
             'division' => $division,
             'rows' => $rows,
             'groups' => $groups,
