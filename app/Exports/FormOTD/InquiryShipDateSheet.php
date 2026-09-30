@@ -167,10 +167,13 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
                 if ($this->isConfirmByPlannerSheet()) {
                     $event->sheet->getStyle('V1')->applyFromArray([
-                        'font' => ['bold' => true],
+                        'font' => [
+                            'bold' => true,
+                            'color' => ['argb' => 'FFFFFFFF'],
+                        ],
                         'fill' => [
                             'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                            'startColor' => ['argb' => 'FFFFFF00'],
+                            'startColor' => ['argb' => 'FF70AD47'],
                         ],
                     ]);
 
@@ -179,7 +182,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                         $event->sheet->getStyle("V2:V{$highestRow}")->applyFromArray([
                             'fill' => [
                                 'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                                'startColor' => ['argb' => 'FFFCE4D6'],
+                                'startColor' => ['argb' => 'FFE2F0D9'],
                             ],
                         ]);
                     }
