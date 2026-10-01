@@ -19,7 +19,13 @@
                     </tr>
                     <tr>
                         <td style="padding:30px 32px 12px;">
-                            <p style="margin:0 0 18px; font-size:16px; line-height:1.7;">เรียนคุณ {{ $recipientName }}</p>
+                            <p style="margin:0 0 18px; font-size:16px; line-height:1.7;">
+                                @if (!empty($poItem['is_group_recipient']))
+                                    เรียน{{ $recipientName }}
+                                @else
+                                    เรียนคุณ {{ $recipientName }}
+                                @endif
+                            </p>
                             <p style="margin:0; font-size:15px; line-height:1.8; color:#3c4b5f;">
                                 เอกสาร PO ต่อไปนี้ปิดงานเรียบร้อยแล้ว กรุณาตรวจสอบรายละเอียดผ่านลิงก์ด้านล่าง
                             </p>

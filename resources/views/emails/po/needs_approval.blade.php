@@ -54,6 +54,12 @@
                                                     เปิดเอกสารเพื่ออนุมัติ
                                                 </a>
 
+                                                @if (!empty($item['tracking_url']))
+                                                    <a href="{{ $item['tracking_url'] }}" style="display:inline-block; margin-left:8px; background:#ffffff; border:1px solid #3d7fb1; color:#3d7fb1; text-decoration:none; padding:10px 17px; border-radius:999px; font-size:14px; font-weight:700;">
+                                                        ติดตาม PO ของแผนก
+                                                    </a>
+                                                @endif
+
                                                 @if (!empty($item['print_url']))
                                                     <a href="{{ $item['print_url'] }}" style="display:inline-block; margin-left:8px; color:#3d7fb1; text-decoration:none; padding:10px 0; font-size:14px;">
                                                         ดูตัวอย่าง PO

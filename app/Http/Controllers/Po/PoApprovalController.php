@@ -402,50 +402,103 @@ class PoApprovalController extends Controller
                 'wa.wf_form_id',
                 'u.email',
                 'u.name',
+                'wf.current_step_no',
             ])
             ->get();
 
-        $groupedByEmail = $pendingRows
-            ->groupBy('email')
-            ->map(function ($rows, $email) use ($byWorkflow) {
-                $items = $rows
-                    ->map(function ($row) use ($byWorkflow) {
-                        $po = $byWorkflow->get($row->wf_form_id);
-                        if (!$po) {
-                            return null;
-                        }
+        $notifications = $pendingRows
+            ->map(function ($row) use ($byWorkflow) {
+                $po = $byWorkflow->get($row->wf_form_id);
+                if (!$po) {
+                    return null;
+                }
 
-                        return [
+                $stepNo = (int) ($row->current_step_no ?? 0);
+                $cc = $stepNo === 3
+                    ? $this->povDepartmentRecipients($po)
+                        ->pluck('email')
+                        ->map(fn ($email) => strtolower(trim((string) $email)))
+                        ->reject(fn ($email) => $email === strtolower(trim((string) $row->email)))
+                        ->filter()
+                        ->unique()
+                        ->sort()
+                        ->values()
+                        ->all()
+                    : [];
+
+                return [
+                    'email' => (string) $row->email,
+                    'name' => (string) ($row->name ?? $row->email),
+                    'cc' => $cc,
+                    'item' => [
                             'ordnumber' => $po->ordnumber,
                             'source_label' => PoErpService::sourceLabel($po->site),
                             'department' => $po->f1,
                             'vendor_name' => $po->vendor_name,
                             'status_code' => $po->status_code,
-                            'step_no' => (int) ($po->workflow?->current_step_no ?? 0),
-                            'step_label' => $this->workflowStepLabel((int) ($po->workflow?->current_step_no ?? 0)),
+                            'step_no' => $stepNo,
+                            'step_label' => $this->workflowStepLabel($stepNo),
                             'flow_steps' => $this->poFlowSteps(),
                             'approve_url' => route('po.show', $po->id),
                             'print_url' => route('po.print', $po->id),
-                        ];
-                    })
-                    ->filter()
-                    ->unique(fn ($item) => ($item['source_label'] ?? '') . '::' . ($item['ordnumber'] ?? ''))
-                    ->values()
-                    ->all();
+                            'tracking_url' => $stepNo === 3 ? route('po.departmentTracking.show', $po->id) : null,
+                        ],
+                ];
+            })
+            ->filter()
+            ->groupBy(fn ($notification) => strtolower($notification['email']) . '::' . implode('|', $notification['cc']))
+            ->map(function ($rows) {
+                $first = $rows->first();
 
                 return [
-                    'name' => $rows->first()->name ?? $email,
-                    'items' => $items,
+                    'email' => $first['email'],
+                    'name' => $first['name'],
+                    'cc' => $first['cc'],
+                    'items' => $rows
+                        ->pluck('item')
+                        ->unique(fn ($item) => ($item['source_label'] ?? '') . '::' . ($item['ordnumber'] ?? ''))
+                        ->values()
+                        ->all(),
                 ];
             })
             ->filter(fn ($data) => !empty($data['items']));
 
-        foreach ($groupedByEmail as $email => $data) {
-            Mail::to($email)->bcc(self::PO_MAIL_BCC)->send(new PoNeedsApprovalMail(
+        foreach ($notifications as $data) {
+            $pendingMail = Mail::to($data['email']);
+            if ($data['cc'] !== []) {
+                $pendingMail->cc($data['cc']);
+            }
+
+            $pendingMail->bcc(self::PO_MAIL_BCC)->send(new PoNeedsApprovalMail(
                 approverName: (string) $data['name'],
                 poItems: $data['items'],
             ));
         }
+    }
+
+    private function povDepartmentRecipients(PoHeader $po): Collection
+    {
+        $departmentId = PoErpService::resolveDepartmentId($po->f1);
+        if (!$departmentId) {
+            return collect();
+        }
+
+        return SqlServerDb::table('users as u')
+            ->join('user_dept_roles as udr', function ($join) use ($departmentId) {
+                $join->on('udr.user_id', '=', 'u.id')
+                    ->where('udr.department_id', '=', $departmentId);
+            })
+            ->join('dept_roles as dr', 'dr.id', '=', 'udr.role_id')
+            ->where('u.department_id', $departmentId)
+            ->where('u.is_active', 1)
+            ->where('dr.is_active', 1)
+            ->whereRaw('UPPER(dr.code) = ?', ['POV'])
+            ->whereNotNull('u.email')
+            ->orderBy('u.name')
+            ->get(['u.id', 'u.name', 'u.email'])
+            ->filter(fn ($recipient) => !blank(trim((string) $recipient->email)))
+            ->unique(fn ($recipient) => strtolower(trim((string) $recipient->email)))
+            ->values();
     }
 
     private function notifySubmittersOnSubmitted(Collection $poHeaders): void
@@ -480,28 +533,147 @@ class PoApprovalController extends Controller
 
     private function notifyPurchaseDepartmentOnClosed(PoHeader $po): void
     {
-        $recipients = $this->workflowSubmitterRecipients($po)
-            ->merge($this->purchaseDepartmentRecipients($po))
+        $individualRecipients = $this->workflowSubmitterRecipients($po)
+            ->merge($this->departmentApproverRecipients($po))
+            ->merge($this->purchaseApproverRecipients($po))
             ->filter(fn ($recipient) => !blank($recipient?->email ?? null))
             ->unique(fn ($recipient) => strtolower((string) $recipient->email))
             ->values();
 
-        foreach ($recipients as $recipient) {
-            Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
-                recipientName: (string) ($recipient->name ?: 'Purchase'),
-                poItem: [
-                    'ordnumber' => $po->ordnumber,
-                    'source_label' => PoErpService::sourceLabel($po->site),
-                    'department' => $po->f1,
-                    'vendor_name' => $po->vendor_name,
-                    'step_no' => 999,
-                    'step_label' => $this->workflowStepLabel(999),
-                    'flow_steps' => $this->poFlowSteps(),
-                    'show_url' => route('po.show', $po->id),
-                    'print_url' => route('po.print', $po->id),
-                ],
-            ));
+        $individualEmails = $individualRecipients
+            ->pluck('email')
+            ->map(fn ($email) => strtolower(trim((string) $email)))
+            ->filter()
+            ->unique();
+
+        $purchaseRecipients = $this->purchaseDepartmentRecipients($po)
+            ->filter(fn ($recipient) => !blank($recipient?->email ?? null))
+            ->reject(fn ($recipient) => $individualEmails->contains(strtolower(trim((string) $recipient->email))))
+            ->unique(fn ($recipient) => strtolower(trim((string) $recipient->email)))
+            ->values();
+
+        $context = [
+            'po_id' => $po->id,
+            'ordnumber' => $po->ordnumber,
+            'workflow_id' => $po->workflow_id,
+            'individual_recipient_count' => $individualRecipients->count(),
+            'purchase_group_recipient_count' => $purchaseRecipients->count(),
+        ];
+
+        if ($individualRecipients->isEmpty() && $purchaseRecipients->isEmpty()) {
+            Log::warning('PO closed mail has no eligible recipients', $context);
+
+            return;
         }
+
+        Log::info('PO closed mail dispatch started', $context);
+        $sent = 0;
+        $failed = 0;
+
+        foreach ($individualRecipients as $recipient) {
+            try {
+                Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
+                    recipientName: (string) ($recipient->name ?: 'Purchase'),
+                    poItem: [
+                        'ordnumber' => $po->ordnumber,
+                        'source_label' => PoErpService::sourceLabel($po->site),
+                        'department' => $po->f1,
+                        'vendor_name' => $po->vendor_name,
+                        'step_no' => 999,
+                        'step_label' => $this->workflowStepLabel(999),
+                        'flow_steps' => $this->poFlowSteps(),
+                        'show_url' => route('po.show', $po->id),
+                        'print_url' => route('po.print', $po->id),
+                        'is_group_recipient' => false,
+                    ],
+                ));
+                $sent++;
+                Log::info('PO closed mail sent', $context + ['recipient' => (string) $recipient->email]);
+            } catch (Throwable $exception) {
+                $failed++;
+                Log::error('PO closed mail failed', $context + [
+                    'recipient' => (string) $recipient->email,
+                    'exception' => $exception::class,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($purchaseRecipients->isNotEmpty()) {
+            $purchaseEmails = $purchaseRecipients
+                ->pluck('email')
+                ->map(fn ($email) => trim((string) $email))
+                ->values()
+                ->all();
+
+            try {
+                Mail::to($purchaseEmails)->bcc(self::PO_MAIL_BCC)->send(new PoClosedNotificationMail(
+                    recipientName: 'ทีม Purchase',
+                    poItem: [
+                        'ordnumber' => $po->ordnumber,
+                        'source_label' => PoErpService::sourceLabel($po->site),
+                        'department' => $po->f1,
+                        'vendor_name' => $po->vendor_name,
+                        'step_no' => 999,
+                        'step_label' => $this->workflowStepLabel(999),
+                        'flow_steps' => $this->poFlowSteps(),
+                        'show_url' => route('po.show', $po->id),
+                        'print_url' => route('po.print', $po->id),
+                        'is_group_recipient' => true,
+                    ],
+                ));
+                $sent++;
+                Log::info('PO closed purchase group mail sent', $context + ['recipients' => $purchaseEmails]);
+            } catch (Throwable $exception) {
+                $failed++;
+                Log::error('PO closed purchase group mail failed', $context + [
+                    'recipients' => $purchaseEmails,
+                    'exception' => $exception::class,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info('PO closed mail dispatch finished', $context + ['sent' => $sent, 'failed' => $failed]);
+    }
+
+    private function departmentApproverRecipients(PoHeader $po): Collection
+    {
+        if (blank($po->workflow_id)) {
+            return collect();
+        }
+
+        return SqlServerDb::table('wf_form_authorizes as wa')
+            ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
+            ->where('wa.wf_form_id', $po->workflow_id)
+            ->where('wa.step_no', 3)
+            ->where('wa.status', 'APPROVED')
+            ->where('u.is_active', 1)
+            ->whereNotNull('u.email')
+            ->orderBy('u.name')
+            ->get(['u.name', 'u.email'])
+            ->filter(fn ($recipient) => !blank(trim((string) $recipient->email)))
+            ->unique(fn ($recipient) => strtolower(trim((string) $recipient->email)))
+            ->values();
+    }
+
+    private function purchaseApproverRecipients(PoHeader $po): Collection
+    {
+        if (blank($po->workflow_id)) {
+            return collect();
+        }
+
+        return SqlServerDb::table('wf_form_authorizes as wa')
+            ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
+            ->where('wa.wf_form_id', $po->workflow_id)
+            ->where('wa.step_no', 2)
+            ->where('u.is_active', 1)
+            ->whereNotNull('u.email')
+            ->orderBy('u.name')
+            ->get(['u.name', 'u.email'])
+            ->filter(fn ($recipient) => !blank(trim((string) $recipient->email)))
+            ->unique(fn ($recipient) => strtolower(trim((string) $recipient->email)))
+            ->values();
     }
 
     private function workflowSubmitterRecipients(PoHeader $po): Collection
@@ -555,6 +727,8 @@ class PoApprovalController extends Controller
                 ->filter()
                 ->unique()
                 ->values();
+
+            $departmentIds = $this->includePurchaseDepartmentForPurchaseStoreParent($departmentIds);
         }
 
         $baseQuery = SqlServerDb::table('users as u')
@@ -581,6 +755,55 @@ class PoApprovalController extends Controller
             ->orderBy('u.name')
             ->get(['u.name', 'u.email'])
             ->unique('email')
+            ->values();
+    }
+
+    private function includePurchaseDepartmentForPurchaseStoreParent(Collection $departmentIds): Collection
+    {
+        if ($departmentIds->isEmpty()) {
+            return $departmentIds;
+        }
+
+        $purchaseStoreParentIds = SqlServerDb::table('departments')
+            ->whereIn('id', $departmentIds->all())
+            ->get(['id', 'code', 'name'])
+            ->filter(function ($department) {
+                $code = strtolower(trim((string) ($department->code ?? '')));
+                $name = strtolower(trim((string) ($department->name ?? '')));
+
+                return $code === 'ps'
+                    || ((str_contains($name, 'purchase') || str_contains($name, 'purchasing') || str_contains($name, 'จัดซื้อ'))
+                        && (str_contains($name, 'store') || str_contains($name, 'สโตร์') || str_contains($name, 'คลัง')));
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        if ($purchaseStoreParentIds->isEmpty()) {
+            return $departmentIds;
+        }
+
+        $purchaseDepartmentIds = SqlServerDb::table('departments')
+            ->whereIn('parent_id', $purchaseStoreParentIds->all())
+            ->where('is_active', 1)
+            ->get(['id', 'code', 'name'])
+            ->filter(function ($department) {
+                $code = strtolower(trim((string) ($department->code ?? '')));
+                $name = strtolower(trim((string) ($department->name ?? '')));
+
+                return in_array($code, ['p', 'pur', 'purch', 'purchase'], true)
+                    || str_starts_with($code, 'pur')
+                    || str_contains($name, 'purchase')
+                    || str_contains($name, 'purchasing')
+                    || str_contains($name, 'จัดซื้อ');
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id);
+
+        return $departmentIds
+            ->merge($purchaseDepartmentIds)
+            ->filter()
+            ->unique()
             ->values();
     }
 
