@@ -238,8 +238,8 @@ class DeliveryPlanInquiryController extends Controller
             return false;
         }
 
-        return strcasecmp(trim((string) ($user->department ?? '')), 'Planner') === 0
-            || (int) ($user->id ?? 0) === 2;
+        return method_exists($user, 'isPlannerDepartment')
+            && $user->isPlannerDepartment();
     }
 
     public function exportPdf(Request $request)

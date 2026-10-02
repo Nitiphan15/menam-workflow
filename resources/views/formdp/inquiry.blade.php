@@ -26,8 +26,8 @@
 
         $isPlannerDepartment =
             $isLoggedIn &&
-            (strcasecmp(trim((string) ($u->department ?? '')), 'Planner') === 0 ||
-                (int) ($u->id ?? 0) === 2);
+            method_exists($u, 'isPlannerDepartment') &&
+            $u->isPlannerDepartment();
 
         $tableColspan = 18 + ($canDp ? 1 : 0) + ($showInquiryBulkTruck ? 1 : 0);
 

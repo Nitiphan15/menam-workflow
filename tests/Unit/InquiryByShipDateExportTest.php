@@ -7,6 +7,8 @@ use App\Exports\FormOTD\InquiryShipDateSheet;
 use App\Exports\FormOTD\PlannerConfirmedInquiryExport;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
 use App\Models\FormDP\DeliveryConfirmation;
+use App\Models\Users\Department;
+use App\Models\Users\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -121,15 +123,27 @@ class InquiryByShipDateExportTest extends TestCase
         $this->assertSame('Confirm Delivery', $confirmed->first()->planner_confirmation_label);
     }
 
-    public function test_planner_department_check_is_trimmed_and_case_insensitive(): void
+    public function test_planner_department_check_uses_department_id_relation_code(): void
     {
         $controller = new DeliveryPlanInquiryController();
         $method = new \ReflectionMethod($controller, 'isPlannerDepartment');
         $method->setAccessible(true);
 
-        $this->assertTrue($method->invoke($controller, (object) ['department' => ' planner ']));
-        $this->assertTrue($method->invoke($controller, (object) ['id' => 2, 'department' => 'Sales']));
-        $this->assertFalse($method->invoke($controller, (object) ['department' => 'Sales']));
+        $planner = new User(['department_id' => 9]);
+        $planner->id = 20;
+        $planner->setRelation('department', new Department(['code' => ' pn ']));
+
+        $it = new User(['department_id' => 1]);
+        $it->id = 21;
+        $it->setRelation('department', new Department(['code' => 'IT']));
+
+        $debugUser = new User(['department_id' => 1]);
+        $debugUser->id = 2;
+        $debugUser->setRelation('department', new Department(['code' => 'IT']));
+
+        $this->assertTrue($method->invoke($controller, $planner));
+        $this->assertTrue($method->invoke($controller, $debugUser));
+        $this->assertFalse($method->invoke($controller, $it));
         $this->assertFalse($method->invoke($controller, null));
     }
 }

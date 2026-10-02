@@ -110,6 +110,19 @@ class User extends Authenticatable implements AuthorizableContract
         return $this->belongsTo(Department::class, 'department_id');
     }
 
+    public function isPlannerDepartment(): bool
+    {
+        if ((int) $this->id === 2) {
+            return true;
+        }
+
+        $department = $this->relationLoaded('department')
+            ? $this->getRelation('department')
+            : $this->department()->first(['code']);
+
+        return strcasecmp(trim((string) ($department->code ?? '')), 'PN') === 0;
+    }
+
     public function supervisor()
     {
         return $this->belongsTo(User::class, 'supervisor_user_id');
