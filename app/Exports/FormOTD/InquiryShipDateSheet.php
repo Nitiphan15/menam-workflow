@@ -140,7 +140,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         ];
 
         if ($this->isConfirmByPlannerSheet()) {
-            $mapped[] = $row->planner_confirmation_label ?? 'Confirm Delivery';
+            $mapped[] = $row->planner_confirmation_label ?? 'Pending';
         }
 
         return $mapped;
@@ -299,7 +299,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         $rows = $q->get();
 
         if ($this->isConfirmByPlannerSheet()) {
-            $rows = $this->onlyConfirmedByPlanner($rows);
+            $rows = $this->withPlannerConfirmationStatus($rows);
         }
 
         $stockMap = $this->trackingStockFgMapForRows($rows);
@@ -317,7 +317,9 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
             $rows->pluck('created_by')->map(fn($x) => (int) $x)->filter()->unique()->values()->all()
         );
 
-        return $this->withDivisionGroupRows($rows);
+        return $this->isConfirmByPlannerSheet()
+            ? $this->withShipDateDivisionGroupRows($rows)
+            : $this->withDivisionGroupRows($rows);
     }
 
     private function isConfirmByPlannerSheet(): bool
@@ -325,7 +327,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         return $this->shipDate === self::CONFIRM_BY_PLANNER_SHEET;
     }
 
-    private function onlyConfirmedByPlanner($rows)
+    private function withPlannerConfirmationStatus($rows)
     {
         $tokenize = fn($value) => collect(explode(',', (string) $value))
             ->map(fn($token) => strtoupper(ltrim(trim((string) $token), " \t\n\r\0\x0B'\"+")))
@@ -341,7 +343,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
         $latestMap = app(DeliveryConfirmationService::class)->latestMap($mfgNos);
 
-        return collect($rows)->filter(function ($row) use ($tokenize, $latestMap) {
+        return collect($rows)->map(function ($row) use ($tokenize, $latestMap) {
             $entry = null;
 
             foreach ($tokenize($row->mfg_no ?? '') as $token) {
@@ -365,16 +367,74 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                 }
             }
 
-            if (($entry->confirmation_status ?? null) !== DeliveryConfirmation::STATUS_CONFIRM) {
-                return false;
-            }
+            $status = strtoupper((string) ($entry->confirmation_status ?? ''));
+            $row->planner_confirmation_label = in_array($status, [
+                DeliveryConfirmation::STATUS_CONFIRM,
+                DeliveryConfirmation::STATUS_POSTPONE,
+            ], true)
+                ? DeliveryConfirmation::statusLabel($status)
+                : 'Pending';
 
-            $row->planner_confirmation_label = DeliveryConfirmation::statusLabel(
-                $entry->confirmation_status
-            );
-
-            return true;
+            return $row;
         })->values();
+    }
+
+    private function withShipDateDivisionGroupRows($rows)
+    {
+        $labels = $this->divisionLabels();
+        $divisionOrder = $this->divisionOrder();
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $shipDate = trim((string) ($row->ship_posted_at ?? '')) ?: 'NO_SHIP_DATE';
+            $mode = strtoupper(trim((string) ($row->delivery_type ?? '')));
+            $division = match ($mode) {
+                'ACID' => 'PLN',
+                'SPECIAL' => 'EXPORT',
+                default => $this->detectDivision((string) ($row->sales_name ?? '')),
+            };
+            $groups[$shipDate][$division][] = $row;
+        }
+
+        uksort($groups, fn($a, $b) => strcmp((string) $a, (string) $b));
+
+        $this->groupRows = [];
+        $output = collect();
+        $excelRow = 2;
+
+        foreach ($groups as $shipDate => $divisions) {
+            $output->push((object) [
+                '__group_row' => true,
+                'group_label' => 'วันที่แทงส่ง: ' . ($shipDate === 'NO_SHIP_DATE' ? 'ไม่ระบุวันที่' : $shipDate),
+            ]);
+            $this->groupRows[] = $excelRow++;
+
+            uksort($divisions, function ($a, $b) use ($divisionOrder) {
+                $ia = array_search($a, $divisionOrder, true);
+                $ib = array_search($b, $divisionOrder, true);
+
+                $ia = $ia === false ? 999 : $ia;
+                $ib = $ib === false ? 999 : $ib;
+
+                return $ia <=> $ib ?: strcmp((string) $a, (string) $b);
+            });
+
+            foreach ($divisions as $division => $items) {
+                $output->push((object) [
+                    '__group_row' => true,
+                    'group_label' => ($labels[$division] ?? (string) $division)
+                        . ' (' . count($items) . ' รายการ)',
+                ]);
+                $this->groupRows[] = $excelRow++;
+
+                foreach ($items as $item) {
+                    $output->push($item);
+                    $excelRow++;
+                }
+            }
+        }
+
+        return $output;
     }
 
     private function trackingStockFgMapForRows($rows): array

@@ -88,7 +88,7 @@ class InquiryByShipDateExportTest extends TestCase
         $this->assertSame('Confirm By Planner', end($headings));
     }
 
-    public function test_confirm_sheet_keeps_only_rows_whose_effective_latest_status_is_confirm(): void
+    public function test_confirm_sheet_includes_confirm_postpone_and_pending_rows(): void
     {
         foreach ([
             ['mfg_no' => 'W100', 'site' => 'WIRE', 'confirmation_status' => DeliveryConfirmation::STATUS_CONFIRM],
@@ -106,19 +106,51 @@ class InquiryByShipDateExportTest extends TestCase
             InquiryShipDateSheet::CONFIRM_BY_PLANNER_SHEET,
             []
         );
-        $method = new \ReflectionMethod($sheet, 'onlyConfirmedByPlanner');
+        $method = new \ReflectionMethod($sheet, 'withPlannerConfirmationStatus');
         $method->setAccessible(true);
 
         $rows = collect([
             (object) ['mfg_no' => 'W100'],
             (object) ['mfg_no' => 'W200'],
             (object) ['mfg_no' => 'W300, +P300'],
+            (object) ['mfg_no' => 'W400'],
         ]);
 
-        $confirmed = $method->invoke($sheet, $rows);
+        $result = $method->invoke($sheet, $rows);
 
-        $this->assertSame(['W100'], $confirmed->pluck('mfg_no')->all());
-        $this->assertSame('Confirm Delivery', $confirmed->first()->planner_confirmation_label);
+        $this->assertSame(
+            ['Confirm Delivery', 'Pending', 'Request Postpone', 'Pending'],
+            $result->pluck('planner_confirmation_label')->all()
+        );
+    }
+
+    public function test_confirm_sheet_groups_by_ship_date_before_division(): void
+    {
+        $sheet = new InquiryShipDateSheet(
+            InquiryShipDateSheet::CONFIRM_BY_PLANNER_SHEET,
+            []
+        );
+        $method = new \ReflectionMethod($sheet, 'withShipDateDivisionGroupRows');
+        $method->setAccessible(true);
+
+        $rows = collect([
+            (object) ['ship_posted_at' => '2026-10-06', 'delivery_type' => 'SO', 'sales_name' => 'D1', 'mfg_no' => 'LATE-D1'],
+            (object) ['ship_posted_at' => '2026-10-05', 'delivery_type' => 'SO', 'sales_name' => 'D2', 'mfg_no' => 'EARLY-D2'],
+            (object) ['ship_posted_at' => '2026-10-05', 'delivery_type' => 'SO', 'sales_name' => 'D1', 'mfg_no' => 'EARLY-D1'],
+        ]);
+
+        $result = $method->invoke($sheet, $rows);
+
+        $this->assertSame([
+            'วันที่แทงส่ง: 2026-10-05',
+            'D1 - ดิลก + ขวัญเรือน (1 รายการ)',
+            'EARLY-D1',
+            'D2 - ปรียาพรรณ + นิตยา (1 รายการ)',
+            'EARLY-D2',
+            'วันที่แทงส่ง: 2026-10-06',
+            'D1 - ดิลก + ขวัญเรือน (1 รายการ)',
+            'LATE-D1',
+        ], $result->map(fn($row) => $row->group_label ?? $row->mfg_no)->all());
     }
 
     public function test_planner_department_check_is_trimmed_and_case_insensitive(): void
