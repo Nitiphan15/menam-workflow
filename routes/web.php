@@ -239,13 +239,15 @@ Route::prefix('/risk')
 
 Route::prefix('/stock-withdrawal')
   ->name('stock-withdrawal.')
-  ->middleware(['auth', 'permission.any:RISK'])
+  ->middleware(['auth', 'permission.any:STOCK,STOCK_ADMIN'])
   ->group(function () {
     Route::get('/', [StockWithdrawalController::class, 'index'])->name('index');
     Route::get('/export', [StockWithdrawalController::class, 'export'])->name('export');
-    Route::get('/standards', [StockWithdrawalStandardController::class, 'index'])->name('master.index');
-    Route::post('/standards', [StockWithdrawalStandardController::class, 'store'])->name('master.store');
-    Route::put('/standards/{standard}', [StockWithdrawalStandardController::class, 'update'])->name('master.update');
+    Route::middleware('permission.any:STOCK_ADMIN')->group(function () {
+      Route::get('/standards', [StockWithdrawalStandardController::class, 'index'])->name('master.index');
+      Route::post('/standards', [StockWithdrawalStandardController::class, 'store'])->name('master.store');
+      Route::put('/standards/{standard}', [StockWithdrawalStandardController::class, 'update'])->name('master.update');
+    });
   });
 
 Route::prefix('/wos')

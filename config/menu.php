@@ -179,9 +179,10 @@ return [
             [
                 'icon' => 'fa-boxes-stacked',
                 'text' => 'Stock Withdrawal',
+                'permission' => ['STOCK', 'STOCK_ADMIN'],
                 'children' => [
-                    ['icon' => 'fa-triangle-exclamation', 'text' => 'Withdrawal Alert', 'route' => 'stock-withdrawal.index'],
-                    ['icon' => 'fa-sliders', 'text' => 'Standard Part Master', 'route' => 'stock-withdrawal.master.index'],
+                    ['icon' => 'fa-triangle-exclamation', 'text' => 'Withdrawal Alert', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-sliders', 'text' => 'Standard Part Master', 'route' => 'stock-withdrawal.master.index', 'permission' => 'STOCK_ADMIN'],
                 ],
             ],
         ],
