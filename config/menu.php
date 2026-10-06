@@ -175,6 +175,16 @@ return [
                 ],
             ],
         ],
+        'stock-withdrawal' => [
+            [
+                'icon' => 'fa-boxes-stacked',
+                'text' => 'Stock Withdrawal',
+                'children' => [
+                    ['icon' => 'fa-triangle-exclamation', 'text' => 'Withdrawal Alert', 'route' => 'stock-withdrawal.index'],
+                    ['icon' => 'fa-sliders', 'text' => 'Standard Part Master', 'route' => 'stock-withdrawal.master.index'],
+                ],
+            ],
+        ],
 
         'po' => [
             [
