@@ -16,6 +16,7 @@ class DeliveryConfirmation extends Model
     public $timestamps = true;
 
     protected $fillable = [
+        'ord_id',
         'mfg_no',
         'site',
         'so_number',
@@ -30,6 +31,7 @@ class DeliveryConfirmation extends Model
     ];
 
     protected $casts = [
+        'ord_id' => 'integer',
         'original_ship_date' => 'date',
         'new_delivery_date' => 'date',
         'confirmed_at' => 'datetime',

@@ -322,28 +322,24 @@ class ProductionStatusTrackingService
 
         try {
             $service = app(DeliveryConfirmationService::class);
-            $mfgNos = $rows
-                ->map(fn($r) => $this->normalizeMfgNo((string) ($r->mfg_no ?? '')))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            $sites = $rows
-                ->map(fn($r) => strtoupper((string) ($r->site ?? '')))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            $map = $service->latestMap($mfgNos, $sites);
+            $map = $service->latestMapForItems($rows->map(fn($row) => [
+                'ord_id' => $row->ord_id ?? null,
+                'mfg_no' => $row->mfg_no ?? '',
+                'site' => $row->site ?? '',
+                'so_number' => $row->so_number ?? null,
+            ])->all());
         } catch (\Throwable $e) {
             Log::warning('attachDeliveryConfirmations failed', ['message' => $e->getMessage()]);
             return;
         }
 
         foreach ($rows as $row) {
-            $key = strtoupper((string) ($row->site ?? '')) . '|' . $this->normalizeMfgNo((string) ($row->mfg_no ?? ''));
+            $key = $service->itemKey(
+                $row->ord_id ?? null,
+                $row->mfg_no ?? '',
+                $row->site ?? '',
+                $row->so_number ?? null
+            );
             $entry = $map->get($key);
 
             $row->confirmation_status = $entry->confirmation_status ?? null;
@@ -1210,7 +1206,7 @@ SQL;
 
         return (object) [
             'workorder_id' => (int) ($workorder->id ?? 0),
-            'ord_id' => null,
+            'ord_id' => $deliveryRow->ord_id ?? null,
             'mfg_no' => $displayMfgNo,
             'site' => $site,
             'sales_id' => $deliveryRow->sales_id ?? null,
@@ -1361,7 +1357,7 @@ SQL;
 
         return (object) [
             'workorder_id' => 0,
-            'ord_id' => null,
+            'ord_id' => $deliveryRow->ord_id ?? null,
             'mfg_no' => $displayMfgNo,
             'site' => strtoupper($site),
             'sales_id' => $deliveryRow->sales_id ?? null,

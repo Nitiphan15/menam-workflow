@@ -1758,7 +1758,8 @@
                                 <td class="pst-confirm">
                                     <form class="pst-confirm-form d-flex flex-column gap-1"
                                         data-mfg="{{ $row->mfg_no }}" data-site="{{ $row->site }}"
-                                        data-so="{{ $row->so_number ?? '' }}" data-orig-ship="{{ $origShip }}"
+                                        data-so="{{ $row->so_number ?? '' }}" data-ord-id="{{ $row->ord_id ?? '' }}"
+                                        data-orig-ship="{{ $origShip }}"
                                         data-saved="{{ $confIsActive ? '1' : '0' }}"
                                         data-active="{{ $confIsActive ? '1' : '0' }}">
                                         <div class="d-flex align-items-center gap-1 flex-wrap">
@@ -2243,6 +2244,7 @@
                     fd.append('mfg_no', form.dataset.mfg || '');
                     fd.append('site', form.dataset.site || '');
                     fd.append('so_number', form.dataset.so || '');
+                    fd.append('ord_id', form.dataset.ordId || '');
                     fd.append('confirmation_status', status);
                     fd.append('original_ship_date', form.dataset.origShip || '');
                     if (status === 'POSTPONE') {
@@ -2364,6 +2366,8 @@
                         fd.append('_token', CSRF);
                         fd.append('mfg_no', form.dataset.mfg || '');
                         fd.append('site', form.dataset.site || '');
+                        fd.append('so_number', form.dataset.so || '');
+                        fd.append('ord_id', form.dataset.ordId || '');
                         fd.append('reason', reason);
 
                         fetch(CANCEL_URL, {
@@ -2417,6 +2421,8 @@
                 histBtn.addEventListener('click', function() {
                     const mfg = form.dataset.mfg || '';
                     const site = form.dataset.site || '';
+                    const so = form.dataset.so || '';
+                    const ordId = form.dataset.ordId || '';
                     document.getElementById('pstHistMfg').textContent = mfg + (site ? ' (' + site +
                         ')' : '');
                     const body = document.getElementById('pstHistBody');
@@ -2424,7 +2430,8 @@
                     new bootstrap.Modal(document.getElementById('pstConfirmHistoryModal')).show();
 
                     const url = HIST_URL + '?mfg_no=' + encodeURIComponent(mfg) + '&site=' +
-                        encodeURIComponent(site);
+                        encodeURIComponent(site) + '&so_number=' + encodeURIComponent(so) + '&ord_id=' +
+                        encodeURIComponent(ordId);
                     fetch(url, {
                             headers: {
                                 'X-Requested-With': 'XMLHttpRequest'
@@ -2521,6 +2528,7 @@
                         fd.append('items[' + i + '][mfg_no]', f.dataset.mfg || '');
                         fd.append('items[' + i + '][site]', f.dataset.site || '');
                         fd.append('items[' + i + '][so_number]', f.dataset.so || '');
+                        fd.append('items[' + i + '][ord_id]', f.dataset.ordId || '');
                         fd.append('items[' + i + '][original_ship_date]', f.dataset.origShip || '');
                     });
 

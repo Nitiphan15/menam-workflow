@@ -61,6 +61,7 @@ class ProductionStatusTrackingController extends Controller
             'mfg_no' => ['required', 'string', 'max:80'],
             'site' => ['nullable', 'string', 'max:10'],
             'so_number' => ['nullable', 'string', 'max:80'],
+            'ord_id' => ['nullable', 'integer', 'min:1'],
             'confirmation_status' => ['required', 'in:CONFIRM,POSTPONE'],
             'new_delivery_date' => ['nullable', 'date'],
             'original_ship_date' => ['nullable', 'date'],
@@ -75,7 +76,8 @@ class ProductionStatusTrackingController extends Controller
                 $validated['confirmation_status'],
                 $validated['new_delivery_date'] ?? null,
                 $validated['original_ship_date'] ?? null,
-                $validated['remark'] ?? null
+                $validated['remark'] ?? null,
+                $validated['ord_id'] ?? null
             );
         } catch (ValidationException $e) {
             return response()->json([
@@ -110,6 +112,7 @@ class ProductionStatusTrackingController extends Controller
             'items.*.mfg_no' => ['required', 'string', 'max:80'],
             'items.*.site' => ['nullable', 'string', 'max:10'],
             'items.*.so_number' => ['nullable', 'string', 'max:80'],
+            'items.*.ord_id' => ['nullable', 'integer', 'min:1'],
             'items.*.original_ship_date' => ['nullable', 'date'],
         ]);
 
@@ -129,6 +132,8 @@ class ProductionStatusTrackingController extends Controller
         $validated = $request->validate([
             'mfg_no' => ['required', 'string', 'max:80'],
             'site' => ['nullable', 'string', 'max:10'],
+            'so_number' => ['nullable', 'string', 'max:80'],
+            'ord_id' => ['nullable', 'integer', 'min:1'],
             'reason' => ['required', 'string', 'max:500'],
         ]);
 
@@ -136,7 +141,9 @@ class ProductionStatusTrackingController extends Controller
             $row = $service->cancel(
                 $validated['mfg_no'],
                 $validated['site'] ?? null,
-                $validated['reason']
+                $validated['reason'],
+                $validated['ord_id'] ?? null,
+                $validated['so_number'] ?? null
             );
         } catch (ValidationException $e) {
             return response()->json([
@@ -164,9 +171,12 @@ class ProductionStatusTrackingController extends Controller
     {
         $mfgNo = trim((string) $request->query('mfg_no', ''));
         $site = trim((string) $request->query('site', ''));
+        $soNumber = trim((string) $request->query('so_number', ''));
+        $rawOrdId = $request->query('ord_id');
+        $ordId = is_numeric($rawOrdId) && (int) $rawOrdId > 0 ? (int) $rawOrdId : null;
         abort_if($mfgNo === '', 404);
 
-        $rows = $service->history($mfgNo, $site ?: null)->map(function ($r) {
+        $rows = $service->history($mfgNo, $site ?: null, $ordId, $soNumber ?: null)->map(function ($r) {
             return [
                 'confirmation_status' => $r->confirmation_status,
                 'status_label' => \App\Models\FormDP\DeliveryConfirmation::statusLabel($r->confirmation_status),

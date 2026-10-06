@@ -2287,6 +2287,15 @@ class DeliveryPlanInquiryController extends Controller
                 'edit_remark' => 'เลื่อนไป วันที่ ' . $newShipDateText . ' เหตุผล : ' . $reason,
             ]);
 
+        app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
+            $row->mfg_no ?? null,
+            $row->so_number ?? null,
+            $originalShipDate->toDateString(),
+            $newShipDate->toDateString(),
+            $reason,
+            (int) $ordId
+        );
+
         return [
             'ord_id' => $ordId,
             'new_ord_id' => $newOrdId,
@@ -6392,6 +6401,20 @@ class DeliveryPlanInquiryController extends Controller
                     'status' => $status,
                     'revise_by' => $userId,
                 ]);
+            if ($dispatchType === 'POSTPONED') {
+                foreach ($rows as $row) {
+                    app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
+                        $row->mfg_no ?? null,
+                        $row->so_number ?? null,
+                        !empty($row->ship_posted_at)
+                            ? Carbon::parse($row->ship_posted_at)->toDateString()
+                            : null,
+                        null,
+                        $remark !== '' ? $remark : 'Logistics เลื่อนแผน',
+                        (int) ($row->ord_id ?? 0) ?: null
+                    );
+                }
+            }
         });
 
         return redirect($data['return_url'] ?? url()->previous())->with('success', 'บันทึกช่องทางพิเศษแล้ว');

@@ -24,7 +24,8 @@ class DeliveryConfirmationService
         string $status,
         ?string $newDeliveryDate,
         ?string $originalShipDate,
-        ?string $remark = null
+        ?string $remark = null,
+        ?int $ordId = null
     ): DeliveryConfirmation {
         $mfgNo = $this->normalizeMfgNo($mfgNo);
         if ($mfgNo === '') {
@@ -66,6 +67,7 @@ class DeliveryConfirmationService
         $user = Auth::user();
 
         $row = DeliveryConfirmation::create([
+            'ord_id' => $ordId,
             'mfg_no' => $mfgNo,
             'site' => strtoupper(trim((string) $site)),
             'so_number' => $soNumber ? trim($soNumber) : null,
@@ -85,7 +87,9 @@ class DeliveryConfirmationService
     public function cancel(
         string $mfgNo,
         ?string $site,
-        ?string $reason
+        ?string $reason,
+        ?int $ordId = null,
+        ?string $soNumber = null
     ): DeliveryConfirmation {
         $mfgNo = $this->normalizeMfgNo($mfgNo);
         $site = strtoupper(trim((string) $site));
@@ -98,13 +102,25 @@ class DeliveryConfirmationService
             throw ValidationException::withMessages(['reason' => 'กรุณาระบุเหตุผลที่ยกเลิกการยืนยัน']);
         }
 
-        return DB::connection('sqlsrv_menam')->transaction(function () use ($mfgNo, $site, $reason) {
-            $latest = DeliveryConfirmation::query()
+        $soNumber = trim((string) $soNumber);
+
+        return DB::connection('sqlsrv_menam')->transaction(function () use ($mfgNo, $site, $reason, $ordId, $soNumber) {
+            $base = DeliveryConfirmation::query()
                 ->where('mfg_no', $mfgNo)
-                ->where('site', $site)
+                ->where('site', $site);
+
+            $latest = $ordId
+                ? (clone $base)->where('ord_id', $ordId)->orderByDesc('id')->lockForUpdate()->first()
+                : null;
+
+            if (!$latest) {
+                $latest = $base
+                    ->whereNull('ord_id')
+                    ->when($soNumber !== '', fn($q) => $q->where('so_number', $soNumber))
                 ->orderByDesc('id')
                 ->lockForUpdate()
                 ->first();
+            }
 
             if (!$latest || !DeliveryConfirmation::isActiveStatus($latest->confirmation_status)) {
                 throw ValidationException::withMessages([
@@ -115,6 +131,7 @@ class DeliveryConfirmationService
             $user = Auth::user();
 
             return DeliveryConfirmation::create([
+                'ord_id' => $ordId ?: ($latest->ord_id ?? null),
                 'mfg_no' => $mfgNo,
                 'site' => $site,
                 'so_number' => $latest->so_number,
@@ -128,6 +145,75 @@ class DeliveryConfirmationService
                 'confirmed_at' => now(),
             ]);
         });
+    }
+
+    /**
+     * Invalidate active Tracking confirmations after FormDP actually postpones
+     * the delivery plan. The event is append-only so the previous confirmation
+     * remains available in history.
+     */
+    public function resetAfterPlanPostpone(
+        ?string $mfgValue,
+        ?string $soNumber,
+        ?string $originalShipDate,
+        ?string $newShipDate,
+        string $reason,
+        ?int $ordId = null
+    ): int {
+        $targets = collect(explode(',', (string) $mfgValue))
+            ->map(function ($raw) {
+                $raw = strtoupper(trim((string) $raw, " \t\n\r\0\x0B'\""));
+
+                return [
+                    'mfg_no' => $this->normalizeMfgNo($raw),
+                    'site' => str_starts_with($raw, '+') ? 'PLUS' : 'WIRE',
+                ];
+            })
+            ->filter(fn($target) => $target['mfg_no'] !== '')
+            ->unique(fn($target) => $target['site'] . '|' . $target['mfg_no'])
+            ->values();
+
+        if ($targets->isEmpty()) {
+            return 0;
+        }
+
+        $latest = $this->latestMapForItems($targets->map(fn($target) => array_merge($target, [
+            'ord_id' => $ordId,
+            'so_number' => $soNumber,
+        ]))->all());
+        $user = Auth::user();
+        $resetCount = 0;
+
+        foreach ($targets as $target) {
+            $key = $this->itemKey($ordId, $target['mfg_no'], $target['site'], $soNumber);
+            $active = $latest->get($key);
+
+            if (!$active || !DeliveryConfirmation::isActiveStatus($active->confirmation_status ?? null)) {
+                continue;
+            }
+
+            DeliveryConfirmation::create([
+                'ord_id' => $ordId ?: ($active->ord_id ?? null),
+                'mfg_no' => $target['mfg_no'],
+                'site' => $target['site'],
+                'so_number' => $soNumber ? trim($soNumber) : ($active->so_number ?? null),
+                'confirmation_status' => DeliveryConfirmation::STATUS_RECONFIRM,
+                'original_ship_date' => $originalShipDate
+                    ? Carbon::parse($originalShipDate)->toDateString()
+                    : null,
+                'new_delivery_date' => $newShipDate
+                    ? Carbon::parse($newShipDate)->toDateString()
+                    : null,
+                'remark' => mb_substr('เลื่อนแผนจริง: ' . trim($reason), 0, 500),
+                'confirmed_by_id' => $user?->id,
+                'confirmed_by_login' => $user?->login ?? $user?->username ?? null,
+                'confirmed_by_name' => $user?->name ?? null,
+                'confirmed_at' => now(),
+            ]);
+            $resetCount++;
+        }
+
+        return $resetCount;
     }
 
     /**
@@ -185,9 +271,68 @@ class DeliveryConfirmationService
         });
     }
 
+    public function itemKey($ordId, ?string $mfgNo, ?string $site, ?string $soNumber): string
+    {
+        if (is_numeric($ordId) && (int) $ordId > 0) {
+            return 'ORD|' . (int) $ordId . '|'
+                . strtoupper(trim((string) $site)) . '|'
+                . $this->normalizeMfgNo($mfgNo);
+        }
+
+        return 'LEGACY|'
+            . strtoupper(trim((string) $site)) . '|'
+            . $this->normalizeMfgNo($mfgNo) . '|'
+            . strtoupper(trim((string) $soNumber));
+    }
+
+    /**
+     * Latest confirmation per delivery-plan row. Legacy rows without ord_id
+     * fall back to the exact (site, mfg_no, so_number) tuple.
+     */
+    public function latestMapForItems(array $items): Collection
+    {
+        $items = collect($items)->map(function ($item) {
+            return [
+                'ord_id' => is_numeric($item['ord_id'] ?? null) ? (int) $item['ord_id'] : null,
+                'mfg_no' => $this->normalizeMfgNo((string) ($item['mfg_no'] ?? '')),
+                'site' => strtoupper(trim((string) ($item['site'] ?? ''))),
+                'so_number' => trim((string) ($item['so_number'] ?? '')),
+            ];
+        })->filter(fn($item) => $item['mfg_no'] !== '')->values();
+
+        if ($items->isEmpty()) {
+            return collect();
+        }
+
+        $rows = DB::connection('sqlsrv_menam')
+            ->table('dp_delivery_confirmation')
+            ->whereIn('mfg_no', $items->pluck('mfg_no')->unique()->all())
+            ->whereIn('site', $items->pluck('site')->unique()->all())
+            ->orderByDesc('id')
+            ->get();
+
+        $byOrd = $rows->filter(fn($row) => !empty($row->ord_id))
+            ->unique(fn($row) => $this->itemKey($row->ord_id, $row->mfg_no, $row->site, $row->so_number))
+            ->keyBy(fn($row) => $this->itemKey($row->ord_id, $row->mfg_no, $row->site, $row->so_number));
+        $legacy = $rows->filter(fn($row) => empty($row->ord_id))
+            ->unique(fn($row) => $this->itemKey(null, $row->mfg_no, $row->site, $row->so_number))
+            ->keyBy(fn($row) => $this->itemKey(null, $row->mfg_no, $row->site, $row->so_number));
+
+        return $items->mapWithKeys(function ($item) use ($byOrd, $legacy) {
+            $key = $this->itemKey($item['ord_id'], $item['mfg_no'], $item['site'], $item['so_number']);
+            $row = $byOrd->get($key);
+            if (!$row) {
+                $legacyKey = $this->itemKey(null, $item['mfg_no'], $item['site'], $item['so_number']);
+                $row = $legacy->get($legacyKey);
+            }
+
+            return $row ? [$key => $row] : [];
+        });
+    }
+
     /**
      * Bulk save items as CONFIRM only.
-     * $items: each ['mfg_no' => ..., 'site' => ..., 'so_number' => ..., 'original_ship_date' => ...]
+     * $items: each ['ord_id' => ..., 'mfg_no' => ..., 'site' => ..., 'so_number' => ..., 'original_ship_date' => ...]
      * Skips items that already have any saved confirmation (CONFIRM or POSTPONE).
      */
     public function saveBulkConfirm(array $items): array
@@ -199,6 +344,7 @@ class DeliveryConfirmationService
         $normalized = collect($items)
             ->map(function ($it) {
                 return [
+                    'ord_id' => is_numeric($it['ord_id'] ?? null) ? (int) $it['ord_id'] : null,
                     'mfg_no' => $this->normalizeMfgNo((string) ($it['mfg_no'] ?? '')),
                     'site' => strtoupper(trim((string) ($it['site'] ?? ''))),
                     'so_number' => $it['so_number'] ?? null,
@@ -213,15 +359,13 @@ class DeliveryConfirmationService
         }
 
         // Skip rows that already have a confirmation
-        $existing = $this->latestMap(
-            $normalized->pluck('mfg_no')->all(),
-            $normalized->pluck('site')->filter()->unique()->values()->all()
-        );
+        $existing = $this->latestMapForItems($normalized->all());
 
         foreach ($normalized as $it) {
-            $key = $it['site'] . '|' . $it['mfg_no'];
+            $key = $this->itemKey($it['ord_id'], $it['mfg_no'], $it['site'], $it['so_number']);
             $latest = $existing->get($key);
-            if ($latest && DeliveryConfirmation::isActiveStatus($latest->confirmation_status ?? null)) {
+            if ($latest && ($latest === true
+                || DeliveryConfirmation::isActiveStatus($latest->confirmation_status ?? null))) {
                 $skipped++;
                 continue;
             }
@@ -234,7 +378,8 @@ class DeliveryConfirmationService
                     DeliveryConfirmation::STATUS_CONFIRM,
                     null,
                     $it['original_ship_date'],
-                    null
+                    null,
+                    $it['ord_id']
                 );
                 $existing->put($key, true);
                 $saved++;
@@ -246,12 +391,28 @@ class DeliveryConfirmationService
         return compact('saved', 'skipped', 'errors');
     }
 
-    public function history(string $mfgNo, ?string $site = null): Collection
+    public function history(
+        string $mfgNo,
+        ?string $site = null,
+        ?int $ordId = null,
+        ?string $soNumber = null
+    ): Collection
     {
+        $soNumber = trim((string) $soNumber);
+
         return DB::connection('sqlsrv_menam')
             ->table('dp_delivery_confirmation')
             ->where('mfg_no', $this->normalizeMfgNo($mfgNo))
             ->when($site, fn($q) => $q->where('site', strtoupper(trim((string) $site))))
+            ->when($ordId, function ($q) use ($ordId, $soNumber) {
+                $q->where(function ($scope) use ($ordId, $soNumber) {
+                    $scope->where('ord_id', $ordId)
+                        ->orWhere(function ($legacy) use ($soNumber) {
+                            $legacy->whereNull('ord_id')
+                                ->when($soNumber !== '', fn($query) => $query->where('so_number', $soNumber));
+                        });
+                });
+            })
             ->orderByDesc('confirmed_at')
             ->orderByDesc('id')
             ->get();
