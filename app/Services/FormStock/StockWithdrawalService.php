@@ -71,7 +71,22 @@ class StockWithdrawalService
             'risk_code' => $riskCode, 'risk_label' => $riskLabel, 'risk_rank' => $riskRank,
             'responsible_name' => $standard['responsible_name'] ?? null,
             'responsible_email' => $standard['responsible_email'] ?? null,
+            'required_qty_source' => $row['required_qty_source'] ?? 'MOCK',
+            'over_issued_qty' => max(0, round($issued - $required, 4)),
         ];
+    }
+
+    public function issueDetails(string $site, int $workorderId, int $partsId): Collection
+    {
+        $connection = self::MFG_CONNECTIONS[strtoupper($site)] ?? null;
+        abort_unless($connection, 404);
+
+        return collect(DB::connection($connection)->select("
+            SELECT mu.*
+            FROM workordermatusage mu
+            WHERE mu.workorder_id = ? AND mu.parts_id = ?
+            ORDER BY mu.requeststamp
+        ", [$workorderId, $partsId]));
     }
 
     private function fetchMfgRows(string $connection, string $site, array $filters): Collection
@@ -93,7 +108,10 @@ class StockWithdrawalService
             SELECT :site::text AS site, wo.id AS workorder_id,
                    UPPER(TRIM(wo.workordernumber)) AS mfg,
                    UPPER(TRIM(p.partnumber)) AS partnumber, p.description,
-                   wo.reqdate::date AS due_date, COALESCE(bom.required_qty, wo.qty) AS required_qty,
+                   wo.reqdate::date AS due_date,
+                   COALESCE(NULLIF(bom.required_qty, 0), NULLIF(wo.qty, 0), 1) AS required_qty,
+                   'MOCK'::text AS required_qty_source,
+                   bom.parts_id,
                    COALESCE(issued.issued_qty, 0) AS issued_qty,
                    issued.first_issued_at, issued.last_issued_at
             FROM workorder wo
@@ -125,7 +143,7 @@ class StockWithdrawalService
     {
         $result = $date->copy();
         if (strtoupper($dayType) !== 'WORKING') return $result->subDays($days);
-        while ($days > 0) { $result->subDay(); if (!$result->isWeekend()) $days--; }
+        while ($days > 0) { $result->subDay(); if (!$result->isSunday()) $days--; }
         return $result;
     }
 }

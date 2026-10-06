@@ -50,9 +50,16 @@ class StockWithdrawalServiceTest extends TestCase
         $this->assertNull($result['withdraw_date']);
     }
 
-    public function test_working_days_skip_weekend(): void
+    public function test_working_days_include_saturday_and_skip_sunday(): void
     {
-        $result = (new StockWithdrawalService)->calculateRow($this->row(['due_date' => '2026-10-19']), $this->standard(['standard_days' => 1, 'warning_days' => 0, 'day_type' => 'WORKING']), Carbon::parse('2026-10-16'));
+        $result = (new StockWithdrawalService)->calculateRow($this->row(['due_date' => '2026-10-19']), $this->standard(['standard_days' => 2, 'warning_days' => 0, 'day_type' => 'WORKING']), Carbon::parse('2026-10-16'));
         $this->assertSame('2026-10-16', $result['withdraw_date']);
+    }
+
+    public function test_over_issue_is_completed_and_keeps_excess_quantity(): void
+    {
+        $result = (new StockWithdrawalService)->calculateRow($this->row(['issued_qty' => 120]), $this->standard(), Carbon::parse('2026-10-25'));
+        $this->assertSame('เบิกครบแล้ว', $result['withdrawal_status']);
+        $this->assertSame(20.0, $result['over_issued_qty']);
     }
 }

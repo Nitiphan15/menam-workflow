@@ -2,11 +2,12 @@
 
 @section('title', 'Stock Withdrawal Alert')
 @section('page-title', 'Stock Withdrawal Alert')
+@push('head')<meta http-equiv="refresh" content="300">@endpush
 
 @section('content')
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <div><h4 class="mb-1">ติดตามการเบิก Stock ตาม MFG + Part</h4><div class="text-muted">วันที่ควรเบิก = MFG Due Date - Standard Time</div></div>
+        <div><h4 class="mb-1">ติดตามการเบิก Stock ตาม MFG + Part</h4><div class="text-muted">วันที่ควรเบิก = MFG Due Date - Standard Time (จันทร์–เสาร์) · อัปเดตล่าสุด {{ $refreshedAt->format('d/m/Y H:i:s') }}</div></div>
         <div>@if(auth()->user()?->hasRoleCode('STOCK_ADMIN'))<a href="{{ route('stock-withdrawal.master.index') }}" class="btn btn-outline-secondary">Standard Part Master</a>@endif
             <a href="{{ route('stock-withdrawal.export', request()->query()) }}" class="btn btn-success">Export CSV</a></div>
     </div>
@@ -27,7 +28,7 @@
         <thead class="table-light"><tr><th>Site</th><th>MFG</th><th>Part</th><th>Description</th><th>Due Date</th><th class="text-end">Required</th><th class="text-end">Issued</th><th class="text-end">Remaining</th><th>Standard</th><th>วันที่ควรเบิก</th><th>สถานะเบิก</th><th>ความเสี่ยง</th></tr></thead>
         <tbody>@forelse($rows as $row)<tr>
             <td>{{ $row['site'] }}</td><td class="fw-semibold">{{ $row['mfg'] }}</td><td>{{ $row['partnumber'] }}</td><td>{{ $row['description'] }}</td>
-            <td>{{ $row['due_date'] }}</td><td class="text-end">{{ number_format($row['required_qty'],2) }}</td><td class="text-end">{{ number_format($row['issued_qty'],2) }}</td><td class="text-end">{{ number_format($row['remaining_qty'],2) }}</td>
+            <td>{{ $row['due_date'] }}</td><td class="text-end">{{ number_format($row['required_qty'],2) }} <span class="badge bg-warning text-dark">MOCK</span></td><td class="text-end"><a href="{{ route('stock-withdrawal.issues', ['site'=>$row['site'],'workorder_id'=>$row['workorder_id'],'parts_id'=>$row['parts_id'],'mfg'=>$row['mfg'],'partnumber'=>$row['partnumber']]) }}">{{ number_format($row['issued_qty'],2) }}</a></td><td class="text-end">{{ number_format($row['remaining_qty'],2) }} @if($row['over_issued_qty'] > 0)<small class="text-danger">เกิน {{ number_format($row['over_issued_qty'],2) }}</small>@endif</td>
             <td>{{ $row['standard_days'] === null ? '-' : $row['standard_days'].' วัน' }}</td><td>{{ $row['withdraw_date'] ?: '-' }}</td><td>{{ $row['withdrawal_status'] }}</td>
             <td><span class="badge risk-bg-{{ strtolower($row['risk_code']) }}">{{ $row['risk_label'] }}</span></td>
         </tr>@empty<tr><td colspan="12" class="text-center text-muted py-4">ไม่พบข้อมูล</td></tr>@endforelse</tbody>
@@ -36,4 +37,5 @@
 <style>
 .risk-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px}.risk-green,.risk-bg-green{background:#198754}.risk-yellow,.risk-bg-yellow{background:#ffc107;color:#212529}.risk-orange,.risk-bg-orange{background:#fd7e14}.risk-red,.risk-bg-red{background:#dc3545}.risk-gray,.risk-bg-gray{background:#6c757d}.risk-bg-green,.risk-bg-orange,.risk-bg-red,.risk-bg-gray{color:#fff}
 </style>
+<script>window.setTimeout(() => window.location.reload(), 300000);</script>
 @endsection
