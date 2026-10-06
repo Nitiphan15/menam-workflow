@@ -21,10 +21,11 @@ class StockWithdrawalService
         }
         $standards = $this->standardsFor($rows->pluck('partnumber')->all(), $asOf);
 
-        return $rows->map(function ($row) use ($standards, $asOf) {
+        return $rows->map(function ($row) use ($standards, $asOf, $filters) {
             $key = $row->site.'|'.$row->partnumber;
             $standard = $standards->get($key) ?? $standards->get('ALL|'.$row->partnumber);
-            return $this->calculateRow((array) $row, $standard ? (array) $standard : null, $asOf);
+            $calculated = $this->calculateRow((array) $row, $standard ? (array) $standard : null, $asOf);
+            return ($filters['mode'] ?? 'mock') === 'mock' ? $this->applyMockRisk($calculated, $asOf) : $calculated;
         })->filter(function (array $row) use ($filters) {
             if (!empty($filters['status']) && $row['withdrawal_status'] !== $filters['status']) return false;
             if (!empty($filters['risk']) && $row['risk_code'] !== $filters['risk']) return false;
@@ -75,6 +76,57 @@ class StockWithdrawalService
             'required_qty_source' => $row['required_qty_source'] ?? 'MOCK',
             'over_issued_qty' => max(0, round($issued - $required, 4)),
         ];
+    }
+
+    public function suggestions(string $type, string $query, ?string $site = null): Collection
+    {
+        $query = mb_strtoupper(trim($query));
+        if (mb_strlen($query) < 1 || !in_array($type, ['mfg', 'part'], true)) return collect();
+
+        $rows = collect();
+        foreach (self::MFG_CONNECTIONS as $siteCode => $connection) {
+            if ($site && strtoupper($site) !== $siteCode) continue;
+            if ($type === 'mfg') {
+                $found = DB::connection($connection)->select("
+                    SELECT DISTINCT UPPER(TRIM(workordernumber)) AS value
+                    FROM workorder
+                    WHERE dateclose IS NULL AND COALESCE(suspended, false) = false
+                      AND UPPER(workordernumber) LIKE ?
+                    ORDER BY value LIMIT 20
+                ", ['%'.$query.'%']);
+            } else {
+                $found = DB::connection($connection)->select("
+                    SELECT DISTINCT UPPER(TRIM(p.partnumber)) AS value, p.description
+                    FROM workorder wo
+                    JOIN workorderbom b ON b.workorder_id = wo.id
+                    JOIN parts p ON p.id = b.parts_id
+                    WHERE wo.dateclose IS NULL AND COALESCE(wo.suspended, false) = false
+                      AND (UPPER(p.partnumber) LIKE ? OR UPPER(COALESCE(p.description, '')) LIKE ?)
+                    ORDER BY value LIMIT 20
+                ", ['%'.$query.'%', '%'.$query.'%']);
+            }
+            $rows = $rows->merge(collect($found)->map(fn($row) => [
+                'value' => $row->value,
+                'text' => $type === 'part' && !empty($row->description) ? $row->value.' — '.$row->description : $row->value,
+            ]));
+        }
+        return $rows->unique('value')->take(20)->values();
+    }
+
+    private function applyMockRisk(array $row, Carbon $asOf): array
+    {
+        $variants = [
+            ['RED', 'เกินกำหนดเบิก 2 วัน', 4, -2],
+            ['ORANGE', 'ควรเบิกวันนี้', 3, 0],
+            ['YELLOW', 'ใกล้ถึงกำหนดเบิก', 2, 1],
+            ['GREEN', 'ยังไม่ถึงกำหนด', 0, 7],
+        ];
+        [$code, $label, $rank, $offset] = $variants[abs(crc32($row['site'].'|'.$row['mfg'].'|'.$row['partnumber'])) % 4];
+        return array_merge($row, [
+            'risk_code' => $code, 'risk_label' => $label.' (MOCK)', 'risk_rank' => $rank,
+            'withdraw_date' => $asOf->copy()->addDays($offset)->toDateString(),
+            'standard_days' => $row['standard_days'] ?? 5, 'mock_risk' => true,
+        ]);
     }
 
     public function issueDetails(string $site, int $workorderId, int $partsId): Collection

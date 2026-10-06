@@ -19,8 +19,9 @@ class StockWithdrawalController extends Controller
             'risk' => ['nullable', 'in:GREEN,YELLOW,ORANGE,RED,GRAY'],
             'mfg' => ['nullable', 'string', 'max:100'], 'part' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'in:25,50,100'],
+            'mode' => ['nullable', 'in:mock,live'],
         ]);
-        $filters += ['date_from' => now('Asia/Bangkok')->subDays(30)->toDateString(), 'date_to' => now('Asia/Bangkok')->addDays(60)->toDateString()];
+        $filters += ['date_from' => now('Asia/Bangkok')->subDays(30)->toDateString(), 'date_to' => now('Asia/Bangkok')->addDays(60)->toDateString(), 'mode' => 'mock'];
         $allRows = $service->report($filters);
         $summary = collect(['GREEN', 'YELLOW', 'ORANGE', 'RED', 'GRAY'])->mapWithKeys(fn($color) => [$color => $allRows->where('risk_code', $color)->count()]);
         $perPage = (int) ($filters['per_page'] ?? 50);
@@ -30,6 +31,12 @@ class StockWithdrawalController extends Controller
         ]);
         $refreshedAt = now('Asia/Bangkok');
         return view('formstock.index', compact('rows', 'filters', 'summary', 'refreshedAt'));
+    }
+
+    public function suggest(Request $request, StockWithdrawalService $service, string $type)
+    {
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:100'], 'site' => ['nullable', 'in:WIRE,PLUS']]);
+        return response()->json($service->suggestions($type, (string) ($data['q'] ?? ''), $data['site'] ?? null));
     }
 
     public function issues(Request $request, StockWithdrawalService $service)
@@ -50,7 +57,7 @@ class StockWithdrawalController extends Controller
 
     public function export(Request $request, StockWithdrawalService $service): StreamedResponse
     {
-        $rows = $service->report($request->only('site', 'date_from', 'date_to', 'status', 'risk', 'mfg', 'part'));
+        $rows = $service->report($request->only('site', 'date_from', 'date_to', 'status', 'risk', 'mfg', 'part', 'mode'));
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w'); fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out, ['Site', 'MFG', 'Part', 'Description', 'Due Date', 'Required', 'Issued', 'Remaining', 'Standard Days', 'Withdraw Date', 'Withdrawal Status', 'Risk']);
