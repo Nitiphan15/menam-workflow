@@ -244,6 +244,7 @@ Route::prefix('/stock-withdrawal')
     Route::get('/', [StockWithdrawalController::class, 'index'])->name('index');
     Route::get('/export', [StockWithdrawalController::class, 'export'])->name('export');
     Route::get('/issues', [StockWithdrawalController::class, 'issues'])->name('issues');
+    Route::get('/suggest/{type}', [StockWithdrawalController::class, 'suggest'])->whereIn('type', ['mfg', 'part'])->name('suggest');
     Route::middleware('permission.any:STOCK_ADMIN')->group(function () {
       Route::get('/standards', [StockWithdrawalStandardController::class, 'index'])->name('master.index');
       Route::post('/standards', [StockWithdrawalStandardController::class, 'store'])->name('master.store');

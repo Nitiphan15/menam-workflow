@@ -18,12 +18,13 @@
     </div>
     <form method="GET" class="card card-body border-0 shadow-sm mb-3"><div class="row g-2 align-items-end">
         <div class="col-lg-1 col-md-2"><label class="form-label">โรงงาน</label><select name="site" class="form-select"><option value="">ทั้งหมด</option>@foreach(['WIRE','PLUS'] as $site)<option @selected(($filters['site'] ?? '')===$site)>{{ $site }}</option>@endforeach</select></div>
-        <div class="col-lg-2 col-md-3"><label class="form-label">เลข MFG</label><input name="mfg" value="{{ $filters['mfg'] ?? '' }}" class="form-control" placeholder="เช่น G2600001"></div>
-        <div class="col-lg-2 col-md-3"><label class="form-label">Part</label><input name="part" value="{{ $filters['part'] ?? '' }}" class="form-control" placeholder="รหัสหรือชื่อ Part"></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">เลข MFG</label><input id="stock-mfg-filter" name="mfg" value="{{ $filters['mfg'] ?? '' }}" class="form-control" placeholder="พิมพ์เพื่อค้นหา MFG"></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">Part</label><input id="stock-part-filter" name="part" value="{{ $filters['part'] ?? '' }}" class="form-control" placeholder="พิมพ์รหัสหรือชื่อ Part"></div>
         <div class="col-lg-2 col-md-3"><label class="form-label">Due Date ตั้งแต่</label><input type="date" name="date_from" value="{{ $filters['date_from'] }}" class="form-control"></div>
         <div class="col-lg-2 col-md-3"><label class="form-label">ถึงวันที่</label><input type="date" name="date_to" value="{{ $filters['date_to'] }}" class="form-control"></div>
         <div class="col-lg-1 col-md-2"><label class="form-label">สถานะ</label><select name="status" class="form-select"><option value="">ทั้งหมด</option>@foreach(['ยังไม่เบิก','เบิกบางส่วน','เบิกครบแล้ว'] as $s)<option value="{{ $s }}" @selected(($filters['status'] ?? '')===$s)>{{ $s }}</option>@endforeach</select></div>
         <div class="col-lg-1 col-md-2"><label class="form-label">ความเสี่ยง</label><select name="risk" class="form-select"><option value="">ทั้งหมด</option>@foreach(['GREEN'=>'ปกติ','YELLOW'=>'ใกล้กำหนด','ORANGE'=>'วันนี้','RED'=>'เกินกำหนด','GRAY'=>'ไม่มีมาตรฐาน'] as $v=>$t)<option value="{{ $v }}" @selected(($filters['risk'] ?? '')===$v)>{{ $t }}</option>@endforeach</select></div>
+        <div class="col-lg-1 col-md-2"><label class="form-label">ข้อมูล</label><select name="mode" class="form-select"><option value="mock" @selected(($filters['mode'] ?? 'mock')==='mock')>ตัวอย่าง</option><option value="live" @selected(($filters['mode'] ?? '')==='live')>ตามจริง</option></select></div>
         <div class="col-lg-1 col-md-2"><label class="form-label">ต่อหน้า</label><select name="per_page" class="form-select">@foreach([25,50,100] as $size)<option value="{{ $size }}" @selected(($filters['per_page'] ?? 50)==$size)>{{ $size }}</option>@endforeach</select></div>
         <div class="col-lg-1 col-md-2 d-flex gap-1"><button class="btn btn-primary flex-fill">ค้นหา</button><a href="{{ route('stock-withdrawal.index') }}" class="btn btn-outline-secondary" title="ล้างตัวกรอง">ล้าง</a></div>
     </div></form>
@@ -67,5 +68,36 @@
 .risk-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px}.risk-green,.risk-bg-green{background:#198754}.risk-yellow,.risk-bg-yellow{background:#ffc107;color:#212529}.risk-orange,.risk-bg-orange{background:#fd7e14}.risk-red,.risk-bg-red{background:#dc3545}.risk-gray,.risk-bg-gray{background:#6c757d}.risk-bg-green,.risk-bg-orange,.risk-bg-red,.risk-bg-gray{color:#fff}
 .stock-list-head,.stock-list-grid{display:grid;grid-template-columns:minmax(240px,2fr) minmax(155px,1.2fr) minmax(170px,1.2fr) minmax(120px,.8fr) minmax(150px,1fr) minmax(110px,.7fr);gap:1rem;align-items:center}.stock-list-head{background:#f8f9fa}.stock-list-item{border-left:5px solid transparent!important}.risk-border-green{border-left-color:#198754!important}.risk-border-yellow{border-left-color:#ffc107!important}.risk-border-orange{border-left-color:#fd7e14!important}.risk-border-red{border-left-color:#dc3545!important}.risk-border-gray{border-left-color:#6c757d!important}@media(max-width:991.98px){.stock-list-grid{grid-template-columns:1fr 1fr}.stock-list-grid>div:first-child{grid-column:1/-1}}@media(max-width:575.98px){.stock-list-grid{grid-template-columns:1fr}.stock-list-grid>div:first-child{grid-column:auto}}
 </style>
-<script>window.setTimeout(() => window.location.reload(), 300000);</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const site = () => document.querySelector('[name="site"]')?.value || '';
+    const setupSuggest = (selector, type, placeholder) => {
+        const el = document.querySelector(selector);
+        if (!el || typeof TomSelect === 'undefined') return;
+        new TomSelect(el, {
+            valueField: 'value', labelField: 'text', searchField: ['value', 'text'],
+            maxItems: 1, create: true, persist: false, preload: false,
+            placeholder: placeholder,
+            loadThrottle: 250,
+            load(query, callback) {
+                if ((query || '').trim().length < 1) return callback();
+                const url = `{{ url('/stock-withdrawal/suggest') }}/${type}?q=${encodeURIComponent(query)}&site=${encodeURIComponent(site())}`;
+                fetch(url, {headers: {'Accept': 'application/json'}})
+                    .then(response => response.ok ? response.json() : [])
+                    .then(rows => callback(rows || []))
+                    .catch(() => callback());
+            },
+            render: {
+                option(data, escape) {
+                    return `<div class="py-1"><div class="fw-semibold">${escape(data.value)}</div><div class="small text-muted">${escape(data.text)}</div></div>`;
+                },
+                item(data, escape) { return `<div>${escape(data.value)}</div>`; }
+            }
+        });
+    };
+    setupSuggest('#stock-mfg-filter', 'mfg', 'ค้นหาเลข MFG');
+    setupSuggest('#stock-part-filter', 'part', 'ค้นหา Part');
+    window.setTimeout(() => window.location.reload(), 300000);
+});
+</script>
 @endsection
