@@ -12,7 +12,7 @@ return new class extends Migration {
         Schema::connection($this->connection)->create('stock_withdrawal_standards', function (Blueprint $table) {
             $table->id(); $table->string('site', 10); $table->string('partnumber', 100);
             $table->string('description', 255)->nullable(); $table->unsignedSmallInteger('standard_days');
-            $table->unsignedSmallInteger('warning_days')->default(2); $table->string('day_type', 20)->default('CALENDAR');
+            $table->unsignedSmallInteger('warning_days')->default(2); $table->string('day_type', 20)->default('WORKING');
             $table->string('responsible_name', 150)->nullable(); $table->string('responsible_email', 255)->nullable();
             $table->date('effective_from'); $table->date('effective_to')->nullable(); $table->boolean('is_active')->default(true);
             $table->string('remark', 500)->nullable(); $table->unsignedBigInteger('created_by')->nullable();

@@ -20,7 +20,24 @@ class StockWithdrawalController extends Controller
         $filters += ['date_from' => now('Asia/Bangkok')->subDays(30)->toDateString(), 'date_to' => now('Asia/Bangkok')->addDays(60)->toDateString()];
         $rows = $service->report($filters);
         $summary = collect(['GREEN', 'YELLOW', 'ORANGE', 'RED', 'GRAY'])->mapWithKeys(fn($color) => [$color => $rows->where('risk_code', $color)->count()]);
-        return view('formstock.index', compact('rows', 'filters', 'summary'));
+        $refreshedAt = now('Asia/Bangkok');
+        return view('formstock.index', compact('rows', 'filters', 'summary', 'refreshedAt'));
+    }
+
+    public function issues(Request $request, StockWithdrawalService $service)
+    {
+        $data = $request->validate([
+            'site' => ['required', 'in:WIRE,PLUS'],
+            'workorder_id' => ['required', 'integer'],
+            'parts_id' => ['required', 'integer'],
+            'mfg' => ['nullable', 'string', 'max:100'],
+            'partnumber' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        return view('formstock.issues', [
+            'details' => $service->issueDetails($data['site'], $data['workorder_id'], $data['parts_id']),
+            'context' => $data,
+        ]);
     }
 
     public function export(Request $request, StockWithdrawalService $service): StreamedResponse
