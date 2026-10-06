@@ -2083,8 +2083,13 @@ class ForecastRmDivisionController extends Controller
     {
         $this->userOr403();
 
-        $baseMonth = now('Asia/Bangkok')->startOfMonth();
+        try {
+            $baseMonth = Carbon::parse((string) $request->query('month', now('Asia/Bangkok')->toDateString()))->startOfMonth();
+        } catch (\Throwable $e) {
+            $baseMonth = now('Asia/Bangkok')->startOfMonth();
+        }
         $forecastBaseMonth = $baseMonth->toDateString();
+        $viewMode = $request->query('view') === 'sales' ? 'sales' : 'planner';
         $selectedDivisions = $this->requestedPlanningDivisions($request);
         $search = trim((string) $request->query('q', ''));
         $futureMonths = collect(range(1, 6))
@@ -2144,7 +2149,9 @@ class ForecastRmDivisionController extends Controller
                     'fg_partnumber' => strtoupper(trim((string) $first->fg_partnumber)),
                     'fg_description' => (string) ($first->fg_description ?? ''),
                     'rm_partnumber' => strtoupper(trim((string) ($first->rm_partnumber ?? ''))),
+                    'sales_order_qty' => (float) ($first->sales_order_qty ?? 0),
                     'history_avg6' => (float) ($first->history_avg6 ?? 0),
+                    'is_selected' => (int) ($first->is_selected ?? 0),
                     'k_factor' => (float) ($first->k_factor ?? 0),
                     'supplier_code' => (string) ($first->supplier_code ?? ''),
                     'supplier_name' => (string) ($first->supplier_name ?? ''),
@@ -2156,6 +2163,68 @@ class ForecastRmDivisionController extends Controller
                 ];
             })
             ->values();
+
+        $historyRows = DB::connection($this->fcConn)
+            ->table('fc_rm_division_forecast_item_history as h')
+            ->join('fc_rm_division_forecast_batch as b', 'b.id', '=', 'h.batch_id')
+            ->leftJoin('users as actor', 'actor.id', '=', 'b.created_by')
+            ->whereDate('h.forecast_base_month', $forecastBaseMonth)
+            ->whereIn('h.sales_code', $selectedDivisions)
+            ->orderByDesc('b.created_at')
+            ->orderByDesc('h.batch_id')
+            ->get([
+                'h.batch_id',
+                'h.sales_code',
+                'h.customer_id',
+                'h.fg_partnumber',
+                'h.forecast_month',
+                'h.forecast_qty',
+                'h.k_factor',
+                'h.source_type',
+                'b.created_at as batch_created_at',
+                'b.created_by',
+                'actor.name as actor_name',
+            ]);
+
+        $historyByRow = $historyRows
+            ->groupBy(fn($row) => strtoupper(trim((string) $row->sales_code))
+                . '|' . (int) $row->customer_id
+                . '|' . strtoupper(trim((string) $row->fg_partnumber)))
+            ->map(function ($rowHistory) use ($futureYm) {
+                return $rowHistory
+                    ->groupBy('batch_id')
+                    ->map(function ($batchRows, $batchId) use ($futureYm) {
+                        $first = $batchRows->first();
+                        $byMonth = $batchRows->groupBy(function ($item) {
+                            try {
+                                return Carbon::parse($item->forecast_month)->format('Y-m');
+                            } catch (\Throwable $e) {
+                                return '';
+                            }
+                        })->map(fn($items) => (float) $items->sum('forecast_qty'));
+
+                        return [
+                            'batch_id' => (int) $batchId,
+                            'saved_at' => $first->batch_created_at,
+                            'actor' => (string) ($first->actor_name ?: ('User #' . $first->created_by)),
+                            'sales_code' => strtoupper(trim((string) $first->sales_code)),
+                            'k_factor' => (float) ($first->k_factor ?? 0),
+                            'forecast_1m' => (float) ($byMonth->get($futureYm[0] ?? '', 0)),
+                            'forecast_horizon' => (float) $byMonth->sum(),
+                            'source_type' => (string) ($first->source_type ?? ''),
+                        ];
+                    })
+                    ->sortByDesc('batch_id')
+                    ->values()
+                    ->all();
+            });
+
+        $rows = $rows->map(function (array $row) use ($historyByRow) {
+            $key = $row['sales_code'] . '|' . $row['customer_id'] . '|' . $row['fg_partnumber'];
+            $row['forecast_history'] = $historyByRow->get($key, []);
+
+            return $row;
+        })->values();
 
         if ($search !== '') {
             $needle = mb_strtoupper($search);
@@ -2219,6 +2288,7 @@ class ForecastRmDivisionController extends Controller
             'futureLabels' => $futureLabels,
             'search' => $search,
             'kpi' => $kpi,
+            'viewMode' => $viewMode,
         ]);
     }
 
