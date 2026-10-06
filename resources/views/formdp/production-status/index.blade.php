@@ -1765,12 +1765,12 @@
                                             <select class="form-select form-select-sm pst-confirm-status"
                                                 style="width:130px;flex:0 0 130px;">
                                                 <option value="CONFIRM"
-                                                    {{ $confStatus === 'CONFIRM' ? 'selected' : '' }}>
+                                                    {{ !$confStatus || $confStatus === 'CONFIRM' ? 'selected' : '' }}>
                                                     ยืนยันการส่ง</option>
                                                 <option value="POSTPONE"
                                                     {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>ขอเลื่อนการส่ง
                                                 </option>
-                                                <option value="" {{ !$confStatus ? 'selected' : '' }}>รอจัดแผน</option>
+                                                <option value="">รอจัดแผน</option>
                                             </select>
                                             <input type="date" class="form-control form-control-sm pst-confirm-date"
                                                 value="{{ $confNewDate }}"
