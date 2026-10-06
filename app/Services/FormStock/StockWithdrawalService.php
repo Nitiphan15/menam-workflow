@@ -112,6 +112,7 @@ class StockWithdrawalService
                     JOIN workorderbom b ON b.workorder_id = wo.id
                     JOIN parts p ON p.id = b.parts_id
                     WHERE wo.dateclose IS NULL AND COALESCE(wo.suspended, false) = false
+                      AND UPPER(TRIM(p.partnumber)) LIKE 'F%'
                       AND (UPPER(p.partnumber) LIKE ? OR UPPER(COALESCE(p.description, '')) LIKE ?)
                     ORDER BY value LIMIT 20
                 ", ['%'.$query.'%', '%'.$query.'%']);
@@ -184,6 +185,7 @@ class StockWithdrawalService
             LEFT JOIN issued ON issued.workorder_id = bom.workorder_id AND issued.parts_id = bom.parts_id
             WHERE wo.dateclose IS NULL AND COALESCE(wo.suspended, false) = false
               AND wo.reqdate IS NOT NULL
+              AND UPPER(TRIM(p.partnumber)) LIKE 'F%'
               AND wo.workordernumber !~* '^(\\+)?(EX|S)'
               AND wo.workordernumber !~* '\\(C\\)$' {$where}
             ORDER BY wo.reqdate, wo.workordernumber, p.partnumber

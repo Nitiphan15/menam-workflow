@@ -7,7 +7,7 @@
 @section('content')
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <div><h4 class="mb-1">รายการเตรียมเบิกวัตถุดิบ</h4><div class="text-muted">ดูงานที่ใกล้ถึงกำหนดเบิก โดยคำนวณจาก Due Date และระยะเวลาเตรียมของ · อัปเดต {{ $refreshedAt->format('d/m/Y H:i') }}</div></div>
+        <div><h4 class="mb-1">รายการเตรียมเบิกวัตถุดิบ</h4><div class="text-muted">เฉพาะ Part ขึ้นต้นด้วย F · ดูงานที่ใกล้ถึงกำหนดเบิกจาก Due Date และระยะเวลาเตรียมของ · อัปเดต {{ $refreshedAt->format('d/m/Y H:i') }}</div></div>
         <div>@if(auth()->user()?->hasRoleCode('STOCK_ADMIN'))<a href="{{ route('stock-withdrawal.master.index') }}" class="btn btn-outline-secondary">Standard Part Master</a>@endif
             <a href="{{ route('stock-withdrawal.export', request()->query()) }}" class="btn btn-success">Export CSV</a></div>
     </div>
