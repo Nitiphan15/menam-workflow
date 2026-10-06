@@ -28,9 +28,10 @@ class StockWithdrawalService
         })->filter(function (array $row) use ($filters) {
             if (!empty($filters['status']) && $row['withdrawal_status'] !== $filters['status']) return false;
             if (!empty($filters['risk']) && $row['risk_code'] !== $filters['risk']) return false;
-            if (!empty($filters['keyword'])) {
-                $haystack = mb_strtoupper($row['mfg'].' '.$row['partnumber'].' '.$row['description']);
-                if (!str_contains($haystack, mb_strtoupper($filters['keyword']))) return false;
+            if (!empty($filters['mfg']) && !str_contains(mb_strtoupper($row['mfg']), mb_strtoupper(trim($filters['mfg'])))) return false;
+            if (!empty($filters['part'])) {
+                $partText = mb_strtoupper($row['partnumber'].' '.$row['description']);
+                if (!str_contains($partText, mb_strtoupper(trim($filters['part'])))) return false;
             }
             return true;
         })->sortBy([['risk_rank', 'desc'], ['withdraw_date', 'asc'], ['due_date', 'asc']])->values();
