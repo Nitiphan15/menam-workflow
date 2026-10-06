@@ -7,7 +7,7 @@
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div><h4 class="mb-1">ติดตามการเบิก Stock ตาม MFG + Part</h4><div class="text-muted">วันที่ควรเบิก = MFG Due Date - Standard Time</div></div>
-        <div><a href="{{ route('stock-withdrawal.master.index') }}" class="btn btn-outline-secondary">Standard Part Master</a>
+        <div>@if(auth()->user()?->hasRoleCode('STOCK_ADMIN'))<a href="{{ route('stock-withdrawal.master.index') }}" class="btn btn-outline-secondary">Standard Part Master</a>@endif
             <a href="{{ route('stock-withdrawal.export', request()->query()) }}" class="btn btn-success">Export CSV</a></div>
     </div>
     <div class="row g-2 mb-3">
