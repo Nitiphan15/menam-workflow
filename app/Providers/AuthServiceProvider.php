@@ -75,6 +75,8 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('FCAPPROVE', fn(User $u) => $u->hasRoleCode(['FCAPPROVE']));
         Gate::define('PO',      fn(User $u) => $u->hasRoleCode(['PO']));
         Gate::define('POPUR',   fn(User $u) => $u->hasRoleCode(['POPUR']));
+        Gate::define('POUR',    fn(User $u) => $u->hasRoleCode(['POUR']));
+        Gate::define('POM',     fn(User $u) => $u->hasRoleCode(['POM']));
         // ===== Ability แบบมี context แผนก (ผ่านพารามิเตอร์) =====
         // ใช้: Gate::forUser($u)->check('role-in-dept', ['codes'=>['PR_ADMIN'],'dept_id'=>2])
         Gate::define('role-in-dept', function (User $u, array $args) {

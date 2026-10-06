@@ -6,6 +6,38 @@ use Illuminate\Support\Collection;
 
 final class DeadstockSalesMap
 {
+    private const DIVISION_KEYWORDS = [
+        'ดิลก' => 'D1',
+        'ขวัญเรือน' => 'D1',
+        'ปรียาพรรณ' => 'D2',
+        'นิตยา' => 'D2',
+        'ภควดี' => 'D3',
+        'ธนัชชา' => 'D3',
+        'วิลาวัณย์' => 'D4',
+        'ธัธลิญา' => 'D5',
+        'เฌอร์ลิญา' => 'D5',
+        'สุรศักดิ์' => 'D6',
+        'คณัญญ์นิชา' => 'D6',
+        'ศิรินภา' => 'D7',
+        'มนพัทธ์' => 'D7',
+        'สาธิต' => 'D8',
+        'สุธาสินี' => 'D8',
+        'วรเดชา' => 'D9',
+        'ลัดดาวัลย์' => 'D9',
+    ];
+
+    private const DIVISION_ACCESS_LABELS = [
+        'D1' => 'ดิลก + ขวัญเรือน',
+        'D2' => 'ปรียาพรรณ + นิตยา',
+        'D3' => 'ภควดี + ธนัชชา',
+        'D4' => 'วิลาวัณย์',
+        'D5' => 'ธัธลิญา + เฌอร์ลิญา',
+        'D6' => 'สุรศักดิ์ + คณัญญ์นิชา',
+        'D7' => 'ศิรินภา + มนพัทธ์',
+        'D8' => 'สาธิต + สุธาสินี',
+        'D9' => 'วรเดชา + ลัดดาวัลย์',
+    ];
+
     private const SALES = [
         'คุณดิลก สอนแจ้ง' => ['division' => 'D1', 'aliases' => ['Export Sales 01']],
         'คุณปรียาพรรณ ทิพหา' => ['division' => 'D2', 'aliases' => ['Export Sales 02']],
@@ -48,8 +80,8 @@ final class DeadstockSalesMap
     public static function salesOptions(iterable $rawValues): Collection
     {
         return collect($rawValues)
-            ->map(fn($value) => self::label($value))
-            ->filter(fn(string $value) => $value !== 'ไม่ระบุ Sales')
+            ->map(fn ($value) => self::label($value))
+            ->filter(fn (string $value) => $value !== 'ไม่ระบุ Sales')
             ->unique()
             ->sort()
             ->values();
@@ -66,7 +98,7 @@ final class DeadstockSalesMap
                     ? array_merge([$label], self::aliasVariants($config['aliases']))
                     : [$selected];
             })
-            ->filter(fn($value) => trim((string) $value) !== '')
+            ->filter(fn ($value) => trim((string) $value) !== '')
             ->unique()
             ->values()
             ->all();
@@ -74,11 +106,11 @@ final class DeadstockSalesMap
 
     public static function rawValuesForDivisions(array $divisions): array
     {
-        $selected = collect($divisions)->map(fn($value) => strtoupper(trim((string) $value)));
+        $selected = collect($divisions)->map(fn ($value) => strtoupper(trim((string) $value)));
 
         return collect(self::SALES)
-            ->filter(fn(array $config) => $selected->contains($config['division']))
-            ->flatMap(fn(array $config, string $name) => array_merge([$name], self::aliasVariants($config['aliases'])))
+            ->filter(fn (array $config) => $selected->contains($config['division']))
+            ->flatMap(fn (array $config, string $name) => array_merge([$name], self::aliasVariants($config['aliases'])))
             ->unique()
             ->values()
             ->all();
@@ -110,6 +142,12 @@ final class DeadstockSalesMap
             return strtoupper((string) $config['division']);
         }
 
+        foreach (self::DIVISION_KEYWORDS as $keyword => $division) {
+            if (mb_stripos($label, $keyword, 0, 'UTF-8') !== false) {
+                return $division;
+            }
+        }
+
         $key = preg_replace('/[^\pL\pN]+/u', '_', trim($label));
 
         return mb_strtoupper(trim((string) $key, '_'), 'UTF-8');
@@ -118,8 +156,8 @@ final class DeadstockSalesMap
     public static function accessOptions(): array
     {
         return collect(self::SALES)
-            ->mapWithKeys(fn(array $config, string $label) => [
-                strtoupper((string) $config['division']) => $label,
+            ->mapWithKeys(fn (array $config, string $label) => [
+                strtoupper((string) $config['division']) => self::DIVISION_ACCESS_LABELS[strtoupper((string) $config['division'])] ?? $label,
             ])
             ->all();
     }
@@ -128,14 +166,14 @@ final class DeadstockSalesMap
     {
         return collect($aliases)
             ->flatMap(function (string $alias) {
-                if (!preg_match('/^(Export Sales|Sales Person)\s*0?([1-9])$/i', $alias, $matches)) {
+                if (! preg_match('/^(Export Sales|Sales Person)\s*0?([1-9])$/i', $alias, $matches)) {
                     return [$alias];
                 }
 
                 return [
-                    $matches[1] . ' 0' . $matches[2],
-                    $matches[1] . '0' . $matches[2],
-                    $matches[1] . ' ' . $matches[2],
+                    $matches[1].' 0'.$matches[2],
+                    $matches[1].'0'.$matches[2],
+                    $matches[1].' '.$matches[2],
                 ];
             })
             ->unique()
@@ -149,7 +187,7 @@ final class DeadstockSalesMap
         $value = preg_replace('/\s+/', ' ', trim((string) $value));
         $value = preg_replace_callback(
             '/^(export sales|sales person)\s*0?([1-9])$/i',
-            fn(array $matches) => $matches[1] . ' 0' . $matches[2],
+            fn (array $matches) => $matches[1].' 0'.$matches[2],
             $value
         );
 

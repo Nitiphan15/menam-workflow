@@ -5,6 +5,39 @@ use App\Http\Controllers\Po\PoController;
 use App\Http\Controllers\Po\PoApprovalController;
 use App\Http\Controllers\Po\PoLookupController;
 use App\Http\Controllers\Po\PoExportController;
+use App\Http\Controllers\Po\PoApproverMasterController;
+
+Route::middleware(['auth', 'permission.any:POM'])
+    ->prefix('po')
+    ->name('po.')
+    ->group(function () {
+        Route::get('/approver-master', [PoApproverMasterController::class, 'index'])->name('approver-master.index');
+        Route::post('/approver-master', [PoApproverMasterController::class, 'store'])->name('approver-master.store');
+        Route::put('/approver-master/{mapping}', [PoApproverMasterController::class, 'update'])
+            ->whereNumber('mapping')
+            ->name('approver-master.update');
+        Route::delete('/approver-master/{mapping}', [PoApproverMasterController::class, 'destroy'])
+            ->whereNumber('mapping')
+            ->name('approver-master.destroy');
+    });
+
+Route::middleware(['auth', 'permission.any:POV'])
+    ->prefix('po')
+    ->name('po.')
+    ->group(function () {
+        Route::get('/department-tracking', [PoController::class, 'departmentTracking'])->name('departmentTracking');
+        Route::get('/department-tracking/{id}/attachments/{attachmentId}', [PoController::class, 'departmentTrackingAttachment'])
+            ->whereNumber('id')
+            ->whereNumber('attachmentId')
+            ->name('departmentTracking.attachments.show');
+        Route::get('/department-tracking/erp/{source}/{ordnumber}', [PoController::class, 'departmentTrackingErpShow'])
+            ->whereIn('source', ['wire', 'plus'])
+            ->where('ordnumber', 'POR?[0-9]+')
+            ->name('departmentTracking.erp.show');
+        Route::get('/department-tracking/{id}', [PoController::class, 'departmentTrackingShow'])
+            ->whereNumber('id')
+            ->name('departmentTracking.show');
+    });
 
 Route::middleware(['auth', 'permission.any:PO,POPUR'])
     ->prefix('po')
@@ -25,10 +58,14 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
             Route::post('/remind-department-head', [PoApprovalController::class, 'remindDepartmentHead'])->name('remindDepartmentHead');
             Route::post('/notify-selected-step-three', [PoApprovalController::class, 'notifySelectedStepThree'])->name('notifySelectedStepThree');
             Route::post('/{id}/submit', [PoApprovalController::class, 'submit'])->name('submit');
+            Route::post('/{id}/reopen', [PoApprovalController::class, 'reopen'])->name('reopen');
             Route::post('/{id}/cancel', [PoApprovalController::class, 'cancel'])->name('cancel');
 
             Route::get('/{id}/edit', [PoController::class, 'edit'])->name('edit');
             Route::put('/{id}', [PoController::class, 'update'])->name('update');
+            Route::delete('/{id}/attachments/{attachmentId}', [PoController::class, 'destroyAttachment'])
+                ->whereNumber('attachmentId')
+                ->name('attachments.destroy');
 
             Route::get('/lookup/suppliers', [PoLookupController::class, 'suppliers'])->name('lookup.suppliers');
             Route::get('/lookup/items', [PoLookupController::class, 'items'])->name('lookup.items');
@@ -42,6 +79,7 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
         Route::get('/{id}/attachments/{attachmentId}', [PoController::class, 'attachment'])->name('attachments.show');
         Route::post('/{id}/approve', [PoApprovalController::class, 'approve'])->name('approve');
         Route::post('/{id}/reject', [PoApprovalController::class, 'reject'])->name('reject');
+        Route::post('/{id}/cancel-by-manager', [PoApprovalController::class, 'cancelByManager'])->name('cancelByManager');
         Route::post('/{id}/send-back', [PoApprovalController::class, 'sendBack'])->name('sendBack');
         Route::get('/{id}/print', [PoExportController::class, 'print'])->name('print');
         Route::get('/{id}', [PoController::class, 'show'])->name('show');

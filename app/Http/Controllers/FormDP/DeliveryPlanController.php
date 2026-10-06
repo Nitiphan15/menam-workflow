@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\FormDP;
 
 use App\Http\Controllers\Controller;
+use App\Services\FormDP\DeliveryConfirmationService;
 use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -749,6 +750,19 @@ class DeliveryPlanController extends Controller
                     $this->conn()->table('delivery_plan_data')
                         ->where('ord_id', $ordId)
                         ->update($payload);
+
+                    $originalShipDate = !empty($row->ship_posted_at)
+                        ? Carbon::parse($row->ship_posted_at)->toDateString()
+                        : null;
+                    if ($originalShipDate !== $newShipDate) {
+                        app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
+                            $row->mfg_no ?? null,
+                            $row->so_number ?? null,
+                            $originalShipDate,
+                            $newShipDate,
+                            $editRemark
+                        );
+                    }
                 } else {
                     // create เหมือนเดิม...
 

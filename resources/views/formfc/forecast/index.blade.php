@@ -511,7 +511,7 @@
         <div class="card fc-card mb-3">
             <div class="card-body py-2">
                 <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
-                    <span class="legend-chip"><span class="legend-dot dot-cpa13"></span> Avg 3M / Avg 6M จาก CPA13</span>
+                    <span class="legend-chip"><span class="legend-dot dot-cpa13"></span> Avg 3M / Avg {{ $forecastPeriodMonths }}M จาก CPA13</span>
                     <span class="legend-chip"><span class="legend-dot dot-stock"></span> Onhand</span>
                     <span class="legend-chip"><span class="legend-dot dot-stock"></span> FG</span>
                     <span class="legend-chip"><span class="legend-dot dot-po"></span> Total PO</span>
@@ -560,7 +560,7 @@
                                 <th class="supplier-col">Supplier</th>
 
                                 <th class="h-cpa13" style="min-width:90px;">Avg 3M</th>
-                                <th class="h-cpa13" style="min-width:90px;">Avg 6M</th>
+                                <th class="h-cpa13" style="min-width:90px;">Avg {{ $forecastPeriodMonths }}M</th>
                                 <th class="h-stock" style="min-width:110px;">Onhand</th>
                                 <th class="h-po" style="min-width:110px;">FG</th>
                                 <th class="h-po" style="min-width:110px;">Total PO</th>
@@ -571,7 +571,7 @@
                                 <th class="h-sales" style="min-width:150px;">Safety Forecast (Planner)</th>
                                 <th class="h-supply" style="min-width:140px;">Forecast + SO</th>
                                 <th class="h-supply" style="min-width:140px;"
-                                    title="แดง = ต้องสั่งเพิ่ม | เขียว = ของพอ/มีเกิน | ดำ = พอดี"
+                                    title="สูตร: (Onhand + FG + Total PO + WIP) - (Safety Forecast (Planner) + Forecast + SO) | ค่าติดลบสีแดง = ต้องสั่งเพิ่ม | ค่าบวกสีเขียว = ของพอ/มีเกิน"
                                     data-bs-toggle="tooltip">
                                     ต้องสั่งเพิ่ม
                                 </th>
@@ -598,14 +598,14 @@
 
                                     $need = (float) ($r['need_to_order'] ?? 0);
 
-                                    if ($need > 0) {
+                                    if ($need < 0) {
                                         $needText = number_format($need, 2);
                                         $needClass = 'text-danger';
-                                        $needTitle = 'สีแดง = ต้องสั่งเพิ่ม';
-                                    } elseif ($need < 0) {
-                                        $needText = number_format(abs($need), 2);
+                                        $needTitle = 'ค่าติดลบสีแดง = ต้องสั่งเพิ่ม';
+                                    } elseif ($need > 0) {
+                                        $needText = number_format($need, 2);
                                         $needClass = 'text-success';
-                                        $needTitle = 'สีเขียว = ของพอ / มีเกิน';
+                                        $needTitle = 'ค่าบวกสีเขียว = ของพอ / มีเกิน';
                                     } else {
                                         $needText = number_format(0, 2);
                                         $needClass = 'text-dark';
@@ -715,7 +715,7 @@
                                                 data-sku="{{ $r['sku'] }}"
                                                 data-description="{{ $r['description'] }}"
                                                 data-company="{{ $companyMode }}" data-plan-month="{{ $planMonth }}"
-                                                data-auto-need="{{ round(max((float) ($r['need_to_order'] ?? 0), 0), 2) }}"
+                                                data-auto-need="{{ round((float) ($r['order_shortage_qty'] ?? 0), 2) }}"
                                                 data-manual-qty="{{ round((float) ($r['manual_order_qty'] ?? 0), 2) }}"
                                                 data-supplier-codes='@json($r['manual_order_supplier_codes'] ?? [])'
                                                 data-supplier-qty-map='@json($r['manual_order_supplier_qty_by_code'] ?? [])'
@@ -783,7 +783,7 @@
                                 <th class="num">{{ number_format((float) ($kpi['total_forecast_so_sum'] ?? 0), 2) }}
                                 </th>
                                 <th class="num">
-                                    {{ number_format((float) $rows->sum(fn($r) => max((float) ($r['need_to_order'] ?? 0), 0)), 2) }}
+                                    {{ number_format((float) $rows->sum('need_to_order'), 2) }}
                                 </th>
                                 <th class="num">{{ number_format((float) ($kpi['manual_order_sum'] ?? 0), 2) }}</th>
 
@@ -1516,7 +1516,7 @@
                             },
                             {
                                 key: 'history_avg6',
-                                label: 'Avg 6M',
+                                label: 'Avg {{ $forecastPeriodMonths }}M',
                                 type: 'number'
                             },
                             {
@@ -1534,7 +1534,7 @@
                             },
                             {
                                 key: 'forecast_6m',
-                                label: 'Manager 6M',
+                                label: 'Manager {{ $forecastPeriodMonths }}M',
                                 type: 'number',
                                 dashWhenEmpty: true,
                                 dashText: 'รอ approve',
@@ -1548,7 +1548,7 @@
                             },
                             {
                                 key: 'division_forecast_6m',
-                                label: 'Division 6M',
+                                label: 'Division {{ $forecastPeriodMonths }}M',
                                 type: 'number',
                                 className: 'detail-muted'
                             },

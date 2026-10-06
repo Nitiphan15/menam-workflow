@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\FormFC;
 
 use App\Http\Controllers\Controller;
+use App\Support\FormFcPeriod;
+use App\Support\FormFcOrderBalance;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -149,8 +151,8 @@ class ForecastRmController extends Controller
 
         $base = now($tz)->startOfMonth();
 
-        // ย้อนหลัง 6 เดือน ไม่รวมเดือนปัจจุบัน
-        $historyMonths = collect(range(1, 6))
+        // ย้อนหลังตามช่วง Form FC โดยไม่รวมเดือนปัจจุบัน
+        $historyMonths = collect(range(1, FormFcPeriod::MONTHS))
             ->map(fn($i) => (clone $base)->subMonths($i))
             ->reverse()
             ->values();
@@ -158,15 +160,15 @@ class ForecastRmController extends Controller
         $historyYm = $historyMonths->map(fn($d) => $d->format('Y-m'))->all();
         $historyLabels = $historyMonths->map(fn($d) => $d->format('M-y'))->all();
 
-        // อนาคต 6 เดือน
-        $futureMonths = collect(range(1, 6))
+        // อนาคตตามช่วง Form FC
+        $futureMonths = collect(range(1, FormFcPeriod::MONTHS))
             ->map(fn($i) => (clone $base)->addMonths($i))
             ->values();
 
         $futureYm = $futureMonths->map(fn($d) => $d->format('Y-m'))->all();
         $futureLabels = $futureMonths->map(fn($d) => $d->format('M-y'))->all();
 
-        $rangeStart = (clone $base)->subMonths(6)->startOfMonth();
+        $rangeStart = (clone $base)->subMonths(FormFcPeriod::MONTHS)->startOfMonth();
         $rangeEnd   = (clone $base)->subMonths(1)->endOfMonth();
 
         $historyBySku = collect();
@@ -259,7 +261,7 @@ class ForecastRmController extends Controller
             return $row;
         })->values();
 
-        return view('formfc.division_forecast', [
+        return view('formfc.division.forecast', [
             'salesCode'     => $salesCode,
             'skuLike'       => $skuLike,
             'companyMode'   => $companyMode,
@@ -267,6 +269,7 @@ class ForecastRmController extends Controller
             'historyLabels' => $historyLabels,
             'futureYm'      => $futureYm,
             'futureLabels'  => $futureLabels,
+            'forecastHorizonMonths' => FormFcPeriod::MONTHS,
             'rows'          => $rows,
             'kOptions'      => [1.2, 1.5, 1.8, 2.0],
         ]);
@@ -292,7 +295,7 @@ class ForecastRmController extends Controller
         }
 
         $base = now('Asia/Bangkok')->startOfMonth();
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, FormFcPeriod::MONTHS))
             ->map(fn($i) => (clone $base)->addMonths($i)->toDateString())
             ->values();
 
@@ -339,7 +342,7 @@ class ForecastRmController extends Controller
 
         $this->bumpForecastIndexCacheVersion();
 
-        return back()->with('success', 'สร้าง Forecast 6 เดือนล่วงหน้าเรียบร้อยแล้ว');
+        return back()->with('success', 'สร้าง Forecast ' . FormFcPeriod::MONTHS . ' เดือนล่วงหน้าเรียบร้อยแล้ว');
     }
 
     private function fetchDivisionHistoryMonthRange(string $conn, string $salesCode, string $skuLike, Carbon $start, Carbon $end)
@@ -471,7 +474,7 @@ class ForecastRmController extends Controller
 
         $base = now($tz)->startOfMonth();
 
-        $months = collect(range(1, 6))
+        $months = collect(range(1, FormFcPeriod::MONTHS))
             ->map(fn($i) => (clone $base)->subMonths($i))
             ->reverse()
             ->values();
@@ -479,7 +482,7 @@ class ForecastRmController extends Controller
         $cpa13Months = $months->map(fn($d) => $d->format('Y-m'))->all();
         $cpa13Labels = $months->map(fn($d) => $d->format('M-y'))->all();
 
-        $rangeStart = (clone $base)->subMonths(6)->startOfMonth();
+        $rangeStart = (clone $base)->subMonths(FormFcPeriod::MONTHS)->startOfMonth();
         $rangeEnd   = (clone $base)->subMonths(1)->endOfMonth();
 
         $cpa13BySkuMonth = collect();
@@ -513,7 +516,7 @@ class ForecastRmController extends Controller
 
             return [
                 'avg3' => round((float) $filled->slice(-3)->avg(), 2),
-                'avg6' => round((float) $filled->slice(-6)->avg(), 2),
+                'avg6' => round((float) $filled->slice(-FormFcPeriod::MONTHS)->avg(), 2),
             ];
         });
 
@@ -750,19 +753,26 @@ class ForecastRmController extends Controller
             // safety forecast จาก planner (PLN)
             $row['safety_forecast_planner'] = $plannerForecast;
 
-            // Demand ที่ใช้ซื้อ = SO + Forecast ฝ่ายขาย
-            // ถ้าไม่มี forecast แต่มี SO ก็จะได้ SO ตามรูป
-            $row['total_forecast_so'] = (float) $row['so'] + (float) $row['total_forecast'];
+            $orderBalance = FormFcOrderBalance::calculate(
+                (float) $row['onhand'],
+                (float) $row['fg'],
+                (float) $row['po_total'],
+                (float) $row['wip'],
+                (float) $row['safety_forecast_planner'],
+                (float) $row['total_forecast'],
+                (float) $row['so']
+            );
 
-            // supply ที่มีอยู่
-            $row['available_supply'] =
-                (float) $row['onhand']
-                + (float) $row['fg']
-                + (float) $row['po_total']
-                + (float) $row['wip'];
+            // 1 = Onhand + FG + Total PO + WIP
+            $row['available_supply'] = $orderBalance['supply'];
+            $row['total_forecast_so'] = $orderBalance['forecast_and_sales_order'];
 
-            // ต้องสั่งเพิ่ม = Demand - Supply
-            $row['need_to_order'] = (float) $row['total_forecast_so'] - (float) $row['available_supply'];
+            // 2 = Safety Forecast (Planner) + Forecast + SO
+            $row['required_demand'] = $orderBalance['demand'];
+
+            // 3 = 1 - 2; ค่าติดลบหมายถึงขาดและต้องสั่งเพิ่ม
+            $row['need_to_order'] = $orderBalance['balance'];
+            $row['order_shortage_qty'] = $orderBalance['shortage'];
 
             $manualOrder = $manualOrderIndex->get($sku, []);
             $manualSupplierRows = collect($manualOrder['supplier_rows'] ?? [])
@@ -1044,7 +1054,7 @@ class ForecastRmController extends Controller
         $rows = collect($data['rows'])->values();
         if ($shortageOnly) {
             $rows = $rows
-                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->filter(fn($row) => (float) ($row['order_shortage_qty'] ?? 0) > 0)
                 ->values();
         }
 
@@ -1064,7 +1074,7 @@ class ForecastRmController extends Controller
             'manual_order_sum'      => (float) $rows->sum('manual_order_qty'),
         ];
 
-        return view('formfc.index', [
+        return view('formfc.forecast.index', [
             'skuLike'           => $skuLike,
             'companyMode'       => $companyMode,
             'sinceAvg'          => $data['sinceAvg'],
@@ -1080,6 +1090,7 @@ class ForecastRmController extends Controller
             'selectedGrades'    => $selectedGrades,
             'shortageOnly'      => $shortageOnly,
             'canManualOrder'   => $this->canManualOrder(),
+            'forecastPeriodMonths' => FormFcPeriod::MONTHS,
         ]);
     }
 
@@ -1139,7 +1150,7 @@ class ForecastRmController extends Controller
         $rows = collect($data['rows'])->values();
         if ($shortageOnly) {
             $rows = $rows
-                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->filter(fn($row) => (float) ($row['order_shortage_qty'] ?? 0) > 0)
                 ->values();
         }
 
@@ -1200,8 +1211,8 @@ class ForecastRmController extends Controller
         foreach ($rows as $row) {
             $row = (array) $row;
             $needRaw = round((float) ($row['need_to_order'] ?? 0), 2);
-            $autoNeed = round($this->exportNeedDisplayValue($row), 2);
-            $needStatus = $needRaw > 0 ? 'SHORTAGE' : ($needRaw < 0 ? 'SURPLUS' : 'BALANCED');
+            $autoNeed = round((float) ($row['order_shortage_qty'] ?? max(-$needRaw, 0)), 2);
+            $needStatus = $needRaw < 0 ? 'SHORTAGE' : ($needRaw > 0 ? 'SURPLUS' : 'BALANCED');
             $manualSupplierRows = collect($row['manual_order_supplier_rows'] ?? [])
                 ->map(fn($sp) => [
                     'code' => strtoupper(trim((string) ($sp['code'] ?? ''))),
@@ -1292,7 +1303,7 @@ class ForecastRmController extends Controller
         $mode = $this->supplierShortageMode($request->query('source_mode', 'final'));
         $report = $this->buildSupplierShortageReport($payload['rows'], $mode);
 
-        return view('formfc.supplier_shortage', $payload + $report + [
+        return view('formfc.forecast.supplier_shortage', $payload + $report + [
             'sourceMode' => $mode,
             'supplierOptions' => $this->getSupplierOptions(),
             'gradeOptions' => $this->getGradeOptions(),
@@ -1325,7 +1336,7 @@ class ForecastRmController extends Controller
             'RM Part',
             'Description',
             'Grade',
-            'Avg 6M',
+            'Avg ' . FormFcPeriod::MONTHS . 'M',
             'Onhand',
             'FG',
             'Total PO',
@@ -1460,7 +1471,7 @@ class ForecastRmController extends Controller
 
         $tz = 'Asia/Bangkok';
         $base = now($tz)->startOfMonth();
-        $start = (clone $base)->subMonths(6)->startOfMonth();
+        $start = (clone $base)->subMonths(FormFcPeriod::MONTHS)->startOfMonth();
         $end   = (clone $base)->subMonths(1)->endOfMonth();
 
         $cacheKey = $this->detailCacheKey('history', [
@@ -1739,7 +1750,7 @@ class ForecastRmController extends Controller
             'Grade',
             'Supplier',
             'Avg 3M',
-            'Avg 6M',
+            'Avg ' . FormFcPeriod::MONTHS . 'M',
             'Onhand',
             'FG',
             'Total PO',
@@ -1763,7 +1774,7 @@ class ForecastRmController extends Controller
             'Division',
             'Division Forecast',
             'Avg 3M',
-            'Avg 6M',
+            'Avg ' . FormFcPeriod::MONTHS . 'M',
             'Onhand',
             'FG',
             'Total PO',
@@ -1791,18 +1802,12 @@ class ForecastRmController extends Controller
 
     private function exportNeedDisplayValue(array $r): float
     {
-        $need = (float) ($r['need_to_order'] ?? 0);
-
-        // หน้า table แสดงค่าติดลบเป็นยอดเกินแบบ abs() สีเขียว จึงใช้ค่าเดียวกันตอน filter/export
-        return $need < 0 ? abs($need) : $need;
+        return (float) ($r['need_to_order'] ?? 0);
     }
 
     private function exportNeedToOrderExcelValue(array $r): float
     {
-        $need = (float) ($r['need_to_order'] ?? 0);
-
-        // In Forecast RM Excel, web-table red shortage values should export as negative.
-        return $need > 0 ? -$need : abs($need);
+        return (float) ($r['need_to_order'] ?? 0);
     }
 
     private function exportMainRow(array $r): array
@@ -2029,7 +2034,7 @@ class ForecastRmController extends Controller
         $rows = collect($data['rows'])->values();
         if ($shortageOnly) {
             $rows = $rows
-                ->filter(fn($row) => (float) ($row['need_to_order'] ?? 0) > 0)
+                ->filter(fn($row) => (float) ($row['order_shortage_qty'] ?? 0) > 0)
                 ->values();
         }
         $rows = $this->applyExportTableState($rows, $request);
@@ -2288,7 +2293,7 @@ class ForecastRmController extends Controller
                 $a['history_avg6'] = round((float) ($a['history_avg6'] ?? 0), 2);
                 $a['k_factor'] = round((float) ($a['k_factor'] ?? 0), 1);
                 $a['division_forecast_1m'] = round((float) ($a['forecast_1m'] ?? ($a['forecast_qty'] ?? 0)), 2);
-                $a['division_forecast_6m'] = round((float) ($a['forecast_6m'] ?? 0), 2);
+                $a['division_forecast_6m'] = round($a['division_forecast_1m'] * FormFcPeriod::MONTHS, 2);
                 // ยังไม่ approve = ไม่มีค่า Manager (ส่ง null ให้ modal โชว์ "รอ approve")
                 // ไม่ fallback เป็นค่า division เพื่อไม่ให้ดูเหมือนหัวหน้าใส่ค่าแล้ว
                 $a['forecast_1m'] = null;
@@ -2342,9 +2347,9 @@ class ForecastRmController extends Controller
                 ]);
 
                 $current['division_forecast_1m'] = round((float) ($approval->division_forecast_1m ?? ($current['division_forecast_1m'] ?? 0)), 2);
-                $current['division_forecast_6m'] = round((float) ($approval->division_forecast_6m ?? ($current['division_forecast_6m'] ?? 0)), 2);
+                $current['division_forecast_6m'] = round($current['division_forecast_1m'] * FormFcPeriod::MONTHS, 2);
                 $current['forecast_1m'] = round((float) ($approval->approval_forecast_1m ?? 0), 2);
-                $current['forecast_6m'] = round((float) ($approval->approval_forecast_6m ?? 0), 2);
+                $current['forecast_6m'] = round($current['forecast_1m'] * FormFcPeriod::MONTHS, 2);
                 $current['row_remark'] = trim((string) ($approval->approval_remark ?? ($current['row_remark'] ?? '')));
                 $current['source_type'] = 'MANAGER_APPROVAL';
                 $current['has_approval'] = true;
@@ -2507,7 +2512,7 @@ class ForecastRmController extends Controller
             rm_partnumber,
             sales_code,
             MAX(NULLIF(LTRIM(RTRIM(supplier_name)), '')) AS supplier_name,
-            SUM(forecast_6m) AS forecast_qty
+            SUM(COALESCE(forecast_1m, forecast_qty, 0) * " . FormFcPeriod::MONTHS . ") AS forecast_qty
         ")
             ->whereDate('forecast_base_month', $forecastMonth);
 
@@ -2561,7 +2566,7 @@ class ForecastRmController extends Controller
                 ->selectRaw("
                     rm_partnumber,
                     sales_code,
-                    SUM(approval_forecast_6m) AS approval_forecast_qty
+                    SUM(COALESCE(approval_forecast_1m, 0) * " . FormFcPeriod::MONTHS . ") AS approval_forecast_qty
                 ")
                 ->whereDate('forecast_base_month', $forecastMonth);
 
@@ -2689,7 +2694,7 @@ class ForecastRmController extends Controller
         $like = strtoupper(trim((string) $skuOrLike));
 
         $tz = 'Asia/Bangkok';
-        $start = now($tz)->startOfMonth()->subMonths(6)->toDateString();
+        $start = now($tz)->startOfMonth()->subMonths(FormFcPeriod::MONTHS)->toDateString();
         $end   = now($tz)->endOfDay()->toDateString();
 
         $where .= " AND oe.transdate >= :start_date";
@@ -3426,7 +3431,7 @@ class ForecastRmController extends Controller
             return response()->json([]);
         }
 
-        $sinceDate = now('Asia/Bangkok')->subMonths(6)->startOfMonth()->toDateString();
+        $sinceDate = now('Asia/Bangkok')->subMonths(FormFcPeriod::MONTHS)->startOfMonth()->toDateString();
         $out = collect();
 
         if (in_array($companyMode, ['ALL', 'WIRE'], true)) {
@@ -3544,7 +3549,7 @@ class ForecastRmController extends Controller
             return collect();
         }
 
-        $sinceDate = $sinceDate ?: now('Asia/Bangkok')->subMonths(6)->startOfMonth()->toDateString();
+        $sinceDate = $sinceDate ?: now('Asia/Bangkok')->subMonths(FormFcPeriod::MONTHS)->startOfMonth()->toDateString();
 
         return $connName === 'pgsqlw'
             ? $this->fetchCpa7DetailBatchWire($partnumbers, $siteLabel, $sinceDate)
