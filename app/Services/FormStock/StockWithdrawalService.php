@@ -21,7 +21,7 @@ class StockWithdrawalService
         }
         $standards = $this->standardsFor($rows->pluck('partnumber')->all(), $asOf);
 
-        return $rows->map(function ($row) use ($standards, $asOf, $filters) {
+        $rows = $rows->map(function ($row) use ($standards, $asOf, $filters) {
             $key = $row->site.'|'.$row->partnumber;
             $standard = $standards->get($key) ?? $standards->get('ALL|'.$row->partnumber);
             $calculated = $this->calculateRow((array) $row, $standard ? (array) $standard : null, $asOf);
@@ -35,7 +35,18 @@ class StockWithdrawalService
                 if (!str_contains($partText, mb_strtoupper(trim($filters['part'])))) return false;
             }
             return true;
-        })->sortBy([['risk_rank', 'desc'], ['withdraw_date', 'asc'], ['due_date', 'asc']])->values();
+        });
+
+        $sorts = [
+            'risk_desc' => [['risk_rank', 'desc'], ['withdraw_date', 'asc'], ['due_date', 'asc']],
+            'due_asc' => [['due_date', 'asc'], ['risk_rank', 'desc']],
+            'due_desc' => [['due_date', 'desc'], ['risk_rank', 'desc']],
+            'withdraw_asc' => [['withdraw_date', 'asc'], ['risk_rank', 'desc']],
+            'mfg_asc' => [['mfg', 'asc'], ['partnumber', 'asc']],
+            'part_asc' => [['partnumber', 'asc'], ['due_date', 'asc']],
+            'remaining_desc' => [['remaining_qty', 'desc'], ['risk_rank', 'desc']],
+        ];
+        return $rows->sortBy($sorts[$filters['sort'] ?? 'risk_desc'] ?? $sorts['risk_desc'])->values();
     }
 
     public function calculateRow(array $row, ?array $standard, Carbon $asOf): array

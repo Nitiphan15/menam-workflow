@@ -20,8 +20,9 @@ class StockWithdrawalController extends Controller
             'mfg' => ['nullable', 'string', 'max:100'], 'part' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'in:25,50,100'],
             'mode' => ['nullable', 'in:mock,live'],
+            'sort' => ['nullable', 'in:risk_desc,due_asc,due_desc,withdraw_asc,mfg_asc,part_asc,remaining_desc'],
         ]);
-        $filters += ['date_from' => now('Asia/Bangkok')->subDays(30)->toDateString(), 'date_to' => now('Asia/Bangkok')->addDays(60)->toDateString(), 'mode' => 'mock'];
+        $filters += ['date_from' => now('Asia/Bangkok')->subDays(30)->toDateString(), 'date_to' => now('Asia/Bangkok')->addDays(60)->toDateString(), 'mode' => 'mock', 'sort' => 'risk_desc'];
         $allRows = $service->report($filters);
         $summary = collect(['GREEN', 'YELLOW', 'ORANGE', 'RED', 'GRAY'])->mapWithKeys(fn($color) => [$color => $allRows->where('risk_code', $color)->count()]);
         $perPage = (int) ($filters['per_page'] ?? 50);
@@ -57,7 +58,7 @@ class StockWithdrawalController extends Controller
 
     public function export(Request $request, StockWithdrawalService $service): StreamedResponse
     {
-        $rows = $service->report($request->only('site', 'date_from', 'date_to', 'status', 'risk', 'mfg', 'part', 'mode'));
+        $rows = $service->report($request->only('site', 'date_from', 'date_to', 'status', 'risk', 'mfg', 'part', 'mode', 'sort'));
         return response()->streamDownload(function () use ($rows) {
             $out = fopen('php://output', 'w'); fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out, ['Site', 'MFG', 'Part', 'Description', 'Due Date', 'Required', 'Issued', 'Remaining', 'Standard Days', 'Withdraw Date', 'Withdrawal Status', 'Risk']);

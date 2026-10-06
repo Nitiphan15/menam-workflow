@@ -25,6 +25,11 @@
         <div class="col-lg-1 col-md-2"><label class="form-label">สถานะ</label><select name="status" class="form-select"><option value="">ทั้งหมด</option>@foreach(['ยังไม่เบิก','เบิกบางส่วน','เบิกครบแล้ว'] as $s)<option value="{{ $s }}" @selected(($filters['status'] ?? '')===$s)>{{ $s }}</option>@endforeach</select></div>
         <div class="col-lg-1 col-md-2"><label class="form-label">ความเสี่ยง</label><select name="risk" class="form-select"><option value="">ทั้งหมด</option>@foreach(['GREEN'=>'ปกติ','YELLOW'=>'ใกล้กำหนด','ORANGE'=>'วันนี้','RED'=>'เกินกำหนด','GRAY'=>'ไม่มีมาตรฐาน'] as $v=>$t)<option value="{{ $v }}" @selected(($filters['risk'] ?? '')===$v)>{{ $t }}</option>@endforeach</select></div>
         <div class="col-lg-1 col-md-2"><label class="form-label">ข้อมูล</label><select name="mode" class="form-select"><option value="mock" @selected(($filters['mode'] ?? 'mock')==='mock')>ตัวอย่าง</option><option value="live" @selected(($filters['mode'] ?? '')==='live')>ตามจริง</option></select></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">เรียงลำดับ</label><select name="sort" class="form-select">
+            @foreach(['risk_desc'=>'เสี่ยงที่สุดก่อน','due_asc'=>'Due Date ใกล้ก่อน','due_desc'=>'Due Date ไกลก่อน','withdraw_asc'=>'วันที่ควรเบิกใกล้ก่อน','mfg_asc'=>'เลข MFG','part_asc'=>'รหัส Part','remaining_desc'=>'จำนวนคงเหลือมากก่อน'] as $value=>$label)
+                <option value="{{ $value }}" @selected(($filters['sort'] ?? 'risk_desc')===$value)>{{ $label }}</option>
+            @endforeach
+        </select></div>
         <div class="col-lg-1 col-md-2"><label class="form-label">ต่อหน้า</label><select name="per_page" class="form-select">@foreach([25,50,100] as $size)<option value="{{ $size }}" @selected(($filters['per_page'] ?? 50)==$size)>{{ $size }}</option>@endforeach</select></div>
         <div class="col-lg-1 col-md-2 d-flex gap-1"><button class="btn btn-primary flex-fill">ค้นหา</button><a href="{{ route('stock-withdrawal.index') }}" class="btn btn-outline-secondary" title="ล้างตัวกรอง">ล้าง</a></div>
     </div></form>
