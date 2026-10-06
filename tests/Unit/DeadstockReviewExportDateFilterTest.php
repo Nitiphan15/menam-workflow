@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Exports\FormWOS\DeadstockReviewExport;
 use App\Models\FormWOS\DeadstockItemReview;
+use App\Models\FormWOS\DeadstockItemReviewLog;
 use App\Models\FormWOS\DeadstockSnapshotItem;
 use App\Models\Users\User;
 use Carbon\Carbon;
@@ -161,9 +162,88 @@ class DeadstockReviewExportDateFilterTest extends TestCase
             $this->assertEqualsWithDelta(28.5714, $report['totals']['qty_success_percent'], 0.001);
             $this->assertCount(1, $report['cleared_item_list']);
             $this->assertSame('SERIAL-01', $report['cleared_item_list'][0]['serialnumber']);
+            $this->assertCount(2, $report['overdue_item_list']);
+            $this->assertSame('SERIAL-02', $report['overdue_item_list'][0]['serialnumber']);
+            $this->assertSame(14, $report['overdue_item_list'][0]['overdue_days']);
         } finally {
             Carbon::setTestNow();
         }
+    }
+
+    public function test_rescheduled_report_shows_original_latest_days_count_and_division(): void
+    {
+        $review = new DeadstockItemReview(['revised_due_date' => '2026-09-15']);
+        $review->setRelation('logs', new Collection([
+            new DeadstockItemReviewLog([
+                'changed_fields' => ['revised_due_date'],
+                'after_values' => ['revised_due_date' => '2026-08-15'],
+                'changed_at' => '2026-07-01 09:00:00',
+            ]),
+            new DeadstockItemReviewLog([
+                'changed_fields' => ['revised_due_date'],
+                'after_values' => ['revised_due_date' => '2026-09-15'],
+                'changed_at' => '2026-08-01 09:00:00',
+            ]),
+        ]));
+        $item = new DeadstockSnapshotItem([
+            'due_date' => '2026-07-15',
+            'snapshot_qty' => 12.5,
+            'partnumber' => 'PART-01',
+            'part_description' => 'Part description',
+            'serialnumber' => 'SERIAL-01',
+            'customer_name' => 'Customer A',
+            'salesperson_name' => 'Sales Person 05',
+            'company' => 'MENAM PLUS',
+            'deadstock_code' => 'SS01',
+        ]);
+        $item->setRelation('review', $review);
+        $item->setRelation('latestCompareLog', null);
+
+        $report = $this->invokePrivate(new DeadstockReviewExport(), 'rescheduledItemsReport', [
+            new Collection([$item]),
+            'ช่วงวันที่รับเข้า 01/01/2026 - 31/12/2026',
+        ]);
+
+        $this->assertCount(1, $report['rows']);
+        $this->assertSame('D5', $report['rows'][0]['division']);
+        $this->assertSame('2026-07-15', $report['rows'][0]['original_due_date']);
+        $this->assertSame('2026-09-15', $report['rows'][0]['latest_due_date']);
+        $this->assertSame(62, $report['rows'][0]['postponed_days']);
+        $this->assertSame(2, $report['rows'][0]['postpone_count']);
+        $this->assertSame(2, $report['division_summary'][0]['postpone_count']);
+    }
+
+    public function test_overdue_and_rescheduled_sheets_include_required_columns(): void
+    {
+        $export = new DeadstockReviewExport();
+        $spreadsheet = new Spreadsheet();
+        $overdueSheet = $spreadsheet->getActiveSheet();
+        $rescheduledSheet = $spreadsheet->createSheet();
+        $baseItem = [
+            'division' => 'D5', 'salesperson' => 'Sales A', 'partnumber' => 'PART-01',
+            'part_description' => 'Part description', 'serialnumber' => 'SERIAL-01',
+            'customer' => 'Customer A', 'qty' => 12.5, 'site' => 'PLUS', 'reason_code' => 'SS01',
+        ];
+
+        $this->invokePrivate($export, 'buildOverdueItemsSheet', [$overdueSheet, [
+            'target_month_label' => 'July 2026',
+            'overdue_item_list' => [[...$baseItem, 'promised_due_date' => '2026-07-15', 'overdue_days' => 14]],
+        ]]);
+        $this->invokePrivate($export, 'buildRescheduledItemsSheet', [$rescheduledSheet, [
+            'range_label' => 'ช่วงวันที่รับเข้า 01/01/2026 - 31/12/2026',
+            'division_summary' => [['division' => 'D5', 'item_count' => 1, 'qty' => 12.5, 'postponed_days' => 62, 'postpone_count' => 2]],
+            'rows' => [[...$baseItem, 'original_due_date' => '2026-07-15', 'latest_due_date' => '2026-09-15', 'postponed_days' => 62, 'postpone_count' => 2]],
+        ]]);
+
+        $this->assertSame('Overdue Items', $overdueSheet->getTitle());
+        $this->assertSame('เลยกำหนด (วัน)', $overdueSheet->getCell('J3')->getValue());
+        $this->assertSame(14, $overdueSheet->getCell('J4')->getValue());
+        $this->assertSame('Rescheduled Items', $rescheduledSheet->getTitle());
+        $this->assertSame('จำนวนครั้งที่เลื่อนรวม', $rescheduledSheet->getCell('E3')->getValue());
+        $this->assertSame('กำหนดส่งใหม่ล่าสุด', $rescheduledSheet->getCell('J6')->getValue());
+        $this->assertSame(2, $rescheduledSheet->getCell('L7')->getValue());
+
+        $spreadsheet->disconnectWorksheets();
     }
 
     public function test_delivery_performance_and_cleared_item_sheets_are_built(): void

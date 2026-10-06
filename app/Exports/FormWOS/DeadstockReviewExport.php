@@ -129,9 +129,11 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
                 $report = $this->summaryReport();
                 $this->buildSummarySheet($spreadsheet->createSheet(0), $report);
                 $this->buildDeliveryPerformanceSheet($spreadsheet->createSheet(1), $report['delivery_performance']);
-                $this->buildClearedItemsSheet($spreadsheet->createSheet(2), $report['delivery_performance']);
-                $this->buildSalesItemsSheet($spreadsheet->createSheet(3), $report);
-                $this->buildSalesReceivedPartSheet($spreadsheet->createSheet(4), $report);
+                $this->buildOverdueItemsSheet($spreadsheet->createSheet(2), $report['delivery_performance']);
+                $this->buildRescheduledItemsSheet($spreadsheet->createSheet(3), $report['rescheduled_items']);
+                $this->buildClearedItemsSheet($spreadsheet->createSheet(4), $report['delivery_performance']);
+                $this->buildSalesItemsSheet($spreadsheet->createSheet(5), $report);
+                $this->buildSalesReceivedPartSheet($spreadsheet->createSheet(6), $report);
                 $spreadsheet->setActiveSheetIndex(0);
             },
         ];
@@ -158,7 +160,7 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
 
         $sheet->setTitle('Summary');
         $sheet->setCellValue('A1', 'Deadstock Summary Report');
-        $sheet->setCellValue('A2', 'Update ' . $reportDate->format('d/m/y') . ' (Summary เดือนปัจจุบัน ไม่อิง Filter รายละเอียด)');
+        $sheet->setCellValue('A2', 'Update ' . $reportDate->format('d/m/y') . ' · ' . $report['report_range_label']);
         $sheet->mergeCells('A1:J1');
         $sheet->mergeCells('A2:J2');
 
@@ -255,6 +257,106 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             'F' => 14, 'G' => 16, 'H' => 14, 'I' => 34, 'J' => 16,
         ];
         foreach ($widths as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+    }
+
+    private function buildOverdueItemsSheet(Worksheet $sheet, array $performance): void
+    {
+        $sheet->setTitle('Overdue Items');
+        $sheet->setCellValue('A1', 'รายการที่ระบุวันส่งแล้วแต่เลยกำหนด · ' . $performance['target_month_label']);
+        $sheet->mergeCells('A1:L1');
+        $sheet->getStyle('A1:L1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:L1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFC00000');
+        $sheet->fromArray([[
+            'ลำดับ', 'Div.', 'Sales', 'Part', 'รายละเอียด Part', 'Serial no.', 'ลูกค้า',
+            'Qty (KGS)', 'วันที่แจ้งส่งล่าสุด', 'เลยกำหนด (วัน)', 'Site', 'รหัสสาเหตุ',
+        ]], null, 'A3');
+
+        $rowNo = 4;
+        foreach ($performance['overdue_item_list'] as $index => $item) {
+            $sheet->fromArray([[
+                $index + 1, $item['division'], $item['salesperson'], $item['partnumber'],
+                $item['part_description'], $item['serialnumber'], $item['customer'], $item['qty'],
+                $item['promised_due_date'], $item['overdue_days'], $item['site'], $item['reason_code'],
+            ]], null, "A{$rowNo}");
+            $rowNo++;
+        }
+        if ($performance['overdue_item_list'] === []) {
+            $sheet->setCellValue('A4', 'ไม่มีรายการตาม Filter ที่เลือก');
+            $sheet->mergeCells('A4:L4');
+        }
+
+        $lastRow = max(4, $rowNo - 1);
+        $sheet->getStyle("A3:L{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A3:L{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+        $sheet->getStyle("H4:H{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle('A3:L3')->getFont()->setBold(true);
+        $sheet->getStyle('A3:L3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF4CCCC');
+        $sheet->setAutoFilter("A3:L{$lastRow}");
+        $sheet->freezePane('A4');
+        foreach (['A' => 9, 'B' => 12, 'C' => 22, 'D' => 20, 'E' => 34, 'F' => 22, 'G' => 26, 'H' => 14, 'I' => 18, 'J' => 16, 'K' => 12, 'L' => 14] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+    }
+
+    private function buildRescheduledItemsSheet(Worksheet $sheet, array $report): void
+    {
+        $sheet->setTitle('Rescheduled Items');
+        $sheet->setCellValue('A1', 'รายการเลื่อนกำหนดส่ง · ' . $report['range_label']);
+        $sheet->mergeCells('A1:N1');
+        $sheet->getStyle('A1:N1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:N1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF9C5700');
+        $sheet->fromArray([['Div.', 'จำนวนรายการ', 'Qty (KGS)', 'จำนวนวันที่เลื่อนรวม', 'จำนวนครั้งที่เลื่อนรวม']], null, 'A3');
+
+        $summaryRow = 4;
+        foreach ($report['division_summary'] as $summary) {
+            $sheet->fromArray([[
+                $summary['division'], $summary['item_count'], $summary['qty'],
+                $summary['postponed_days'], $summary['postpone_count'],
+            ]], null, "A{$summaryRow}");
+            $summaryRow++;
+        }
+        if ($report['division_summary'] === []) {
+            $sheet->setCellValue('A4', 'ไม่มีรายการตาม Filter ที่เลือก');
+            $sheet->mergeCells('A4:E4');
+            $summaryRow = 5;
+        }
+
+        $headerRow = $summaryRow + 1;
+        $sheet->fromArray([[
+            'ลำดับ', 'Div.', 'Sales', 'Part', 'รายละเอียด Part', 'Serial no.', 'ลูกค้า', 'Qty (KGS)',
+            'กำหนดส่งเดิม', 'กำหนดส่งใหม่ล่าสุด', 'เลื่อน (วัน)', 'เลื่อน (ครั้ง)', 'Site', 'รหัสสาเหตุ',
+        ]], null, "A{$headerRow}");
+        $rowNo = $headerRow + 1;
+        foreach ($report['rows'] as $index => $item) {
+            $sheet->fromArray([[
+                $index + 1, $item['division'], $item['salesperson'], $item['partnumber'],
+                $item['part_description'], $item['serialnumber'], $item['customer'], $item['qty'],
+                $item['original_due_date'], $item['latest_due_date'], $item['postponed_days'],
+                $item['postpone_count'], $item['site'], $item['reason_code'],
+            ]], null, "A{$rowNo}");
+            $rowNo++;
+        }
+        if ($report['rows'] === []) {
+            $sheet->setCellValue("A{$rowNo}", 'ไม่มีรายการตาม Filter ที่เลือก');
+            $sheet->mergeCells("A{$rowNo}:N{$rowNo}");
+            $rowNo++;
+        }
+
+        $lastSummaryRow = max(4, $summaryRow - 1);
+        $lastRow = $rowNo - 1;
+        $sheet->getStyle("A3:E{$lastSummaryRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle('A3:E3')->getFont()->setBold(true);
+        $sheet->getStyle('A3:E3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
+        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
+        $sheet->getStyle('H' . ($headerRow + 1) . ":H{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->setAutoFilter("A{$headerRow}:N{$lastRow}");
+        $sheet->freezePane('A' . ($headerRow + 1));
+        foreach (['A' => 9, 'B' => 12, 'C' => 22, 'D' => 20, 'E' => 34, 'F' => 22, 'G' => 26, 'H' => 14, 'I' => 18, 'J' => 20, 'K' => 14, 'L' => 14, 'M' => 12, 'N' => 14] as $column => $width) {
             $sheet->getColumnDimension($column)->setWidth($width);
         }
     }
@@ -579,7 +681,7 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             ?? now('Asia/Bangkok');
         $reportDate = $reportDate instanceof Carbon ? $reportDate->copy() : Carbon::parse($reportDate);
         $reportYear = (int) $reportDate->year;
-        $targetMonth = $this->summaryTargetMonth();
+        $targetMonth = $reportDate->copy()->startOfMonth();
         $historicalStart = Carbon::create($reportYear - 3, 1, 1)->startOfDay();
         $yearStart = Carbon::create($reportYear, 1, 1)->startOfDay();
         $currentMonthStart = $reportDate->copy()->startOfMonth();
@@ -724,7 +826,87 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             'report_range_label' => $rangeLabel,
             'start_label' => 'Start 1/1/' . $reportDate->format('y') . ' TOTAL (KGS)',
             'delivery_performance' => $this->deliveryPerformanceReport($targetMonth),
+            'rescheduled_items' => $this->rescheduledItemsReport($items, $rangeLabel),
         ];
+    }
+
+    private function rescheduledItemsReport(Collection $items, string $rangeLabel): array
+    {
+        $rows = $items
+            ->map(function (DeadstockSnapshotItem $item) {
+                $originalDue = $item->due_date;
+                $latestDue = $item->review?->revised_due_date ?? $item->current_due_date;
+                if (!$originalDue || !$latestDue) {
+                    return null;
+                }
+                $originalDue = $originalDue instanceof Carbon ? $originalDue->copy() : Carbon::parse($originalDue);
+                $latestDue = $latestDue instanceof Carbon ? $latestDue->copy() : Carbon::parse($latestDue);
+                if (!$latestDue->gt($originalDue)) {
+                    return null;
+                }
+
+                $reasonCode = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
+                return [
+                    'division' => DeadstockSalesMap::accessKey($item->salesperson_name),
+                    'salesperson' => DeadstockSalesMap::label($item->salesperson_name),
+                    'partnumber' => (string) $item->partnumber,
+                    'part_description' => (string) $item->part_description,
+                    'serialnumber' => (string) $item->serialnumber,
+                    'customer' => (string) $item->customer_name,
+                    'qty' => (float) ($item->current_qty ?? $item->snapshot_qty),
+                    'original_due_date' => $originalDue->format('Y-m-d'),
+                    'latest_due_date' => $latestDue->format('Y-m-d'),
+                    'postponed_days' => $originalDue->diffInDays($latestDue),
+                    'postpone_count' => $this->postponeCount($item, $originalDue, $latestDue),
+                    'site' => $this->siteLabel((string) $item->company),
+                    'reason_code' => $reasonCode,
+                ];
+            })
+            ->filter()
+            ->sortBy(fn(array $row) => [$row['division'], $row['latest_due_date'], $row['salesperson'], $row['partnumber']])
+            ->values();
+
+        $divisionSummary = $rows
+            ->groupBy('division')
+            ->map(fn(Collection $divisionRows, string $division) => [
+                'division' => $division,
+                'item_count' => $divisionRows->count(),
+                'qty' => $divisionRows->sum('qty'),
+                'postponed_days' => $divisionRows->sum('postponed_days'),
+                'postpone_count' => $divisionRows->sum('postpone_count'),
+            ])
+            ->values()
+            ->all();
+
+        return ['range_label' => $rangeLabel, 'division_summary' => $divisionSummary, 'rows' => $rows->all()];
+    }
+
+    private function postponeCount(DeadstockSnapshotItem $item, Carbon $originalDue, Carbon $latestDue): int
+    {
+        $cursor = $originalDue->copy();
+        $count = 0;
+        $logs = $item->review?->logs?->sortBy(fn($log) => [$log->changed_at?->timestamp ?? 0, $log->id ?? 0]) ?? collect();
+
+        foreach ($logs as $log) {
+            if (!in_array('revised_due_date', (array) $log->changed_fields, true)) {
+                continue;
+            }
+            $value = $log->after_values['revised_due_date'] ?? null;
+            if (!$value) {
+                continue;
+            }
+            $next = Carbon::parse($value);
+            if ($next->gt($cursor)) {
+                $count++;
+            }
+            $cursor = $next;
+        }
+
+        if ($latestDue->gt($cursor)) {
+            $count++;
+        }
+
+        return max(1, $count);
     }
 
     public function deliveryPerformanceReport(?Carbon $targetMonth = null): array
@@ -756,6 +938,7 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             'factory' => $this->blankDeliveryPerformanceRow('Factory Problem (FF)'),
         ];
         $clearedItemList = [];
+        $overdueItemList = [];
 
         foreach ($items as $item) {
             $promisedDueDate = $item->review?->revised_due_date;
@@ -794,6 +977,19 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             if (!$wasClearedInTime) {
                 $rows[$owner]['not_cleared_items']++;
                 $rows[$owner]['not_cleared_qty'] += $qty;
+                $overdueItemList[] = [
+                    'division' => DeadstockSalesMap::accessKey($item->salesperson_name),
+                    'salesperson' => DeadstockSalesMap::label($item->salesperson_name),
+                    'partnumber' => (string) $item->partnumber,
+                    'part_description' => (string) $item->part_description,
+                    'serialnumber' => (string) $item->serialnumber,
+                    'customer' => (string) $item->customer_name,
+                    'qty' => $qty,
+                    'promised_due_date' => $promisedDueDate->format('Y-m-d'),
+                    'overdue_days' => $promisedDueDate->diffInDays($cutoffDate),
+                    'site' => $this->siteLabel((string) $item->company),
+                    'reason_code' => $reasonCode,
+                ];
                 continue;
             }
 
@@ -847,6 +1043,11 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             $right['partnumber'],
             $right['serialnumber'],
         ]);
+        usort($overdueItemList, fn(array $left, array $right) => [
+            $left['division'], $left['promised_due_date'], $left['salesperson'], $left['partnumber'],
+        ] <=> [
+            $right['division'], $right['promised_due_date'], $right['salesperson'], $right['partnumber'],
+        ]);
 
         return [
             'target_month' => $targetMonth,
@@ -855,6 +1056,7 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
             'rows' => $rows,
             'totals' => $this->finalizeDeliveryPerformanceRow($totals),
             'cleared_item_list' => $clearedItemList,
+            'overdue_item_list' => $overdueItemList,
         ];
     }
 
@@ -1072,7 +1274,7 @@ class DeadstockReviewExport implements FromCollection, WithHeadings, WithStyles,
         $sort = trim((string) ($this->filters['sort'] ?? 'qty_desc'));
 
         $query = DeadstockSnapshotItem::query()
-            ->with(['snapshotMonth', 'review.reviewer', 'latestCompareLog'])
+            ->with(['snapshotMonth', 'review.reviewer', 'review.logs', 'latestCompareLog'])
             ->when($monthIds !== [], fn($q) => $q->whereIn('snapshot_month_id', $monthIds), fn($q) => $q->whereRaw('1 = 0'));
 
         $this->applyReportFilters($query);

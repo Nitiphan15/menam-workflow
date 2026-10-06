@@ -94,6 +94,11 @@
             font-size: 14px;
             margin: 0 0 10px;
         }
+        .detail-table th,
+        .detail-table td {
+            padding: 4px 3px;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
@@ -109,11 +114,15 @@
         $performanceTotal = $performance['totals'] ?? [];
         $performanceMonth = $performance['target_month_label'] ?? '';
         $performanceCutoff = $performance['cutoff_date'] ?? now();
+        $overdueItems = $performance['overdue_item_list'] ?? [];
+        $rescheduled = $report['rescheduled_items'] ?? [];
+        $rescheduledRows = $rescheduled['rows'] ?? [];
+        $rescheduledDivisions = $rescheduled['division_summary'] ?? [];
     @endphp
 
     <div class="title">Deadstock Summary Report</div>
     <div class="meta">
-        Update {{ $reportDate->format('d/m/y') }} (Summary เดือนปัจจุบัน ไม่อิง Filter รายละเอียด)
+        Update {{ $reportDate->format('d/m/y') }} · {{ $report['report_range_label'] ?? 'ตาม Filter ที่เลือก' }}
         &nbsp;|&nbsp; Generated {{ ($generatedAt ?? now())->format('d/m/Y H:i') }}
     </div>
 
@@ -221,5 +230,61 @@
     <div class="note">
         * “ส่งได้จริง” หมายถึงรายการถูกเคลียร์ไม่เกินวันตัดยอด และเปอร์เซ็นต์คำนวณเฉพาะรายการที่ถึงกำหนดแล้ว
     </div>
+
+    <div class="page-break"></div>
+    <div class="title">รายการที่ระบุวันส่งแล้วแต่เลยกำหนด</div>
+    <div class="meta">{{ $performanceMonth }} · ตาม Filter ที่เลือก · {{ count($overdueItems) }} รายการ</div>
+    <table class="detail-table">
+        <thead><tr>
+            <th>Div.</th><th>Sales</th><th>Part / Serial</th><th>ลูกค้า</th><th>Qty</th>
+            <th>วันที่แจ้งส่งล่าสุด</th><th>เลยกำหนด (วัน)</th><th>Site</th><th>รหัสสาเหตุ</th>
+        </tr></thead>
+        <tbody>
+            @forelse ($overdueItems as $item)
+                <tr>
+                    <td>{{ $item['division'] }}</td><td class="left">{{ $item['salesperson'] }}</td>
+                    <td class="left">{{ $item['partnumber'] }}<br>{{ $item['serialnumber'] }}</td>
+                    <td class="left">{{ $item['customer'] }}</td><td class="num">{{ number_format($item['qty'], 2) }}</td>
+                    <td>{{ $item['promised_due_date'] }}</td><td class="danger">{{ number_format($item['overdue_days']) }}</td>
+                    <td>{{ $item['site'] }}</td><td>{{ $item['reason_code'] }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="9">ไม่มีรายการตาม Filter ที่เลือก</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+
+    <div class="page-break"></div>
+    <div class="title">รายการที่มีการเลื่อนกำหนดส่ง</div>
+    <div class="meta">{{ $rescheduled['range_label'] ?? 'ตาม Filter ที่เลือก' }} · {{ count($rescheduledRows) }} รายการ</div>
+    <table class="detail-table" style="margin-bottom: 10px;">
+        <thead><tr><th>Div.</th><th>จำนวนรายการ</th><th>Qty (KGS)</th><th>จำนวนวันที่เลื่อนรวม</th><th>จำนวนครั้งที่เลื่อนรวม</th></tr></thead>
+        <tbody>
+            @forelse ($rescheduledDivisions as $summary)
+                <tr><td>{{ $summary['division'] }}</td><td>{{ $summary['item_count'] }}</td><td class="num">{{ number_format($summary['qty'], 2) }}</td><td>{{ $summary['postponed_days'] }}</td><td>{{ $summary['postpone_count'] }}</td></tr>
+            @empty
+                <tr><td colspan="5">ไม่มีรายการตาม Filter ที่เลือก</td></tr>
+            @endforelse
+        </tbody>
+    </table>
+    <table class="detail-table">
+        <thead><tr>
+            <th>Div.</th><th>Sales</th><th>Part / Serial</th><th>ลูกค้า</th><th>Qty</th>
+            <th>กำหนดส่งเดิม</th><th>กำหนดส่งใหม่ล่าสุด</th><th>เลื่อน (วัน)</th><th>เลื่อน (ครั้ง)</th>
+        </tr></thead>
+        <tbody>
+            @forelse ($rescheduledRows as $item)
+                <tr>
+                    <td>{{ $item['division'] }}</td><td class="left">{{ $item['salesperson'] }}</td>
+                    <td class="left">{{ $item['partnumber'] }}<br>{{ $item['serialnumber'] }}</td>
+                    <td class="left">{{ $item['customer'] }}</td><td class="num">{{ number_format($item['qty'], 2) }}</td>
+                    <td>{{ $item['original_due_date'] }}</td><td>{{ $item['latest_due_date'] }}</td>
+                    <td>{{ $item['postponed_days'] }}</td><td>{{ $item['postpone_count'] }}</td>
+                </tr>
+            @empty
+                <tr><td colspan="9">ไม่มีรายการตาม Filter ที่เลือก</td></tr>
+            @endforelse
+        </tbody>
+    </table>
 </body>
 </html>
