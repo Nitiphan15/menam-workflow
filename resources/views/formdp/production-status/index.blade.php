@@ -2142,12 +2142,34 @@
                 const cancelBtn = form.querySelector('.pst-confirm-cancel');
                 const display = form.querySelector('.pst-confirm-status-display');
 
+                const datePicker = window.flatpickr ? window.flatpickr(dateInp, {
+                    altInput: true,
+                    altFormat: 'd/m/Y',
+                    dateFormat: 'Y-m-d',
+                    allowInput: false,
+                }) : null;
+                const setDateVisibility = (visible) => {
+                    dateInp.style.display = visible ? '' : 'none';
+                    if (datePicker && datePicker.altInput) {
+                        datePicker.altInput.style.display = visible ? '' : 'none';
+                    }
+                };
+                const clearDate = () => {
+                    if (datePicker) {
+                        datePicker.clear();
+                    } else {
+                        dateInp.value = '';
+                    }
+                };
+
+                setDateVisibility(select.value === 'POSTPONE');
+
                 select.addEventListener('change', function() {
                     if (select.value === 'POSTPONE') {
-                        dateInp.style.display = '';
+                        setDateVisibility(true);
                     } else {
-                        dateInp.style.display = 'none';
-                        dateInp.value = '';
+                        setDateVisibility(false);
+                        clearDate();
                     }
                 });
 
@@ -2376,8 +2398,8 @@
                                 form.dataset.active = '0';
                                 cancelBtn.style.display = 'none';
                                 select.value = 'CONFIRM';
-                                dateInp.value = '';
-                                dateInp.style.display = 'none';
+                                clearDate();
+                                setDateVisibility(false);
                                 if (remarkInp) remarkInp.value = '';
                                 refreshPendingCount();
                                 notify(json.message || 'ยกเลิกเรียบร้อย', true);
