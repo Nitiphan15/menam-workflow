@@ -24,18 +24,43 @@
         <div class="col-md-2"><label class="form-label">ความเสี่ยง</label><select name="risk" class="form-select"><option value="">ทั้งหมด</option>@foreach(['GREEN'=>'เขียว','YELLOW'=>'เหลือง','ORANGE'=>'ส้ม','RED'=>'แดง','GRAY'=>'ไม่มี Standard'] as $v=>$t)<option value="{{ $v }}" @selected(($filters['risk'] ?? '')===$v)>{{ $t }}</option>@endforeach</select></div>
         <div class="col-md-2"><label class="form-label">MFG / Part</label><input name="keyword" value="{{ $filters['keyword'] ?? '' }}" class="form-control"><button class="btn btn-primary w-100 mt-2">ค้นหา</button></div>
     </div></form>
-    <div class="card shadow-sm"><div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
-        <thead class="table-light"><tr><th>Site</th><th>MFG</th><th>Part</th><th>Description</th><th>Due Date</th><th class="text-end">Required</th><th class="text-end">Issued</th><th class="text-end">Remaining</th><th>Standard</th><th>วันที่ควรเบิก</th><th>สถานะเบิก</th><th>ความเสี่ยง</th></tr></thead>
-        <tbody>@forelse($rows as $row)<tr>
-            <td>{{ $row['site'] }}</td><td class="fw-semibold">{{ $row['mfg'] }}</td><td>{{ $row['partnumber'] }}</td><td>{{ $row['description'] }}</td>
-            <td>{{ $row['due_date'] }}</td><td class="text-end">{{ number_format($row['required_qty'],2) }} <span class="badge bg-warning text-dark">MOCK</span></td><td class="text-end"><a href="{{ route('stock-withdrawal.issues', ['site'=>$row['site'],'workorder_id'=>$row['workorder_id'],'parts_id'=>$row['parts_id'],'mfg'=>$row['mfg'],'partnumber'=>$row['partnumber']]) }}">{{ number_format($row['issued_qty'],2) }}</a></td><td class="text-end">{{ number_format($row['remaining_qty'],2) }} @if($row['over_issued_qty'] > 0)<small class="text-danger">เกิน {{ number_format($row['over_issued_qty'],2) }}</small>@endif</td>
-            <td>{{ $row['standard_days'] === null ? '-' : $row['standard_days'].' วัน' }}</td><td>{{ $row['withdraw_date'] ?: '-' }}</td><td>{{ $row['withdrawal_status'] }}</td>
-            <td><span class="badge risk-bg-{{ strtolower($row['risk_code']) }}">{{ $row['risk_label'] }}</span></td>
-        </tr>@empty<tr><td colspan="12" class="text-center text-muted py-4">ไม่พบข้อมูล</td></tr>@endforelse</tbody>
-    </table></div></div>
+    <div class="card border-0 shadow-sm overflow-hidden">
+        <div class="stock-list-head d-none d-lg-grid px-3 py-2 text-muted small fw-semibold">
+            <div>MFG / PART</div><div>กำหนดการ</div><div class="text-end">จำนวน</div><div>สถานะ</div><div>ความเสี่ยง</div><div></div>
+        </div>
+        <div class="list-group list-group-flush">
+        @forelse($rows as $row)
+            <div class="list-group-item stock-list-item risk-border-{{ strtolower($row['risk_code']) }} px-3 py-3">
+                <div class="stock-list-grid">
+                    <div>
+                        <div class="d-flex align-items-center gap-2"><span class="badge bg-dark">{{ $row['site'] }}</span><strong>{{ $row['mfg'] }}</strong></div>
+                        <div class="fw-semibold text-primary mt-1">{{ $row['partnumber'] }}</div>
+                        <div class="text-muted small text-truncate" title="{{ $row['description'] }}">{{ $row['description'] ?: '-' }}</div>
+                    </div>
+                    <div class="small">
+                        <div><span class="text-muted">Due:</span> <strong>{{ $row['due_date'] }}</strong></div>
+                        <div><span class="text-muted">ควรเบิก:</span> <strong>{{ $row['withdraw_date'] ?: '-' }}</strong></div>
+                        <div class="text-muted">Standard {{ $row['standard_days'] === null ? '-' : $row['standard_days'].' วัน' }}</div>
+                    </div>
+                    <div class="text-lg-end small">
+                        <div><span class="text-muted">ต้องใช้</span> {{ number_format($row['required_qty'],2) }} <span class="badge bg-warning text-dark">MOCK</span></div>
+                        <div><span class="text-muted">เบิกแล้ว</span> <a href="{{ route('stock-withdrawal.issues', ['site'=>$row['site'],'workorder_id'=>$row['workorder_id'],'parts_id'=>$row['parts_id'],'mfg'=>$row['mfg'],'partnumber'=>$row['partnumber']]) }}">{{ number_format($row['issued_qty'],2) }}</a></div>
+                        <div><span class="text-muted">คงเหลือ</span> <strong>{{ number_format($row['remaining_qty'],2) }}</strong></div>
+                    </div>
+                    <div><span class="badge bg-light text-dark border">{{ $row['withdrawal_status'] }}</span>@if($row['over_issued_qty'] > 0)<div class="small text-danger mt-1">เบิกเกิน {{ number_format($row['over_issued_qty'],2) }}</div>@endif</div>
+                    <div><span class="badge risk-bg-{{ strtolower($row['risk_code']) }}">{{ $row['risk_label'] }}</span></div>
+                    <div class="text-lg-end"><a class="btn btn-sm btn-outline-primary" href="{{ route('stock-withdrawal.issues', ['site'=>$row['site'],'workorder_id'=>$row['workorder_id'],'parts_id'=>$row['parts_id'],'mfg'=>$row['mfg'],'partnumber'=>$row['partnumber']]) }}">ดูรายการเบิก</a></div>
+                </div>
+            </div>
+        @empty
+            <div class="text-center text-muted py-5">ไม่พบข้อมูล</div>
+        @endforelse
+        </div>
+    </div>
 </div>
 <style>
 .risk-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px}.risk-green,.risk-bg-green{background:#198754}.risk-yellow,.risk-bg-yellow{background:#ffc107;color:#212529}.risk-orange,.risk-bg-orange{background:#fd7e14}.risk-red,.risk-bg-red{background:#dc3545}.risk-gray,.risk-bg-gray{background:#6c757d}.risk-bg-green,.risk-bg-orange,.risk-bg-red,.risk-bg-gray{color:#fff}
+.stock-list-head,.stock-list-grid{display:grid;grid-template-columns:minmax(240px,2fr) minmax(155px,1.2fr) minmax(170px,1.2fr) minmax(120px,.8fr) minmax(150px,1fr) minmax(110px,.7fr);gap:1rem;align-items:center}.stock-list-head{background:#f8f9fa}.stock-list-item{border-left:5px solid transparent!important}.risk-border-green{border-left-color:#198754!important}.risk-border-yellow{border-left-color:#ffc107!important}.risk-border-orange{border-left-color:#fd7e14!important}.risk-border-red{border-left-color:#dc3545!important}.risk-border-gray{border-left-color:#6c757d!important}@media(max-width:991.98px){.stock-list-grid{grid-template-columns:1fr 1fr}.stock-list-grid>div:first-child{grid-column:1/-1}}@media(max-width:575.98px){.stock-list-grid{grid-template-columns:1fr}.stock-list-grid>div:first-child{grid-column:auto}}
 </style>
 <script>window.setTimeout(() => window.location.reload(), 300000);</script>
 @endsection
