@@ -150,6 +150,15 @@ return [
                     ],
                 ],
             ],
+            [
+                'icon' => 'fa-boxes-stacked',
+                'text' => 'แจ้งเตือนการเบิก Stock',
+                'permission' => ['STOCK', 'STOCK_ADMIN'],
+                'children' => [
+                    ['icon' => 'fa-triangle-exclamation', 'text' => 'ติดตามการเบิก', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-sliders', 'text' => 'Standard Part Master', 'route' => 'stock-withdrawal.master.index', 'permission' => 'STOCK_ADMIN'],
+                ],
+            ],
         ],
 
         'pr' => [
@@ -175,18 +184,6 @@ return [
                 ],
             ],
         ],
-        'stock-withdrawal' => [
-            [
-                'icon' => 'fa-boxes-stacked',
-                'text' => 'Stock Withdrawal',
-                'permission' => ['STOCK', 'STOCK_ADMIN'],
-                'children' => [
-                    ['icon' => 'fa-triangle-exclamation', 'text' => 'Withdrawal Alert', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
-                    ['icon' => 'fa-sliders', 'text' => 'Standard Part Master', 'route' => 'stock-withdrawal.master.index', 'permission' => 'STOCK_ADMIN'],
-                ],
-            ],
-        ],
-
         'po' => [
             [
                 'icon' => 'fa-shopping-cart',

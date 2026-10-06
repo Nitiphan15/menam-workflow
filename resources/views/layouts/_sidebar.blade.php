@@ -192,8 +192,6 @@
         );
         //$menus = array_merge($menus, auth()->user()->hasRoleCode('DPA') ? config('menu.menu.dpa', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('RISK') ? config('menu.menu.risk', []) : []);
-        $menus = array_merge($menus, auth()->user()->hasRoleCode(['STOCK', 'STOCK_ADMIN']) ? config('menu.menu.stock-withdrawal', []) : []);
-
         $menus = array_merge(
             $menus,
             auth()->user()->hasRoleCode('FC') ||
