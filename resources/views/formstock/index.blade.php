@@ -7,23 +7,27 @@
 @section('content')
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <div><h4 class="mb-1">ติดตามการเบิก Stock ตาม MFG + Part</h4><div class="text-muted">วันที่ควรเบิก = MFG Due Date - Standard Time (จันทร์–เสาร์) · อัปเดตล่าสุด {{ $refreshedAt->format('d/m/Y H:i:s') }}</div></div>
+        <div><h4 class="mb-1">รายการเตรียมเบิกวัตถุดิบ</h4><div class="text-muted">ดูงานที่ใกล้ถึงกำหนดเบิก โดยคำนวณจาก Due Date และระยะเวลาเตรียมของ · อัปเดต {{ $refreshedAt->format('d/m/Y H:i') }}</div></div>
         <div>@if(auth()->user()?->hasRoleCode('STOCK_ADMIN'))<a href="{{ route('stock-withdrawal.master.index') }}" class="btn btn-outline-secondary">Standard Part Master</a>@endif
             <a href="{{ route('stock-withdrawal.export', request()->query()) }}" class="btn btn-success">Export CSV</a></div>
     </div>
     <div class="row g-2 mb-3">
-        @foreach(['GREEN'=>'เขียว','YELLOW'=>'เหลือง','ORANGE'=>'ส้ม','RED'=>'แดง','GRAY'=>'ไม่มี Standard'] as $code=>$label)
+        @foreach(['GREEN'=>'ยังไม่ถึงกำหนด','YELLOW'=>'ใกล้ถึงกำหนด','ORANGE'=>'ควรเบิกวันนี้','RED'=>'เกินกำหนด','GRAY'=>'รอกำหนดมาตรฐาน'] as $code=>$label)
         <div class="col"><div class="card border-0 shadow-sm"><div class="card-body"><span class="risk-dot risk-{{ strtolower($code) }}"></span>{{ $label }}<div class="fs-3 fw-bold">{{ number_format($summary[$code]) }}</div></div></div></div>
         @endforeach
     </div>
-    <form method="GET" class="card card-body shadow-sm mb-3"><div class="row g-2 align-items-end">
-        <div class="col-md-2"><label class="form-label">Site</label><select name="site" class="form-select"><option value="">ทั้งหมด</option>@foreach(['WIRE','PLUS'] as $site)<option @selected(($filters['site'] ?? '')===$site)>{{ $site }}</option>@endforeach</select></div>
-        <div class="col-md-2"><label class="form-label">Due Date From</label><input type="date" name="date_from" value="{{ $filters['date_from'] }}" class="form-control"></div>
-        <div class="col-md-2"><label class="form-label">Due Date To</label><input type="date" name="date_to" value="{{ $filters['date_to'] }}" class="form-control"></div>
-        <div class="col-md-2"><label class="form-label">สถานะเบิก</label><select name="status" class="form-select"><option value="">ทั้งหมด</option>@foreach(['ยังไม่เบิก','เบิกบางส่วน','เบิกครบแล้ว'] as $s)<option value="{{ $s }}" @selected(($filters['status'] ?? '')===$s)>{{ $s }}</option>@endforeach</select></div>
-        <div class="col-md-2"><label class="form-label">ความเสี่ยง</label><select name="risk" class="form-select"><option value="">ทั้งหมด</option>@foreach(['GREEN'=>'เขียว','YELLOW'=>'เหลือง','ORANGE'=>'ส้ม','RED'=>'แดง','GRAY'=>'ไม่มี Standard'] as $v=>$t)<option value="{{ $v }}" @selected(($filters['risk'] ?? '')===$v)>{{ $t }}</option>@endforeach</select></div>
-        <div class="col-md-2"><label class="form-label">MFG / Part</label><input name="keyword" value="{{ $filters['keyword'] ?? '' }}" class="form-control"><button class="btn btn-primary w-100 mt-2">ค้นหา</button></div>
+    <form method="GET" class="card card-body border-0 shadow-sm mb-3"><div class="row g-2 align-items-end">
+        <div class="col-lg-1 col-md-2"><label class="form-label">โรงงาน</label><select name="site" class="form-select"><option value="">ทั้งหมด</option>@foreach(['WIRE','PLUS'] as $site)<option @selected(($filters['site'] ?? '')===$site)>{{ $site }}</option>@endforeach</select></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">เลข MFG</label><input name="mfg" value="{{ $filters['mfg'] ?? '' }}" class="form-control" placeholder="เช่น G2600001"></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">Part</label><input name="part" value="{{ $filters['part'] ?? '' }}" class="form-control" placeholder="รหัสหรือชื่อ Part"></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">Due Date ตั้งแต่</label><input type="date" name="date_from" value="{{ $filters['date_from'] }}" class="form-control"></div>
+        <div class="col-lg-2 col-md-3"><label class="form-label">ถึงวันที่</label><input type="date" name="date_to" value="{{ $filters['date_to'] }}" class="form-control"></div>
+        <div class="col-lg-1 col-md-2"><label class="form-label">สถานะ</label><select name="status" class="form-select"><option value="">ทั้งหมด</option>@foreach(['ยังไม่เบิก','เบิกบางส่วน','เบิกครบแล้ว'] as $s)<option value="{{ $s }}" @selected(($filters['status'] ?? '')===$s)>{{ $s }}</option>@endforeach</select></div>
+        <div class="col-lg-1 col-md-2"><label class="form-label">ความเสี่ยง</label><select name="risk" class="form-select"><option value="">ทั้งหมด</option>@foreach(['GREEN'=>'ปกติ','YELLOW'=>'ใกล้กำหนด','ORANGE'=>'วันนี้','RED'=>'เกินกำหนด','GRAY'=>'ไม่มีมาตรฐาน'] as $v=>$t)<option value="{{ $v }}" @selected(($filters['risk'] ?? '')===$v)>{{ $t }}</option>@endforeach</select></div>
+        <div class="col-lg-1 col-md-2"><label class="form-label">ต่อหน้า</label><select name="per_page" class="form-select">@foreach([25,50,100] as $size)<option value="{{ $size }}" @selected(($filters['per_page'] ?? 50)==$size)>{{ $size }}</option>@endforeach</select></div>
+        <div class="col-lg-1 col-md-2 d-flex gap-1"><button class="btn btn-primary flex-fill">ค้นหา</button><a href="{{ route('stock-withdrawal.index') }}" class="btn btn-outline-secondary" title="ล้างตัวกรอง">ล้าง</a></div>
     </div></form>
+    <div class="d-flex justify-content-between align-items-center mb-2"><div class="text-muted small">พบ {{ number_format($rows->total()) }} รายการ</div><div class="text-muted small">หน้า {{ $rows->currentPage() }} / {{ max(1, $rows->lastPage()) }}</div></div>
     <div class="card border-0 shadow-sm overflow-hidden">
         <div class="stock-list-head d-none d-lg-grid px-3 py-2 text-muted small fw-semibold">
             <div>MFG / PART</div><div>กำหนดการ</div><div class="text-end">จำนวน</div><div>สถานะ</div><div>ความเสี่ยง</div><div></div>
@@ -57,6 +61,7 @@
         @endforelse
         </div>
     </div>
+    @if($rows->hasPages())<div class="d-flex justify-content-center mt-3">{{ $rows->onEachSide(1)->links() }}</div>@endif
 </div>
 <style>
 .risk-dot{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px}.risk-green,.risk-bg-green{background:#198754}.risk-yellow,.risk-bg-yellow{background:#ffc107;color:#212529}.risk-orange,.risk-bg-orange{background:#fd7e14}.risk-red,.risk-bg-red{background:#dc3545}.risk-gray,.risk-bg-gray{background:#6c757d}.risk-bg-green,.risk-bg-orange,.risk-bg-red,.risk-bg-gray{color:#fff}
