@@ -1139,6 +1139,19 @@
     </div>
 
     <script>
+        @php
+            $serverAlertMessages = collect($errors->all())
+                ->push(session('error'))
+                ->filter(fn ($message) => trim((string) $message) !== '')
+                ->unique()
+                ->values();
+        @endphp
+        @if ($serverAlertMessages->isNotEmpty())
+            window.addEventListener('DOMContentLoaded', function() {
+                window.alert(@json($serverAlertMessages->implode("\n")));
+            });
+        @endif
+
         const OLD_PAYLOAD_JSON = @json(old('payload'));
 
         document.getElementById('checkAllForecast')?.addEventListener('click', () => {

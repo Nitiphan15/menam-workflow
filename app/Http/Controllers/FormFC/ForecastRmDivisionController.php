@@ -3197,6 +3197,46 @@ class ForecastRmDivisionController extends Controller
         }
     }
 
+    private function manualForecastInputErrors(array $rows, array $metaRows): array
+    {
+        $errors = [];
+
+        foreach ($rows as $rowKey => $qty) {
+            if ($qty === '' || $qty === null) {
+                continue;
+            }
+            if (!is_numeric($qty)) {
+                $errors[] = "ค่า Manual แถว {$rowKey} ต้องเป็นตัวเลข";
+                continue;
+            }
+            if ((float) $qty < 0) {
+                $errors[] = "ค่า Manual แถว {$rowKey} ต้องไม่ติดลบ";
+                continue;
+            }
+            if ((float) $qty <= 0) {
+                continue;
+            }
+
+            $meta = json_decode((string) ($metaRows[$rowKey] ?? ''), true);
+            if (!is_array($meta)) {
+                $errors[] = "ข้อมูล Manual row {$rowKey} ไม่สมบูรณ์ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ";
+                continue;
+            }
+
+            $customerId = (int) ($meta['customer_id'] ?? 0);
+            $customerName = trim((string) ($meta['customer_name'] ?? ''));
+            $fgPartnumber = strtoupper(trim((string) ($meta['fg_partnumber'] ?? '')));
+            if ($customerId <= 0 || $fgPartnumber === '') {
+                $label = $customerName !== '' || $fgPartnumber !== ''
+                    ? trim($customerName . ' / ' . $fgPartnumber, ' /')
+                    : (string) $rowKey;
+                $errors[] = "ข้อมูล Manual ไม่ครบ ({$label}) กรุณาเลือก Customer และ FG Part จากรายการแนะนำ";
+            }
+        }
+
+        return array_values(array_unique($errors));
+    }
+
     public function generateFgForecast(Request $request)
     {
         $u = $this->userOr403();
@@ -3270,6 +3310,11 @@ class ForecastRmDivisionController extends Controller
         $forecastFlag = $request->input('forecast_flag', []);
         $rowKFactor = $request->input('row_k_factor', []);
         $rowMeta = $request->input('row_meta', []);
+
+        $manualInputErrors = $this->manualForecastInputErrors((array) $manualRows, (array) $rowMeta);
+        if (!empty($manualInputErrors)) {
+            return back()->with('error', implode("\n", $manualInputErrors))->withInput();
+        }
 
         $settingRows = [];
         $snapshotRows = [];
@@ -3605,6 +3650,11 @@ class ForecastRmDivisionController extends Controller
         $metaRows = $request->input('manual_meta', []);
         if (!is_array($rows) || empty($rows)) {
             return back()->with('error', 'ไม่มีข้อมูล Manual Forecast สำหรับบันทึก');
+        }
+
+        $manualInputErrors = $this->manualForecastInputErrors($rows, is_array($metaRows) ? $metaRows : []);
+        if (!empty($manualInputErrors)) {
+            return back()->with('error', implode("\n", $manualInputErrors))->withInput();
         }
 
         $baseMonth = now('Asia/Bangkok')->startOfMonth()->toDateString();
