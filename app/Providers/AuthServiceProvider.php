@@ -43,6 +43,8 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('WLM',       fn(User $u) => $u->hasRoleCode(['WLM']));
         Gate::define('WOCR',      fn(User $u) => $u->hasRoleCode(['WOCR']));
         Gate::define('WR',      fn(User $u) => $u->hasRoleCode(['WR']));
+        Gate::define('STOCK', fn(User $u) => $u->hasRoleCode(['STOCK', 'STOCK_ADMIN']));
+        Gate::define('STOCK_ADMIN', fn(User $u) => $u->hasRoleCode(['STOCK_ADMIN']));
         Gate::define('EXAM',      fn(User $u) => $u->hasRoleCode(['EXAM']));
         Gate::define('DP',      fn(User $u) => $u->hasRoleCode(['DP']));
         Gate::define('DPA',      fn(User $u) => $u->hasRoleCode(['DPA']));

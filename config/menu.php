@@ -150,6 +150,16 @@ return [
                     ],
                 ],
             ],
+            [
+                'icon' => 'fa-boxes-stacked',
+                'text' => 'แจ้งเตือนการเบิก Stock',
+                'permission' => ['STOCK', 'STOCK_ADMIN'],
+                'children' => [
+                    ['icon' => 'fa-table-list', 'text' => 'แผนรายการเบิก', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-industry', 'text' => 'MFG ทั้งหมด', 'route' => 'stock-withdrawal.all-mfg', 'permission' => ['STOCK', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-sliders', 'text' => 'Part Group และ Lead Time', 'route' => 'stock-withdrawal.types.index', 'permission' => 'STOCK_ADMIN'],
+                ],
+            ],
         ],
 
         'pr' => [
@@ -175,7 +185,6 @@ return [
                 ],
             ],
         ],
-
         'po' => [
             [
                 'icon' => 'fa-shopping-cart',

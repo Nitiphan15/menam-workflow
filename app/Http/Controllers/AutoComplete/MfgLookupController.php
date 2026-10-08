@@ -19,7 +19,8 @@ class MfgLookupController extends Controller
         $limit = (int) $r->query('limit', 15);
 
         $base = $conn->table('workorder as wo')
-            ->join('parts as p', 'wo.parts_id', '=', 'p.id');
+            ->join('parts as p', 'wo.parts_id', '=', 'p.id')
+            ->leftJoin('customer as c', 'wo.customer_id', '=', 'c.id');
 
         // เลือกคอลัมน์แบบชัดเจน (เลี่ยง p.* เพื่อไม่ให้ซ้ำชื่อ description/id)
         $select = [
@@ -37,6 +38,8 @@ class MfgLookupController extends Controller
             'p.f5',
             DB::raw('wo.id AS workorder_id'),
             DB::raw('wo.notes AS wo_notes'),
+            DB::raw('wo.reqdate::date AS due_date'),
+            DB::raw('c.name AS customer_name'),
             DB::raw('NULL AS partstype_desc'),
             DB::raw('NULL AS partscategory_desc'),
         ];
@@ -101,7 +104,12 @@ class MfgLookupController extends Controller
         return $this->searchMfg($r, [], false);
     }
 
-    private function searchMfg(Request $r, array $prefixes, bool $searchPartnumber)
+    public function byStockWithdrawalMFG(Request $r)
+    {
+        return $this->searchMfg($r, [], true, true);
+    }
+
+    private function searchMfg(Request $r, array $prefixes, bool $searchPartnumber, bool $openOnly = false)
     {
 
         $term  = trim((string) $r->query('q', ''));   // เช่น "W2501"
@@ -123,17 +131,25 @@ class MfgLookupController extends Controller
             'p.f5',
             DB::raw('wo.id AS workorder_id'),
             DB::raw('wo.notes AS wo_notes'),
+            DB::raw('wo.reqdate::date AS due_date'),
+            DB::raw('c.name AS customer_name'),
             DB::raw('NULL AS partstype_desc'),
             DB::raw('NULL AS partscategory_desc'),
         ];
 
         // ฟังก์ชันช่วยยิง query ต่อ DB ใด ๆ แล้วผนวกคอลัมน์ site
-        $fetchFrom = function (\Illuminate\Database\ConnectionInterface $conn, string $siteLabel) use ($select, $term, $limit, $prefixes, $searchPartnumber) {
+        $fetchFrom = function (\Illuminate\Database\ConnectionInterface $conn, string $siteLabel) use ($select, $term, $limit, $prefixes, $searchPartnumber, $openOnly) {
             return $conn->table('workorder as wo')
                 ->join('parts as p', 'wo.parts_id', '=', 'p.id')
+                ->leftJoin('customer as c', 'wo.customer_id', '=', 'c.id')
                 ->select($select)
                 ->addSelect(DB::raw('NULL AS plan_description'))
                 ->selectRaw('? as site', [$siteLabel])        // เพิ่มคอลัมน์ site ให้รู้ว่าแหล่งไหน
+                ->when($openOnly, function ($q) {
+                    $q->whereNull('wo.dateclose')
+                        ->whereRaw('COALESCE(wo.suspended, false) = false')
+                        ->whereRaw("wo.workordernumber !~* '\\(C\\)$'");
+                })
                 ->when($prefixes !== [], function ($q) use ($prefixes) {
                     $q->where(function ($sub) use ($prefixes) {
                         foreach ($prefixes as $prefix) {
@@ -209,6 +225,8 @@ class MfgLookupController extends Controller
                     'project'    => $notesMeta['project'],
                     'salesorder' => $notesMeta['salesorder'],
                     'wo_notes'   => $r->wo_notes,
+                    'customer_name' => $r->customer_name,
+                    'due_date' => $r->due_date,
                     'plan_description' => $planDescription,
                     'size'       => $r->size,
                     'length'     => $r->length,

@@ -66,6 +66,10 @@ use App\Http\Controllers\FormExam\ExamImportController;
 use App\Http\Controllers\FormLIS\InquiryController;
 //Rick
 use App\Http\Controllers\FormRisk\ProductionRiskController;
+use App\Http\Controllers\FormStock\StockWithdrawalController;
+use App\Http\Controllers\FormStock\StockWithdrawalStandardController;
+use App\Http\Controllers\FormStock\StockWithdrawalPlanController;
+use App\Http\Controllers\FormStock\StockWithdrawalTypeController;
 //DIE
 use App\Http\Controllers\FormDIE\DieTrackingController;
 //DP
@@ -233,6 +237,31 @@ Route::prefix('/risk')
     Route::get('/index', [ProductionRiskController::class, 'index'])->name('index');
     Route::get('/dashboard', [ProductionRiskController::class, 'dashboard'])->name('dashboard');
     Route::get('/export-excel', [ProductionRiskController::class, 'exportExcel'])->name('exportExcel');
+  });
+
+Route::prefix('/stock-withdrawal')
+  ->name('stock-withdrawal.')
+  ->middleware(['auth', 'permission.any:STOCK,STOCK_ADMIN'])
+  ->group(function () {
+    Route::get('/', [StockWithdrawalPlanController::class, 'index'])->name('index');
+    Route::get('/create', [StockWithdrawalPlanController::class, 'create'])->name('create');
+    Route::get('/mfg-search', [MfgLookupController::class, 'byStockWithdrawalMFG'])->name('mfg-search');
+    Route::get('/mfg/{site}/{workorderId}/bom', [StockWithdrawalPlanController::class, 'bom'])
+      ->whereIn('site', ['WIRE', 'PLUS'])->whereNumber('workorderId')->name('mfg-bom');
+    Route::post('/plans', [StockWithdrawalPlanController::class, 'store'])->name('plans.store');
+    Route::get('/all-mfg', [StockWithdrawalPlanController::class, 'allMfg'])->name('all-mfg');
+    Route::get('/all-mfg/export', [StockWithdrawalPlanController::class, 'export'])->name('all-mfg.export');
+    Route::get('/part-alert', [StockWithdrawalController::class, 'index'])->name('part-alert');
+    Route::get('/part-alert/export', [StockWithdrawalController::class, 'export'])->name('export');
+    Route::get('/issues', [StockWithdrawalController::class, 'issues'])->name('issues');
+    Route::get('/suggest/{type}', [StockWithdrawalController::class, 'suggest'])->whereIn('type', ['mfg', 'part'])->name('suggest');
+    Route::middleware('permission.any:STOCK_ADMIN')->group(function () {
+      Route::get('/standards', [StockWithdrawalStandardController::class, 'index'])->name('master.index');
+      Route::post('/standards', [StockWithdrawalStandardController::class, 'store'])->name('master.store');
+      Route::put('/standards/{standard}', [StockWithdrawalStandardController::class, 'update'])->name('master.update');
+      Route::get('/types', [StockWithdrawalTypeController::class, 'index'])->name('types.index');
+      Route::post('/types', [StockWithdrawalTypeController::class, 'store'])->name('types.store');
+    });
   });
 
 Route::prefix('/wos')
