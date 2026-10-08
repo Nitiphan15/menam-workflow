@@ -155,8 +155,9 @@ return [
                 'text' => 'แจ้งเตือนการเบิก Stock',
                 'permission' => ['STOCK', 'STOCK_ADMIN'],
                 'children' => [
-                    ['icon' => 'fa-triangle-exclamation', 'text' => 'ติดตามการเบิก', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
-                    ['icon' => 'fa-sliders', 'text' => 'Standard Part Master', 'route' => 'stock-withdrawal.master.index', 'permission' => 'STOCK_ADMIN'],
+                    ['icon' => 'fa-table-list', 'text' => 'แผนรายการเบิก', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-industry', 'text' => 'MFG ทั้งหมด', 'route' => 'stock-withdrawal.all-mfg', 'permission' => ['STOCK', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-sliders', 'text' => 'ประเภทและ Lead Time', 'route' => 'stock-withdrawal.types.index', 'permission' => 'STOCK_ADMIN'],
                 ],
             ],
         ],
