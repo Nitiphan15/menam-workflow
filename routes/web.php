@@ -246,6 +246,8 @@ Route::prefix('/stock-withdrawal')
     Route::get('/', [StockWithdrawalPlanController::class, 'index'])->name('index');
     Route::get('/create', [StockWithdrawalPlanController::class, 'create'])->name('create');
     Route::get('/mfg-search', [MfgLookupController::class, 'byStockWithdrawalMFG'])->name('mfg-search');
+    Route::get('/mfg/{site}/{workorderId}/bom', [StockWithdrawalPlanController::class, 'bom'])
+      ->whereIn('site', ['WIRE', 'PLUS'])->whereNumber('workorderId')->name('mfg-bom');
     Route::post('/plans', [StockWithdrawalPlanController::class, 'store'])->name('plans.store');
     Route::get('/all-mfg', [StockWithdrawalPlanController::class, 'allMfg'])->name('all-mfg');
     Route::get('/all-mfg/export', [StockWithdrawalPlanController::class, 'export'])->name('all-mfg.export');

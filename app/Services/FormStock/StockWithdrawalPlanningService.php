@@ -53,6 +53,29 @@ class StockWithdrawalPlanningService
             ->first();
     }
 
+    public function bomItems(string $site, int $workorderId): Collection
+    {
+        $connection = self::CONNECTIONS[strtoupper($site)] ?? null;
+        if (!$connection) return collect();
+
+        return DB::connection($connection)->table('workorderbom as bom')
+            ->join('parts as p', 'p.id', '=', 'bom.parts_id')
+            ->where('bom.workorder_id', $workorderId)
+            ->where(function ($query) {
+                $query->whereRaw("UPPER(TRIM(p.partnumber)) LIKE 'F%'")
+                    ->orWhereRaw("UPPER(TRIM(p.partnumber)) LIKE 'R%'");
+            })
+            ->groupBy('p.id', 'p.partnumber', 'p.description', 'p.f1', 'p.unit')
+            ->orderBy('p.partnumber')
+            ->selectRaw("p.id source_part_id, UPPER(TRIM(p.partnumber)) partnumber, p.description part_description,
+                COALESCE(NULLIF(p.f1,''), p.description) size, SUM(bom.qty) quantity, p.unit")
+            ->get()
+            ->map(function ($item) {
+                $item->type_code = str_starts_with($item->partnumber, 'F') ? 'FG' : 'RM';
+                return $item;
+            });
+    }
+
     public function subtractWorkingDays(Carbon $date, int $days): Carbon
     {
         $result = $date->copy()->startOfDay();
