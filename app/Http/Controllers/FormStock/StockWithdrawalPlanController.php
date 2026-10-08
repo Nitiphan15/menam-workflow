@@ -4,6 +4,7 @@ namespace App\Http\Controllers\FormStock;
 
 use App\Http\Controllers\Controller;
 use App\Models\FormStock\StockWithdrawalPlan;
+use App\Models\FormStock\StockWithdrawalPlanItem;
 use App\Models\FormStock\StockWithdrawalType;
 use App\Services\FormStock\StockWithdrawalPlanningService;
 use Carbon\Carbon;
@@ -21,17 +22,23 @@ class StockWithdrawalPlanController extends Controller
         $filters = $request->validate([
             'date' => ['nullable', 'date'], 'site' => ['nullable', 'in:WIRE,PLUS'],
             'type' => ['nullable', 'string', 'max:30'], 'mfg' => ['nullable', 'string', 'max:100'],
+            'sort' => ['nullable', Rule::in(['risk', 'withdraw_date', 'delivery_date', 'mfg'])],
         ]);
-        $query = StockWithdrawalPlan::query()->with('items')->latest('production_date')->latest('id');
-        if (!empty($filters['site'])) $query->where('site', $filters['site']);
-        if (!empty($filters['mfg'])) $query->where('mfg', 'like', '%'.trim($filters['mfg']).'%');
-        if (!empty($filters['date'])) $query->whereHas('items', fn($q) => $q->whereDate('planned_withdraw_date', $filters['date']));
-        if (!empty($filters['type'])) $query->whereHas('items', fn($q) => $q->where('type_code', $filters['type']));
-        $plans = $query->paginate(30)->withQueryString();
-        foreach ($plans as $plan) foreach ($plan->items as $item) $item->day_offset = $service->overdueDays($item->planned_withdraw_date);
+        $query = StockWithdrawalPlanItem::query()->with('plan');
+        if (!empty($filters['site'])) $query->whereHas('plan', fn($q) => $q->where('site', $filters['site']));
+        if (!empty($filters['mfg'])) $query->whereHas('plan', fn($q) => $q->where('mfg', 'like', '%'.trim($filters['mfg']).'%'));
+        if (!empty($filters['date'])) $query->whereDate('planned_withdraw_date', $filters['date']);
+        if (!empty($filters['type'])) $query->where('type_code', $filters['type']);
+        match ($filters['sort'] ?? 'risk') {
+            'mfg' => $query->join('stock_withdrawal_plans as sort_plan', 'sort_plan.id', '=', 'stock_withdrawal_plan_items.stock_withdrawal_plan_id')->orderBy('sort_plan.mfg'),
+            'delivery_date' => $query->join('stock_withdrawal_plans as sort_plan', 'sort_plan.id', '=', 'stock_withdrawal_plan_items.stock_withdrawal_plan_id')->orderBy('sort_plan.delivery_date'),
+            default => $query->orderBy('planned_withdraw_date')->orderBy('id'),
+        };
+        $items = $query->select('stock_withdrawal_plan_items.*')->paginate(50)->withQueryString();
+        foreach ($items as $item) $item->day_offset = $service->overdueDays($item->planned_withdraw_date);
 
         return view('formstock.plans.index', [
-            'plans' => $plans, 'filters' => $filters,
+            'items' => $items, 'filters' => $filters,
             'types' => StockWithdrawalType::query()->where('is_active', 1)->orderBy('name')->get(),
         ]);
     }
