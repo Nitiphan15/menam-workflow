@@ -41,20 +41,41 @@ class StockWithdrawalPlanController extends Controller
         return view('formstock.plans.create', ['types' => $this->activeTypes()]);
     }
 
+    public function bom(string $site, int $workorderId, StockWithdrawalPlanningService $service)
+    {
+        $types = $this->activeTypes()->whereIn('code', ['FG', 'RM'])->keyBy('code');
+        $items = $service->bomItems($site, $workorderId)->map(function ($item) use ($types) {
+            $type = $types->get($item->type_code);
+            return (array) $item + [
+                'type_id' => $type?->id,
+                'type_name' => $type?->name,
+                'lead_time_days' => $type?->lead_time_days,
+            ];
+        });
+
+        return response()->json(['items' => $items->values()]);
+    }
+
     public function store(Request $request, StockWithdrawalPlanningService $service)
     {
         $data = $request->validate([
             'site' => ['required', Rule::in(['WIRE', 'PLUS'])], 'workorder_id' => ['required', 'integer'],
             'production_date' => ['required', 'date'], 'plan_note' => ['nullable', 'string', 'max:2000'],
-            'items' => ['required', 'array', 'min:1'], 'items.*.type_id' => ['required', 'integer'],
+            'items' => ['required', 'array', 'min:1'], 'items.*.source_part_id' => ['required', 'integer'],
             'items.*.planned_withdraw_date' => ['required', 'date'], 'items.*.remark' => ['nullable', 'string', 'max:500'],
         ]);
         $mfg = $service->findMfg($data['site'], (int) $data['workorder_id']);
         if (!$mfg) throw ValidationException::withMessages(['workorder_id' => 'ไม่พบ MFG ใน Manufacturing Cost']);
-        $types = $this->activeTypes()->keyBy('id');
-        foreach ($data['items'] as $item) if (!$types->has((int) $item['type_id'])) throw ValidationException::withMessages(['items' => 'ประเภทการเบิกไม่ถูกต้องหรือหมดอายุ']);
+        $types = $this->activeTypes()->whereIn('code', ['FG', 'RM'])->keyBy('code');
+        $bomItems = $service->bomItems($data['site'], (int) $data['workorder_id'])->keyBy('source_part_id');
+        foreach ($data['items'] as $item) {
+            $bom = $bomItems->get((int) $item['source_part_id']);
+            if (!$bom || !$types->has($bom->type_code)) {
+                throw ValidationException::withMessages(['items' => 'พบ Part Number ที่ไม่อยู่ใน BOM หรือยังไม่ได้กำหนด Lead Time']);
+            }
+        }
 
-        DB::connection('sqlsrv_menam')->transaction(function () use ($data, $mfg, $types, $service) {
+        DB::connection('sqlsrv_menam')->transaction(function () use ($data, $mfg, $types, $bomItems, $service) {
             $plan = StockWithdrawalPlan::create([
                 'site' => $data['site'], 'workorder_id' => $mfg->workorder_id, 'mfg' => $mfg->mfg,
                 'partnumber' => $mfg->partnumber, 'part_description' => $mfg->part_description, 'size' => $mfg->size,
@@ -64,9 +85,13 @@ class StockWithdrawalPlanController extends Controller
                 'created_by' => auth()->id(), 'updated_by' => auth()->id(),
             ]);
             foreach ($data['items'] as $itemData) {
-                $type = $types->get((int) $itemData['type_id']);
+                $bom = $bomItems->get((int) $itemData['source_part_id']);
+                $type = $types->get($bom->type_code);
                 $plan->items()->create([
                     'stock_withdrawal_type_id' => $type->id, 'type_code' => $type->code, 'type_name' => $type->name,
+                    'source_part_id' => $bom->source_part_id, 'partnumber' => $bom->partnumber,
+                    'part_description' => $bom->part_description, 'size' => $bom->size,
+                    'quantity' => $bom->quantity, 'unit' => $bom->unit,
                     'lead_time_days' => $type->lead_time_days,
                     'recommended_withdraw_date' => $service->subtractWorkingDays(Carbon::parse($data['production_date']), $type->lead_time_days)->toDateString(),
                     'planned_withdraw_date' => $itemData['planned_withdraw_date'], 'remark' => $itemData['remark'] ?? null,
