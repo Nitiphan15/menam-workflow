@@ -132,7 +132,10 @@ class PoController extends Controller
 
     public function departmentTracking(Request $request)
     {
-        $departmentId = (int) (auth()->user()?->department_id ?? 0);
+        $user = auth()->user();
+        $departmentId = (int) ($user?->department_id ?? 0);
+        $position = (string) ($user?->position ?? '');
+        $trackingScope = PoErpService::isToolingEngineerPosition($position) ? 'Tooling only' : null;
         $department = $departmentId > 0
             ? SqlServerDb::table('departments')->where('id', $departmentId)->first(['id', 'code', 'name'])
             : null;
@@ -149,7 +152,7 @@ class PoController extends Controller
                 source: $request->string('source')->toString() ?: null,
                 includeCompletedStatuses: true,
             );
-            $rows = $this->erpService->filterByDepartmentId($rows, $departmentId);
+            $rows = $this->erpService->filterForDepartmentViewer($rows, $departmentId, $position);
 
             $workflowIds = $rows->pluck('workflow_id')->filter()->map(fn ($id) => (int) $id)->unique()->values();
             if ($workflowIds->isNotEmpty()) {
@@ -170,11 +173,39 @@ class PoController extends Controller
 
         return view('po.department_tracking', [
             'department' => $department,
+            'trackingScope' => $trackingScope,
             'rows' => $rows,
             'pendingApproversByWorkflow' => $pendingApproversByWorkflow,
             'statusOptions' => $this->statusOptions(),
             'sourceOptions' => $this->sourceOptions(),
         ]);
+    }
+
+    public function departmentTrackingShow($id)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        $this->ensureCurrentUserCanViewDepartmentPo($po);
+
+        return $this->show($id);
+    }
+
+    public function departmentTrackingAttachment($id, $attachmentId)
+    {
+        $po = PoHeader::query()->findOrFail($id);
+        $this->ensureCurrentUserCanViewDepartmentPo($po);
+
+        return $this->attachmentResponse($po, $attachmentId);
+    }
+
+    public function departmentTrackingErpShow(string $source, string $ordnumber)
+    {
+        $detailRows = $this->erpService->getDetailRows($ordnumber, $source);
+        abort_if($detailRows->isEmpty(), 404, 'PO document not found in ERP');
+
+        $headerRow = $detailRows->first();
+        $this->ensureCurrentUserCanViewDepartmentName($headerRow->f1 ?? null);
+
+        return view('po.department_tracking_erp_detail', compact('source', 'headerRow', 'detailRows'));
     }
 
     private function workflowIdsVisibleToApprover(int $userId): array
@@ -331,6 +362,11 @@ class PoController extends Controller
     public function attachment($id, $attachmentId)
     {
         $po = PoHeader::query()->findOrFail($id);
+        return $this->attachmentResponse($po, $attachmentId);
+    }
+
+    private function attachmentResponse(PoHeader $po, $attachmentId)
+    {
         $attachment = $po->attachments()->whereKey($attachmentId)->firstOrFail();
         $path = (string) $attachment->file_path;
 
@@ -343,6 +379,24 @@ class PoController extends Controller
         }
 
         return Storage::disk('public')->response($path, $fileName, $headers, 'inline');
+    }
+
+    private function ensureCurrentUserCanViewDepartmentPo(PoHeader $po): void
+    {
+        $this->ensureCurrentUserCanViewDepartmentName($po->f1);
+    }
+
+    private function ensureCurrentUserCanViewDepartmentName(?string $erpDepartment): void
+    {
+        $user = auth()->user();
+        $departmentId = (int) ($user?->department_id ?? 0);
+        $position = (string) ($user?->position ?? '');
+
+        abort_unless(
+            PoErpService::canDepartmentViewerAccess($erpDepartment, $departmentId, $position),
+            403,
+            'You are not authorized to view PO documents from another department',
+        );
     }
 
     public function destroyAttachment($id, $attachmentId)
