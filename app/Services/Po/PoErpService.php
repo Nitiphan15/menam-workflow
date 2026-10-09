@@ -11,6 +11,35 @@ use Illuminate\Support\Facades\Storage;
 
 class PoErpService
 {
+    private const ERP_DEPARTMENT_ALIASES = [
+        'BAR1' => ['SH1'],
+        'BAR2' => ['SH2'],
+        'CGM' => ['CG'],
+        'ANNEAL' => ['ANL'],
+        'SHOTBLAST' => ['SB'],
+        'COATING' => ['CT'],
+        'PROFILE' => ['PF'],
+        'DIE' => ['DD'],
+        'DRAWING' => ['SQR'],
+        'TOOLING' => ['R'],
+        'LOGISTIC' => ['SP'],
+        'TRANSPORT' => ['SP'],
+        'PACK' => ['PK'],
+        'STOCK' => ['ST'],
+        'AUTOMOTIVE' => ['AM'],
+        'W&F' => ['GT'],
+        'GRATING' => ['GT'],
+        'MARKETING' => ['MKT'],
+        'SAFETY' => ['SE'],
+        'PLANNING' => ['PN'],
+        'ACCOUNT' => ['AC'],
+        'FINANCE' => ['FN'],
+        'PURCHASE' => ['P'],
+        'STORE' => ['S'],
+        'SALE' => ['IP', 'IM', 'ขายในประเทศ', 'DOMESTIC', 'SL02'],
+        'EXPORT' => ['EP', 'ขายต่างประเทศ', 'EXPORT', 'SL01'],
+    ];
+
     public const SOURCE_WIRE = 'wire';
     public const SOURCE_PLUS = 'plus';
 
@@ -462,6 +491,27 @@ class PoErpService
         $name = trim((string) $erpDepartment);
         if ($name === '') {
             return null;
+        }
+
+        $normalizedName = strtoupper($name);
+        foreach (self::ERP_DEPARTMENT_ALIASES as $alias => $departmentCandidates) {
+            if (!str_contains($normalizedName, $alias)) {
+                continue;
+            }
+
+            foreach ($departmentCandidates as $departmentCandidate) {
+                $aliasedDepartmentId = SqlServerDb::table('departments')
+                    ->where(function ($query) use ($departmentCandidate) {
+                        $query->where('code', $departmentCandidate)
+                            ->orWhere('name', $departmentCandidate);
+                    })
+                    ->where('is_active', 1)
+                    ->value('id');
+
+                if ($aliasedDepartmentId) {
+                    return (int) $aliasedDepartmentId;
+                }
+            }
         }
 
         $group = self::departmentGroupName($name);

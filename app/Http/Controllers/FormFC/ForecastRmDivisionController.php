@@ -2292,7 +2292,7 @@ class ForecastRmDivisionController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        return view('formfc.division_forecast_planning', [
+        return view('formfc.division.forecast_planning', [
             'rows' => $paginatedRows,
             'allDivisions' => $this->planningDivisionCodes(),
             'selectedDivisions' => $selectedDivisions,

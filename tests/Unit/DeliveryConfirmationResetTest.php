@@ -218,8 +218,9 @@ class DeliveryConfirmationResetTest extends TestCase
             substr_count($salesController . $inquiryController, 'resetAfterPlanPostpone(')
         );
         $this->assertStringContainsString(
-            '<option value="" {{ !$confStatus ? \'selected\' : \'\' }}>รอจัดแผน</option>',
+            "!\$confStatus || \$confStatus === 'CONFIRM' ? 'selected' : ''",
             $trackingView
         );
+        $this->assertStringContainsString('<option value="">รอจัดแผน</option>', $trackingView);
     }
 }

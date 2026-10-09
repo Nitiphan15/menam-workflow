@@ -52,13 +52,13 @@ class PoReopenWorkflowTest extends TestCase
         $this->assertContains('permission.any:POPUR', $route->gatherMiddleware());
     }
 
-    public function test_department_tracking_route_is_available_to_po_users(): void
+    public function test_department_tracking_route_is_available_to_pov_users(): void
     {
         $route = Route::getRoutes()->getByName('po.departmentTracking');
 
         $this->assertNotNull($route);
         $this->assertSame(['GET', 'HEAD'], $route->methods());
         $this->assertSame(PoController::class . '@departmentTracking', $route->getActionName());
-        $this->assertContains('permission.any:PO,POPUR', $route->gatherMiddleware());
+        $this->assertContains('permission.any:POV', $route->gatherMiddleware());
     }
 }
