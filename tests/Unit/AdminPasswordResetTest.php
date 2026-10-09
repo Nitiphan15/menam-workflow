@@ -15,6 +15,7 @@ class AdminPasswordResetTest extends TestCase
         $middleware = file_get_contents($root . '/app/Http/Middleware/LogUserActivity.php');
 
         $this->assertStringContainsString("->name('users.password.update')", $routes);
+        $this->assertStringContainsString("->name('users.password-reset.index')", $routes);
         $this->assertStringContainsString('public function resetPassword(Request $r, User $user)', $controller);
         $this->assertStringContainsString("'password'      => 'required|string|min:4|confirmed'", $controller);
         $this->assertStringContainsString("Hash::make(\$data['password'])", $controller);
@@ -22,5 +23,8 @@ class AdminPasswordResetTest extends TestCase
         $this->assertStringContainsString("attributes->get('activity_menu_name')", $middleware);
         $this->assertStringContainsString('btn-reset-password', $view);
         $this->assertStringContainsString('name="password_confirmation"', $view);
+
+        $menu = file_get_contents($root . '/config/menu.php');
+        $this->assertStringContainsString("'route' => 'adminweb.users.password-reset.index'", $menu);
     }
 }

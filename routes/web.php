@@ -990,6 +990,7 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::delete('/deadstock/config/sales-access/{salesAccess}', [DeadstockReportController::class, 'destroySalesAccess'])->name('deadstock.sales_access.destroy');
 
     Route::get('/users/register',  [UserAdminController::class, 'index'])->name('users.register');
+    Route::get('/users/password-reset', [UserAdminController::class, 'index'])->name('users.password-reset.index');
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');
     Route::get('/users/{user}/edit', [UserAdminController::class, 'edit'])->whereNumber('user')->name('users.edit');
     Route::put('/users/{user}',     [UserAdminController::class, 'update'])->whereNumber('user')->name('users.update');

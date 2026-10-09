@@ -1,7 +1,7 @@
 @extends('layouts.layout')
 
 
-@section('title', 'สมัครสมาชิก')
+@section('title', request()->routeIs('adminweb.users.password-reset.index') ? 'ตั้งรหัสผ่านผู้ใช้' : 'สมัครสมาชิก')
 
 @section('content')
     <div class="container py-4">
@@ -9,6 +9,7 @@
             <div class="alert alert-success">{{ session('ok') }}</div>
         @endif
 
+        @unless (request()->routeIs('adminweb.users.password-reset.index'))
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white fw-bold">สมัครสมาชิก</div>
             <div class="card-body">
@@ -94,11 +95,14 @@
                 </form>
             </div>
         </div>
+        @endunless
 
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span class="fw-bold">ผู้ใช้ทั้งหมด</span>
-                <form class="d-flex" method="GET" action="">
+                <span class="fw-bold">
+                    {{ request()->routeIs('adminweb.users.password-reset.index') ? 'ตั้งรหัสผ่านผู้ใช้' : 'ผู้ใช้ทั้งหมด' }}
+                </span>
+                <form class="d-flex" method="GET" action="{{ url()->current() }}">
                     <input type="text" name="q" value="{{ $q }}"
                         class="form-control form-control-sm me-2" placeholder="ค้นหา ชื่อ/อีเมล/รหัส">
                     <button class="btn btn-sm btn-outline-secondary">ค้นหา</button>

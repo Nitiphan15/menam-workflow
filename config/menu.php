@@ -389,6 +389,7 @@ return [
                 'children' => [
                     ['text' => 'ผู้ใช้และโครงสร้างองค์กร', 'header' => true],
                     ['icon' => 'fa-user-plus', 'text' => 'ลงทะเบียนพนักงาน', 'route' => 'adminweb.users.register', 'permission' => 'ADMINWEB'],
+                    ['icon' => 'fa-unlock-keyhole', 'text' => 'ตั้งรหัสผ่านผู้ใช้', 'route' => 'adminweb.users.password-reset.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-building', 'text' => 'เพิ่มแผนก', 'route' => 'adminweb.dept.create', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-user-tie', 'text' => 'จัดการหัวหน้าแผนก', 'route' => 'adminweb.deptmgr.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-briefcase', 'text' => 'จัดการตำแหน่งในแผนก', 'route' => 'adminweb.deptroles.index', 'permission' => 'ADMINWEB'],
