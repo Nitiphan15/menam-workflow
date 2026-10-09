@@ -394,7 +394,9 @@
                     <div class="collapse {{ $open ? 'show' : '' }}" id="{{ $slug }}">
                         <nav class="nav flex-column ms-3 submenu">
                             @foreach ($item['children'] as $child)
-                                @if (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
+                                @if (!empty($child['header']))
+                                    <div class="submenu-heading">{{ $child['text'] }}</div>
+                                @elseif (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
                                     <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
                                         title="{{ $child['text'] }}">
@@ -501,7 +503,9 @@
                     <div class="collapse {{ $open ? 'show' : '' }}" id="{{ $slug }}">
                         <nav class="nav flex-column ms-3 submenu">
                             @foreach ($item['children'] as $child)
-                                @if (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
+                                @if (!empty($child['header']))
+                                    <div class="submenu-heading">{{ $child['text'] }}</div>
+                                @elseif (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
                                     <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
                                         title="{{ $child['text'] }}">
@@ -790,6 +794,15 @@
         margin: 2px 0 8px;
         padding: 3px 0 3px 11px;
         border-left: 1px solid rgba(255, 255, 255, .14);
+    }
+
+    .sidebar .submenu-heading {
+        color: rgba(255, 255, 255, .52);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .06em;
+        margin: 12px 10px 4px;
+        text-transform: uppercase;
     }
 
     .sidebar .submenu .nav-link {

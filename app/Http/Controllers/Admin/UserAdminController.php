@@ -166,6 +166,26 @@ class UserAdminController extends Controller
             ->with('ok', 'แก้ไขข้อมูลผู้ใช้แล้ว');
     }
 
+    public function resetPassword(Request $r, User $user)
+    {
+        $data = $r->validateWithBag('resetPassword', [
+            'reset_user_id' => 'required|integer|in:' . $user->id,
+            'password'      => 'required|string|min:4|confirmed',
+        ]);
+
+        $user->update([
+            'password' => Hash::make($data['password']),
+        ]);
+
+        // LogUserActivity จะบันทึก actor, route, IP และเวลาหลังส่ง response
+        $r->attributes->set(
+            'activity_menu_name',
+            'ตั้งรหัสผ่านใหม่ให้ ' . $user->name . ' (#' . $user->id . ')'
+        );
+
+        return back()->with('ok', 'ตั้งรหัสผ่านใหม่ให้ "' . $user->name . '" แล้ว');
+    }
+
     public function destroy(Request $r, User $user)
     {
         if ((int) $user->id === (int) $r->user()->id) {

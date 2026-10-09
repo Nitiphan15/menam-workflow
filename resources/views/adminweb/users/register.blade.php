@@ -135,6 +135,12 @@
                                     <div class="d-inline-flex gap-1">
                                         <a href="{{ route('adminweb.users.edit', $u->id) }}"
                                             class="btn btn-sm btn-outline-primary">แก้ไข</a>
+                                        <button type="button" class="btn btn-sm btn-outline-warning btn-reset-password"
+                                            data-bs-toggle="modal" data-bs-target="#resetPasswordModal"
+                                            data-user-id="{{ $u->id }}" data-user-name="{{ $u->name }}"
+                                            data-action="{{ route('adminweb.users.password.update', $u->id) }}">
+                                            ตั้งรหัสผ่านใหม่
+                                        </button>
                                         <form method="POST" action="{{ route('adminweb.users.toggleActive', $u->id) }}">
                                             @csrf @method('PATCH')
                                             <button type="submit"
@@ -160,6 +166,47 @@
             <div class="card-footer">{{ $users->links() }}</div>
         </div>
     </div>
+
+    <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-labelledby="resetPasswordModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form id="resetPasswordForm" method="POST" action="">
+                    @csrf
+                    @method('PUT')
+                    <input type="hidden" id="reset_user_id" name="reset_user_id" value="{{ old('reset_user_id') }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="resetPasswordModalLabel">ตั้งรหัสผ่านใหม่</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning py-2">
+                            ผู้ใช้: <strong id="resetPasswordUserName">-</strong><br>
+                            <small>การดำเนินการจะถูกบันทึกชื่อ Admin และเวลาใน Activity Log</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="reset_password" class="form-label">รหัสผ่านใหม่</label>
+                            <input id="reset_password" name="password" type="password"
+                                class="form-control @error('password', 'resetPassword') is-invalid @enderror"
+                                minlength="4" autocomplete="new-password" required>
+                            @error('password', 'resetPassword')
+                                <div class="invalid-feedback">{{ $message }}</div>
+                            @enderror
+                            <div class="form-text">อย่างน้อย 4 ตัวอักษร</div>
+                        </div>
+                        <div>
+                            <label for="reset_password_confirmation" class="form-label">ยืนยันรหัสผ่านใหม่</label>
+                            <input id="reset_password_confirmation" name="password_confirmation" type="password"
+                                class="form-control" minlength="4" autocomplete="new-password" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+                        <button type="submit" class="btn btn-warning">ยืนยันตั้งรหัสผ่านใหม่</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 @endsection
 
 @push('scripts')
@@ -177,6 +224,29 @@
                 placeholder: 'Search and select web roles'
             });
         }
+
+        const resetModal = document.getElementById('resetPasswordModal');
+        const resetForm = document.getElementById('resetPasswordForm');
+        const resetUserId = document.getElementById('reset_user_id');
+        const resetUserName = document.getElementById('resetPasswordUserName');
+
+        document.querySelectorAll('.btn-reset-password').forEach(btn => {
+            btn.addEventListener('click', () => {
+                resetForm.action = btn.dataset.action;
+                resetUserId.value = btn.dataset.userId;
+                resetUserName.textContent = btn.dataset.userName;
+            });
+        });
+
+        @if ($errors->resetPassword->any() && old('reset_user_id'))
+            const failedResetButton = document.querySelector(
+                `.btn-reset-password[data-user-id="{{ old('reset_user_id') }}"]`
+            );
+            if (failedResetButton && window.bootstrap) {
+                failedResetButton.click();
+                bootstrap.Modal.getOrCreateInstance(resetModal).show();
+            }
+        @endif
 
         function setRoles(opts) {
             roleSel.innerHTML = '';

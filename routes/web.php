@@ -993,6 +993,7 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');
     Route::get('/users/{user}/edit', [UserAdminController::class, 'edit'])->whereNumber('user')->name('users.edit');
     Route::put('/users/{user}',     [UserAdminController::class, 'update'])->whereNumber('user')->name('users.update');
+    Route::put('/users/{user}/password', [UserAdminController::class, 'resetPassword'])->whereNumber('user')->name('users.password.update');
     Route::patch('/users/{user}/toggle-active', [UserAdminController::class, 'toggleActive'])->whereNumber('user')->name('users.toggleActive');
     Route::delete('/users/{user}',  [UserAdminController::class, 'destroy'])->name('users.destroy');
 

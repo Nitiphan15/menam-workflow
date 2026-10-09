@@ -89,7 +89,8 @@ class LogUserActivity
             'user_id'          => $user?->id,
             'user_name'        => $user?->name ?? 'guest',
             'is_authenticated' => $user !== null,
-            'menu_name'        => MenuResolver::labelFor($routeName),
+            'menu_name'        => $request->attributes->get('activity_menu_name')
+                ?: MenuResolver::labelFor($routeName),
             'route_name'       => $routeName,
             'url_path'         => '/' . ltrim($request->path(), '/'),  // path เท่านั้น ไม่เก็บ query string
             'method'           => $method,
