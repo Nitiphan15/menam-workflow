@@ -157,6 +157,12 @@
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ADMINWEB') ? config('menu.menu.adminweb', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('WR') ? config('menu.menu.wr', []) : []);
         $menus = array_merge($menus, auth()->user()->hasRoleCode('EXAM') ? config('menu.menu.exam', []) : []);
+        $menus = array_merge(
+            $menus,
+            (auth()->user()->hasRoleCode('STOCK') || auth()->user()->hasRoleCode('STOCK_ADMIN'))
+                ? config('menu.menu.stock', [])
+                : []
+        );
         $menus = array_merge($menus, auth()->user()->hasRoleCode('ISR') ? config('menu.menu.isr', []) : []);
         $menus = array_merge(
             $menus,
