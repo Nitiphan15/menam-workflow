@@ -2328,6 +2328,7 @@ class ForecastRmDivisionController extends Controller
             'Sales Forecast 1 Month',
             'Sales Forecast ' . self::FORECAST_HORIZON_MONTHS . ' Months',
             'Product Type',
+            'Sales Remark',
         ];
 
         $lines = ['<tr>' . collect($headers)->map(fn($header) => '<th>' . $escape($header) . '</th>')->implode('') . '</tr>'];
@@ -2344,6 +2345,7 @@ class ForecastRmDivisionController extends Controller
                 $number($forecast1m),
                 $number($forecast1m * self::FORECAST_HORIZON_MONTHS),
                 $row['product_type'],
+                $row['row_remark'],
             ];
             $lines[] = '<tr>' . collect($cells)->map(fn($cell) => '<td>' . $escape($cell) . '</td>')->implode('') . '</tr>';
         }
