@@ -144,7 +144,7 @@ class DeliveryConfirmationResetTest extends TestCase
         );
     }
 
-    public function test_legacy_confirmation_falls_back_to_exact_so_only(): void
+    public function test_item_with_ord_id_does_not_fall_back_to_legacy_confirmation(): void
     {
         DeliveryConfirmation::create([
             'mfg_no' => 'W600',
@@ -160,11 +160,43 @@ class DeliveryConfirmationResetTest extends TestCase
         ]);
 
         $service = app(DeliveryConfirmationService::class);
+        $this->assertFalse($map->has($service->itemKey(201, 'W600', 'WIRE', 'SO-A')));
+        $this->assertFalse($map->has($service->itemKey(202, 'W600', 'WIRE', 'SO-B')));
+    }
+
+    public function test_item_without_ord_id_can_use_exact_legacy_confirmation(): void
+    {
+        DeliveryConfirmation::create([
+            'mfg_no' => 'W601',
+            'site' => 'WIRE',
+            'so_number' => 'SO-LEGACY',
+            'confirmation_status' => DeliveryConfirmation::STATUS_CONFIRM,
+            'confirmed_at' => now(),
+        ]);
+
+        $service = app(DeliveryConfirmationService::class);
+        $map = $service->latestMapForItems([
+            ['ord_id' => null, 'mfg_no' => 'W601', 'site' => 'WIRE', 'so_number' => 'SO-LEGACY'],
+        ]);
+
         $this->assertSame(
             DeliveryConfirmation::STATUS_CONFIRM,
-            $map[$service->itemKey(201, 'W600', 'WIRE', 'SO-A')]->confirmation_status
+            $map[$service->itemKey(null, 'W601', 'WIRE', 'SO-LEGACY')]->confirmation_status
         );
-        $this->assertFalse($map->has($service->itemKey(202, 'W600', 'WIRE', 'SO-B')));
+    }
+
+    public function test_numeric_mfg_shorthand_inherits_latest_full_prefix_and_site(): void
+    {
+        $targets = app(DeliveryConfirmationService::class)
+            ->parseMfgTargets("W2600976, Cpo;.008, 010, +N2600201, 202");
+
+        $this->assertSame([
+            ['mfg_no' => 'W2600976', 'site' => 'WIRE'],
+            ['mfg_no' => 'CPO;.008', 'site' => 'WIRE'],
+            ['mfg_no' => 'W2600010', 'site' => 'WIRE'],
+            ['mfg_no' => 'N2600201', 'site' => 'PLUS'],
+            ['mfg_no' => 'N2600202', 'site' => 'PLUS'],
+        ], $targets->all());
     }
 
     public function test_latest_confirmation_does_not_cross_site_for_same_mfg(): void

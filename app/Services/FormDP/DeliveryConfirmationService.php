@@ -17,6 +17,47 @@ class DeliveryConfirmationService
         return strtoupper(ltrim(trim((string) $value, " \t\n\r\0\x0B'\""), '+'));
     }
 
+    /**
+     * Split a plan MFG value and expand numeric shorthand from the latest full MFG.
+     * Example: "W2600976, 010" becomes W2600976 and W2600010.
+     */
+    public function parseMfgTargets(?string $value): Collection
+    {
+        $latestFull = null;
+
+        return collect(explode(',', (string) $value))
+            ->map(function ($raw) use (&$latestFull) {
+                $raw = strtoupper(trim((string) $raw, " \t\n\r\0\x0B'\""));
+                $hasPlus = str_starts_with($raw, '+');
+                $mfgNo = $this->normalizeMfgNo($raw);
+
+                if (
+                    ctype_digit($mfgNo)
+                    && $latestFull
+                    && strlen($mfgNo) < strlen($latestFull['mfg_no'])
+                ) {
+                    return [
+                        'mfg_no' => substr($latestFull['mfg_no'], 0, -strlen($mfgNo)) . $mfgNo,
+                        'site' => $hasPlus ? 'PLUS' : $latestFull['site'],
+                    ];
+                }
+
+                $target = [
+                    'mfg_no' => $mfgNo,
+                    'site' => $hasPlus ? 'PLUS' : 'WIRE',
+                ];
+
+                if (preg_match('/^[A-Z]+\d+$/', $mfgNo)) {
+                    $latestFull = $target;
+                }
+
+                return $target;
+            })
+            ->filter(fn($target) => $target['mfg_no'] !== '')
+            ->unique(fn($target) => $target['site'] . '|' . $target['mfg_no'])
+            ->values();
+    }
+
     public function save(
         string $mfgNo,
         ?string $site,
@@ -160,18 +201,7 @@ class DeliveryConfirmationService
         string $reason,
         ?int $ordId = null
     ): int {
-        $targets = collect(explode(',', (string) $mfgValue))
-            ->map(function ($raw) {
-                $raw = strtoupper(trim((string) $raw, " \t\n\r\0\x0B'\""));
-
-                return [
-                    'mfg_no' => $this->normalizeMfgNo($raw),
-                    'site' => str_starts_with($raw, '+') ? 'PLUS' : 'WIRE',
-                ];
-            })
-            ->filter(fn($target) => $target['mfg_no'] !== '')
-            ->unique(fn($target) => $target['site'] . '|' . $target['mfg_no'])
-            ->values();
+        $targets = $this->parseMfgTargets($mfgValue);
 
         if ($targets->isEmpty()) {
             return 0;
@@ -286,8 +316,8 @@ class DeliveryConfirmationService
     }
 
     /**
-     * Latest confirmation per delivery-plan row. Legacy rows without ord_id
-     * fall back to the exact (site, mfg_no, so_number) tuple.
+     * Latest confirmation per delivery-plan row. Legacy lookup is allowed only
+     * when the caller has no ord_id, using exact (site, mfg_no, so_number).
      */
     public function latestMapForItems(array $items): Collection
     {
@@ -321,7 +351,7 @@ class DeliveryConfirmationService
         return $items->mapWithKeys(function ($item) use ($byOrd, $legacy) {
             $key = $this->itemKey($item['ord_id'], $item['mfg_no'], $item['site'], $item['so_number']);
             $row = $byOrd->get($key);
-            if (!$row) {
+            if (!$row && empty($item['ord_id'])) {
                 $legacyKey = $this->itemKey(null, $item['mfg_no'], $item['site'], $item['so_number']);
                 $row = $legacy->get($legacyKey);
             }

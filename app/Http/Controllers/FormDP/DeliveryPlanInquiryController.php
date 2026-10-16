@@ -1046,26 +1046,11 @@ class DeliveryPlanInquiryController extends Controller
             $r->truck_remaining_capacity = null;
         }
 
-        // Split MFGs while preserving the site marker: "+" = PLUS, otherwise WIRE.
-        $tokenize = function ($value) {
-            return collect(explode(',', (string) $value))
-                ->map(function ($value) {
-                    $raw = trim((string) $value, " \t\n\r\0\x0B'\"");
-                    $site = str_starts_with($raw, '+') ? 'PLUS' : 'WIRE';
-                    $mfgNo = strtoupper(ltrim($raw, '+'));
-
-                    return $mfgNo !== '' ? ['mfg_no' => $mfgNo, 'site' => $site] : null;
-                })
-                ->filter()
-                ->unique(fn($item) => $item['site'] . '|' . $item['mfg_no'])
-                ->values();
-        };
-
+        $confirmService = app(DeliveryConfirmationService::class);
         try {
-            $confirmService = app(DeliveryConfirmationService::class);
             $confirmationItems = collect($rows->items())
-                ->flatMap(function ($row) use ($tokenize) {
-                    return $tokenize($row->mfg_no ?? '')->map(fn($token) => [
+                ->flatMap(function ($row) use ($confirmService) {
+                    return $confirmService->parseMfgTargets($row->mfg_no ?? '')->map(fn($token) => [
                         'ord_id' => $row->ord_id ?? null,
                         'mfg_no' => $token['mfg_no'],
                         'site' => $token['site'],
@@ -1080,7 +1065,7 @@ class DeliveryPlanInquiryController extends Controller
         }
 
         foreach ($rows as $r) {
-            $tokens = $tokenize($r->mfg_no ?? '');
+            $tokens = $confirmService->parseMfgTargets($r->mfg_no ?? '');
             $entry = null;
             if ($tokens->isNotEmpty() && $confirmMap->isNotEmpty()) {
                 foreach ($tokens as $token) {
