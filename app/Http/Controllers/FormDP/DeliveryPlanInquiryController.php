@@ -9,6 +9,7 @@ use App\Mail\AssignedTruckBoardMail;
 use App\Mail\DeliveryPlanMail;
 use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
+use App\Services\FormDP\DeliveryPlanActivityLogger;
 use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -1644,6 +1645,17 @@ class DeliveryPlanInquiryController extends Controller
                         'status' => 'ASSIGN',
                     ]);
 
+                app(DeliveryPlanActivityLogger::class)->record(
+                    $conn,
+                    'ASSIGN_TRUCK',
+                    (int) $oneOrdId,
+                    ['status' => $dp->status ?? null],
+                    array_merge($payload, ['status' => 'ASSIGN']),
+                    null,
+                    null,
+                    'LOGISTICS'
+                );
+
                 if (!$isPieceQty) {
                     $truckRemainingCapacity -= $allocateWeight;
                     $savedWeight += $allocateWeight;
@@ -2035,6 +2047,10 @@ class DeliveryPlanInquiryController extends Controller
             }
 
             $userId = auth()->check() ? (int) auth()->id() : null;
+            $assignmentSnapshots = $conn->table('delivery_plan_truck_assign')
+                ->whereIn('ord_id', $ordIds->all())
+                ->get()
+                ->groupBy('ord_id');
 
             $conn->table('delivery_plan_data')
                 ->where('ord_id', $ordId)
@@ -2045,6 +2061,18 @@ class DeliveryPlanInquiryController extends Controller
                     'edit_remark'     => 'VOID: ' . trim((string) $request->input('remark_void')),
                     'revision_number' => DB::raw('ISNULL(revision_number,0) + 1'),
                 ]);
+
+            $after = $conn->table('delivery_plan_data')->where('ord_id', $ordId)->first();
+            app(DeliveryPlanActivityLogger::class)->record(
+                $conn,
+                'VOID',
+                (int) $ordId,
+                (array) $row,
+                (array) $after,
+                trim((string) $request->input('remark_void')),
+                null,
+                'SALES'
+            );
 
             $conn->table('delivery_plan_truck_assign')
                 ->where('ord_id', $ordId)
@@ -2286,6 +2314,31 @@ class DeliveryPlanInquiryController extends Controller
                 'revise_by' => $userId,
                 'edit_remark' => 'เลื่อนไป วันที่ ' . $newShipDateText . ' เหตุผล : ' . $reason,
             ]);
+
+        $logger = app(DeliveryPlanActivityLogger::class);
+        $postponedRow = $conn->table('delivery_plan_data')->where('ord_id', $ordId)->first();
+        $newRow = $conn->table('delivery_plan_data')->where('ord_id', $newOrdId)->first();
+        $logger->record(
+            $conn,
+            'POSTPONE',
+            $ordId,
+            (array) $row,
+            (array) $postponedRow,
+            $reason,
+            (int) $newOrdId,
+            'INQUIRY',
+            ['from_date' => $originalShipDate->toDateString(), 'to_date' => $newShipDate->toDateString()]
+        );
+        $logger->record(
+            $conn,
+            'POSTPONE_REPLACEMENT_CREATED',
+            (int) $newOrdId,
+            [],
+            (array) $newRow,
+            $reason,
+            $ordId,
+            'INQUIRY'
+        );
 
         app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
             $row->mfg_no ?? null,
@@ -2683,6 +2736,23 @@ class DeliveryPlanInquiryController extends Controller
                     'revise_by'       => $userId,
                     'edit_remark'     => 'UNASSIGN: ' . $reason,
                 ]);
+
+            $logger = app(DeliveryPlanActivityLogger::class);
+            foreach ($rows as $row) {
+                $logger->record(
+                    $conn,
+                    'UNASSIGN_TRUCK',
+                    (int) $row->ord_id,
+                    [
+                        'status' => $row->status,
+                        'assignments' => collect($assignmentSnapshots->get($row->ord_id, []))->map(fn($item) => (array) $item)->all(),
+                    ],
+                    ['status' => 'NEW'],
+                    $reason,
+                    null,
+                    'LOGISTICS'
+                );
+            }
         });
 
         return [
@@ -6311,6 +6381,21 @@ class DeliveryPlanInquiryController extends Controller
                         'status' => 'CLOSED',
                         'revise_by' => $userId,
                     ]);
+
+                $logger = app(DeliveryPlanActivityLogger::class);
+                foreach ($ordIds as $closedOrdId) {
+                    $logger->record(
+                        $this->conn(),
+                        'CLOSE_TRIP',
+                        (int) $closedOrdId,
+                        [],
+                        ['status' => 'CLOSED', 'trip_no' => $tripNo, 'ship_date' => $shipDate],
+                        $remark !== '' ? $remark : null,
+                        null,
+                        'LOGISTICS',
+                        ['truck_source' => $truckSource]
+                    );
+                }
             }
         });
 
@@ -6401,6 +6486,20 @@ class DeliveryPlanInquiryController extends Controller
                     'status' => $status,
                     'revise_by' => $userId,
                 ]);
+
+            $logger = app(DeliveryPlanActivityLogger::class);
+            foreach ($rows as $row) {
+                $logger->record(
+                    $this->conn(),
+                    $dispatchType === 'POSTPONED' ? 'POSTPONE_SPECIAL' : 'SPECIAL_DISPATCH',
+                    (int) $row->ord_id,
+                    ['status' => $row->status],
+                    ['status' => $status, 'dispatch_type' => $dispatchType],
+                    $remark !== '' ? $remark : null,
+                    null,
+                    'LOGISTICS'
+                );
+            }
             if ($dispatchType === 'POSTPONED') {
                 foreach ($rows as $row) {
                     app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\FormDP;
 
 use App\Http\Controllers\Controller;
+use App\Services\FormDP\DeliveryConfirmationService;
+use App\Services\FormDP\DeliveryPlanActivityLogger;
 use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -563,6 +565,7 @@ class DeliveryPlanController extends Controller
         if (!is_array($lines)) $lines = [];
 
         $this->conn()->beginTransaction();
+        $activityLogger = app(DeliveryPlanActivityLogger::class);
 
         try {
             foreach ($lines as $ln) {
@@ -762,6 +765,17 @@ class DeliveryPlanController extends Controller
                     $this->conn()->table('delivery_plan_data')
                         ->where('ord_id', $ordId)
                         ->update($payload);
+                    $updatedRow = $this->conn()->table('delivery_plan_data')->where('ord_id', $ordId)->first();
+                    $activityLogger->record(
+                        $this->conn(),
+                        'EDIT',
+                        (int) $ordId,
+                        (array) $row,
+                        (array) $updatedRow,
+                        $editRemark,
+                        null,
+                        'SALES'
+                    );
                     $originalShipDate = !empty($row->ship_posted_at)
                         ? Carbon::parse($row->ship_posted_at)->toDateString()
                         : null;
@@ -790,7 +804,18 @@ class DeliveryPlanController extends Controller
                     $payload['created_by']      = $userLogin;
                     $payload['revision_number'] = (int) $revisionInput;
                     //dd($ln, $revisionInput, $payload['revision_number'], $payload);
-                    $this->conn()->table('delivery_plan_data')->insert($payload);
+                    $newOrdId = (int) $this->conn()->table('delivery_plan_data')->insertGetId($payload, 'ord_id');
+                    $createdRow = $this->conn()->table('delivery_plan_data')->where('ord_id', $newOrdId)->first();
+                    $activityLogger->record(
+                        $this->conn(),
+                        'CREATE',
+                        $newOrdId,
+                        [],
+                        (array) $createdRow,
+                        null,
+                        null,
+                        'SALES'
+                    );
                 }
             }
 
