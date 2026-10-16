@@ -210,6 +210,7 @@ class DeliveryConfirmationService
         $latest = $this->latestMapForItems($targets->map(fn($target) => array_merge($target, [
             'ord_id' => $ordId,
             'so_number' => $soNumber,
+            'original_ship_date' => $originalShipDate,
         ]))->all());
         $user = Auth::user();
         $resetCount = 0;
@@ -315,9 +316,23 @@ class DeliveryConfirmationService
             . strtoupper(trim((string) $soNumber));
     }
 
+    private function legacyDateKey(?string $mfgNo, ?string $site, ?string $soNumber, $originalShipDate): string
+    {
+        $date = '';
+        if (!empty($originalShipDate)) {
+            try {
+                $date = Carbon::parse($originalShipDate)->toDateString();
+            } catch (\Throwable $e) {
+                $date = substr(trim((string) $originalShipDate), 0, 10);
+            }
+        }
+
+        return $this->itemKey(null, $mfgNo, $site, $soNumber) . '|' . $date;
+    }
+
     /**
-     * Latest confirmation per delivery-plan row. Legacy lookup is allowed only
-     * when the caller has no ord_id, using exact (site, mfg_no, so_number).
+     * Latest confirmation per delivery-plan row. Rows with ord_id use it first;
+     * legacy fallback also requires exact site, MFG, SO and original ship date.
      */
     public function latestMapForItems(array $items): Collection
     {
@@ -327,6 +342,7 @@ class DeliveryConfirmationService
                 'mfg_no' => $this->normalizeMfgNo((string) ($item['mfg_no'] ?? '')),
                 'site' => strtoupper(trim((string) ($item['site'] ?? ''))),
                 'so_number' => trim((string) ($item['so_number'] ?? '')),
+                'original_ship_date' => $item['original_ship_date'] ?? null,
             ];
         })->filter(fn($item) => $item['mfg_no'] !== '')->values();
 
@@ -344,14 +360,26 @@ class DeliveryConfirmationService
         $byOrd = $rows->filter(fn($row) => !empty($row->ord_id))
             ->unique(fn($row) => $this->itemKey($row->ord_id, $row->mfg_no, $row->site, $row->so_number))
             ->keyBy(fn($row) => $this->itemKey($row->ord_id, $row->mfg_no, $row->site, $row->so_number));
+        $legacyByDate = $rows->filter(fn($row) => empty($row->ord_id))
+            ->unique(fn($row) => $this->legacyDateKey($row->mfg_no, $row->site, $row->so_number, $row->original_ship_date))
+            ->keyBy(fn($row) => $this->legacyDateKey($row->mfg_no, $row->site, $row->so_number, $row->original_ship_date));
         $legacy = $rows->filter(fn($row) => empty($row->ord_id))
             ->unique(fn($row) => $this->itemKey(null, $row->mfg_no, $row->site, $row->so_number))
             ->keyBy(fn($row) => $this->itemKey(null, $row->mfg_no, $row->site, $row->so_number));
 
-        return $items->mapWithKeys(function ($item) use ($byOrd, $legacy) {
+        return $items->mapWithKeys(function ($item) use ($byOrd, $legacyByDate, $legacy) {
             $key = $this->itemKey($item['ord_id'], $item['mfg_no'], $item['site'], $item['so_number']);
             $row = $byOrd->get($key);
-            if (!$row && empty($item['ord_id'])) {
+            if (!$row && !empty($item['original_ship_date'])) {
+                $legacyKey = $this->legacyDateKey(
+                    $item['mfg_no'],
+                    $item['site'],
+                    $item['so_number'],
+                    $item['original_ship_date']
+                );
+                $row = $legacyByDate->get($legacyKey);
+            }
+            if (!$row && empty($item['ord_id']) && empty($item['original_ship_date'])) {
                 $legacyKey = $this->itemKey(null, $item['mfg_no'], $item['site'], $item['so_number']);
                 $row = $legacy->get($legacyKey);
             }

@@ -144,24 +144,28 @@ class DeliveryConfirmationResetTest extends TestCase
         );
     }
 
-    public function test_item_with_ord_id_does_not_fall_back_to_legacy_confirmation(): void
+    public function test_item_with_ord_id_uses_only_date_matched_legacy_confirmation(): void
     {
         DeliveryConfirmation::create([
             'mfg_no' => 'W600',
             'site' => 'WIRE',
             'so_number' => 'SO-A',
             'confirmation_status' => DeliveryConfirmation::STATUS_CONFIRM,
+            'original_ship_date' => '2026-10-10',
             'confirmed_at' => now(),
         ]);
 
         $map = app(DeliveryConfirmationService::class)->latestMapForItems([
-            ['ord_id' => 201, 'mfg_no' => 'W600', 'site' => 'WIRE', 'so_number' => 'SO-A'],
-            ['ord_id' => 202, 'mfg_no' => 'W600', 'site' => 'WIRE', 'so_number' => 'SO-B'],
+            ['ord_id' => 201, 'mfg_no' => 'W600', 'site' => 'WIRE', 'so_number' => 'SO-A', 'original_ship_date' => '2026-10-10'],
+            ['ord_id' => 202, 'mfg_no' => 'W600', 'site' => 'WIRE', 'so_number' => 'SO-A', 'original_ship_date' => '2026-10-11'],
         ]);
 
         $service = app(DeliveryConfirmationService::class);
-        $this->assertFalse($map->has($service->itemKey(201, 'W600', 'WIRE', 'SO-A')));
-        $this->assertFalse($map->has($service->itemKey(202, 'W600', 'WIRE', 'SO-B')));
+        $this->assertSame(
+            DeliveryConfirmation::STATUS_CONFIRM,
+            $map[$service->itemKey(201, 'W600', 'WIRE', 'SO-A')]->confirmation_status
+        );
+        $this->assertFalse($map->has($service->itemKey(202, 'W600', 'WIRE', 'SO-A')));
     }
 
     public function test_item_without_ord_id_can_use_exact_legacy_confirmation(): void

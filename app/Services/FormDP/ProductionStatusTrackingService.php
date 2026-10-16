@@ -327,6 +327,7 @@ class ProductionStatusTrackingService
                 'mfg_no' => $row->mfg_no ?? '',
                 'site' => $row->site ?? '',
                 'so_number' => $row->so_number ?? null,
+                'original_ship_date' => $row->ship_date ?? null,
             ])->all());
         } catch (\Throwable $e) {
             Log::warning('attachDeliveryConfirmations failed', ['message' => $e->getMessage()]);

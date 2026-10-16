@@ -1055,6 +1055,7 @@ class DeliveryPlanInquiryController extends Controller
                         'mfg_no' => $token['mfg_no'],
                         'site' => $token['site'],
                         'so_number' => $row->so_number ?? null,
+                        'original_ship_date' => $row->ship_posted_at ?? null,
                     ]);
                 })
                 ->values()
