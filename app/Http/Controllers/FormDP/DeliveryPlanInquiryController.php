@@ -2047,11 +2047,6 @@ class DeliveryPlanInquiryController extends Controller
             }
 
             $userId = auth()->check() ? (int) auth()->id() : null;
-            $assignmentSnapshots = $conn->table('delivery_plan_truck_assign')
-                ->whereIn('ord_id', $ordIds->all())
-                ->get()
-                ->groupBy('ord_id');
-
             $conn->table('delivery_plan_data')
                 ->where('ord_id', $ordId)
                 ->update([
@@ -2723,6 +2718,11 @@ class DeliveryPlanInquiryController extends Controller
                 ->filter()
                 ->unique()
                 ->values();
+
+            $assignmentSnapshots = $conn->table('delivery_plan_truck_assign')
+                ->whereIn('ord_id', $ordIds->all())
+                ->get()
+                ->groupBy('ord_id');
 
             $conn->table('delivery_plan_truck_assign')
                 ->whereIn('ord_id', $ordIds->all())
