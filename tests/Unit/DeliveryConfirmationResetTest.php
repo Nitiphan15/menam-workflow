@@ -167,6 +167,41 @@ class DeliveryConfirmationResetTest extends TestCase
         $this->assertFalse($map->has($service->itemKey(202, 'W600', 'WIRE', 'SO-B')));
     }
 
+    public function test_latest_confirmation_does_not_cross_site_for_same_mfg(): void
+    {
+        DeliveryConfirmation::create([
+            'ord_id' => 301,
+            'mfg_no' => 'W700',
+            'site' => 'WIRE',
+            'so_number' => 'SO-WIRE',
+            'confirmation_status' => DeliveryConfirmation::STATUS_POSTPONE,
+            'confirmed_at' => now()->addMinute(),
+        ]);
+        DeliveryConfirmation::create([
+            'ord_id' => 302,
+            'mfg_no' => 'W700',
+            'site' => 'PLUS',
+            'so_number' => 'SO-PLUS',
+            'confirmation_status' => DeliveryConfirmation::STATUS_CONFIRM,
+            'confirmed_at' => now(),
+        ]);
+
+        $service = app(DeliveryConfirmationService::class);
+        $map = $service->latestMapForItems([
+            ['ord_id' => 301, 'mfg_no' => 'W700', 'site' => 'WIRE', 'so_number' => 'SO-WIRE'],
+            ['ord_id' => 302, 'mfg_no' => 'W700', 'site' => 'PLUS', 'so_number' => 'SO-PLUS'],
+        ]);
+
+        $this->assertSame(
+            DeliveryConfirmation::STATUS_POSTPONE,
+            $map[$service->itemKey(301, 'W700', 'WIRE', 'SO-WIRE')]->confirmation_status
+        );
+        $this->assertSame(
+            DeliveryConfirmation::STATUS_CONFIRM,
+            $map[$service->itemKey(302, 'W700', 'PLUS', 'SO-PLUS')]->confirmation_status
+        );
+    }
+
     public function test_logistics_postpone_can_reset_without_a_new_delivery_date(): void
     {
         DeliveryConfirmation::create([

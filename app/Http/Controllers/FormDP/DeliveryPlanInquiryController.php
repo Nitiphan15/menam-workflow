@@ -1046,23 +1046,35 @@ class DeliveryPlanInquiryController extends Controller
             $r->truck_remaining_capacity = null;
         }
 
-        // Split mfg_no into individual tokens (e.g. "W873, W875, W876" → [W873, W875, W876])
+        // Split MFGs while preserving the site marker: "+" = PLUS, otherwise WIRE.
         $tokenize = function ($value) {
             return collect(explode(',', (string) $value))
-                ->map(fn($x) => strtoupper(ltrim(trim($x), " \t\n\r\0\x0B'\"+")))
+                ->map(function ($value) {
+                    $raw = trim((string) $value, " \t\n\r\0\x0B'\"");
+                    $site = str_starts_with($raw, '+') ? 'PLUS' : 'WIRE';
+                    $mfgNo = strtoupper(ltrim($raw, '+'));
+
+                    return $mfgNo !== '' ? ['mfg_no' => $mfgNo, 'site' => $site] : null;
+                })
                 ->filter()
-                ->unique()
+                ->unique(fn($item) => $item['site'] . '|' . $item['mfg_no'])
                 ->values();
         };
 
         try {
             $confirmService = app(DeliveryConfirmationService::class);
-            $allTokens = collect($rows->items())
-                ->flatMap(fn($r) => $tokenize($r->mfg_no ?? ''))
-                ->unique()
+            $confirmationItems = collect($rows->items())
+                ->flatMap(function ($row) use ($tokenize) {
+                    return $tokenize($row->mfg_no ?? '')->map(fn($token) => [
+                        'ord_id' => $row->ord_id ?? null,
+                        'mfg_no' => $token['mfg_no'],
+                        'site' => $token['site'],
+                        'so_number' => $row->so_number ?? null,
+                    ]);
+                })
                 ->values()
                 ->all();
-            $confirmMap = $confirmService->latestMap($allTokens);
+            $confirmMap = $confirmService->latestMapForItems($confirmationItems);
         } catch (\Throwable $e) {
             $confirmMap = collect();
         }
@@ -1071,21 +1083,28 @@ class DeliveryPlanInquiryController extends Controller
             $tokens = $tokenize($r->mfg_no ?? '');
             $entry = null;
             if ($tokens->isNotEmpty() && $confirmMap->isNotEmpty()) {
-                foreach ($tokens as $tok) {
-                    foreach ($confirmMap as $key => $value) {
-                        if (str_ends_with((string) $key, '|' . $tok)) {
-                            $valStatus = strtoupper((string) ($value->confirmation_status ?? ''));
-                            $bestStatus = strtoupper((string) ($entry->confirmation_status ?? ''));
-                            // prefer Postpone > Confirm; same status → latest by confirmed_at
-                            if (
-                                $entry === null
-                                || ($valStatus === 'POSTPONE' && $bestStatus !== 'POSTPONE')
-                                || ($valStatus === $bestStatus
-                                    && ($value->confirmed_at ?? '') > ($entry->confirmed_at ?? ''))
-                            ) {
-                                $entry = $value;
-                            }
-                        }
+                foreach ($tokens as $token) {
+                    $key = $confirmService->itemKey(
+                        $r->ord_id ?? null,
+                        $token['mfg_no'],
+                        $token['site'],
+                        $r->so_number ?? null
+                    );
+                    $value = $confirmMap->get($key);
+                    if (!$value) {
+                        continue;
+                    }
+
+                    $valStatus = strtoupper((string) ($value->confirmation_status ?? ''));
+                    $bestStatus = strtoupper((string) ($entry->confirmation_status ?? ''));
+                    // prefer Postpone > Confirm; same status → latest by confirmed_at
+                    if (
+                        $entry === null
+                        || ($valStatus === 'POSTPONE' && $bestStatus !== 'POSTPONE')
+                        || ($valStatus === $bestStatus
+                            && ($value->confirmed_at ?? '') > ($entry->confirmed_at ?? ''))
+                    ) {
+                        $entry = $value;
                     }
                 }
             }
