@@ -170,6 +170,12 @@ class DeliveryPlanController extends Controller
 
             if (!$row) return back()->withErrors(["ไม่พบรายการ ord_id={$editId}"]);
 
+            if ($this->isPostponedPlanStatus($row->status ?? null)) {
+                return redirect()
+                    ->route('dp.inquiry')
+                    ->with('error', 'รายการนี้ถูกเลื่อนแผนแล้ว ไม่สามารถแก้ไขรายการเดิมได้ กรุณาแก้ไขรายการใหม่ที่ระบบสร้างจากการเลื่อนแผน');
+            }
+
 
 
             $day = Carbon::parse($row->due_date)->startOfDay();
@@ -700,11 +706,18 @@ class DeliveryPlanController extends Controller
                             'sell_by_line',
                             'line_qty',
                             'revision_number',
+                            'status',
                         ])
                         ->where('ord_id', $ordId)
                         ->first();
 
                     if (!$row) throw new \RuntimeException("ไม่พบรายการ ord_id={$ordId}");
+
+                    if ($this->isPostponedPlanStatus($row->status ?? null)) {
+                        throw new \RuntimeException(
+                            'รายการนี้ถูกเลื่อนแผนแล้ว ไม่สามารถแก้ไขรายการเดิมได้ กรุณาแก้ไขรายการใหม่ที่ระบบสร้างจากการเลื่อนแผน'
+                        );
+                    }
 
                     // งานที่ถูกจัดรถแล้ว → ห้ามแก้ไข (กันยอดในแผนกับยอดจัดรถไม่ตรงกัน)
                     if ($this->isDispatchAssignedForOrd($ordId)) {
@@ -1240,6 +1253,11 @@ class DeliveryPlanController extends Controller
             ->where('status', 'OPEN')
             ->whereRaw("UPPER(ISNULL(dispatch_type, '')) <> 'POSTPONED'")
             ->exists();
+    }
+
+    private function isPostponedPlanStatus($status): bool
+    {
+        return strtoupper(trim((string) $status)) === 'POSTPONED';
     }
 
     private function buildContinueSameSoPayload(Request $request): ?array

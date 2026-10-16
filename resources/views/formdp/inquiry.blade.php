@@ -996,7 +996,13 @@
                                                     </a>
                                                 @else
                                                     @if ($canDp)
-                                                        @if (!empty($r->edit_locked))
+                                                        @if ($statusUpper === 'POSTPONED')
+                                                            <button type="button"
+                                                                class="btn btn-sm btn-outline-secondary action-primary" disabled
+                                                                title="รายการนี้ถูกเลื่อนแผนแล้ว กรุณาแก้ไขรายการใหม่ที่ระบบสร้างจากการเลื่อนแผน">
+                                                                แก้ไข
+                                                            </button>
+                                                        @elseif (!empty($r->edit_locked))
                                                             <button type="button"
                                                                 class="btn btn-sm btn-outline-secondary action-primary jsEditLockedBtn"
                                                                 data-ship-date="{{ e($shipDateOnly) }}"
