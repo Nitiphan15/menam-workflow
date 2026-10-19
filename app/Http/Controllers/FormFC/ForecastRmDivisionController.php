@@ -2328,6 +2328,7 @@ class ForecastRmDivisionController extends Controller
             'Sales Forecast 1 Month',
             'Sales Forecast ' . self::FORECAST_HORIZON_MONTHS . ' Months',
             'Product Type',
+            'Supplier',
             'Sales Remark',
         ];
 
@@ -2336,6 +2337,11 @@ class ForecastRmDivisionController extends Controller
             $forecast1m = $row['approval_forecast_1m'] !== null
                 ? (float) $row['approval_forecast_1m']
                 : ($firstForecastMonth ? (float) ($row['forecast_by_month'][$firstForecastMonth] ?? 0) : 0);
+            $supplierCode = trim((string) ($row['supplier_code'] ?? ''));
+            $supplierName = trim((string) ($row['supplier_name'] ?? ''));
+            $supplier = $supplierCode !== '' && $supplierName !== ''
+                ? $supplierCode . ' - ' . $supplierName
+                : ($supplierCode !== '' ? $supplierCode : $supplierName);
             $cells = [
                 $row['sales_code'],
                 $row['customer_name'],
@@ -2345,6 +2351,7 @@ class ForecastRmDivisionController extends Controller
                 $number($forecast1m),
                 $number($forecast1m * self::FORECAST_HORIZON_MONTHS),
                 $row['product_type'],
+                $supplier,
                 $row['row_remark'],
             ];
             $lines[] = '<tr>' . collect($cells)->map(fn($cell) => '<td>' . $escape($cell) . '</td>')->implode('') . '</tr>';

@@ -22,6 +22,7 @@ class FormFcPlanningExportTest extends TestCase
             'RM Part',
             'Sales Forecast 1 Month',
             'Product Type',
+            'Supplier',
             'Sales Remark',
         ] as $heading) {
             $this->assertStringContainsString("'{$heading}'", $controller);
@@ -29,6 +30,8 @@ class FormFcPlanningExportTest extends TestCase
         $this->assertStringContainsString('$forecast1m * self::FORECAST_HORIZON_MONTHS', $controller);
         $this->assertStringContainsString("\$row['approval_forecast_1m'] !== null", $controller);
         $this->assertStringContainsString("['product_type']", $controller);
+        $this->assertStringContainsString("\$row['supplier_code']", $controller);
+        $this->assertStringContainsString("\$row['supplier_name']", $controller);
         $this->assertStringContainsString("\$row['row_remark']", $controller);
     }
 
