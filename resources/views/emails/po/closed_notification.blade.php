@@ -50,6 +50,25 @@
                                             'flowSteps' => $poItem['flow_steps'] ?? [],
                                             'currentStepNo' => $poItem['step_no'] ?? 999,
                                         ])
+                                        @if (!empty($poItem['approval_remarks']))
+                                            <div style="margin-top:18px; padding-top:16px; border-top:1px solid #dce8f1;">
+                                                <div style="font-size:15px; font-weight:700; color:#35485c; margin-bottom:10px;">Approval Remarks</div>
+                                                @foreach ($poItem['approval_remarks'] as $remark)
+                                                    <div style="margin-top:10px; padding:12px 14px; background:#ffffff; border:1px solid #e3ebf2; border-radius:10px;">
+                                                        <div style="font-size:13px; font-weight:700; color:#2f5f8f;">
+                                                            Step {{ $remark['step_no'] ?? '-' }} — {{ $remark['step_label'] ?? '-' }}
+                                                        </div>
+                                                        <div style="margin-top:5px; font-size:14px; line-height:1.7; color:#35485c; white-space:pre-line;">{{ $remark['comment'] ?? '' }}</div>
+                                                        <div style="margin-top:6px; font-size:12px; color:#718096;">
+                                                            {{ $remark['actor_name'] ?? '-' }}
+                                                            @if (!empty($remark['approved_at']))
+                                                                · {{ \Illuminate\Support\Carbon::parse($remark['approved_at'])->format('d-M-Y H:i') }}
+                                                            @endif
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                         <div style="margin-top:18px;">
                                             <a href="{{ $poItem['show_url'] ?? '#' }}" style="display:inline-block; background:#2f855a; color:#ffffff; text-decoration:none; padding:11px 18px; border-radius:999px; font-size:14px; font-weight:700;">
                                                 เปิดเอกสาร

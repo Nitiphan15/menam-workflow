@@ -535,6 +535,8 @@ class PoApprovalController extends Controller
 
     private function notifyPurchaseDepartmentOnClosed(PoHeader $po): void
     {
+        $approvalRemarks = $this->closedApprovalRemarks($po);
+
         $individualRecipients = $this->workflowSubmitterRecipients($po)
             ->merge($this->departmentApproverRecipients($po))
             ->merge($this->purchaseApproverRecipients($po))
@@ -587,6 +589,7 @@ class PoApprovalController extends Controller
                         'show_url' => route('po.show', $po->id),
                         'print_url' => route('po.print', $po->id),
                         'is_group_recipient' => false,
+                        'approval_remarks' => $approvalRemarks,
                     ],
                 ));
                 $sent++;
@@ -622,6 +625,7 @@ class PoApprovalController extends Controller
                         'show_url' => route('po.show', $po->id),
                         'print_url' => route('po.print', $po->id),
                         'is_group_recipient' => true,
+                        'approval_remarks' => $approvalRemarks,
                     ],
                 ));
                 $sent++;
@@ -637,6 +641,38 @@ class PoApprovalController extends Controller
         }
 
         Log::info('PO closed mail dispatch finished', $context + ['sent' => $sent, 'failed' => $failed]);
+    }
+
+    private function closedApprovalRemarks(PoHeader $po): array
+    {
+        if (blank($po->workflow_id)) {
+            return [];
+        }
+
+        return SqlServerDb::table('wf_action_histories as h')
+            ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
+            ->where('h.wf_form_id', $po->workflow_id)
+            ->whereIn('h.step_no', [2, 3])
+            ->where('h.action_type', 'APPROVE')
+            ->whereNotNull('h.comment')
+            ->whereRaw("LTRIM(RTRIM(h.comment)) <> ''")
+            ->orderBy('h.step_no')
+            ->orderBy('h.created_at')
+            ->orderBy('h.id')
+            ->get([
+                'h.step_no',
+                'h.comment',
+                'h.created_at',
+                'u.name as actor_name',
+            ])
+            ->map(fn ($row) => [
+                'step_no' => (int) $row->step_no,
+                'step_label' => $this->workflowStepLabel((int) $row->step_no),
+                'comment' => trim((string) $row->comment),
+                'actor_name' => trim((string) ($row->actor_name ?? '')) ?: '-',
+                'approved_at' => $row->created_at,
+            ])
+            ->all();
     }
 
     private function departmentApproverRecipients(PoHeader $po): Collection
