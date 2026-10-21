@@ -58,8 +58,11 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
         Schema::connection('sqlsrv_menam')->create('wf_action_histories', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('wf_form_id');
+            $table->unsignedInteger('step_no')->nullable();
             $table->string('action_type');
             $table->unsignedBigInteger('actor_user_id');
+            $table->text('comment')->nullable();
+            $table->timestamp('created_at')->nullable();
         });
     }
 
@@ -143,6 +146,12 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
             ['wf_form_id' => 128, 'step_no' => 2, 'approver_user_id' => 10, 'status' => 'APPROVED'],
             ['wf_form_id' => 128, 'step_no' => 3, 'approver_user_id' => 14, 'status' => 'APPROVED'],
         ]);
+        DB::connection('sqlsrv_menam')->table('wf_action_histories')->insert([
+            ['id' => 1, 'wf_form_id' => 128, 'step_no' => 2, 'action_type' => 'APPROVE', 'actor_user_id' => 10, 'comment' => 'ตรวจราคาแล้ว', 'created_at' => '2026-10-21 10:15:00'],
+            ['id' => 2, 'wf_form_id' => 128, 'step_no' => 3, 'action_type' => 'APPROVE', 'actor_user_id' => 14, 'comment' => 'อนุมัติให้ดำเนินการ', 'created_at' => '2026-10-21 11:30:00'],
+            ['id' => 3, 'wf_form_id' => 128, 'step_no' => 3, 'action_type' => 'REJECT', 'actor_user_id' => 14, 'comment' => 'ต้องไม่แสดง', 'created_at' => '2026-10-21 09:00:00'],
+            ['id' => 4, 'wf_form_id' => 128, 'step_no' => 2, 'action_type' => 'APPROVE', 'actor_user_id' => 10, 'comment' => '   ', 'created_at' => '2026-10-21 10:00:00'],
+        ]);
 
         $po = new PoHeader();
         $po->id = 500;
@@ -171,7 +180,15 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
             return $mail->recipientName === 'ทีม Purchase'
                 && $mail->hasTo('purchase1@example.com')
                 && $mail->hasTo('purchase2@example.com')
-                && !empty($mail->poItem['is_group_recipient']);
+                && !empty($mail->poItem['is_group_recipient'])
+                && collect($mail->poItem['approval_remarks'] ?? [])->pluck('comment')->all() === [
+                    'ตรวจราคาแล้ว',
+                    'อนุมัติให้ดำเนินการ',
+                ]
+                && collect($mail->poItem['approval_remarks'] ?? [])->pluck('step_label')->all() === [
+                    'Purchase Head',
+                    'Head of Department',
+                ];
         });
 
         $html = view('emails.po.closed_notification', [
@@ -180,6 +197,20 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
         ])->render();
         $this->assertStringContainsString('เรียนทีม Purchase', $html);
         $this->assertStringNotContainsString('เรียนคุณ ทีม Purchase', $html);
+
+        Mail::assertSent(PoClosedNotificationMail::class, function ($mail) {
+            $html = view('emails.po.closed_notification', [
+                'recipientName' => $mail->recipientName,
+                'poItem' => $mail->poItem,
+            ])->render();
+
+            return str_contains($html, 'Approval Remarks')
+                && str_contains($html, 'Step 2 — Purchase Head')
+                && str_contains($html, 'Step 3 — Head of Department')
+                && str_contains($html, 'ตรวจราคาแล้ว')
+                && str_contains($html, 'อนุมัติให้ดำเนินการ')
+                && !str_contains($html, 'ต้องไม่แสดง');
+        });
     }
 
     private function invokePurchaseDepartmentRecipients(int $workflowId)
