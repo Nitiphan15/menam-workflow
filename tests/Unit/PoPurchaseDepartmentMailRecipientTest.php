@@ -184,6 +184,10 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
                 && collect($mail->poItem['approval_remarks'] ?? [])->pluck('comment')->all() === [
                     'ตรวจราคาแล้ว',
                     'อนุมัติให้ดำเนินการ',
+                ]
+                && collect($mail->poItem['approval_remarks'] ?? [])->pluck('step_label')->all() === [
+                    'Purchase Head',
+                    'Head of Department',
                 ];
         });
 
@@ -201,6 +205,8 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
             ])->render();
 
             return str_contains($html, 'Approval Remarks')
+                && str_contains($html, 'Step 2 — Purchase Head')
+                && str_contains($html, 'Step 3 — Head of Department')
                 && str_contains($html, 'ตรวจราคาแล้ว')
                 && str_contains($html, 'อนุมัติให้ดำเนินการ')
                 && !str_contains($html, 'ต้องไม่แสดง');

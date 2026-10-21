@@ -667,7 +667,7 @@ class PoApprovalController extends Controller
             ])
             ->map(fn ($row) => [
                 'step_no' => (int) $row->step_no,
-                'step_label' => $this->workflowStepLabel((int) $row->step_no),
+                'step_label' => (int) $row->step_no === 2 ? 'Purchase Head' : 'Head of Department',
                 'comment' => trim((string) $row->comment),
                 'actor_name' => trim((string) ($row->actor_name ?? '')) ?: '-',
                 'approved_at' => $row->created_at,
