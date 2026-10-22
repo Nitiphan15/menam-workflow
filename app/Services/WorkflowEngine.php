@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Services\Po\PoErpService;
 use App\Support\WorkflowDb;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class WorkflowEngine
 {
@@ -384,9 +385,23 @@ class WorkflowEngine
         $isPoDepartmentFinalStep = strtolower((string) ($wf->app_code ?? '')) === 'po'
             && in_array((string) ($step->key ?? ''), ['dept_manager_approve', 'dept_manager_approval'], true);
         $skipIfNoApprover = (int) ($step->skip_if_no_approver ?? 0) === 1;
+
+        if ($isPoDepartmentFinalStep && $approvers->isEmpty()) {
+            Log::error('PO Step 3 approver resolution failed; transition blocked', [
+                'workflow_id' => $wfId,
+                'step_no' => $stepNo,
+                'step_key' => (string) ($step->key ?? ''),
+                'request_by_user_id' => (int) ($wf->request_by_user_id ?? 0),
+                'department_id' => (int) ($stepContext['document_department_id'] ?? $stepContext['department_id'] ?? 0),
+                'department_name' => (string) ($stepContext['document_department_name'] ?? ''),
+                'rule_ids' => $rules->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+            ]);
+        }
+
         $shouldSkip = (
             ($rules->isEmpty() || $approvers->isEmpty()) &&
-            ($skipIfNoApprover || ($isPoDepartmentFinalStep && $approvers->isEmpty()))
+            $skipIfNoApprover &&
+            !$isPoDepartmentFinalStep
         );
 
         if (!$shouldSkip && $rules->isEmpty()) {
