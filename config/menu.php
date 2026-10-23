@@ -412,6 +412,7 @@ return [
                     ['icon' => 'fa-key', 'text' => 'เพิ่มสิทธิ์', 'route' => 'adminweb.roles.create', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-key', 'text' => 'กำหนดสิทธิ์ให้ User', 'route' => 'adminweb.user-permissions.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-list-check', 'text' => 'ประวัติการใช้งาน (Log)', 'route' => 'adminweb.activity-logs.index', 'permission' => 'ADMINWEB'],
+                    ['icon' => 'fa-envelope-circle-check', 'text' => 'กู้ PO Step 3 / ส่งเมล', 'route' => 'adminweb.po-step3-recovery.index', 'permission' => 'ADMINWEB'],
                     ['text' => 'ดูแลระบบ', 'header' => true],
                     ['icon' => 'fa-broom', 'text' => 'ล้าง Cache', 'route' => 'adminweb.cache.clear', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-rotate', 'text' => 'Dump Autoload', 'route' => 'adminweb.autoload.dump', 'permission' => 'ADMINWEB'],

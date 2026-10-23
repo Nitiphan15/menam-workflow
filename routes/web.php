@@ -36,6 +36,7 @@ use App\Http\Controllers\Admin\UserDeptRoleAdminController;
 use App\Http\Controllers\Admin\UserDepartmentAssignmentController;
 use App\Http\Controllers\Admin\UserPermissionController;
 use App\Http\Controllers\Admin\ActivityLogController;
+use App\Http\Controllers\Admin\PoStep3RecoveryController;
 //WR
 use App\Http\Controllers\FormWR\IncomeController;
 //Profile
@@ -928,6 +929,12 @@ Route::middleware(['auth', 'can:ADMINWEB'])
   ->prefix('adminweb')
   ->name('adminweb.')
   ->group(function () {
+
+    Route::get('/po-step3-recovery', [PoStep3RecoveryController::class, 'index'])
+        ->name('po-step3-recovery.index');
+    Route::post('/po-step3-recovery', [PoStep3RecoveryController::class, 'send'])
+        ->middleware('throttle:5,1')
+        ->name('po-step3-recovery.send');
 
     // Clear cache ผ่านเว็บ (ไม่ต้อง SSH) — เฉพาะ ADMINWEB
     Route::get('/cache/clear', function () {
