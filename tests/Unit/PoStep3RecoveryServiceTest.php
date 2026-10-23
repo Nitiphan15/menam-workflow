@@ -224,6 +224,54 @@ class PoStep3RecoveryServiceTest extends TestCase
         Mail::assertSent(PoNeedsApprovalMail::class, fn ($mail) => $mail->hasTo('override@example.test'));
     }
 
+    public function test_legacy_sql_repair_can_send_without_recreating_step_three_authorization(): void
+    {
+        Mail::fake();
+
+        DB::connection('sqlsrv_menam')->table('wf_forms')->where('id', 4642)->update([
+            'form_status' => 'REQUESTED',
+            'current_step_no' => 3,
+        ]);
+        DB::connection('sqlsrv_menam')->table('po_headers')->where('id', 931)->update([
+            'status_code' => 'DEPT_MANAGER_APPROVAL',
+            'updated_by' => 2,
+        ]);
+        DB::connection('sqlsrv_menam')->table('wf_form_authorizes')->insert([
+            'id' => 27992,
+            'wf_form_id' => 4642,
+            'step_no' => 3,
+            'approver_user_id' => 15,
+            'status' => 'PENDING',
+            'created_at' => '2026-10-22 17:00:41',
+            'updated_at' => '2026-10-22 17:00:41',
+        ]);
+        DB::connection('sqlsrv_menam')->table('wf_action_histories')->insert([
+            'id' => 18206,
+            'wf_form_id' => 4642,
+            'step_no' => 3,
+            'actor_user_id' => 2,
+            'action_type' => 'ADM_FIX',
+            'comment' => 'Administrative repair: restored skipped Step 3 for PO2026100071; no approver was resolved during the original transition',
+            'created_at' => '2026-10-22 17:00:41',
+        ]);
+
+        $result = app(PoStep3RecoveryService::class)->recoverAndSend(
+            'PO2026100071',
+            15,
+            2,
+            'ส่งเมลต่อจากรายการที่ย้อนด้วย SQL repair',
+        );
+
+        $this->assertSame('sent', $result['delivery']);
+        $this->assertSame('recovered_pending', $result['state']);
+        $this->assertSame(1, DB::connection('sqlsrv_menam')->table('wf_form_authorizes')->where('wf_form_id', 4642)->where('step_no', 3)->count());
+        $this->assertSame(1, DB::connection('sqlsrv_menam')->table('wf_action_histories')->where('action_type', 'ADM_FIX')->count());
+        $this->assertDatabaseHas('wf_action_histories', [
+            'wf_form_id' => 4642, 'step_no' => 3, 'actor_user_id' => 2, 'action_type' => 'NOTIFY',
+        ], 'sqlsrv_menam');
+        Mail::assertSent(PoNeedsApprovalMail::class, fn ($mail) => $mail->hasTo('assadaporn@example.test'));
+    }
+
     public function test_po_step_three_without_an_approver_fails_closed_instead_of_skipping(): void
     {
         DB::connection('sqlsrv_menam')->table('users')->where('id', 15)->update(['is_active' => 0]);

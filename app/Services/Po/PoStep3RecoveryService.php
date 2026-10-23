@@ -77,11 +77,16 @@ class PoStep3RecoveryService
             ->where('wa.step_no', 3)
             ->get(['wa.*', 'u.username', 'u.name', 'u.email', 'u.is_active']);
 
+        $legacyRecoveryComment = "Administrative repair: restored skipped Step 3 for {$po->ordnumber}; no approver was resolved during the original transition";
         $recoveryHistory = SqlServerDb::table('wf_action_histories')
             ->where('wf_form_id', (int) $workflow->id)
             ->where('step_no', 3)
             ->where('action_type', 'ADM_FIX')
-            ->where('comment', 'like', self::RECOVERY_PREFIX.'%')
+            ->where('id', '>', (int) $skip->id)
+            ->where(function ($query) use ($legacyRecoveryComment) {
+                $query->where('comment', 'like', self::RECOVERY_PREFIX.'%')
+                    ->orWhere('comment', $legacyRecoveryComment);
+            })
             ->orderByDesc('id')
             ->first();
 
