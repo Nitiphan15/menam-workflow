@@ -56,6 +56,7 @@ use App\Http\Controllers\FormVC\VariableCostController;
 use App\Http\Controllers\FormCCR\CostCenterReportController;
 use App\Http\Controllers\FormAccounting\LossProvisionController;
 use App\Http\Controllers\FormAccounting\CustomerPaymentTermController;
+use App\Http\Controllers\FormAccounting\InvoiceMfgProfitController;
 //FormPKG
 use App\Http\Controllers\FormPKG\PackagingUsageController;
 use App\Http\Controllers\FormPKG\PackagingMasterController;
@@ -752,6 +753,8 @@ Route::prefix('cost-center')
 Route::prefix('accounting')
   ->name('accounting.')
   ->group(function () {
+    Route::get('/invoice-mfg-profit', [InvoiceMfgProfitController::class, 'index'])->middleware('auth')->name('invoice-mfg-profit.index');
+    Route::get('/invoice-mfg-profit/export', [InvoiceMfgProfitController::class, 'export'])->middleware('auth')->name('invoice-mfg-profit.export');
     Route::get('/loss-provision', [LossProvisionController::class, 'index'])->name('loss-provision.index');
     Route::get('/loss-provision/yearly', [LossProvisionController::class, 'yearly'])->name('loss-provision.yearly');
     Route::get('/loss-provision/yearly/export', [LossProvisionController::class, 'exportYearly'])->name('loss-provision.yearly.export');

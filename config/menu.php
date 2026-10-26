@@ -81,6 +81,7 @@ return [
                 'icon' => 'fa-calculator',
                 'text' => 'Accounting Reports',
                 'children' => [
+                    ['icon' => 'fa-chart-column', 'text' => 'Invoice-MFG Gross Profit', 'route' => 'accounting.invoice-mfg-profit.index'],
                     ['icon' => 'fa-file-invoice-dollar', 'text' => 'รายการเผื่อผลขาดทุน', 'route' => 'accounting.loss-provision.index'],
                     ['icon' => 'fa-calendar-alt', 'text' => 'รายการเผื่อผลขาดทุน — สรุปทั้งปี', 'route' => 'accounting.loss-provision.yearly'],
                     ['icon' => 'fa-chart-line', 'text' => 'วิเคราะห์ยอดคืนจากลูกค้า Dashboard', 'route' => 'accounting.loss-provision.recovery-dashboard'],
@@ -233,6 +234,7 @@ return [
                 'icon' => 'fa-calculator',
                 'text' => 'Accounting Reports',
                 'children' => [
+                    ['icon' => 'fa-chart-column', 'text' => 'Invoice-MFG Gross Profit', 'route' => 'accounting.invoice-mfg-profit.index'],
                     ['icon' => 'fa-file-invoice-dollar', 'text' => 'รายการเผื่อผลขาดทุน', 'route' => 'accounting.loss-provision.index'],
                     ['icon' => 'fa-calendar-alt', 'text' => 'รายการเผื่อผลขาดทุน — สรุปทั้งปี', 'route' => 'accounting.loss-provision.yearly'],
                     ['icon' => 'fa-chart-line', 'text' => 'วิเคราะห์ยอดคืนจากลูกค้า Dashboard', 'route' => 'accounting.loss-provision.recovery-dashboard'],
