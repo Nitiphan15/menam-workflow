@@ -6,6 +6,7 @@ use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -456,8 +457,8 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         }
 
         $stockMap = [
-            'pgsqlw' => [],
-            'pgsqlp' => [],
+            'pgsqlw' => ['__available' => true],
+            'pgsqlp' => ['__available' => true],
         ];
 
         foreach ($partsByConnection as $connection => $partNumbers) {
@@ -466,14 +467,25 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                 continue;
             }
 
-            $stockRows = DB::connection($connection)
-                ->table('parts as p')
-                ->join('serializeunits as su', 'su.parts_id', '=', 'p.id')
-                ->join('serializeunitsmvmt as sus', 'sus.su_id', '=', 'su.id')
-                ->whereIn('p.partnumber', $partNumbers->all())
-                ->groupBy('p.partnumber')
-                ->selectRaw('p.partnumber, SUM(CASE WHEN su.onhand THEN sus.qty ELSE 0 END) AS balance_qty')
-                ->get();
+            try {
+                $stockRows = DB::connection($connection)
+                    ->table('parts as p')
+                    ->join('serializeunits as su', 'su.parts_id', '=', 'p.id')
+                    ->join('serializeunitsmvmt as sus', 'sus.su_id', '=', 'su.id')
+                    ->whereIn('p.partnumber', $partNumbers->all())
+                    ->groupBy('p.partnumber')
+                    ->selectRaw('p.partnumber, SUM(CASE WHEN su.onhand THEN sus.qty ELSE 0 END) AS balance_qty')
+                    ->get();
+            } catch (\Throwable $e) {
+                $stockMap[$connection]['__available'] = false;
+
+                Log::warning('FormDP inquiry export Stock FG lookup failed', [
+                    'connection' => $connection,
+                    'message' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
 
             foreach ($stockRows as $stockRow) {
                 $partNumber = trim((string) ($stockRow->partnumber ?? ''));
@@ -486,7 +498,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
         return $stockMap;
     }
 
-    private function trackingStockFgForRow($row, array $stockMap): float
+    private function trackingStockFgForRow($row, array $stockMap): ?float
     {
         $partNumber = trim((string) ($row->part_number ?? ''));
         if ($partNumber === '') {
@@ -495,6 +507,10 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
         $stock = 0.0;
         foreach ($this->stockConnectionsForMfg($row->mfg_no ?? '') as $connection) {
+            if (($stockMap[$connection]['__available'] ?? false) !== true) {
+                return null;
+            }
+
             $stock += (float) ($stockMap[$connection][$partNumber] ?? 0);
         }
 

@@ -314,6 +314,16 @@ class ProductionStatusTrackingService
         ]);
     }
 
+    private function postponedFromNote(?object $deliveryRow): ?string
+    {
+        $remark = trim((string) ($deliveryRow->edit_remark ?? ''));
+        if (preg_match('/^เลื่อนมาจาก วันที่ (\d{2}\/\d{2}\/\d{4}|-)/u', $remark, $matches)) {
+            return 'เลื่อนมาจากวันที่ ' . $matches[1];
+        }
+
+        return null;
+    }
+
     private function attachDeliveryConfirmations(Collection $rows): void
     {
         if ($rows->isEmpty()) {
@@ -342,6 +352,11 @@ class ProductionStatusTrackingService
                 $row->so_number ?? null
             );
             $entry = $map->get($key);
+
+            // A reset event belongs in history, never in the new confirmation form.
+            if (($entry->confirmation_status ?? null) === DeliveryConfirmation::STATUS_RECONFIRM) {
+                $entry = null;
+            }
 
             $row->confirmation_status = $entry->confirmation_status ?? null;
             $row->confirmation_status_label = DeliveryConfirmation::statusLabel($entry->confirmation_status ?? null);
@@ -1238,6 +1253,7 @@ SQL;
             'ship_to' => trim((string) ($deliveryRow->address ?? '')),
             'dp_remark' => $this->dpRemarkSummary($deliveryRows),
             'ship_date' => $shipDate,
+            'postponed_from_note' => $this->postponedFromNote($deliveryRow),
             'ship_date_sort' => $shipDate ?: '9999-12-31',
             'dp_ord_ids' => $deliveryRows->pluck('ord_id')->filter()->unique()->values(),
             'group_key' => $this->deliveryGroupKey($deliveryRows),
@@ -1329,6 +1345,7 @@ SQL;
         $row->ship_to = trim((string) ($deliveryRow->address ?? ''));
         $row->dp_remark = $this->dpRemarkSummary($deliveryRows);
         $row->ship_date = $this->dateOnly($deliveryRow->ship_posted_at ?? null);
+        $row->postponed_from_note = $this->postponedFromNote($deliveryRow);
         $row->ship_date_sort = $row->ship_date ?: '9999-12-31';
         $row->dp_ord_ids = collect([$deliveryRow->ord_id ?? null])->filter()->unique()->values();
         $row->group_key = $this->deliveryGroupKey($deliveryRows);
