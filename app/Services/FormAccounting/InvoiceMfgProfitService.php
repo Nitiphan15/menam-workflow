@@ -34,23 +34,20 @@ class InvoiceMfgProfitService
     public function inquiry(array $input, int $limit = 500): array
     {
         $filters = $this->filters($input);
-        $rows = collect();
+        $allRows = collect();
         foreach ($this->years($filters) as $year) {
             foreach ($this->connections($filters['site']) as $site => $connection) {
-                $remaining = max(0, $limit - $rows->count());
-                if ($remaining === 0) {
-                    break 2;
-                }
-                $rows = $rows->concat($this->query($connection, $site, $filters, $year, $remaining));
+                $allRows = $allRows->concat($this->query($connection, $site, $filters, $year));
             }
         }
 
-        $summary = $this->summarize($rows);
+        $summary = $this->summarize($allRows);
+        $rows = $allRows->take($limit)->values();
 
         return compact('filters', 'rows', 'summary') + [
             'years' => $this->years($filters),
             'limit' => $limit,
-            'limited' => $rows->count() >= $limit,
+            'limited' => $allRows->count() > $limit,
         ];
     }
 
