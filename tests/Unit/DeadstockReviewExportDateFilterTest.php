@@ -89,6 +89,30 @@ class DeadstockReviewExportDateFilterTest extends TestCase
         $this->assertSame('ผู้ทดสอบ', $row[19]);
     }
 
+    public function test_detail_generator_preserves_rows_without_materializing_the_query(): void
+    {
+        $item = new DeadstockSnapshotItem([
+            'purchase_date' => '2026-07-01',
+            'partnumber' => 'PART-01',
+            'serialnumber' => 'SERIAL-01',
+            'current_qty' => 12.5,
+            'company' => 'MENAM',
+            'deadstock_code' => 'FF01',
+        ]);
+        $item->setRelation('review', null);
+        $item->setRelation('latestCompareLog', null);
+
+        $export = new DeadstockReviewExport();
+        (new ReflectionProperty($export, 'items'))->setValue($export, new Collection([$item]));
+
+        $rows = iterator_to_array($export->generator(), false);
+
+        $this->assertCount(1, $rows);
+        $this->assertCount(20, $rows[0]);
+        $this->assertSame('PART-01', $rows[0][1]);
+        $this->assertSame('SERIAL-01', $rows[0][3]);
+    }
+
     public function test_month_filter_becomes_stock_received_date_range(): void
     {
         $export = new DeadstockReviewExport([
@@ -289,6 +313,7 @@ class DeadstockReviewExportDateFilterTest extends TestCase
                 'salesperson' => 'คุณธัธลิญา',
                 'purchase_date' => '2026-06-23',
                 'partnumber' => 'PART-01',
+                'part_description' => 'Grating 25x5',
                 'qty' => 20,
                 'due_date' => '2026-06-29',
                 'revised_due_date' => '2026-08-31',
@@ -303,6 +328,7 @@ class DeadstockReviewExportDateFilterTest extends TestCase
                 'salesperson' => 'คุณธัธลิญา',
                 'purchase_date' => '2026-06-23',
                 'partnumber' => 'PART-01',
+                'part_description' => 'Grating 25x5',
                 'qty' => 5,
                 'due_date' => '2026-06-30',
                 'revised_due_date' => '2026-09-30',
@@ -317,6 +343,7 @@ class DeadstockReviewExportDateFilterTest extends TestCase
                 'salesperson' => 'คุณธัธลิญา',
                 'purchase_date' => '2026-06-24',
                 'partnumber' => 'PART-02',
+                'part_description' => 'Grating 32x5',
                 'qty' => 15,
                 'due_date' => '2026-06-30',
                 'revised_due_date' => '2026-09-30',
@@ -336,6 +363,7 @@ class DeadstockReviewExportDateFilterTest extends TestCase
         $this->assertSame(20.0, $groups[0]['problem_qty']);
         $this->assertCount(2, $groups[0]['rows']);
         $this->assertSame(25.0, $groups[0]['rows'][0]['qty']);
+        $this->assertSame('Grating 25x5', $groups[0]['rows'][0]['part_description']);
         $this->assertSame("29/06/2026\n30/06/2026", $groups[0]['rows'][0]['due_date']);
         $this->assertSame("31/08/2026\n30/09/2026", $groups[0]['rows'][0]['revised_due_date']);
         $this->assertSame("Customer A\nCustomer B", $groups[0]['rows'][0]['customer']);
@@ -351,6 +379,7 @@ class DeadstockReviewExportDateFilterTest extends TestCase
                 'salesperson' => 'คุณธัธลิญา',
                 'purchase_date' => '2026-06-23',
                 'partnumber' => 'PART-01',
+                'part_description' => 'Grating 25x5',
                 'qty' => 954.7,
                 'due_date' => '2026-06-29',
                 'revised_due_date' => '2026-08-31',
@@ -365,6 +394,7 @@ class DeadstockReviewExportDateFilterTest extends TestCase
                 'salesperson' => 'คุณธัธลิญา',
                 'purchase_date' => '2026-06-26',
                 'partnumber' => 'PART-02',
+                'part_description' => 'Grating 32x5',
                 'qty' => 508.2,
                 'due_date' => '2026-05-30',
                 'revised_due_date' => '2026-09-30',
@@ -394,8 +424,62 @@ class DeadstockReviewExportDateFilterTest extends TestCase
         $this->assertSame(954.7, $sheet->getCell('G4')->getValue());
         $this->assertSame('วันที่รับเข้า', $sheet->getCell('A6')->getValue());
         $this->assertSame('รายการ (Part)', $sheet->getCell('B6')->getValue());
+        $this->assertSame('รายละเอียด Part', $sheet->getCell('C6')->getValue());
         $this->assertSame('23/06/2026', $sheet->getCell('A7')->getValue());
         $this->assertSame('PART-01', $sheet->getCell('B7')->getValue());
+        $this->assertSame('Grating 25x5', $sheet->getCell('C7')->getValue());
+        $this->assertSame(954.7, $sheet->getCell('D7')->getValue());
+        $this->assertSame('K', $sheet->getHighestDataColumn());
+
+        $spreadsheet->disconnectWorksheets();
+    }
+
+    public function test_delivery_performance_can_skip_pdf_unused_cleared_item_list(): void
+    {
+        $report = $this->invokePrivate(new DeadstockReviewExport(), 'calculateDeliveryPerformance', [
+            new Collection([
+                $this->performanceItem('SS01', 10, '2026-07-31', '2026-07-20 08:00:00', 'SERIAL-01'),
+            ]),
+            Carbon::parse('2026-07-01'),
+            false,
+        ]);
+
+        $this->assertSame([], $report['cleared_item_list']);
+        $this->assertSame(1, $report['totals']['promised_items']);
+        $this->assertSame(1, $report['totals']['cleared_items']);
+    }
+
+    public function test_sales_items_sheet_includes_part_description(): void
+    {
+        $export = new DeadstockReviewExport();
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        $this->invokePrivate($export, 'writeSalesItemList', [
+            $sheet,
+            1,
+            'Sales Items',
+            [[
+                'salesperson' => 'Sales A',
+                'partnumber' => 'PART-01',
+                'part_description' => 'Grating 25x5',
+                'serialnumber' => 'SERIAL-01',
+                'customer' => 'Customer A',
+                'qty' => 12.5,
+                'revised_due_date' => '2026-08-31',
+                'reason_code' => 'SS17-2',
+                'reason_description' => 'Reason',
+                'snapshot_month' => '2026-06',
+            ]],
+            'FFE2F0D9',
+        ]);
+
+        $this->assertSame('Part', $sheet->getCell('C2')->getValue());
+        $this->assertSame('รายละเอียด Part', $sheet->getCell('D2')->getValue());
+        $this->assertSame('PART-01', $sheet->getCell('C3')->getValue());
+        $this->assertSame('Grating 25x5', $sheet->getCell('D3')->getValue());
+        $this->assertSame(12.5, $sheet->getCell('G3')->getValue());
+        $this->assertSame('K', $sheet->getHighestDataColumn());
 
         $spreadsheet->disconnectWorksheets();
     }

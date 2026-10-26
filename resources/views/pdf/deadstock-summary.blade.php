@@ -99,12 +99,15 @@
             padding: 4px 3px;
             font-size: 11px;
         }
+        .photo-summary th { background: #d3d3d3; }
     </style>
 </head>
 <body>
     @php
         $rows = $report['rows'] ?? [];
         $total = $report['totals'] ?? [];
+        $photoRows = $report['photo_summary']['rows'] ?? [];
+        $photoTotal = $report['photo_summary']['totals'] ?? [];
         $fmt = fn($value) => abs((float) $value) < 0.005 ? '0' : number_format((float) $value, 0);
         $pct = fn($value) => $value === null ? '-' : number_format((float) $value, 2) . '%';
         $reportDate = $report['report_date'] ?? now();
@@ -152,7 +155,7 @@
             @foreach ($rows as $row)
                 <tr>
                     <td>{{ $row['label'] }}</td>
-                    <td class="num">{{ $fmt($row['start_total'] ?? 0) }}</td>
+                    <td class="num">{{ ($row['start_total'] ?? null) === null ? '-' : $fmt($row['start_total']) }}</td>
                     <td class="num positive">{{ $fmt(data_get($row, 'sales.within_month', 0)) }}</td>
                     <td class="num danger">{{ $fmt(data_get($row, 'sales.problem', 0)) }}</td>
                     <td class="num">{{ $fmt(data_get($row, 'sales.total', 0)) }}</td>
@@ -165,7 +168,7 @@
             @endforeach
             <tr class="total-row">
                 <td>{{ $total['label'] ?? 'TOTAL(KGS)' }}</td>
-                <td class="num">{{ $fmt($total['start_total'] ?? 0) }}</td>
+                <td class="num">{{ ($total['start_total'] ?? null) === null ? '-' : $fmt($total['start_total']) }}</td>
                 <td class="num positive">{{ $fmt(data_get($total, 'sales.within_month', 0)) }}</td>
                 <td class="num danger">{{ $fmt(data_get($total, 'sales.problem', 0)) }}</td>
                 <td class="num">{{ $fmt(data_get($total, 'sales.total', 0)) }}</td>
@@ -180,7 +183,64 @@
 
     <div class="note">*งานปกติฝั่ง Sales หมายถึง WIP, Stock Grating, สินค้าที่ได้ส่งภายในเดือน</div>
     <div class="note">**งานปกติฝั่ง Factory หมายถึงงาน Stock FG, WIP, Stock Grating, สินค้าที่ได้ส่งภายในเดือน</div>
-    <div class="note">% ที่ลดลง = (Start TOTAL - Grand Total) / Start TOTAL และจะแสดง "-" เมื่อ Start TOTAL เป็น 0</div>
+    <div class="note">{{ $report['start_note'] ?? '% ที่ลดลง = (Start TOTAL - Grand Total) / Start TOTAL' }}</div>
+
+    <div class="page-break"></div>
+
+    <div class="title">FG Stock by Due Month</div>
+    <div class="meta">Snapshot {{ $report['photo_summary']['source_date'] ?? '-' }}</div>
+    <table class="photo-summary">
+        <thead>
+            <tr>
+                <th rowspan="2">วันรับเข้า Stock</th>
+                <th rowspan="2">งานที่ส่งภายในเดือน {{ $report['target_month']->month }} และ WIP</th>
+                <th colspan="7">มีปัญหาไม่ได้ส่งภายในเดือน {{ $report['target_month']->month }}</th>
+                <th rowspan="2">Total</th>
+            </tr>
+            <tr>
+                <th>ยังไม่ระบุกำหนดส่ง</th>
+                <th>เลยกำหนดส่ง</th>
+                <th>ส่งปี {{ $report['target_month']->year + 1 }}</th>
+                <th>ส่งเดือน {{ $report['target_month']->copy()->addMonths(3)->month }}</th>
+                <th>ส่งเดือน {{ $report['target_month']->copy()->addMonths(2)->month }}</th>
+                <th>ส่งเดือน {{ $report['target_month']->copy()->addMonth()->month }}</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($photoRows as $row)
+                <tr>
+                    <td>{{ $row['label'] }}</td>
+                    <td class="num">{{ $fmt($row['within_month']) }}</td>
+                    <td class="num danger">{{ $fmt($row['unscheduled']) }}</td>
+                    <td class="num danger">{{ $fmt($row['overdue']) }}</td>
+                    <td class="num danger">{{ $fmt($row['next_year']) }}</td>
+                    <td class="num danger">{{ $fmt($row['month_3']) }}</td>
+                    <td class="num danger">{{ $fmt($row['month_2']) }}</td>
+                    <td class="num danger">{{ $fmt($row['month_1']) }}</td>
+                    <td class="num danger">{{ $fmt($row['problem_total']) }}</td>
+                    <td class="num">{{ $fmt($row['total']) }}</td>
+                </tr>
+            @endforeach
+            <tr class="total-row">
+                <td>{{ $photoTotal['label'] ?? 'TOTAL(KGS)' }}</td>
+                <td class="num">{{ $fmt($photoTotal['within_month'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['unscheduled'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['overdue'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['next_year'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['month_3'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['month_2'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['month_1'] ?? 0) }}</td>
+                <td class="num danger">{{ $fmt($photoTotal['problem_total'] ?? 0) }}</td>
+                <td class="num">{{ $fmt($photoTotal['total'] ?? 0) }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="note">** ข้อมูลอ้างอิงจากเอกสาร Detail Dead Stock ที่อัพเดทในระบบ Menam Online</div>
+    <div class="note">* ยังไม่ระบุกำหนดส่ง หมายถึงไม่มีวันที่กำหนดส่งใน Detail Dead Stock และข้อมูลติดตาม</div>
+    <div>ข้อมูลจาก Snapshot วันที่ {{ $report['photo_summary']['source_date'] ?? '-' }} (ไม่รวมยอดซ้ำจากชุดก่อนหน้า)</div>
+
 
     <div class="page-break"></div>
 

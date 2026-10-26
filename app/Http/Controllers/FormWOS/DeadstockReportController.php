@@ -448,7 +448,7 @@ class DeadstockReportController extends Controller
 
     private function buildDeadstockSummaryReport(array $filters = []): array
     {
-        return (new DeadstockReviewExport($filters))->summaryReport();
+        return (new DeadstockReviewExport($filters))->summaryReport(false, true);
     }
 
     private function deadstockExportFilters(
