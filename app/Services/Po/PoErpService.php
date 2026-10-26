@@ -49,7 +49,6 @@ class PoErpService
     ];
 
     private static ?bool $poHeadersHasSiteColumn = null;
-    private static ?bool $usersHaveSignatureColumn = null;
 
     public function listOpenPos(
         ?string $department = null,
@@ -375,10 +374,6 @@ class PoErpService
             'h.created_at',
             'u.name as actor_name',
         ];
-        if ($this->usersHaveSignatureColumn()) {
-            $selects[] = 'u.signature_path';
-        }
-
         $logs = SqlServerDb::table('wf_action_histories as h')
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
@@ -416,10 +411,6 @@ class PoErpService
             'h.created_at',
             'u.name as actor_name',
         ];
-        if ($this->usersHaveSignatureColumn()) {
-            $selects[] = 'u.signature_path';
-        }
-
         $logs = SqlServerDb::table('wf_action_histories as h')
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
@@ -679,19 +670,6 @@ class PoErpService
 
     private function resolveSignaturePath(object $row): string
     {
-        $path = trim((string) ($row->signature_path ?? ''));
-
-        if ($path !== '') {
-            $normalized = preg_replace('#^/?storage/#', '', str_replace('\\', '/', $path));
-            if (is_string($normalized) && Storage::disk('public')->exists($normalized)) {
-                return $normalized;
-            }
-
-            if (Storage::disk('public')->exists($path)) {
-                return $path;
-            }
-        }
-
         $actorUserId = (int) ($row->actor_user_id ?? 0);
         if ($actorUserId > 0) {
             $fallback = "signatures/users/user_{$actorUserId}.png";
@@ -710,14 +688,5 @@ class PoErpService
         }
 
         return self::$poHeadersHasSiteColumn;
-    }
-
-    private function usersHaveSignatureColumn(): bool
-    {
-        if (self::$usersHaveSignatureColumn === null) {
-            self::$usersHaveSignatureColumn = Schema::connection('sqlsrv_menam')->hasColumn('users', 'signature_path');
-        }
-
-        return self::$usersHaveSignatureColumn;
     }
 }

@@ -4,14 +4,18 @@ namespace Tests\Unit;
 
 use App\Http\Controllers\Po\PoController;
 use App\Models\Po\PoAttached;
+use App\Models\Po\PoHeader;
+use App\Models\Users\User;
 use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Gate;
 use ReflectionMethod;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class PoMyActionsVisibilityTest extends TestCase
 {
@@ -96,5 +100,83 @@ class PoMyActionsVisibilityTest extends TestCase
         $filtered = (new PoErpService())->filterByDepartmentId($rows, 10);
 
         $this->assertSame(['PO001'], $filtered->pluck('ordnumber')->all());
+    }
+
+    public function test_tooling_engineer_in_rd_sees_only_tooling_rows(): void
+    {
+        $rows = new Collection([
+            (object) ['ordnumber' => 'PO001', 'department' => 'TOOLING - R&D'],
+            (object) ['ordnumber' => 'PO002', 'department' => 'ENGINEERING - R&D'],
+            (object) ['ordnumber' => 'PO003', 'department' => 'PURCHASE'],
+        ]);
+
+        $service = new PoErpService();
+        $filtered = $service->filterForDepartmentViewer($rows, 99, 'Tooling Engineer');
+
+        $this->assertSame(['PO001'], $filtered->pluck('ordnumber')->all());
+        $this->assertTrue(PoErpService::canDepartmentViewerAccess('TOOLING - R&D', 99, 'Tooling Engineer'));
+        $this->assertFalse(PoErpService::canDepartmentViewerAccess('ENGINEERING - R&D', 99, 'Tooling Engineer'));
+    }
+
+    public function test_department_tracking_detail_allows_only_the_users_department(): void
+    {
+        DB::connection('sqlsrv_menam')->table('departments')->insert([
+            ['id' => 10, 'code' => 'SH1', 'name' => 'Bar 1', 'is_active' => 1],
+            ['id' => 20, 'code' => 'P', 'name' => 'Purchase', 'is_active' => 1],
+        ]);
+
+        $user = new User();
+        $user->forceFill(['id' => 99, 'department_id' => 10]);
+        $this->actingAs($user);
+
+        $controller = new PoController(new PoErpService(), new PoAttachmentService(new PoAttached()));
+        $method = new ReflectionMethod($controller, 'ensureCurrentUserCanViewDepartmentPo');
+        $method->setAccessible(true);
+
+        $allowedPo = new PoHeader();
+        $allowedPo->f1 = 'BAR1 - Production';
+        $method->invoke($controller, $allowedPo);
+        $this->addToAssertionCount(1);
+
+        $blockedPo = new PoHeader();
+        $blockedPo->f1 = 'PURCHASE';
+
+        try {
+            $method->invoke($controller, $blockedPo);
+            $this->fail('A POV user must not open a PO from another department');
+        } catch (HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
+    }
+
+    public function test_pdf_override_permission_requires_pour(): void
+    {
+        Gate::shouldReceive('allows')->once()->with('POUR')->andReturnTrue();
+
+        $controller = new PoController(new PoErpService(), new PoAttachmentService(new PoAttached()));
+        $method = new ReflectionMethod($controller, 'canEditPdfOverrideForCurrentUser');
+        $method->setAccessible(true);
+
+        $this->assertTrue($method->invoke($controller));
+
+        $view = file_get_contents(resource_path('views/po/show.blade.php'));
+        $permissionGuard = strpos($view, '@if ($canEditPdfOverride)');
+        $pdfCard = strpos($view, '<div class="card po-pdf-edit-card');
+
+        $this->assertNotFalse($permissionGuard);
+        $this->assertNotFalse($pdfCard);
+        $this->assertLessThan($pdfCard, $permissionGuard);
+    }
+
+    public function test_head_of_department_cannot_delete_attachments(): void
+    {
+        $po = new PoHeader();
+        $po->status_code = 'DEPT_MANAGER_APPROVAL';
+
+        $controller = new PoController(new PoErpService(), new PoAttachmentService(new PoAttached()));
+        $method = new ReflectionMethod($controller, 'canDeleteAttachment');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke($controller, $po));
     }
 }

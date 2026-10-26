@@ -24,7 +24,8 @@ class PoNeedsApprovalMail extends Mailable
             ? "เรียนคุณ {$this->approverName} มีเอกสาร PO รออนุมัติ {$firstPoNo}"
             : "เรียนคุณ {$this->approverName} มีเอกสาร PO รออนุมัติ {$count} รายการ";
 
-        return $this->subject($subject)
+        return $this->from(config('mail.from.address'), 'Menam PO Online')
+            ->subject($subject)
             ->view('emails.po.needs_approval');
     }
 }

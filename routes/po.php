@@ -24,6 +24,24 @@ Route::middleware(['auth', 'permission.any:POV'])
             ->name('departmentTracking.show');
     });
 
+Route::middleware(['auth', 'permission.any:POV'])
+    ->prefix('po')
+    ->name('po.')
+    ->group(function () {
+        Route::get('/department-tracking', [PoController::class, 'departmentTracking'])->name('departmentTracking');
+        Route::get('/department-tracking/{id}/attachments/{attachmentId}', [PoController::class, 'departmentTrackingAttachment'])
+            ->whereNumber('id')
+            ->whereNumber('attachmentId')
+            ->name('departmentTracking.attachments.show');
+        Route::get('/department-tracking/erp/{source}/{ordnumber}', [PoController::class, 'departmentTrackingErpShow'])
+            ->whereIn('source', ['wire', 'plus'])
+            ->where('ordnumber', 'POR?[0-9]+')
+            ->name('departmentTracking.erp.show');
+        Route::get('/department-tracking/{id}', [PoController::class, 'departmentTrackingShow'])
+            ->whereNumber('id')
+            ->name('departmentTracking.show');
+    });
+
 Route::middleware(['auth', 'permission.any:PO,POPUR'])
     ->prefix('po')
     ->name('po.')

@@ -15,6 +15,8 @@ return [
 
     'default' => env('QUEUE_CONNECTION', 'sync'),
 
+    'po_mail_enabled' => env('PO_MAIL_QUEUE_ENABLED', false),
+
     /*
     |--------------------------------------------------------------------------
     | Queue Connections
@@ -29,6 +31,15 @@ return [
     */
 
     'connections' => [
+
+        'po-mail' => [
+            'driver' => 'database',
+            'connection' => 'sqlsrv_menam',
+            'table' => 'po_mail_jobs',
+            'queue' => 'po-mail',
+            'retry_after' => 900,
+            'after_commit' => true,
+        ],
 
         'sync' => [
             'driver' => 'sync',

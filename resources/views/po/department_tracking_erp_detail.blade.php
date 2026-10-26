@@ -44,7 +44,14 @@
             <div class="table-responsive">
                 <table class="table table-bordered align-middle mb-0">
                     <thead class="table-light">
-                        <tr><th class="text-center">NO.</th><th>Description</th><th class="text-end">Qty</th><th class="text-center">UOM</th><th class="text-end">Unit Cost</th><th class="text-end">Extended Price</th></tr>
+                        <tr>
+                            <th class="text-center">NO.</th>
+                            <th>Description</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-center">UOM</th>
+                            <th class="text-end">Unit Cost</th>
+                            <th class="text-end">Extended Price</th>
+                        </tr>
                     </thead>
                     <tbody>
                         @foreach ($detailRows as $index => $row)

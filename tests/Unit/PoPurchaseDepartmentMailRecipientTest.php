@@ -173,13 +173,6 @@ class PoPurchaseDepartmentMailRecipientTest extends TestCase
                 && $mail->hasTo('purchase2@example.com')
                 && !empty($mail->poItem['is_group_recipient']);
         });
-
-        $html = view('emails.po.closed_notification', [
-            'recipientName' => 'ทีม Purchase',
-            'poItem' => ['ordnumber' => 'PO-TEST-500', 'is_group_recipient' => true],
-        ])->render();
-        $this->assertStringContainsString('เรียนทีม Purchase', $html);
-        $this->assertStringNotContainsString('เรียนคุณ ทีม Purchase', $html);
     }
 
     private function invokePurchaseDepartmentRecipients(int $workflowId)

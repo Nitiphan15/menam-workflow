@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
+use App\Services\Po\PoErpPdfDownloader;
 use setasign\Fpdi\Fpdi;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -65,6 +65,7 @@ class PoExportController extends Controller
         }
 
         session(['po_erp_phpsessid' => $sessionId]);
+        session()->forget('po_erp_reconnect_required');
 
         return back()->with('ok', 'ERP session saved for this login.');
     }
@@ -108,6 +109,7 @@ class PoExportController extends Controller
         }
 
         session(['po_erp_phpsessid' => $sessionId]);
+        session()->forget('po_erp_reconnect_required');
 
         return back()->with('ok', 'ERP connected for this login. Download PDF will verify access.');
     }
@@ -266,53 +268,15 @@ class PoExportController extends Controller
     private function downloadErpPdf(PoHeader $po, string $targetPath): void
     {
         $url = $this->erpPdfUrl($po);
-        $request = Http::withOptions(['verify' => false])
-            ->timeout((int) config('services.erp.timeout', 30));
-
         $sessionId = $this->erpSessionId();
-        abort_if(!$sessionId, 422, 'Please save your ERP PHPSESSID before downloading PO PDF');
+        abort_if(!$sessionId, 422, 'Please connect ERP before downloading PO PDF');
 
-        if ($sessionId) {
-            $request = $request->withCookies(
-                ['PHPSESSID' => $sessionId],
-                parse_url((string) config('services.erp.base_url'), PHP_URL_HOST) ?: ''
-            );
-        }
-
-        $response = $request->get($url);
-        $body = $response->body();
-
-        if (!$response->successful()) {
-            throw ValidationException::withMessages([
-                'erp_phpsessid' => 'Cannot download PO PDF from ERP. Please connect ERP again.',
-            ]);
-        }
-
-        if (!str_starts_with(ltrim($body), '%PDF')) {
-            $this->logUnexpectedErpPdfResponse($po, $url, $response->status(), $response->header('Content-Type', ''), $body);
-            session()->forget('po_erp_phpsessid');
-
-            throw ValidationException::withMessages([
-                'erp_phpsessid' => 'ERP session is invalid or expired. Please connect ERP again.',
-            ]);
-        }
-
-        File::put($targetPath, $body);
-    }
-
-    private function logUnexpectedErpPdfResponse(PoHeader $po, string $url, int $status, string $contentType, string $body): void
-    {
-        $sample = preg_replace('/\s+/', ' ', strip_tags(substr($body, 0, 1000)));
-
-        Log::warning('ERP PO PDF response was not a PDF', [
+        $body = app(PoErpPdfDownloader::class)->download($url, $sessionId, [
             'po_id' => $po->id,
             'ordnumber' => $po->ordnumber,
             'site' => $po->site,
-            'url' => $url,
-            'status' => $status,
-            'content_type' => $contentType,
-            'body_sample' => $sample,
         ]);
+        File::put($targetPath, $body);
     }
 
     private function inspectPdfFonts(string $pdfPath, PoHeader $po): array
@@ -344,6 +308,10 @@ class PoExportController extends Controller
 
     private function erpSessionId(): ?string
     {
+        if (session('po_erp_reconnect_required', false)) {
+            return null;
+        }
+
         $sessionId = trim((string) session('po_erp_phpsessid', ''));
 
         return $sessionId !== '' ? $sessionId : config('services.erp.phpsessid');
@@ -1005,19 +973,29 @@ class PoExportController extends Controller
         $this->overlaySignatureSlot($pdf, $authorizedBy, 0.43 * $pageWidth, 0.878 * $pageHeight, 0.20 * $pageWidth, 0.041 * $pageHeight, 0.955 * $pageHeight, $tempImages);
     }
 
-    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null): void
+    private function overlaySignatureSlot(Fpdi $pdf, ?object $signature, float $x, float $y, float $width, float $height, float $dateY, array &$tempImages, ?float $dateX = null, ?float $dateWidth = null, float $strokeBoost = 0, bool $trimTransparent = false): void
     {
         if (!$signature || empty($signature->signature_data_uri)) {
             return;
         }
 
-        $imagePath = $this->signatureTempImage((string) $signature->signature_data_uri);
+        $imagePath = $this->signatureTempImage((string) $signature->signature_data_uri, $trimTransparent);
         if (!$imagePath) {
             return;
         }
 
         $tempImages[] = $imagePath;
         [$imageX, $imageY, $imageWidth, $imageHeight] = $this->signatureImageBox($imagePath, $x, $y, $width, $height);
+        if ($strokeBoost > 0) {
+            $diagonalBoost = $strokeBoost * 0.7;
+            foreach ([
+                [-$strokeBoost, 0], [$strokeBoost, 0], [0, -$strokeBoost], [0, $strokeBoost],
+                [-$diagonalBoost, -$diagonalBoost], [$diagonalBoost, -$diagonalBoost],
+                [-$diagonalBoost, $diagonalBoost], [$diagonalBoost, $diagonalBoost],
+            ] as [$offsetX, $offsetY]) {
+                $pdf->Image($imagePath, $imageX + $offsetX, $imageY + $offsetY, $imageWidth, $imageHeight, 'PNG');
+            }
+        }
         $pdf->Image($imagePath, $imageX, $imageY, $imageWidth, $imageHeight, 'PNG');
 
         if (!empty($signature->created_at)) {
@@ -1052,7 +1030,7 @@ class PoExportController extends Controller
         ];
     }
 
-    private function signatureTempImage(string $dataUri): ?string
+    private function signatureTempImage(string $dataUri, bool $trimTransparent = false): ?string
     {
         if (!preg_match('/^data:image\/png;base64,(.+)$/', $dataUri, $matches)) {
             return null;
@@ -1063,10 +1041,77 @@ class PoExportController extends Controller
             return null;
         }
 
+        if ($trimTransparent) {
+            $trimmed = $this->trimTransparentSignaturePng($contents);
+            if ($trimmed !== false) {
+                $contents = $trimmed;
+            }
+        }
+
         $path = storage_path('app/tmp/po-pdf/' . Str::uuid() . '-signature.png');
         File::put($path, $contents);
 
         return $path;
+    }
+
+    private function trimTransparentSignaturePng(string $contents): string|false
+    {
+        $image = @imagecreatefromstring($contents);
+        if (!$image) {
+            return false;
+        }
+
+        $width = imagesx($image);
+        $height = imagesy($image);
+        $minX = $width;
+        $minY = $height;
+        $maxX = -1;
+        $maxY = -1;
+
+        for ($y = 0; $y < $height; $y++) {
+            for ($x = 0; $x < $width; $x++) {
+                $alpha = (imagecolorat($image, $x, $y) >> 24) & 0x7F;
+                if ($alpha >= 120) {
+                    continue;
+                }
+
+                $minX = min($minX, $x);
+                $minY = min($minY, $y);
+                $maxX = max($maxX, $x);
+                $maxY = max($maxY, $y);
+            }
+        }
+
+        if ($maxX < $minX || $maxY < $minY) {
+            imagedestroy($image);
+            return false;
+        }
+
+        $padding = 4;
+        $cropX = max(0, $minX - $padding);
+        $cropY = max(0, $minY - $padding);
+        $cropWidth = min($width - $cropX, ($maxX - $minX + 1) + ($padding * 2));
+        $cropHeight = min($height - $cropY, ($maxY - $minY + 1) + ($padding * 2));
+        $cropped = imagecrop($image, [
+            'x' => $cropX,
+            'y' => $cropY,
+            'width' => $cropWidth,
+            'height' => $cropHeight,
+        ]);
+        imagedestroy($image);
+
+        if (!$cropped) {
+            return false;
+        }
+
+        imagealphablending($cropped, false);
+        imagesavealpha($cropped, true);
+        ob_start();
+        imagepng($cropped, null, 6);
+        $png = ob_get_clean();
+        imagedestroy($cropped);
+
+        return $png === false ? false : $png;
     }
 
     private function safePdfFileName(string $fileName): string

@@ -11,6 +11,7 @@ use App\Models\WF\WfForm;
 use App\Models\WF\WfFormAuthorize;
 use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
+use App\Services\Po\PoNotificationDispatcher;
 use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
@@ -300,7 +301,8 @@ class PoApprovalController extends Controller
                 $request->file('files', []),
                 [],
                 (int) auth()->id(),
-                $stepBeforeApprove === 3,
+                keepOriginalName: $stepBeforeApprove === 3,
+                workflowStepNo: $stepBeforeApprove,
             );
         }
 
@@ -514,7 +516,7 @@ class PoApprovalController extends Controller
             $stepNo = (int) ($po->workflow?->current_step_no ?? 0);
 
             foreach ($this->workflowSubmitterRecipients($po) as $recipient) {
-                Mail::to($recipient->email)->bcc(self::PO_MAIL_BCC)->send(new PoSubmittedNotificationMail(
+                app(PoNotificationDispatcher::class)->send($recipient->email, self::PO_MAIL_BCC, new PoSubmittedNotificationMail(
                     recipientName: (string) ($recipient->name ?: 'Submitter'),
                     poItem: [
                         'ordnumber' => $po->ordnumber,

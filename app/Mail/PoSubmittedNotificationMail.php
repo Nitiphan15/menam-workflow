@@ -20,7 +20,8 @@ class PoSubmittedNotificationMail extends Mailable
     {
         $subject = 'PO submitted: ' . ($this->poItem['ordnumber'] ?? '-');
 
-        return $this->subject($subject)
+        return $this->from(config('mail.from.address'), 'Menam PO Online')
+            ->subject($subject)
             ->view('emails.po.submitted_notification');
     }
 }

@@ -20,7 +20,8 @@ class PoClosedNotificationMail extends Mailable
     {
         $subject = 'แจ้งปิดงาน PO ' . ($this->poItem['ordnumber'] ?? '-');
 
-        return $this->subject($subject)
+        return $this->from(config('mail.from.address'), 'Menam PO Online')
+            ->subject($subject)
             ->view('emails.po.closed_notification');
     }
 }
