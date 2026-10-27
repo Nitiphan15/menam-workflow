@@ -9,7 +9,7 @@ class StockWithdrawalPlan extends Model
     protected $connection = 'sqlsrv_menam';
     protected $table = 'stock_withdrawal_plans';
     protected $guarded = [];
-    protected $casts = ['delivery_date' => 'date', 'production_date' => 'date', 'quantity' => 'decimal:4'];
+    protected $casts = ['delivery_date' => 'date', 'original_delivery_date' => 'date', 'production_date' => 'date', 'quantity' => 'decimal:4', 'cancelled_at' => 'datetime', 'plan_section' => 'integer'];
 
     public function items() { return $this->hasMany(StockWithdrawalPlanItem::class); }
 }

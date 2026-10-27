@@ -21,11 +21,10 @@ class StockWithdrawalService
         }
         $standards = $this->standardsFor($rows->pluck('partnumber')->all(), $asOf);
 
-        $rows = $rows->map(function ($row) use ($standards, $asOf, $filters) {
+        $rows = $rows->map(function ($row) use ($standards, $asOf) {
             $key = $row->site.'|'.$row->partnumber;
             $standard = $standards->get($key) ?? $standards->get('ALL|'.$row->partnumber);
-            $calculated = $this->calculateRow((array) $row, $standard ? (array) $standard : null, $asOf);
-            return ($filters['mode'] ?? 'mock') === 'mock' ? $this->applyMockRisk($calculated, $asOf) : $calculated;
+            return $this->calculateRow((array) $row, $standard ? (array) $standard : null, $asOf);
         })->filter(function (array $row) use ($filters) {
             if (!empty($filters['status']) && $row['withdrawal_status'] !== $filters['status']) return false;
             if (!empty($filters['risk']) && $row['risk_code'] !== $filters['risk']) return false;
@@ -84,7 +83,7 @@ class StockWithdrawalService
             'risk_code' => $riskCode, 'risk_label' => $riskLabel, 'risk_rank' => $riskRank,
             'responsible_name' => $standard['responsible_name'] ?? null,
             'responsible_email' => $standard['responsible_email'] ?? null,
-            'required_qty_source' => $row['required_qty_source'] ?? 'MOCK',
+            'required_qty_source' => $row['required_qty_source'] ?? 'BOM_OR_WORKORDER',
             'over_issued_qty' => max(0, round($issued - $required, 4)),
         ];
     }
@@ -125,22 +124,6 @@ class StockWithdrawalService
         return $rows->unique('value')->take(20)->values();
     }
 
-    private function applyMockRisk(array $row, Carbon $asOf): array
-    {
-        $variants = [
-            ['RED', 'เกินกำหนดเบิก 2 วัน', 4, -2],
-            ['ORANGE', 'ควรเบิกวันนี้', 3, 0],
-            ['YELLOW', 'ใกล้ถึงกำหนดเบิก', 2, 1],
-            ['GREEN', 'ยังไม่ถึงกำหนด', 0, 7],
-        ];
-        [$code, $label, $rank, $offset] = $variants[abs(crc32($row['site'].'|'.$row['mfg'].'|'.$row['partnumber'])) % 4];
-        return array_merge($row, [
-            'risk_code' => $code, 'risk_label' => $label.' (MOCK)', 'risk_rank' => $rank,
-            'withdraw_date' => $asOf->copy()->addDays($offset)->toDateString(),
-            'standard_days' => $row['standard_days'] ?? 5, 'mock_risk' => true,
-        ]);
-    }
-
     public function issueDetails(string $site, int $workorderId, int $partsId): Collection
     {
         $connection = self::MFG_CONNECTIONS[strtoupper($site)] ?? null;
@@ -175,7 +158,7 @@ class StockWithdrawalService
                    UPPER(TRIM(p.partnumber)) AS partnumber, p.description,
                    wo.reqdate::date AS due_date,
                    COALESCE(NULLIF(bom.required_qty, 0), NULLIF(wo.qty, 0), 1) AS required_qty,
-                   'MOCK'::text AS required_qty_source,
+                   'BOM_OR_WORKORDER'::text AS required_qty_source,
                    bom.parts_id,
                    COALESCE(issued.issued_qty, 0) AS issued_qty,
                    issued.first_issued_at, issued.last_issued_at

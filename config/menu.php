@@ -7,12 +7,13 @@ return [
     ],
 
     'show_guest_menu_when_auth' => true,
-    'hide_guest_menu_routes_when_auth' => ['login'],
+    'hide_guest_menu_routes_when_auth' => ['login', 'stock-withdrawal.part-alert'],
 
     'menu' => [
         'guest' => [
             ['icon' => 'fa-solid fa-house',            'text' => 'หน้าหลัก', 'route' => 'home'],
             ['icon' => 'fa-solid fa-right-to-bracket', 'text' => 'เข้าสู่ระบบ', 'route' => 'login'],
+            ['icon' => 'fa-solid fa-chart-line',        'text' => 'ติดตามสถานะการผลิต', 'route' => 'stock-withdrawal.part-alert'],
             ['icon' => 'fa-solid fa-sitemap', 'text' => 'Organization', 'route' => 'organization.index'],
             ['icon' => 'fa-box', 'text' => 'Packaging',  'route' => 'pkg.packaging.usage'],
 
@@ -157,11 +158,10 @@ return [
             [
                 'icon' => 'fa-boxes-stacked',
                 'text' => 'แจ้งเตือนการเบิก Stock',
-                'permission' => ['STOCK', 'STOCK_ADMIN'],
                 'children' => [
-                    ['icon' => 'fa-table-list', 'text' => 'รายการที่ต้องเบิก', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK', 'STOCK_ADMIN']],
-                    ['icon' => 'fa-industry', 'text' => 'MFG ที่กำลังผลิต', 'route' => 'stock-withdrawal.all-mfg', 'permission' => ['STOCK', 'STOCK_ADMIN']],
-                    ['icon' => 'fa-sliders', 'text' => 'Part Group และ Lead Time', 'route' => 'stock-withdrawal.types.index', 'permission' => 'STOCK_ADMIN'],
+                    ['icon' => 'fa-table-list', 'text' => 'แผนเบิกงาน', 'route' => 'stock-withdrawal.index', 'permission' => ['STOCK_ACTION', 'STOCK_ADMIN']],
+                    ['icon' => 'fa-chart-line', 'text' => 'ติดตามสถานะการผลิต', 'route' => 'stock-withdrawal.part-alert'],
+                    ['icon' => 'fa-industry', 'text' => 'งานที่ผลิตทั้งหมด', 'route' => 'stock-withdrawal.all-mfg', 'permission' => ['STOCK', 'STOCK_ACTION', 'STOCK_ADMIN']],
                 ],
             ],
         ],

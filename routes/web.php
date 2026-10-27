@@ -244,21 +244,39 @@ Route::prefix('/risk')
 
 Route::prefix('/stock-withdrawal')
   ->name('stock-withdrawal.')
-  ->middleware(['auth', 'permission.any:STOCK,STOCK_ADMIN'])
+  ->middleware('auth')
   ->group(function () {
-    Route::get('/', [StockWithdrawalPlanController::class, 'index'])->name('index');
-    Route::get('/create', [StockWithdrawalPlanController::class, 'create'])->name('create');
-    Route::get('/mfg-search', [MfgLookupController::class, 'byStockWithdrawalMFG'])->name('mfg-search');
-    Route::get('/mfg/{site}/{workorderId}/bom', [StockWithdrawalPlanController::class, 'bom'])
-      ->whereIn('site', ['WIRE', 'PLUS'])->whereNumber('workorderId')->name('mfg-bom');
-    Route::post('/plans', [StockWithdrawalPlanController::class, 'store'])->name('plans.store');
-    Route::get('/all-mfg', [StockWithdrawalPlanController::class, 'allMfg'])->name('all-mfg');
-    Route::get('/all-mfg/export', [StockWithdrawalPlanController::class, 'export'])->name('all-mfg.export');
+    Route::get('/managed', fn () => redirect()->route('stock-withdrawal.part-alert'))->name('managed');
     Route::get('/part-alert', [StockWithdrawalController::class, 'index'])->name('part-alert');
     Route::get('/part-alert/export', [StockWithdrawalController::class, 'export'])->name('export');
+    Route::post('/part-alert/refresh-erp', [StockWithdrawalController::class, 'refreshSnapshots'])->name('refresh-erp');
     Route::get('/issues', [StockWithdrawalController::class, 'issues'])->name('issues');
-    Route::get('/suggest/{type}', [StockWithdrawalController::class, 'suggest'])->whereIn('type', ['mfg', 'part'])->name('suggest');
+    Route::get('/items/{item}/history', [StockWithdrawalController::class, 'history'])->name('items.history');
+
+    Route::middleware('permission.any:STOCK,STOCK_ACTION,STOCK_ADMIN')->group(function () {
+      Route::get('/all-mfg', [StockWithdrawalPlanController::class, 'allMfg'])->name('all-mfg');
+      Route::get('/all-mfg/export', [StockWithdrawalPlanController::class, 'export'])->name('all-mfg.export');
+      Route::get('/suggest/{type}', [StockWithdrawalController::class, 'suggest'])->whereIn('type', ['mfg', 'part'])->name('suggest');
+    });
+
+    Route::middleware('permission.any:STOCK_ACTION,STOCK_ADMIN')->group(function () {
+      Route::get('/', [StockWithdrawalPlanController::class, 'index'])->name('index');
+      Route::get('/create', [StockWithdrawalPlanController::class, 'create'])->name('create');
+      Route::get('/mfg-search', [MfgLookupController::class, 'byStockWithdrawalMFG'])->name('mfg-search');
+      Route::get('/mfg/{site}/{workorderId}/bom', [StockWithdrawalPlanController::class, 'bom'])
+        ->whereIn('site', ['WIRE', 'PLUS'])->whereNumber('workorderId')->name('mfg-bom');
+      Route::post('/plans', [StockWithdrawalPlanController::class, 'store'])->name('plans.store');
+      Route::post('/plans/{plan}/cancel', [StockWithdrawalPlanController::class, 'cancel'])->name('plans.cancel');
+      Route::put('/items/{item}', [StockWithdrawalPlanController::class, 'updateItem'])->name('items.update');
+      Route::post('/items/close', [StockWithdrawalPlanController::class, 'closeItems'])->name('items.close');
+      Route::post('/items/reorder', [StockWithdrawalPlanController::class, 'reorderItems'])->name('items.reorder');
+      Route::post('/items/{item}/special', [StockWithdrawalPlanController::class, 'updateSpecial'])->name('items.special');
+      Route::post('/send-mail', [StockWithdrawalPlanController::class, 'sendMail'])->name('send-mail');
+      Route::post('/send-special-mail', [StockWithdrawalPlanController::class, 'sendSpecialMail'])->name('send-special-mail');
+    });
     Route::middleware('permission.any:STOCK_ADMIN')->group(function () {
+      Route::post('/items/reopen', [StockWithdrawalPlanController::class, 'reopenItems'])->name('items.reopen');
+      Route::post('/plans/{plan}/reopen-cancelled', [StockWithdrawalPlanController::class, 'reopenCancelledPlan'])->name('plans.reopen-cancelled');
       Route::get('/standards', [StockWithdrawalStandardController::class, 'index'])->name('master.index');
       Route::post('/standards', [StockWithdrawalStandardController::class, 'store'])->name('master.store');
       Route::put('/standards/{standard}', [StockWithdrawalStandardController::class, 'update'])->name('master.update');

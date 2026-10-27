@@ -1,51 +1,162 @@
 @extends('layouts.layout')
-@section('title','แผนรายการเบิก')
-@section('page-title','แผนรายการเบิก')
+@section('title','แผนเบิกงาน')
+@section('page-title','แผนเบิกงาน')
 @section('content')
+<style>
+    .planner-action-table { min-width: 1720px; }
+    .planner-action-table thead th { white-space: nowrap; vertical-align: middle; }
+    .planner-action-table td { vertical-align: middle; }
+    .planner-action-table .col-work-center { min-width: 170px; max-width: 230px; }
+    .planner-action-table .col-customer { min-width: 210px; max-width: 280px; overflow-wrap: anywhere; }
+    .planner-action-table .col-note { min-width: 150px; max-width: 220px; overflow-wrap: anywhere; }
+    .planner-action-table .col-action { min-width: 155px; }
+    .planner-action-btn { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 32px; padding: 0; flex: 0 0 auto; }
+    .planner-action-table .queue-handle { cursor: grab; user-select: none; }
+    .planner-action-table .queue-handle:active { cursor: grabbing; }
+</style>
+@php $listRoute = 'stock-withdrawal.index'; @endphp
 <div class="container-fluid py-3">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <div><h4 class="mb-1">รายการที่ต้องเบิก</h4><div class="text-muted">แสดงแยกตาม BOM Part และเรียงงานเสี่ยงสุดก่อน</div></div>
-        <div><a href="{{ route('stock-withdrawal.all-mfg') }}" class="btn btn-outline-primary">ดู MFG ทั้งหมด</a> <a href="{{ route('stock-withdrawal.create') }}" class="btn btn-primary">+ เพิ่มแผน</a></div>
+        <div><h4 class="mb-0">แผนเบิกงาน</h4><div class="small text-muted">ยอด ERP ล่าสุด {{ $refreshedAt->format('d/m/Y H:i:s') }}</div></div>
+        <div class="d-flex gap-2">@unless($readOnly)<form method="POST" action="{{ route('stock-withdrawal.send-mail') }}" id="send-stock-mail-form">@csrf<input type="hidden" name="date_from" value="{{ $filters['date_from'] ?? now('Asia/Bangkok')->toDateString() }}"><input type="hidden" name="date_to" value="{{ $filters['date_to'] ?? $filters['date_from'] ?? now('Asia/Bangkok')->toDateString() }}"><button class="btn btn-success">ส่งเมล</button></form><button type="button" class="btn btn-danger" id="send-special-mail">ส่งเมลด่วน</button>@endunless @if($readOnly)<a href="{{ route('stock-withdrawal.index') }}" class="btn btn-outline-primary">กลับหน้าจัดการ</a>@else<a href="{{ route('stock-withdrawal.all-mfg') }}" class="btn btn-outline-primary">งานที่ผลิตทั้งหมด</a><a href="{{ route('stock-withdrawal.create') }}" class="btn btn-primary">+ เพิ่มแผน</a>@endif</div>
     </div>
     @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
+    @if($errors->has('mail'))<div class="alert alert-danger">{{ $errors->first('mail') }}</div>@endif
+    @if($mailLogs->isNotEmpty())
+        @php $mailLogPreviewLimit=5; $mailLogHasMore=$mailLogs->count()>$mailLogPreviewLimit; @endphp
+        <div class="alert alert-info py-2 mb-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+                <div class="fw-semibold"><i class="fas fa-envelope-circle-check me-1"></i>ประวัติส่งเมลแจ้งเบิก</div>
+                <div class="d-flex align-items-center gap-2"><span class="badge bg-info text-dark">ล่าสุด {{ $mailLogs->count() }} ครั้ง</span>@if($mailLogHasMore)<button type="button" class="btn btn-sm btn-link p-0 text-decoration-none collapsed" data-bs-toggle="collapse" data-bs-target="#stockMailLogsMore" aria-expanded="false"><i class="fas fa-chevron-down me-1"></i>แสดงทั้งหมด</button>@endif</div>
+            </div>
+            <ul class="mb-0 small ps-3">
+            @foreach($mailLogs as $index=>$log)
+                @php
+                    $payload=json_decode($log->payload??'{}',true)?:[]; $dates=$payload['dates']??[];
+                    $dateText=$dates ? (count($dates)>1 ? \Carbon\Carbon::parse($dates[0])->format('d/m/Y').'–'.\Carbon\Carbon::parse(end($dates))->format('d/m/Y') : \Carbon\Carbon::parse($dates[0])->format('d/m/Y')) : null;
+                @endphp
+                @if($index===$mailLogPreviewLimit)</ul><ul class="mb-0 small ps-3 collapse" id="stockMailLogsMore">@endif
+                <li class="mb-1"><span class="fw-semibold">{{ \Carbon\Carbon::parse($log->run_at)->format('d/m/Y H:i') }}</span><span class="badge ms-1 {{ $log->mail_type==='SPECIAL'?'bg-danger':'bg-secondary' }}">{{ $log->mail_type==='SPECIAL'?'เมลด่วน':'เมลแจ้งเบิก' }}</span><span class="badge ms-1 {{ $log->status==='SENT'?'bg-success':'bg-danger' }}">{{ $log->status==='SENT'?'ส่งสำเร็จ':'ส่งไม่สำเร็จ' }}</span><span class="text-muted ms-1">{{ number_format($log->item_count) }} รายการ · โดย {{ $log->sent_by_username }} · ถึง {{ $log->recipient }}</span>@if($dateText)<span class="text-muted"> · คิว {{ $dateText }}</span>@endif @if($log->status!=='SENT'&&$log->error_message)<span class="text-danger" title="{{ $log->error_message }}"> · ดูข้อผิดพลาด</span>@endif</li>
+            @endforeach
+            </ul>
+        </div>
+    @endif
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        @foreach(['today'=>'วันนี้','backlog'=>'งานค้าง','special'=>'Special','overdue'=>'เลยกำหนด'] as $key=>$label)
+            <a class="btn btn-sm {{ ($filters['quick']??'')===$key?'btn-primary':'btn-outline-primary' }}" href="{{ route($listRoute,array_merge(request()->except('page','quick','date_from','date_to'),['quick'=>$key,'date_from'=>now('Asia/Bangkok')->toDateString(),'date_to'=>now('Asia/Bangkok')->toDateString()])) }}">{{ $label }}</a>
+        @endforeach
+        <span class="border-start mx-1"></span>
+        @foreach(['WIRE'=>'WIRE','PLUS'=>'PLUS'] as $site=>$label)
+            <a class="btn btn-sm {{ ($filters['site']??'')===$site?'btn-dark':'btn-outline-dark' }}" href="{{ route($listRoute,array_merge(request()->except('page','site'),['site'=>$site])) }}">{{ $label }}</a>
+        @endforeach
+        @if(!empty($filters['site']))<a class="btn btn-sm btn-outline-secondary" href="{{ route($listRoute,request()->except('page','site')) }}">ทุกโรงงาน</a>@endif
+        <a class="btn btn-sm btn-outline-success" href="{{ route($listRoute,request()->except('page')) }}">อัปเดตยอดเบิก</a>
+    </div>
+    <div class="nav nav-pills mb-3"><a class="nav-link {{ empty($filters['section'])?'active':'' }}" href="{{ route($listRoute,array_merge(request()->except('section','page'))) }}">ทั้งหมด</a><a class="nav-link {{ ($filters['section']??'')==='1'?'active':'' }}" href="{{ route($listRoute,array_merge(request()->except('page'),['section'=>1])) }}">RM / กัดกรด</a><a class="nav-link {{ ($filters['section']??'')==='2'?'active':'' }}" href="{{ route($listRoute,array_merge(request()->except('page'),['section'=>2])) }}">FG / NCR / S</a></div>
     <form class="card card-body border-0 shadow-sm mb-3">
         <div class="row g-2 align-items-end">
-            <div class="col-md-2"><label>วันต้องเบิก</label><input type="date" name="date" value="{{ $filters['date']??'' }}" class="form-control"></div>
-            <div class="col-md-2"><label>โรงงาน</label><select name="site" class="form-select"><option value="">ทั้งหมด</option>@foreach(['WIRE','PLUS'] as $value)<option @selected(($filters['site']??'')===$value)>{{ $value }}</option>@endforeach</select></div>
-            <div class="col-md-2"><label>กลุ่ม Part</label><select name="type" class="form-select"><option value="">ทั้งหมด</option>@foreach($types as $type)<option value="{{ $type->code }}" @selected(($filters['type']??'')===$type->code)>{{ $type->name }}</option>@endforeach</select></div>
+            <div class="col-md-2"><label>วันที่เข้าคิว ตั้งแต่</label><input type="date" name="date_from" value="{{ $filters['date_from']??'' }}" class="form-control"></div>
+            <div class="col-md-2"><label>ถึงวันที่</label><input type="date" name="date_to" value="{{ $filters['date_to']??'' }}" class="form-control"></div><input type="hidden" name="section" value="{{ $filters['section']??'' }}">
+            <div class="col-md-2"><label>ประเภทงาน</label><select name="type" class="form-select"><option value="">ทั้งหมด</option>@foreach($jobTypes as $code=>$type)<option value="{{ $code }}" @selected(($filters['type']??'')===$code)>{{ $type['name'] }}</option>@endforeach</select></div>
             <div class="col-md-2"><label>MFG</label><input name="mfg" value="{{ $filters['mfg']??'' }}" class="form-control"></div>
-            <div class="col-md-2"><label>เรียงตาม</label><select name="sort" class="form-select"><option value="risk" @selected(($filters['sort']??'risk')==='risk')>เสี่ยงสุดก่อน</option><option value="withdraw_date" @selected(($filters['sort']??'')==='withdraw_date')>วันที่ต้องเบิก</option><option value="delivery_date" @selected(($filters['sort']??'')==='delivery_date')>วันส่งมอบ</option><option value="mfg" @selected(($filters['sort']??'')==='mfg')>เลขที่ MFG</option></select></div>
-            <div class="col-md-2"><button class="btn btn-primary">ค้นหา</button> <a href="{{ route('stock-withdrawal.index') }}" class="btn btn-outline-secondary">ล้าง</a></div>
+            <div class="col-md-2"><label>สถานะเบิก</label><select name="status" class="form-select"><option value="">ทั้งหมด</option><option value="NOT_STARTED" @selected(($filters['status']??'')==='NOT_STARTED')>ยังไม่เบิก</option><option value="PARTIAL" @selected(($filters['status']??'')==='PARTIAL')>เบิกบางส่วน</option></select></div>
+            <div class="col-md-1"><label>Special</label><select name="special" class="form-select"><option value="">ทั้งหมด</option><option value="1" @selected(($filters['special']??'')==='1')>Special</option><option value="0" @selected(($filters['special']??'')==='0')>งานปกติ</option></select></div>
+            <div class="col-md-1"><label>ต่อหน้า</label><select name="per_page" class="form-select">@foreach([50,100,150,200] as $n)<option value="{{ $n }}" @selected((int)($filters['per_page']??50)===$n)>{{ $n }}</option>@endforeach</select></div>
+            <div class="col-12 text-end"><button class="btn btn-primary">ค้นหา</button> <a href="{{ route($listRoute) }}" class="btn btn-outline-secondary">ล้าง</a></div>
         </div>
     </form>
-    <div class="d-flex justify-content-between small text-muted mb-2"><span>ทั้งหมด {{ number_format($items->total()) }} รายการ</span><span>แดง = เลยกำหนด · ส้ม = วันนี้ · เหลือง = ภายใน 2 วัน · เขียว = ยังไม่ถึงกำหนด</span></div>
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-2"><span class="small text-muted">ทั้งหมด {{ number_format($items->total()) }} รายการ</span><div class="dropdown"><button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">ซ่อนคอลัมน์</button><div class="dropdown-menu dropdown-menu-end p-3" id="column-picker" style="min-width:220px"></div></div></div>
+    @unless($readOnly)<div class="d-flex flex-wrap gap-2 align-items-center mb-2"><button type="button" class="btn btn-sm btn-outline-primary" id="bulk-close-items" disabled>ปิดงานที่เลือก</button><span class="small text-muted" id="bulk-action-summary">เลือก BOM แล้วระบบจะแสดง Action ที่ทำได้</span><span class="small text-muted">· {{ ($filters['date_from']??null) === ($filters['date_to']??null) ? 'ลาก ⋮⋮ เพื่อจัดลำดับข้ามทุกประเภทได้' : 'เลือกช่วงหลายวัน: ปิดการลากคิว' }}</span><span id="queue-save-status" class="small fw-semibold text-primary ms-auto" role="status" aria-live="polite"></span></div>@endunless
     <div class="card border-0 shadow-sm"><div class="table-responsive">
-        <table class="table table-sm table-hover align-middle mb-0">
-            <thead class="table-light"><tr><th>MFG</th><th>โรงงาน</th><th>Part Number</th><th>กลุ่ม</th><th>ลูกค้า</th><th>วันส่งมอบ</th><th>วันขึ้นผลิต</th><th>วันต้องเบิก</th><th class="text-center">คงเหลือ (วัน)</th><th class="text-center">สถานะ</th><th class="text-end">จำนวน</th></tr></thead>
+        <table class="table table-sm table-hover align-middle mb-0 planner-action-table">
+            <thead class="table-light"><tr>@unless($readOnly)<th class="text-center"><input type="checkbox" class="form-check-input" id="select-all-items"></th>@endunless<th>MFG</th><th>โรงงาน</th><th>Part</th><th>กลุ่ม</th><th>ประเภท</th><th class="col-customer">ลูกค้า</th><th>วันส่งมอบ</th><th>วันผลิต</th><th class="col-work-center">Work Center แรก</th><th>Lead Time</th><th>วันแจ้ง</th><th class="text-danger">วันที่ต้องเบิก</th><th class="text-center">เหลือวัน</th><th class="text-center">สถานะ</th><th class="text-end" title="จำนวนที่ต้องเบิก">ต้องเบิก (KG)</th><th class="text-end">เบิกแล้ว (KG)</th><th class="text-end">คงเหลือ (KG)</th><th class="col-note" title="หมายเหตุ Planner">หมายเหตุ</th>@unless($readOnly)<th class="col-action">จัดการ</th>@endunless</tr></thead>
             <tbody>
             @forelse($items as $item)
                 @php
                     $days = $item->day_offset;
-                    [$rowClass, $badgeClass, $status] = $days < 0
+                    $completed = in_array($item->withdrawal_status_code, ['COMPLETED', 'PLANNER_CLOSED'], true);
+                    [$rowClass, $badgeClass, $status] = $completed
+                        ? ['', 'bg-success', 'เบิกครบแล้ว']
+                        : ($days < 0
                         ? ['table-danger', 'bg-danger', 'เลยกำหนด']
                         : ($days === 0 ? ['table-warning', 'bg-warning text-dark', 'ต้องเบิกวันนี้']
-                        : ($days <= 2 ? ['', 'bg-warning text-dark', 'ใกล้ถึงกำหนด'] : ['', 'bg-success', 'ยังไม่ถึงกำหนด']));
+                        : ($days === 1 ? ['', 'bg-warning text-dark', 'แจ้งเตือนล่วงหน้า 1 วัน'] : ['', 'bg-success', 'ยังไม่ถึงกำหนด'])));
+                    $backlog = $item->original_queue_date?->lt($item->queue_date) ?? false;
                 @endphp
-                <tr class="{{ $rowClass }}">
-                    <td><strong>{{ $item->plan->mfg }}</strong></td><td>{{ ucfirst(strtolower($item->plan->site)) }}</td>
-                    <td><div class="text-primary fw-semibold">{{ $item->partnumber ?: '-' }}</div><small class="text-muted">{{ $item->part_description }}</small></td>
-                    <td><span class="badge {{ $item->type_code==='FG' ? 'bg-primary' : 'bg-success' }}">{{ $item->type_code }}</span></td>
-                    <td>{{ $item->plan->customer_name ?: '-' }}</td><td>{{ $item->plan->delivery_date?->format('d/m/Y') ?: '-' }}</td>
-                    <td>{{ $item->plan->production_date?->format('d/m/Y') }}</td><td><strong>{{ $item->planned_withdraw_date?->format('d/m/Y') }}</strong></td>
-                    <td class="text-center fw-bold {{ $days < 0 ? 'text-danger' : '' }}">{{ $days }}</td><td class="text-center"><span class="badge {{ $badgeClass }}">{{ $status }}</span></td>
-                    <td class="text-end">{{ $item->quantity === null ? '-' : number_format((float)$item->quantity,2) }} {{ $item->unit }}</td>
+                <tr class="{{ $item->is_special ? 'table-danger' : $rowClass }}" data-queue-item="{{ $item->id }}" data-queue-version="{{ $item->updated_at?->format('Y-m-d H:i:s.u') }}" data-special="{{ $item->is_special ? 1 : 0 }}">
+                    @unless($readOnly)<td class="text-center"><input type="checkbox" class="form-check-input item-check" value="{{ $item->id }}" data-status="{{ $item->withdrawal_status_code }}" data-special="{{ $item->is_special ? 1 : 0 }}"></td>@endunless
+                    <td><span class="text-muted me-1 queue-handle" title="ลากสลับลำดับ" draggable="{{ !$readOnly ? 'true' : 'false' }}">⋮⋮</span><strong>{{ $item->plan->mfg }}</strong><div>@if($backlog)<span class="badge bg-purple" style="background:#7c3aed">งานค้าง</span>@endif @if($item->is_special)<span class="badge bg-danger">SPECIAL</span>@endif @if($item->special_mail_sent_at)<span class="badge bg-dark">ส่งเมลด่วนแล้ว</span>@endif</div>@if($item->latest_actor_name)<div class="small text-muted mt-1" title="{{ $item->latest_action }} · {{ \Carbon\Carbon::parse($item->latest_action_at)->format('d/m/Y H:i:s') }}">แก้ล่าสุด: {{ $item->latest_actor_name }} · {{ \Carbon\Carbon::parse($item->latest_action_at)->format('H:i') }}</div>@endif</td><td>{{ ucfirst(strtolower($item->plan->site)) }}</td>
+                    <td><div class="text-primary fw-semibold">{{ $item->partnumber ?: '-' }}</div><small class="text-muted">{{ $item->part_description }}</small>@if($item->special_note)<div class="small text-danger mt-1">{{ $item->special_note }}</div>@endif</td>
+                    <td><span class="badge {{ $item->type_code==='FG' ? 'bg-primary' : ($item->type_code==='ACID' ? 'bg-warning text-dark' : 'bg-success') }}">{{ $item->type_code==='ACID' ? 'กัดกรด' : $item->type_code }}</span></td><td>{{ $item->job_type_name === 'สินค้าลวด' ? 'ลวด' : ($item->job_type_name ?: '-') }}@if($item->is_split)<div><span class="badge bg-warning text-dark">งานแบ่ง</span></div>@endif</td>
+                    <td class="col-customer">{{ $item->plan->customer_name ?: '-' }}</td><td>{{ $item->plan->delivery_date?->format('d/m/Y') ?: '-' }}</td>
+                    <td>{{ $item->plan->production_date?->format('d/m/Y') }}</td><td class="col-work-center">{{ $item->first_work_center ?: '-' }}</td><td>{{ $item->lead_time_days }} วันทำงาน</td><td>{{ $item->request_date?->format('d/m/Y') ?: '-' }}</td><td><strong class="text-danger">{{ $item->planned_withdraw_date?->format('d/m/Y') }}</strong></td>
+                    <td class="text-center fw-bold {{ $days < 0 ? 'text-danger' : '' }}">{{ $days }}</td><td class="text-center"><span class="badge {{ $item->withdrawal_status_code==='PLANNER_CLOSED' ? 'bg-primary' : ($item->withdrawal_status_code==='COMPLETED' ? 'bg-success' : ($item->withdrawal_status_code==='PARTIAL' ? 'bg-warning text-dark' : 'bg-secondary')) }}">{{ $item->withdrawal_status }}</span>@if($item->mail_sent)<div><span class="badge bg-dark mt-1">ส่งเมลแล้ว</span></div>@endif</td>
+                    <td class="text-end">{{ number_format((float)($item->withdraw_quantity ?? $item->quantity),2) }}</td><td class="text-end">{{ number_format((float)$item->withdrawn_qty,2) }}</td><td class="text-end fw-bold">{{ number_format((float)$item->remaining_qty,2) }}</td><td class="col-note">{{ $item->remark ?: '-' }}@if($item->plan->plan_note && $item->plan->plan_note !== $item->remark)<div class="small text-muted">MFG: {{ $item->plan->plan_note }}</div>@endif</td>@unless($readOnly)<td class="col-action"><div class="d-flex gap-1 flex-nowrap">@if(in_array($item->withdrawal_status_code,['NOT_STARTED','PARTIAL']))<button type="button" class="btn btn-sm btn-outline-secondary planner-action-btn planner-action-tooltip close-single-item" data-item-id="{{ $item->id }}" data-label="{{ $item->plan->mfg }} · {{ $item->partnumber }}" title="ปิดงาน" aria-label="ปิดงาน"><i class="fas fa-clipboard-check" aria-hidden="true"></i></button>@endif @if(!$item->mail_sent && !in_array($item->withdrawal_status_code,['COMPLETED','PLANNER_CLOSED']))<button type="button" class="btn btn-sm btn-outline-primary planner-action-btn planner-action-tooltip" data-bs-toggle="modal" data-bs-target="#editItem{{ $item->id }}" title="แก้ไขรายการ" aria-label="แก้ไขรายการ"><i class="fas fa-pen" aria-hidden="true"></i></button>@endif @if(!in_array($item->withdrawal_status_code,['COMPLETED','PLANNER_CLOSED']))<button type="button" class="btn btn-sm btn-outline-danger planner-action-btn planner-action-tooltip" data-bs-toggle="modal" data-bs-target="#specialItem{{ $item->id }}" title="กำหนด Special" aria-label="กำหนด Special"><i class="fas fa-bolt" aria-hidden="true"></i></button>@endif @if(!$item->plan_cancel_locked)<button type="button" class="btn btn-sm btn-outline-danger planner-action-btn planner-action-tooltip" data-bs-toggle="modal" data-bs-target="#cancelPlan{{ $item->plan->id }}" title="ยกเลิกแผน" aria-label="ยกเลิกแผน"><i class="fas fa-ban" aria-hidden="true"></i></button>@endif</div></td>@endunless
                 </tr>
             @empty
-                <tr><td colspan="11" class="text-center text-muted py-5">ยังไม่มีแผนรายการเบิก</td></tr>
+                <tr><td colspan="{{ $readOnly ? 18 : 20 }}" class="text-center text-muted py-5">ยังไม่มีแผนรายการเบิก</td></tr>
             @endforelse
             </tbody>
         </table>
     </div></div>
     <div class="mt-3">{{ $items->links() }}</div>
+    @unless($readOnly)<div id="bulk-action-bar" class="d-none position-sticky bottom-0 mt-3 p-3 bg-dark text-white rounded shadow-lg" style="z-index:1040"><div class="d-flex flex-wrap align-items-center gap-2"><strong>เลือกแล้ว <span id="bulk-selected-count">0</span> รายการ</strong><span id="bulk-action-detail" class="small text-white-50"></span><button type="button" class="btn btn-sm btn-light" id="bulk-close-floating">ปิดงาน</button><button type="button" class="btn btn-sm btn-danger" id="bulk-special-floating">ส่งเมลด่วน</button><button type="button" class="btn btn-sm btn-outline-light ms-auto" id="bulk-clear-selection">ยกเลิกการเลือก</button></div></div>@endunless
 </div>
+@unless($readOnly)<form method="POST" action="{{ route('stock-withdrawal.items.close') }}" id="bulk-close-form" class="d-none">@csrf<div class="bulk-item-inputs"></div><input type="hidden" name="reason"></form>
+<form method="POST" action="{{ route('stock-withdrawal.send-special-mail') }}" id="special-mail-form" class="d-none">@csrf<div class="bulk-item-inputs"></div></form>
+@can('STOCK_ADMIN')<form method="POST" action="{{ route('stock-withdrawal.items.reopen') }}" id="bulk-reopen-form" class="d-none">@csrf<div class="bulk-item-inputs"></div><input type="hidden" name="reason"></form>@endcan
+@foreach($items->where('plan_cancel_locked',false)->pluck('plan')->unique('id') as $plan)
+<div class="modal fade" id="cancelPlan{{ $plan->id }}" tabindex="-1"><div class="modal-dialog"><form method="POST" action="{{ route('stock-withdrawal.plans.cancel',$plan) }}" class="modal-content">@csrf<div class="modal-header"><h5 class="modal-title">ยกเลิกแผน {{ $plan->mfg }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><label class="form-label">เหตุผลการยกเลิก</label><textarea name="reason" class="form-control" maxlength="500" required></textarea><div class="form-text">ระบบเก็บประวัติไว้และนำ MFG กลับไปหน้ารอวางแผน</div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button><button class="btn btn-danger">ยืนยันยกเลิก</button></div></form></div></div>
+@endforeach
+@foreach($items->filter(fn($item)=>!in_array($item->withdrawal_status_code,['COMPLETED','PLANNER_CLOSED'])) as $item)
+<div class="modal fade" id="specialItem{{ $item->id }}" tabindex="-1"><div class="modal-dialog"><form method="POST" action="{{ route('stock-withdrawal.items.special',$item) }}" class="modal-content">@csrf<div class="modal-header"><h5 class="modal-title">Special · {{ $item->plan->mfg }} · {{ $item->partnumber }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="form-check mb-3"><input type="checkbox" name="is_special" value="1" class="form-check-input" id="isSpecial{{ $item->id }}" @checked($item->is_special)><label class="form-check-label fw-semibold text-danger" for="isSpecial{{ $item->id }}">ต้องเบิกภายในวันนี้</label></div><label class="form-label">หมายเหตุ</label><textarea name="special_note" class="form-control" maxlength="500">{{ $item->special_note }}</textarea></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ปิด</button><button class="btn btn-danger">บันทึก Special</button></div></form></div></div>
+@endforeach
+@endunless
+@unless($readOnly)
+@foreach($items->filter(fn($item)=>!$item->mail_sent && !in_array($item->withdrawal_status_code,['COMPLETED','PLANNER_CLOSED'])) as $item)
+<div class="modal fade" id="editItem{{ $item->id }}" tabindex="-1"><div class="modal-dialog modal-lg"><form method="POST" action="{{ route('stock-withdrawal.items.update',$item) }}" class="modal-content">@csrf @method('PUT')
+<div class="modal-header"><h5 class="modal-title">แก้ไข {{ $item->plan->mfg }} · {{ $item->partnumber }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body"><div class="row g-3">
+@if(!$item->plan_mail_sent)
+<div class="col-md-6"><label class="form-label">กำหนดส่งมอบ <span class="text-danger">*</span></label><input type="date" name="delivery_date" value="{{ $item->plan->delivery_date?->toDateString() }}" class="form-control" required></div>
+<div class="col-md-6"><label class="form-label">วันที่ขึ้นผลิต <span class="text-danger">*</span></label><input type="date" name="production_date" value="{{ $item->plan->production_date?->toDateString() }}" class="form-control" required></div>
+<div class="col-12"><label class="form-label">หมายเหตุแผน</label><input name="plan_note" value="{{ $item->plan->plan_note }}" class="form-control"></div>
+@endif
+<div class="col-md-4"><label class="form-label">กลุ่มที่ระบบกำหนด</label><div class="form-control bg-light">{{ $item->plan_section === 1 ? 'RM / กัดกรด' : 'FG / NCR / S' }}</div></div>
+<div class="col-md-4"><label class="form-label">ประเภทงาน <span class="text-danger">*</span></label><select name="job_type_code" class="form-select" required>@foreach($jobTypes as $code=>$type)<option value="{{ $code }}" @selected($item->job_type_code===$code)>{{ $type['name'] }}</option>@endforeach</select></div>
+<div class="col-md-4"><label class="form-label">จำนวนที่จะเบิก <span class="text-danger">*</span></label><input type="number" step="0.0001" min="0.0001" max="{{ $item->quantity }}" name="withdraw_quantity" value="{{ (float)($item->withdraw_quantity??$item->quantity) }}" class="form-control" required><div class="form-text">ไม่เกิน {{ number_format((float)$item->quantity,4) }} {{ $item->unit_label }}</div></div>
+<div class="col-md-4"><label class="form-label">วันที่แจ้งเบิก <span class="text-danger">*</span></label><input type="date" name="request_date" value="{{ $item->request_date?->toDateString() }}" class="form-control" required></div>
+<div class="col-md-8"><label class="form-label">หมายเหตุรายการ</label><input name="remark" value="{{ $item->remark }}" class="form-control"></div>
+</div>@if($item->plan_mail_sent)<div class="alert alert-info mt-3 mb-0">ข้อมูลระดับ MFG ถูกล็อก เพราะมี BOM ใน MFG นี้ส่งเมลแล้ว</div>@endif</div>
+<div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">ยกเลิก</button><button class="btn btn-primary">บันทึกการแก้ไข</button></div></form></div></div>
+@endforeach
+@endunless
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+    document.querySelectorAll('.planner-action-tooltip').forEach(element=>new bootstrap.Tooltip(element,{container:'body',placement:'top'}));
+    const mailForm=document.getElementById('send-stock-mail-form');
+    mailForm?.addEventListener('submit',async event=>{event.preventDefault();const from=mailForm.querySelector('[name="date_from"]')?.value||'-',to=mailForm.querySelector('[name="date_to"]')?.value||from,dateText=from===to?from:`${from} ถึง ${to}`;const result=await Swal.fire({icon:'question',title:'ยืนยันส่งเมล?',html:`ระบบจะส่งทุกรายการที่ยังเบิกไม่ครบ<br><strong>เฉพาะวันที่เข้าคิว ${dateText}</strong>`,showCancelButton:true,confirmButtonText:'ส่งเมล',cancelButtonText:'ยกเลิก',confirmButtonColor:'#198754',reverseButtons:true,showLoaderOnConfirm:true,allowOutsideClick:()=>!Swal.isLoading()});if(result.isConfirmed){mailForm.querySelector('button')?.setAttribute('disabled','disabled');mailForm.submit();}});
+    const checks=()=>[...document.querySelectorAll('.item-check:checked')];
+    const bulkBar=document.getElementById('bulk-action-bar'),bulkCount=document.getElementById('bulk-selected-count'),bulkDetail=document.getElementById('bulk-action-detail'),bulkSummary=document.getElementById('bulk-action-summary');
+    const closeButtons=[document.getElementById('bulk-close-items'),document.getElementById('bulk-close-floating')].filter(Boolean),reopenButtons=[document.getElementById('bulk-reopen-items'),document.getElementById('bulk-reopen-floating')].filter(Boolean);
+    const updateBulkBar=()=>{const selected=checks(),count=selected.length,closeCount=selected.filter(box=>['NOT_STARTED','PARTIAL'].includes(box.dataset.status)).length,reopenCount=selected.filter(box=>box.dataset.status==='PLANNER_CLOSED').length,unavailable=count-closeCount-reopenCount;if(bulkCount)bulkCount.textContent=count;if(bulkDetail)bulkDetail.textContent=`ปิดได้ ${closeCount} · เปิดกลับได้ ${reopenCount}${unavailable?` · ทำรายการไม่ได้ ${unavailable}`:''}`;if(bulkSummary)bulkSummary.textContent=count?`เลือก ${count} BOM: ปิดได้ ${closeCount} · เปิดกลับได้ ${reopenCount}${unavailable?` · ทำรายการไม่ได้ ${unavailable}`:''}`:'เลือก BOM แล้วระบบจะแสดง Action ที่ทำได้';closeButtons.forEach(button=>button.disabled=closeCount===0);reopenButtons.forEach(button=>button.disabled=reopenCount===0);if(bulkBar)bulkBar.classList.toggle('d-none',count===0);};
+    document.querySelectorAll('.item-check').forEach(box=>box.addEventListener('change',updateBulkBar));
+    document.getElementById('select-all-items')?.addEventListener('change',event=>{document.querySelectorAll('.item-check').forEach(box=>box.checked=event.target.checked);updateBulkBar();});
+    const submitBulk=async action=>{const selected=checks().filter(box=>action==='close'?['NOT_STARTED','PARTIAL'].includes(box.dataset.status):box.dataset.status==='PLANNER_CLOSED');if(!selected.length){Swal.fire({icon:'warning',text:action==='close'?'รายการที่เลือกไม่มีงานที่ยังเบิกไม่ครบสำหรับปิด':'รายการที่เลือกไม่มีงานที่ปิดโดย Planner สำหรับเปิดกลับ'});return;}const result=await Swal.fire({icon:'question',title:action==='close'?`ปิดงาน ${selected.length} รายการ?`:`เปิดงานกลับ ${selected.length} รายการ?`,input:'textarea',inputLabel:'เหตุผล',inputPlaceholder:'กรุณาระบุเหตุผล...',inputAttributes:{maxlength:500},showCancelButton:true,confirmButtonText:action==='close'?'ยืนยันปิดงาน':'ยืนยันเปิดกลับ',cancelButtonText:'ยกเลิก',inputValidator:value=>!value?.trim()?'กรุณาระบุเหตุผล':undefined});if(!result.isConfirmed)return;const form=document.getElementById(action==='close'?'bulk-close-form':'bulk-reopen-form');form.querySelector('.bulk-item-inputs').innerHTML=selected.map(box=>`<input type="hidden" name="item_ids[]" value="${box.value}">`).join('');form.querySelector('[name="reason"]').value=result.value.trim();form.submit();};
+    document.getElementById('bulk-close-items')?.addEventListener('click',()=>submitBulk('close'));
+    document.getElementById('bulk-reopen-items')?.addEventListener('click',()=>submitBulk('reopen'));
+    document.getElementById('bulk-close-floating')?.addEventListener('click',()=>submitBulk('close'));
+    document.getElementById('bulk-reopen-floating')?.addEventListener('click',()=>submitBulk('reopen'));
+    document.querySelectorAll('.close-single-item').forEach(button=>button.addEventListener('click',async()=>{const result=await Swal.fire({icon:'question',title:'ปิดงานรายการนี้?',text:button.dataset.label,input:'textarea',inputLabel:'เหตุผล',inputPlaceholder:'กรุณาระบุเหตุผล...',inputAttributes:{maxlength:500},showCancelButton:true,confirmButtonText:'ยืนยันปิดงาน',cancelButtonText:'ยกเลิก',inputValidator:value=>!value?.trim()?'กรุณาระบุเหตุผล':undefined});if(!result.isConfirmed)return;const form=document.getElementById('bulk-close-form');form.querySelector('.bulk-item-inputs').innerHTML=`<input type="hidden" name="item_ids[]" value="${button.dataset.itemId}">`;form.querySelector('[name="reason"]').value=result.value.trim();form.submit();}));
+    document.getElementById('bulk-special-floating')?.addEventListener('click',()=>document.getElementById('send-special-mail')?.click());
+    document.getElementById('bulk-clear-selection')?.addEventListener('click',()=>{document.querySelectorAll('.item-check,#select-all-items').forEach(box=>box.checked=false);updateBulkBar();});
+    document.getElementById('send-special-mail')?.addEventListener('click',async()=>{const selected=checks().filter(box=>box.dataset.special==='1'&&!['COMPLETED','PLANNER_CLOSED'].includes(box.dataset.status));if(!selected.length){Swal.fire({icon:'warning',text:'กรุณาเลือก Special ที่ยังเบิกไม่ครบ'});return;}const result=await Swal.fire({icon:'warning',title:'ส่งเมลด่วน Special?',text:`จะส่ง ${selected.length} รายการ และเก็บ Log ทุกรอบ`,showCancelButton:true,confirmButtonText:'ส่งเมลด่วน',cancelButtonText:'ยกเลิก',confirmButtonColor:'#dc3545'});if(!result.isConfirmed)return;const form=document.getElementById('special-mail-form');form.querySelector('.bulk-item-inputs').innerHTML=selected.map(box=>`<input type="hidden" name="item_ids[]" value="${box.value}">`).join('');form.submit();});
+    const queueBody=document.querySelector('tbody'), queueDate=@json(($filters['date_from']??null) === ($filters['date_to']??null) ? ($filters['date_from']??null) : null), queueStatus=document.getElementById('queue-save-status'); let dragged=null,queueSaving=false,originalQueueIds=[];
+    if(!@json($readOnly)&&queueBody&&queueDate){const lockQueue=locked=>{queueSaving=locked;queueBody.querySelectorAll('.queue-handle').forEach(handle=>handle.draggable=!locked);};queueBody.addEventListener('dragstart',e=>{if(queueSaving||!e.target.closest('.queue-handle')){e.preventDefault();return;}dragged=e.target.closest('[data-queue-item]');if(!dragged)return;originalQueueIds=[...queueBody.querySelectorAll('[data-queue-item]')].map(row=>Number(row.dataset.queueItem));dragged.classList.add('opacity-50');});queueBody.addEventListener('dragend',async()=>{if(queueSaving||!dragged)return;dragged.classList.remove('opacity-50');dragged=null;[...queueBody.querySelectorAll('[data-queue-item]')].sort((a,b)=>Number(b.dataset.special)-Number(a.dataset.special)).forEach(row=>queueBody.appendChild(row));const rows=[...queueBody.querySelectorAll('[data-queue-item]')],ids=rows.map(row=>Number(row.dataset.queueItem));if(ids.length===originalQueueIds.length&&ids.every((id,index)=>id===originalQueueIds[index])){originalQueueIds=[];return;}originalQueueIds=[];const versions=Object.fromEntries(rows.map(row=>[row.dataset.queueItem,row.dataset.queueVersion||null]));lockQueue(true);if(queueStatus)queueStatus.innerHTML='<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>กำลังบันทึกลำดับ...';try{const response=await fetch(@json(route('stock-withdrawal.items.reorder')),{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':@json(csrf_token())},body:JSON.stringify({queue_date:queueDate,item_ids:ids,versions})}),data=await response.json();if(!response.ok)throw new Error(data.message||'บันทึกลำดับไม่สำเร็จ');Object.entries(data.versions||{}).forEach(([id,version])=>{const row=queueBody.querySelector(`[data-queue-item="${id}"]`);if(row)row.dataset.queueVersion=version;});if(queueStatus){queueStatus.className='small fw-semibold text-success ms-auto';queueStatus.textContent='บันทึกลำดับแล้ว';setTimeout(()=>{queueStatus.textContent='';queueStatus.className='small fw-semibold text-primary ms-auto';},1800);}lockQueue(false);}catch(error){if(queueStatus){queueStatus.className='small fw-semibold text-danger ms-auto';queueStatus.textContent='บันทึกลำดับไม่สำเร็จ · กำลังโหลดคิวล่าสุด';}await Swal.fire({icon:'error',title:'บันทึกลำดับไม่สำเร็จ',text:error.message+' ระบบจะโหลดคิวล่าสุด'});location.reload();}});queueBody.addEventListener('dragover',e=>{if(queueSaving)return;e.preventDefault();const target=e.target.closest('[data-queue-item]');if(!dragged||!target||dragged===target)return;const rect=target.getBoundingClientRect();target.parentNode.insertBefore(dragged,e.clientY<rect.top+rect.height/2?target:target.nextSibling);});}
+    const table=document.querySelector('.table-responsive table'), picker=document.getElementById('column-picker'); if(!table||!picker)return;
+    const readOnly=@json($readOnly), locked=readOnly?[1,3,14,17]:[1,2,4,15,18,20], key=readOnly?'stock-withdrawal-managed-hidden-columns-v4':'stock-withdrawal-hidden-columns-v6', defaults=readOnly?[2,4,8,10,11]:[3,5,9,11,12], saved=JSON.parse(localStorage.getItem(key)||JSON.stringify(defaults));
+    const apply=()=>{[...table.rows].forEach(row=>[...row.cells].forEach((cell,i)=>cell.style.display=saved.includes(i+1)?'none':'')); localStorage.setItem(key,JSON.stringify(saved));};
+    [...table.tHead.rows[0].cells].forEach((th,i)=>{const n=i+1;if(locked.includes(n))return;const line=document.createElement('label');line.className='d-block text-nowrap mb-1';line.innerHTML=`<input type="checkbox" class="form-check-input me-2" ${saved.includes(n)?'':'checked'}> ${th.textContent.trim()||'คอลัมน์ '+n}`;line.querySelector('input').addEventListener('change',e=>{const pos=saved.indexOf(n);if(e.target.checked&&pos>=0)saved.splice(pos,1);if(!e.target.checked&&pos<0)saved.push(n);apply();});picker.appendChild(line);}); apply();
+});
+</script>
 @endsection
