@@ -10,10 +10,58 @@ use App\Http\Controllers\Controller;
 use App\Models\Users\User;
 use App\Models\Users\Department;
 use App\Services\OrgCore;
+use App\Services\UserSignatureService;
 use App\Support\SqlServerDb;
+use Illuminate\Support\Facades\Storage;
 
 class UserAdminController extends Controller
 {
+    public function signatureIndex(Request $r)
+    {
+        $users = User::query()
+            ->orderByDesc('is_active')
+            ->orderBy('name')
+            ->get([
+                'id',
+                'user_code',
+                'username',
+                'name',
+                'email',
+                'is_active',
+            ]);
+
+        $signatures = $users->mapWithKeys(function (User $user) {
+            $path = sprintf('signatures/users/user_%d.png', $user->id);
+
+            if (!Storage::disk('public')->exists($path)) {
+                return [$user->id => null];
+            }
+
+            return [$user->id => [
+                'url' => Storage::disk('public')->url($path),
+                'updated_at' => date('d/m/Y H:i', Storage::disk('public')->lastModified($path)),
+                'version' => Storage::disk('public')->lastModified($path),
+            ]];
+        });
+
+        $selectedUserId = (int) $r->query('user', 0);
+
+        return view('adminweb.users.signatures', compact('users', 'signatures', 'selectedUserId'));
+    }
+
+    public function updateSignature(Request $r, User $user, UserSignatureService $signatureService)
+    {
+        $data = $r->validate([
+            'signature' => 'required|image|mimes:png,jpg,jpeg|max:2048',
+        ]);
+
+        $signatureService->store($data['signature'], (int) $user->id);
+
+        return redirect()
+            ->route('adminweb.users.signatures', ['user' => $user->id])
+            ->with('success', 'บันทึกลายเซ็นของผู้ใช้เรียบร้อยแล้ว');
+    }
+
     public function index(Request $r)
     {
         $q = trim((string)$r->query('q', ''));

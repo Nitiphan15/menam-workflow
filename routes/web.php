@@ -28,6 +28,8 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DepartmentOrganizationController;
 //Admin
 use App\Http\Controllers\Admin\UserAdminController;
+use App\Http\Controllers\Admin\MasterDataMapController;
+use App\Http\Controllers\Admin\PoRetroactiveMailController;
 use App\Http\Controllers\Admin\DepartmentAdminController;
 use App\Http\Controllers\Admin\RoleAdminController;
 use App\Http\Controllers\Admin\DeptManagerAdminController;
@@ -38,6 +40,7 @@ use App\Http\Controllers\Admin\UserPermissionController;
 use App\Http\Controllers\Admin\ActivityLogController;
 //WR
 use App\Http\Controllers\FormWR\IncomeController;
+use App\Http\Controllers\FormWR\WireRodDeadstockController;
 //Profile
 use App\Http\Controllers\Profile\ProfileController;
 //PS
@@ -56,6 +59,7 @@ use App\Http\Controllers\FormVC\VariableCostController;
 use App\Http\Controllers\FormCCR\CostCenterReportController;
 use App\Http\Controllers\FormAccounting\LossProvisionController;
 use App\Http\Controllers\FormAccounting\CustomerPaymentTermController;
+use App\Http\Controllers\FormAccounting\InvoiceMfgProfitController;
 //FormPKG
 use App\Http\Controllers\FormPKG\PackagingUsageController;
 use App\Http\Controllers\FormPKG\PackagingMasterController;
@@ -794,6 +798,8 @@ Route::prefix('accounting')
     Route::post('/customer-payment-terms', [CustomerPaymentTermController::class, 'store'])->name('cpt.store');
     Route::put('/customer-payment-terms/{customerPaymentTerm}', [CustomerPaymentTermController::class, 'update'])->name('cpt.update');
     Route::delete('/customer-payment-terms/{customerPaymentTerm}', [CustomerPaymentTermController::class, 'destroy'])->name('cpt.destroy');
+    Route::get('/invoice-mfg-profit', [InvoiceMfgProfitController::class, 'index'])->middleware(['auth', 'permission.any:MG'])->name('invoice-mfg-profit.index');
+    Route::get('/invoice-mfg-profit/export', [InvoiceMfgProfitController::class, 'export'])->middleware(['auth', 'permission.any:MG'])->name('invoice-mfg-profit.export');
   });
 
 //ฟอร์มวางแผน
@@ -882,7 +888,23 @@ Route::middleware(['auth', 'can:WR'])
   ->name('wr.')
   ->group(function () {
     Route::get('/', [IncomeController::class, 'index'])->name('index');
+    Route::get('/master', [MasterDataMapController::class, 'wireRod'])->name('master');
     Route::get('/formwr/export', [IncomeController::class, 'export'])->name('export');
+    Route::get('/deadstock', [WireRodDeadstockController::class, 'dashboard'])->name('deadstock.dashboard');
+    Route::get('/deadstock/review', [WireRodDeadstockController::class, 'review'])->name('deadstock.review');
+    Route::get('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'show'])->whereNumber('lifecycle')->name('deadstock.show');
+    Route::get('/deadstock/export', [WireRodDeadstockController::class, 'export'])->name('deadstock.export');
+    Route::post('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'saveReview'])
+      ->middleware('permission.any:WR_DS_EDIT_OWN,WR_DS_MANAGE_ALL,WR_DS_ADMIN')
+      ->whereNumber('lifecycle')->name('deadstock.review.save');
+    Route::post('/deadstock/refresh', [WireRodDeadstockController::class, 'refresh'])
+      ->middleware('permission.any:WR_DS_MANAGE_ALL,WR_DS_ADMIN')->name('deadstock.refresh');
+    Route::post('/deadstock/review/{lifecycle}/override', [WireRodDeadstockController::class, 'storeOverride'])
+      ->middleware('permission.any:WR_DS_MANAGE_ALL,WR_DS_ADMIN')
+      ->whereNumber('lifecycle')->name('deadstock.override.store');
+    Route::post('/deadstock/override/{override}/revoke', [WireRodDeadstockController::class, 'revokeOverride'])
+      ->middleware('permission.any:WR_DS_ADMIN')
+      ->whereNumber('override')->name('deadstock.override.revoke');
   });
 
 
@@ -1039,7 +1061,15 @@ Route::middleware(['auth', 'can:ADMINWEB'])
     Route::post('/deadstock/config/sales-access', [DeadstockReportController::class, 'storeSalesAccess'])->name('deadstock.sales_access.store');
     Route::delete('/deadstock/config/sales-access/{salesAccess}', [DeadstockReportController::class, 'destroySalesAccess'])->name('deadstock.sales_access.destroy');
 
+    Route::get('/po-retroactive-mail', [PoRetroactiveMailController::class, 'index'])->name('po-retroactive-mail.index');
+    Route::post('/po-retroactive-mail', [PoRetroactiveMailController::class, 'send'])
+        ->middleware('throttle:5,1')->name('po-retroactive-mail.send');
+
+    Route::get('/master-data-map', [MasterDataMapController::class, 'index'])->name('master-data-map.index');
+
     Route::get('/users/register',  [UserAdminController::class, 'index'])->name('users.register');
+    Route::get('/users/signatures', [UserAdminController::class, 'signatureIndex'])->name('users.signatures');
+    Route::put('/users/{user}/signature', [UserAdminController::class, 'updateSignature'])->whereNumber('user')->name('users.signature.update');
     Route::get('/users/password-reset', [UserAdminController::class, 'index'])->name('users.password-reset.index');
     Route::post('/users',           [UserAdminController::class, 'store'])->name('users.store');
     Route::get('/users/{user}/edit', [UserAdminController::class, 'edit'])->whereNumber('user')->name('users.edit');

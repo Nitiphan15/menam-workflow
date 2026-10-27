@@ -25,23 +25,34 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->withoutOverlapping();
 
-        $schedule->command('deadstock:import-snapshot')
+        $schedule->command('stock-withdrawal:rollover-queue')
+            ->days([1, 2, 3, 4, 5, 6])
+            ->dailyAt('00:05')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping();
+
+        // Deadstock schedules are owned by mail-daily/routes/deadstock-schedule.php.
+        // Keep the commands here: they use this application's review services/database.
+
+        $schedule->command('wr-deadstock:sync')
+            ->hourlyAt(0)
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(55);
+
+        $schedule->command('wr-deadstock:sync --snapshot=DAILY')
             ->dailyAt('08:03')
             ->timezone('Asia/Bangkok')
             ->onOneServer()
-            ->withoutOverlapping();
+            ->withoutOverlapping(55);
 
-        $schedule->command('deadstock:compare-current')
-            ->hourly()
+        $schedule->command('wr-deadstock:sync --snapshot=MONTH_END')
+            ->dailyAt('23:30')
+            ->when(fn () => now('Asia/Bangkok')->isLastOfMonth())
             ->timezone('Asia/Bangkok')
             ->onOneServer()
-            ->withoutOverlapping();
-
-        $schedule->command('deadstock:capture-month-end')
-            ->lastDayOfMonth('23:30')
-            ->timezone('Asia/Bangkok')
-            ->onOneServer()
-            ->withoutOverlapping();
+            ->withoutOverlapping(55);
     }
 
     /**

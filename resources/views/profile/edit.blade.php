@@ -60,10 +60,10 @@
 
                         <div class="mb-4">
                             <label for="signature" class="form-label">ลายเซ็นสำหรับเอกสาร PDF</label>
-                            @if (!empty($user->signature_path))
+                            @if ($signaturePath)
                                 <div class="border rounded p-3 mb-2 bg-light">
                                     <div class="small text-muted mb-2">ลายเซ็นปัจจุบัน</div>
-                                    <img src="{{ Storage::disk('public')->url($user->signature_path) }}"
+                                    <img src="{{ Storage::disk('public')->url($signaturePath) }}"
                                         alt="Signature" style="max-width: 240px; max-height: 80px;">
                                 </div>
                             @endif

@@ -43,7 +43,11 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('WLM',       fn(User $u) => $u->hasRoleCode(['WLM']));
         Gate::define('WOCR',      fn(User $u) => $u->hasRoleCode(['WOCR']));
         Gate::define('WR',      fn(User $u) => $u->hasRoleCode(['WR']));
-        Gate::define('STOCK', fn(User $u) => $u->hasRoleCode(['STOCK', 'STOCK_ADMIN']));
+        Gate::define('WR_DS_EDIT_OWN', fn(User $u) => $u->hasRoleCode(['WR_DS_EDIT_OWN', 'WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
+        Gate::define('WR_DS_MANAGE_ALL', fn(User $u) => $u->hasRoleCode(['WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
+        Gate::define('WR_DS_ADMIN', fn(User $u) => $u->hasRoleCode(['WR_DS_ADMIN']));
+        Gate::define('STOCK', fn(User $u) => $u->hasRoleCode(['STOCK', 'STOCK_ACTION', 'STOCK_ADMIN']));
+        Gate::define('STOCK_ACTION', fn(User $u) => $u->hasRoleCode(['STOCK_ACTION', 'STOCK_ADMIN']));
         Gate::define('STOCK_ADMIN', fn(User $u) => $u->hasRoleCode(['STOCK_ADMIN']));
         Gate::define('EXAM',      fn(User $u) => $u->hasRoleCode(['EXAM']));
         Gate::define('DP',      fn(User $u) => $u->hasRoleCode(['DP']));
@@ -77,6 +81,7 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('FCAPPROVE', fn(User $u) => $u->hasRoleCode(['FCAPPROVE']));
         Gate::define('PO',      fn(User $u) => $u->hasRoleCode(['PO']));
         Gate::define('POPUR',   fn(User $u) => $u->hasRoleCode(['POPUR']));
+        Gate::define('POUR',    fn(User $u) => $u->hasRoleCode(['POUR']));
         // ===== Ability แบบมี context แผนก (ผ่านพารามิเตอร์) =====
         // ใช้: Gate::forUser($u)->check('role-in-dept', ['codes'=>['PR_ADMIN'],'dept_id'=>2])
         Gate::define('role-in-dept', function (User $u, array $args) {

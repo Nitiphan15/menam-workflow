@@ -26,6 +26,7 @@ __pycache__/
 *.pyc
 
 # Local comparison / backup workspaces
+/tmp/
 /backups/
 /dumpfromprod/
 /fromprod/

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Profile;
 
 use App\Http\Controllers\Controller;
 use App\Models\Users\User as WorkflowUser;
+use App\Services\UserSignatureService;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -24,13 +25,16 @@ class ProfileController extends Controller
     public function edit()
     {
         $user = Auth::user();
-        return view('profile.edit', compact('user'));
+        $path = sprintf('signatures/users/user_%d.png', $user->id);
+        $signaturePath = Storage::disk('public')->exists($path) ? $path : null;
+
+        return view('profile.edit', compact('user', 'signaturePath'));
     }
 
     /**
      * Update the user's profile information.
      */
-    public function update(Request $request)
+    public function update(Request $request, UserSignatureService $signatureService)
     {
         $user = Auth::user();
 
@@ -55,14 +59,8 @@ class ProfileController extends Controller
             'department' => $request->department,
             'position' => $request->position,
         ];
-
         if ($request->hasFile('signature') && $request->file('signature')->isValid()) {
-            if (!blank($user->signature_path)) {
-                Storage::disk('public')->delete($user->signature_path);
-            }
-
-            $payload['signature_path'] = $this->storeSignature($request->file('signature'), (int) $user->id);
-            $payload['signature_uploaded_at'] = now();
+            $signatureService->store($request->file('signature'), (int) $user->id);
         }
 
         $user->update($payload);
