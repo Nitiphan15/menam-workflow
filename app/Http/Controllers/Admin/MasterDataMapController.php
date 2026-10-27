@@ -59,8 +59,7 @@ class MasterDataMapController extends Controller
             ['module' => 'DIE', 'name' => 'DIE Master', 'description' => 'ข้อมูลแม่พิมพ์ ตำแหน่ง และประวัติการใช้งาน', 'route' => 'die.master', 'permission' => 'DIE', 'source' => 'ERP DIE master'],
             ['module' => 'Exam', 'name' => 'Exam Master', 'description' => 'แบบทดสอบ ประเภท หมวด คำถาม และตัวเลือก', 'route' => 'exam.master.index', 'permission' => 'EXAM', 'source' => 'form_exams / questions'],
             ['module' => 'Grating', 'name' => 'Performance Masters', 'description' => 'พนักงาน ขั้นตอน กิจกรรมหน้างาน และโครงการ', 'route' => 'grating-performance.masters', 'permission' => 'GPM', 'source' => 'grating performance masters'],
-            ['module' => 'Wire Rod', 'name' => 'Wire Rod Incoming', 'description' => 'ข้อมูล PO, Incoming, Reserved Stock และ Shipment Summary', 'route' => 'wr.index', 'permission' => 'WR', 'source' => 'ERP PO / receipt / stock / shipment'],
-            ['module' => 'Wire Rod', 'name' => 'Wire Rod Dead Stock Review', 'description' => 'Lifecycle, ผู้รับผิดชอบ Sales, Review และ Override ของ Wire Rod Dead Stock', 'route' => 'wr.deadstock.review', 'permission' => 'WR', 'source' => 'wr_ds_item_lifecycles / wr_ds_item_reviews'],
+            ['module' => 'Wire Rod', 'name' => 'Wire Rod Master Map', 'description' => 'ศูนย์รวมข้อมูลอ้างอิงของ Wire Rod โดยไม่ปะปนหน้ารายงานและหน้า Review', 'route' => 'wr.master', 'permission' => 'WR', 'source' => 'ERP PO / receipt / stock / shipment'],
         ]);
     }
 }

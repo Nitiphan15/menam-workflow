@@ -67,10 +67,12 @@
                         </div>
                     </div>
                     <div class="master-map-action">
-                        @if ($master['available'])
+                        @if ($master['available'] && !request()->routeIs($master['route']))
                             <a href="{{ $master['url'] }}" class="btn btn-primary master-map-open">
                                 เปิด Master <i class="fa-solid fa-arrow-right ms-1" aria-hidden="true"></i>
                             </a>
+                        @elseif ($master['available'])
+                            <span class="route-current"><i class="fa-solid fa-circle-check me-1"></i> หน้าปัจจุบัน</span>
                         @else
                             <span class="route-unavailable"><i class="fa-solid fa-triangle-exclamation me-1"></i> Route ไม่พร้อม</span>
                         @endif
@@ -122,6 +124,7 @@
         .master-map-open:hover { transform: translateY(-2px); box-shadow: 0 5px 13px rgba(29, 78, 216, .18); }
         .master-map-open:active { transform: scale(.98); }
         .route-unavailable { color: #b54708; background: #fff4e5; border-radius: .25rem; padding: .38rem .55rem; font-size: .75rem; white-space: nowrap; }
+        .route-current { color: #067647; background: #ecfdf3; border-radius: .25rem; padding: .38rem .55rem; font-size: .75rem; white-space: nowrap; }
         .master-map-empty { text-align: center; padding: 4rem 1rem; color: var(--mm-muted); }
         .master-map-empty > i { font-size: 2rem; color: #98a2b3; margin-bottom: .8rem; }
         .master-map-empty h2 { color: var(--mm-ink); font-size: 1.05rem; }

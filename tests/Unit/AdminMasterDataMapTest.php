@@ -24,12 +24,13 @@ class AdminMasterDataMapTest extends TestCase
         $view = app(MasterDataMapController::class)->index();
         $masters = $view->getData()['masters'];
 
-        $this->assertGreaterThanOrEqual(22, $masters->count());
+        $this->assertGreaterThanOrEqual(21, $masters->count());
         $this->assertTrue($masters->every(fn (array $master) => $master['available']));
         $this->assertSame(1, $masters->where('route', 'adminweb.users.register')->count());
         $this->assertSame(1, $masters->where('route', 'stock-withdrawal.master.index')->count());
         $this->assertSame(1, $masters->where('route', 'accounting.cpt.masters')->count());
-        $this->assertSame(2, $masters->where('module', 'Wire Rod')->count());
+        $this->assertSame(1, $masters->where('module', 'Wire Rod')->count());
+        $this->assertSame('wr.master', $masters->firstWhere('module', 'Wire Rod')['route']);
     }
 
     public function test_wire_rod_master_map_route_uses_wr_permission_and_prefilters_module(): void
