@@ -71,7 +71,7 @@
 @section('content')
 
     {{-- HEADER --}}
-    <div class="d-flex align-items-center mb-2">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
         <div>
             <h3 class="mb-0 fw-bold">รายงานวัตถุดิบ - ยอดค้างรับ</h3>
             <div class="text-muted small">
@@ -81,11 +81,9 @@
         </div>
         <div class="ms-auto d-flex gap-2">
             <a href="{{ route('wr.export', request()->query()) }}" class="btn btn-outline-primary">
-                <i class="bi bi-filetype-xlsx me-1"></i> Export (5 Sheets)
+                <i class="bi bi-filetype-xlsx me-1"></i> Export (6 Sheets)
             </a>
-            <button type="button" class="btn btn-light border" onclick="location.href='{{ route('wr.index') }}'">
-                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
-            </button>
+
         </div>
     </div>
 
@@ -93,28 +91,23 @@
     <form method="GET" action="{{ route('wr.index') }}" id="filter-form" class="mb-3">
         <div class="card card-shadow border-0">
             <div class="card-body">
+                <div class="small text-muted mb-3">บริษัทและวัตถุดิบใช้กับทั้งสต็อกและยอดจอง · คู่ค้า, PO และปี ใช้กับยอดค้างรับ</div>
                 <div class="row g-3">
                     {{-- Vendor (multi) + client-side filter --}}
                     <div class="col-lg-4">
-                        <label class="form-label mb-1">คู่ค้า</label>
+                        <label for="vendor-select" class="form-label mb-1">คู่ค้า</label>
 
-                        <div class="vendor-filter mb-2">
-                            <i class="bi bi-search"></i>
-                            <input type="text" id="vendor-filter-input" class="form-control"
-                                placeholder="ค้นหาในรายชื่อคู่ค้า…">
-                        </div>
-
-                        <select name="vendor[]" multiple class="form-select" id="vendor-select" size="10">
+                        <select name="vendor[]" multiple class="form-select" id="vendor-select">
                             @foreach ($filters['vendors'] ?? [] as $v)
                                 <option value="{{ $v }}" @selected(in_array($v, $selected['vendor'] ?? []))>{{ $v }}
                                 </option>
                             @endforeach
                         </select>
-                        <div class="form-hint">เลือกได้หลายรายการ (Ctrl/Cmd + Click)</div>
+                        <div class="form-hint">พิมพ์ค้นหาและเลือกได้หลายคู่ค้า</div>
                     </div>
 
                     <div class="col-lg-4">
-                        <label class="form-label mb-1">Item (Part / Description)</label>
+                        <label for="item-ts" class="form-label mb-1">วัตถุดิบ (รหัส / ชื่อ)</label>
                         <input id="item-ts" name="item" type="text" class="form-control"
                             placeholder="พิมพ์อย่างน้อย 2 ตัวอักษร (R…)" value="{{ $selected['item'] ?? '' }}"
                             autocomplete="off">
@@ -122,16 +115,16 @@
                     </div>
 
                     <div class="col-lg-4">
-                        <label class="form-label mb-1">เลขที่ใบสั่งซื้อ</label>
+                        <label for="po-ts" class="form-label mb-1">เลขที่ใบสั่งซื้อ (PO)</label>
                         <input id="po-ts" name="po" type="text" class="form-control"
                             placeholder="พิมพ์อย่างน้อย 2 ตัวอักษร เช่น POR…" value="{{ $selected['po'] ?? '' }}"
                             autocomplete="off">
 
                     </div>
 
-                    <div class="col-6 col-md-2">
-                        <label class="form-label mb-1">Year</label>
-                        <select name="year[]" class="form-select" multiple size="5">
+                    <div class="col-md-4">
+                        <label for="year-select" class="form-label mb-1">ปีที่กำหนดรับ PO</label>
+                        <select name="year[]" id="year-select" class="form-select" multiple>
                             @foreach ($filters['years'] ?? [] as $y)
                                 <option value="{{ $y }}" @if (in_array($y, $selected['year'] ?? [now()->year])) selected @endif>
                                     {{ $y }}
@@ -140,9 +133,9 @@
                         </select>
                     </div>
 
-                    <div class="col-6 col-md-3">
-                        <label class="form-label mb-1">Company</label>
-                        <div class="d-flex gap-3">
+                    <div class="col-md-5">
+                        <div class="form-label mb-2">บริษัท</div>
+                        <div class="d-flex flex-wrap gap-3">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="company[]" value="MENAM PLUS"
                                     id="cPlus" @checked(in_array('MENAM PLUS', $selected['company'] ?? []))>
@@ -156,8 +149,9 @@
                         </div>
                     </div>
 
-                    <div class="col-md-7 d-flex align-items-end justify-content-end">
-                        <button class="btn btn-primary px-4"><i class="bi bi-funnel me-1"></i> Apply</button>
+                    <div class="col-md-3 d-flex align-items-end justify-content-md-end gap-2">
+                        <a class="btn btn-light border text-nowrap" href="{{ route('wr.index') }}">ล้างตัวกรอง</a>
+                        <button type="submit" class="btn btn-primary px-4 text-nowrap">ค้นหา</button>
                     </div>
                 </div>
             </div>
@@ -374,7 +368,7 @@
                                     <tr>
                                         <td class="text-nowrap">
                                             @if ($r['stock_details'])
-                                                <a class="text-primary" href="#wr-stock-{{ $rowIndex }}">{{ $r['item'] }}</a>
+                                                <a class="text-primary text-decoration-none" href="#wr-stock-{{ $rowIndex }}" data-bs-toggle="modal" aria-label="ดู Heat และ MFG ของ {{ $r['item'] }}">{{ $r['item'] }}</a>
                                             @else
                                                 {{ $r['item'] }}
                                             @endif
@@ -396,15 +390,6 @@
                                             @endif
                                         </td>
                                     </tr>
-
-                                    @if ($r['stock_details'])
-                                        <tr><td colspan="7">
-                                            <details id="wr-stock-{{ $rowIndex }}">
-                                                <summary class="small text-primary">Heat / MFG ของ {{ $r['item'] }}</summary>
-                                                <div class="mt-2">@include('formwr.stock-details', ['r' => $r, 'rowIndex' => $rowIndex])</div>
-                                            </details>
-                                        </td></tr>
-                                    @endif
 
                                     {{-- แถวรายละเอียด PO (ขยาย/ย่อ) --}}
                                     @if ($countPo > 0)
@@ -442,6 +427,28 @@
             </div>
         </div>
     </div>
+
+    {{-- Keep dialogs outside the scrollable table so they are not clipped. --}}
+    @foreach ($balanceWithOpen as $r)
+        @if ($r['stock_details'])
+            <div class="modal fade" id="wr-stock-{{ $loop->index }}" tabindex="-1" aria-labelledby="wr-stock-title-{{ $loop->index }}" aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-lg-down">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <div>
+                                <h5 class="modal-title" id="wr-stock-title-{{ $loop->index }}">Heat / MFG · {{ $r['item'] }}</h5>
+                                <div class="text-muted small">จำนวนหน่วย KG. · คลิก Heat เพื่อดูใบสั่งผลิต</div>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+                        </div>
+                        <div class="modal-body">
+                            @include('formwr.stock-details', ['r' => $r, 'rowIndex' => $loop->index])
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
+    @endforeach
 
     {{-- DETAILS --}}
     @if (!empty($poLines))
@@ -524,36 +531,42 @@
             };
         }
 
-        // -------- vendor filter (client-side) ----------
-        (function vendorFilter() {
-            const input = document.getElementById('vendor-filter-input');
-            const select = document.getElementById('vendor-select');
-            if (!input || !select) return;
-
-            const allOptions = Array.from(select.options);
-            input.addEventListener('input', () => {
-                const q = input.value.toLowerCase();
-                // clear
-                select.innerHTML = '';
-                const filtered = !q ? allOptions :
-                    allOptions.filter(o => o.text.toLowerCase().includes(q));
-                filtered.forEach(o => select.appendChild(o));
+        new TomSelect('#vendor-select', {
+            plugins: ['remove_button'], maxItems: null, create: false,
+            placeholder: 'ทุกคู่ค้า — พิมพ์เพื่อค้นหา', closeAfterSelect: true,
+            hideSelected: true
+        });
+        new TomSelect('#year-select', {
+            plugins: ['remove_button'], maxItems: null, create: false,
+            placeholder: 'เลือกปีที่กำหนดรับ', closeAfterSelect: true
+        });
+        document.getElementById('filter-form').addEventListener('submit', function(event) {
+            if (!document.querySelector('#filter-form input[name="company[]"]:checked')) {
+                event.preventDefault();
+                document.getElementById('cPlus').setCustomValidity('เลือกอย่างน้อยหนึ่งบริษัท');
+                document.getElementById('cPlus').reportValidity();
+            }
+        });
+        document.querySelectorAll('#filter-form input[name="company[]"]').forEach(function(input) {
+            input.addEventListener('change', function() {
+                document.getElementById('cPlus').setCustomValidity('');
             });
-        })();
+        });
 
         // -------- Item: เฉพาะ R% (เริ่มทำงานตั้งแต่ 1 ตัวอักษร) --------
         new TomSelect('#item-ts', {
             valueField: 'id', // ค่าที่ submit กลับ
             labelField: 'text', // ข้อความโชว์ใน dropdown
             searchField: ['text'], // ให้ TomSelect search ภายในผลลัพธ์ที่โหลดมา
+            plugins: ['clear_button'],
             maxItems: 1,
             create: false,
             persist: false,
             preload: false, // โฟกัสแล้วไม่โหลดทันที จนกว่าจะพิมพ์
-            placeholder: 'พิมพ์อย่างน้อย 1 ตัวอักษร (R…)',
+            placeholder: 'ค้นหารหัสหรือชื่อวัตถุดิบ (อย่างน้อย 2 ตัว)',
             load: debounce(function(query, callback) {
                 // ต้องพิมพ์อย่างน้อย 1 ตัว (เพื่อให้ "R" ทำงาน)
-                if ((query || '').trim().length < 1) {
+                if ((query || '').trim().length < 2) {
                     callback();
                     return;
                 }
@@ -569,13 +582,14 @@
             valueField: 'id',
             labelField: 'text',
             searchField: ['text'],
+            plugins: ['clear_button'],
             maxItems: 1,
             create: false,
             persist: false,
             preload: false,
-            placeholder: 'พิมพ์อย่างน้อย 1–2 ตัวอักษร เช่น POR…',
+            placeholder: 'ค้นหาเลข PO (อย่างน้อย 2 ตัว)',
             load: debounce(function(query, callback) {
-                if ((query || '').trim().length < 1) {
+                if ((query || '').trim().length < 2) {
                     callback();
                     return;
                 }

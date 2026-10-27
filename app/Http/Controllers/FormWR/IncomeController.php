@@ -11,6 +11,8 @@ use Carbon\Carbon;
 
 use App\Exports\WirerodExport;
 use App\Exports\WirerodReservationSheet;
+use App\Exports\WirerodShipmentSummarySheet;
+use App\Services\FormWR\ShipmentSummaryService;
 use App\Services\FormWR\ReservedStockService;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Concerns\WithMultipleSheets;
@@ -865,7 +867,8 @@ class IncomeController extends Controller
         $reservationService = app(ReservedStockService::class);
         $stockReport = $reservationService->report($companies, $itemLike);
         $balanceWithOpen = $reservationService->mergeBalances($balanceWithOpen, $stockReport);
-        $reservationSheets = [new WirerodReservationSheet($stockReport), new WirerodReservationSheet($stockReport, true)];
+        $reservationSheets = [new WirerodReservationSheet($stockReport), new WirerodReservationSheet($stockReport, true),
+            new WirerodShipmentSummarySheet(app(ShipmentSummaryService::class)->report($companies, $itemLike))];
 
         // --- SCALE 1000 เฉพาะจำนวน (KG.) ---
         $SCALE = 1000;

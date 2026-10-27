@@ -1084,7 +1084,7 @@ class PackagingUsageService
         $products = $rows->pluck('fcat')->filter()->map(fn($x) => trim((string) $x))->unique()->values()->all();
 
         $masters = collect();
-        if (!empty($fpacks) && !empty($products)) {
+        if (!empty($fpacks)) {
             $masters = DB::connection('sqlsrv_menam')
                 ->table('packaging_master')
                 ->select([
@@ -1092,12 +1092,12 @@ class PackagingUsageService
                     'standard_packaging',
                     'code_packaging',
                     'package_per_kg',
+                    'remark',
                 ])
                 ->where('active', 1)
                 ->whereIn('standard_packaging', $fpacks)
-                ->whereIn('product', $products)
                 ->get()
-                ->groupBy(fn($m) => trim((string) $m->product) . '||' . trim((string) $m->standard_packaging));
+                ->groupBy(fn($m) => trim((string) $m->standard_packaging));
         }
 
         $codes = $masters
@@ -1604,7 +1604,7 @@ class PackagingUsageService
 
             $qty = max($rawQty - $partOnhand, 0);
 
-            $key = $productVal . '||' . $fpackVal;
+            $key = $fpackVal;
             $mList = collect($masters->get($key, []));
 
             if ($mList->isEmpty()) {
@@ -1643,16 +1643,20 @@ class PackagingUsageService
                 continue;
             }
 
-            foreach ($mList as $m) {
+            foreach ($mList->unique(fn ($m) => trim((string) $m->code_packaging).'|'.(float) $m->package_per_kg) as $m) {
                 $code = $m->code_packaging ? trim((string) $m->code_packaging) : null;
                 if ($code === '-') {
-                    continue;
+                    $code = null;
                 }
 
                 $kgPerPack = $m->package_per_kg !== null ? (float) $m->package_per_kg : null;
                 $stockOnHand = $code ? (float) ($stockMap[$code] ?? 0) : null;
                 $partInfo = $code ? $partMap->get($code) : null;
                 $packName = $partInfo['description'] ?? null;
+                if (!$code && preg_match('/Packaging Name:\\s*(.*?)(?:\\s*\\|\\s*(?:Length\\(mm\\) for BAR|Source):|$)/su', (string) ($m->remark ?? ''), $referenceName)) {
+                    $packName = trim($referenceName[1]);
+                    $kgPerPack = null;
+                }
                 $lengthMm = $partInfo['length_mm'] ?? null;
                 $demandPcs = ($kgPerPack && $kgPerPack > 0) ? (int) floor($qty / $kgPerPack) : 0;
                 $balancePcs = $stockOnHand !== null ? ($stockOnHand - $demandPcs) : null;
@@ -1730,11 +1734,11 @@ class PackagingUsageService
     private function buildGroupSummary(Collection $enriched): Collection
     {
         return $enriched
-            ->groupBy(fn($x) => (string) ($x->code_packaging ?? '') . '||' . (string) ($x->source_site ?? ''))
+            ->groupBy(fn($x) => (string) ($x->code_packaging ?? ('REFERENCE:'.($x->fpack ?? '').':'.($x->pack_name ?? ''))) . '||' . (string) ($x->source_site ?? ''))
             ->map(function ($items, $groupKey) {
                 [$codeKey, $sourceSite] = array_pad(explode('||', $groupKey, 2), 2, null);
 
-                $code = trim((string) $codeKey) !== '' ? trim((string) $codeKey) : null;
+                $code = trim((string) $codeKey) !== '' && !str_starts_with((string) $codeKey, 'REFERENCE:') ? trim((string) $codeKey) : null;
                 $sourceSite = trim((string) $sourceSite) !== '' ? trim((string) $sourceSite) : null;
 
                 $byFpack = $items
@@ -1825,7 +1829,7 @@ class PackagingUsageService
                     'fpack_breakdowns' => $byFpack,
                     'items'            => $items->values(),
                     'count_wo'         => $items->count(),
-                    'mapped'           => $code !== null,
+                    'mapped'           => $code !== null || optional($items->first())->mapped,
                 ];
             })
             ->values();

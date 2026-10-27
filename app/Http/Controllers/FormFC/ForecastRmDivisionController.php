@@ -1398,11 +1398,13 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn) use ($fgParts) {
             return DB::connection($conn)
                 ->table('parts')
-                ->whereIn(DB::raw('UPPER(TRIM(partnumber))'), $fgParts)
+                ->leftJoin('partstype', 'parts.partstype_id', '=', 'partstype.id')
+                ->whereIn(DB::raw('UPPER(TRIM(parts.partnumber))'), $fgParts)
                 ->get([
-                    DB::raw('UPPER(TRIM(partnumber)) as fg_partnumber'),
-                    'description as fg_description',
-                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(f4, '')))) as rm_partnumber"),
+                    DB::raw('UPPER(TRIM(parts.partnumber)) as fg_partnumber'),
+                    'parts.description as fg_description',
+                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(parts.f4, '')))) as rm_partnumber"),
+                    DB::raw("COALESCE(partstype.description, '') as product_type"),
                 ])
                 ->map(fn($r) => (array) $r);
         };
@@ -1420,10 +1422,14 @@ class ForecastRmDivisionController extends Controller
             ->groupBy(fn($r) => strtoupper(trim((string) ($r['fg_partnumber'] ?? ''))))
             ->map(function ($group) {
                 $first = collect($group)->first();
+                $productTypeRow = collect($group)->first(
+                    fn($row) => trim((string) ($row['product_type'] ?? '')) !== ''
+                );
 
                 return [
                     'fg_description' => (string) ($first['fg_description'] ?? ''),
                     'rm_partnumber' => (string) ($first['rm_partnumber'] ?? ''),
+                    'product_type' => (string) ($productTypeRow['product_type'] ?? ''),
                 ];
             });
     }
@@ -1858,13 +1864,6 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn) use ($fgParts) {
             $ob = DB::connection($conn)->table('orderitems as oi')
                 ->join('oe', 'oi.trans_id', '=', 'oe.id')
-                ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
-                ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
-                ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-                ->leftJoin('dmitems as dmi', function ($join) {
-                    $join->on('dmpredm.dmitems_id', '=', 'dmi.id')
-                        ->on('dmi.parts_id', '=', 'oi.parts_id');
-                })
                 ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
                 ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
                 ->whereNotNull('oe.ordnumber')
@@ -1872,30 +1871,36 @@ class ForecastRmDivisionController extends Controller
                 ->where('oe.cancelled', false)
                 ->where('oe.invoiced', false)
                 ->groupBy([
+                    'oe.id',
                     'oe.ordnumber',
                     'oi.parts_id',
                     'oe.customer_id',
                     'cus.saleperson_id',
                     'oe.shipped_or_received',
                     'oe.invoiced',
-                    'oi.qty',
                     'oe.transdate',
-                    'oi.reqdate',
                     'wo.reqdate'
                 ])
                 ->selectRaw("
                 MAX(oe.custponumber) AS po,
+                oe.id AS order_id,
                 oe.ordnumber AS ordnumber,
                 oi.parts_id AS parts_id,
-                oi.qty AS ordered_qty,
+                SUM(oi.qty) AS ordered_qty,
                 oe.transdate AS order_date,
                 oe.customer_id AS customer_id,
                 cus.saleperson_id AS saleperson_id,
-                COALESCE(oi.reqdate, wo.reqdate) AS due_date,
+                MIN(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
                 oe.shipped_or_received,
-                oe.invoiced,
-                SUM(dmi.qty) AS shipped_qty
+                oe.invoiced
             ");
+
+            $db = DB::connection($conn)->table('oedm')
+                ->join('dm', 'oedm.dm_id', '=', 'dm.id')
+                ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+                ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
+                ->groupBy(['oedm.ord_id', 'dmi.parts_id'])
+                ->selectRaw('oedm.ord_id AS order_id, dmi.parts_id, SUM(dmi.qty) AS shipped_qty');
 
             $sb = DB::connection($conn)->table('invoice as inv')
                 ->join('ar', 'inv.trans_id', '=', 'ar.id')
@@ -1928,6 +1933,10 @@ class ForecastRmDivisionController extends Controller
                         $j->on('sb.ordnumber', '=', 'ob.ordnumber')
                             ->on('sb.parts_id', '=', 'ob.parts_id');
                     })
+                    ->leftJoinSub($db, 'db', function ($j) {
+                        $j->on('db.order_id', '=', 'ob.order_id')
+                            ->on('db.parts_id', '=', 'ob.parts_id');
+                    })
                     ->leftJoinSub($rb, 'rb', function ($j) {
                         $j->on('rb.ordnumber', '=', 'ob.ordnumber')
                             ->on('rb.parts_id', '=', 'ob.parts_id');
@@ -1936,10 +1945,11 @@ class ForecastRmDivisionController extends Controller
                     ->whereIn(DB::raw('UPPER(TRIM(p.partnumber))'), $fgParts)
                     ->where('ob.shipped_or_received', false)
                     ->where('ob.invoiced', false)
-                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
                     ->selectRaw("
                     UPPER(TRIM(p.partnumber)) AS fg_partnumber,
-                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
+                    ob.ordnumber AS ordnumber,
+                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
                 ")
                     ->get()
             )->map(fn($r) => (array) $r);
@@ -1949,7 +1959,16 @@ class ForecastRmDivisionController extends Controller
 
         return $rows
             ->groupBy(fn($r) => strtoupper(trim((string) ($r['fg_partnumber'] ?? ''))))
-            ->map(fn($g) => round((float) collect($g)->sum('backorder_qty'), 2));
+            ->map(fn($g) => [
+                'qty' => round((float) collect($g)->sum('backorder_qty'), 2),
+                'order_numbers' => collect($g)
+                    ->pluck('ordnumber')
+                    ->map(fn($v) => strtoupper(trim((string) $v)))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->implode(' '),
+            ]);
     }
 
     public function soDetail(Request $request)
@@ -1965,13 +1984,6 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn, string $companyLabel) use ($fgPart) {
             $ob = DB::connection($conn)->table('orderitems as oi')
                 ->join('oe', 'oi.trans_id', '=', 'oe.id')
-                ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
-                ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
-                ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-                ->leftJoin('dmitems as dmi', function ($join) {
-                    $join->on('dmpredm.dmitems_id', '=', 'dmi.id')
-                        ->on('dmi.parts_id', '=', 'oi.parts_id');
-                })
                 ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
                 ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
                 ->whereNotNull('oe.ordnumber')
@@ -1979,30 +1991,36 @@ class ForecastRmDivisionController extends Controller
                 ->where('oe.cancelled', false)
                 ->where('oe.invoiced', false)
                 ->groupBy([
+                    'oe.id',
                     'oe.ordnumber',
                     'oi.parts_id',
                     'oe.customer_id',
                     'oe.shipped_or_received',
                     'oe.invoiced',
-                    'oi.qty',
                     'oe.transdate',
-                    'oi.reqdate',
                     'wo.reqdate',
                     'cus.name'
                 ])
                 ->selectRaw("
                 MAX(oe.custponumber) AS po,
+                oe.id AS order_id,
                 oe.ordnumber AS ordnumber,
                 oi.parts_id AS parts_id,
-                oi.qty AS ordered_qty,
+                SUM(oi.qty) AS ordered_qty,
                 oe.transdate AS order_date,
                 oe.customer_id AS customer_id,
-                COALESCE(oi.reqdate, wo.reqdate) AS due_date,
+                MIN(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
                 oe.shipped_or_received,
                 oe.invoiced,
-                SUM(dmi.qty) AS shipped_qty,
                 cus.name AS customer_name
             ");
+
+            $db = DB::connection($conn)->table('oedm')
+                ->join('dm', 'oedm.dm_id', '=', 'dm.id')
+                ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+                ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
+                ->groupBy(['oedm.ord_id', 'dmi.parts_id'])
+                ->selectRaw('oedm.ord_id AS order_id, dmi.parts_id, SUM(dmi.qty) AS shipped_qty');
 
             $sb = DB::connection($conn)->table('invoice as inv')
                 ->join('ar', 'inv.trans_id', '=', 'ar.id')
@@ -2038,11 +2056,15 @@ class ForecastRmDivisionController extends Controller
                         $j->on('rb.ordnumber', '=', 'ob.ordnumber')
                             ->on('rb.parts_id', '=', 'ob.parts_id');
                     })
+                    ->leftJoinSub($db, 'db', function ($j) {
+                        $j->on('db.order_id', '=', 'ob.order_id')
+                            ->on('db.parts_id', '=', 'ob.parts_id');
+                    })
                     ->leftJoin('parts as p', 'p.id', '=', 'ob.parts_id')
                     ->whereRaw('UPPER(TRIM(p.partnumber)) = ?', [$fgPart])
                     ->where('ob.shipped_or_received', false)
                     ->where('ob.invoiced', false)
-                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
                     ->orderBy('ob.order_date')
                     ->selectRaw("
                     UPPER(TRIM(p.partnumber)) AS fg_partnumber,
@@ -2052,7 +2074,7 @@ class ForecastRmDivisionController extends Controller
                     ob.order_date,
                     ob.due_date,
                     ob.customer_name,
-                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
+                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
                     ? AS company
                 ", [$companyLabel])
                     ->get()
@@ -2163,68 +2185,6 @@ class ForecastRmDivisionController extends Controller
                 ];
             })
             ->values();
-
-        $historyRows = DB::connection($this->fcConn)
-            ->table('fc_rm_division_forecast_item_history as h')
-            ->join('fc_rm_division_forecast_batch as b', 'b.id', '=', 'h.batch_id')
-            ->leftJoin('users as actor', 'actor.id', '=', 'b.created_by')
-            ->whereDate('h.forecast_base_month', $forecastBaseMonth)
-            ->whereIn('h.sales_code', $selectedDivisions)
-            ->orderByDesc('b.created_at')
-            ->orderByDesc('h.batch_id')
-            ->get([
-                'h.batch_id',
-                'h.sales_code',
-                'h.customer_id',
-                'h.fg_partnumber',
-                'h.forecast_month',
-                'h.forecast_qty',
-                'h.k_factor',
-                'h.source_type',
-                'b.created_at as batch_created_at',
-                'b.created_by',
-                'actor.name as actor_name',
-            ]);
-
-        $historyByRow = $historyRows
-            ->groupBy(fn($row) => strtoupper(trim((string) $row->sales_code))
-                . '|' . (int) $row->customer_id
-                . '|' . strtoupper(trim((string) $row->fg_partnumber)))
-            ->map(function ($rowHistory) use ($futureYm) {
-                return $rowHistory
-                    ->groupBy('batch_id')
-                    ->map(function ($batchRows, $batchId) use ($futureYm) {
-                        $first = $batchRows->first();
-                        $byMonth = $batchRows->groupBy(function ($item) {
-                            try {
-                                return Carbon::parse($item->forecast_month)->format('Y-m');
-                            } catch (\Throwable $e) {
-                                return '';
-                            }
-                        })->map(fn($items) => (float) $items->sum('forecast_qty'));
-
-                        return [
-                            'batch_id' => (int) $batchId,
-                            'saved_at' => $first->batch_created_at,
-                            'actor' => (string) ($first->actor_name ?: ('User #' . $first->created_by)),
-                            'sales_code' => strtoupper(trim((string) $first->sales_code)),
-                            'k_factor' => (float) ($first->k_factor ?? 0),
-                            'forecast_1m' => (float) ($byMonth->get($futureYm[0] ?? '', 0)),
-                            'forecast_horizon' => (float) $byMonth->sum(),
-                            'source_type' => (string) ($first->source_type ?? ''),
-                        ];
-                    })
-                    ->sortByDesc('batch_id')
-                    ->values()
-                    ->all();
-            });
-
-        $rows = $rows->map(function (array $row) use ($historyByRow) {
-            $key = $row['sales_code'] . '|' . $row['customer_id'] . '|' . $row['fg_partnumber'];
-            $row['forecast_history'] = $historyByRow->get($key, []);
-
-            return $row;
-        })->values();
 
         $fgDetails = $this->fetchFgPartDetails(
             $rows->pluck('fg_partnumber')->filter()->unique()->values()->all()
@@ -2368,6 +2328,7 @@ class ForecastRmDivisionController extends Controller
             'Cache-Control' => 'max-age=0, no-cache, no-store, must-revalidate',
         ]);
     }
+
 
     private function documentListMonth(Request $request): string
     {
@@ -3111,7 +3072,9 @@ class ForecastRmDivisionController extends Controller
 
         $rows = $rows->map(function ($r) use ($soMap) {
             $fg = strtoupper(trim((string) ($r['fg_partnumber'] ?? '')));
-            $r['sales_order_qty'] = (float) ($soMap->get($fg, 0) ?? 0);
+            $so = (array) ($soMap->get($fg, []) ?? []);
+            $r['sales_order_qty'] = (float) ($so['qty'] ?? 0);
+            $r['sales_order_numbers'] = (string) ($so['order_numbers'] ?? '');
             return $r;
         })->values();
 

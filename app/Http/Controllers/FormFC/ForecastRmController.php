@@ -2971,13 +2971,6 @@ class ForecastRmController extends Controller
 
         $ob = DB::connection($conn)->table('orderitems as oi')
             ->join('oe', 'oi.trans_id', '=', 'oe.id')
-            ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
-            ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
-            ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-            ->leftJoin('dmitems as dmi', function ($join) {
-                $join->on('dmpredm.dmitems_id', '=', 'dmi.id')
-                    ->on('dmi.parts_id', '=', 'oi.parts_id');
-            })
             ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
             ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
             ->whereNotNull('oe.ordnumber')
@@ -2985,31 +2978,37 @@ class ForecastRmController extends Controller
             ->where('oe.cancelled', false)
             ->where('oe.invoiced', false)
             ->groupBy([
+                'oe.id',
                 'oe.ordnumber',
                 'oi.parts_id',
                 'oe.customer_id',
                 'cus.saleperson_id',
                 'oe.shipped_or_received',
                 'oe.invoiced',
-                'oi.qty',
                 'oe.transdate',
-                'oi.reqdate',
                 'wo.reqdate'
             ])
             ->selectRaw("
             MAX(oe.custponumber) AS po,
+            oe.id AS order_id,
             oe.ordnumber AS ordnumber,
             oi.parts_id AS parts_id,
-            oi.qty AS ordered_qty,
+            SUM(oi.qty) AS ordered_qty,
             oe.transdate AS order_date,
             oe.customer_id AS customer_id,
             cus.saleperson_id AS saleperson_id,
-            COALESCE(oi.reqdate, wo.reqdate) AS due_date,
+            MIN(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
             AVG(oi.sellprice) AS unit_price,
             oe.shipped_or_received,
-            oe.invoiced,
-            SUM(dmi.qty) AS shipped_qty
+            oe.invoiced
         ");
+
+        $db = DB::connection($conn)->table('oedm')
+            ->join('dm', 'oedm.dm_id', '=', 'dm.id')
+            ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+            ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
+            ->groupBy(['oedm.ord_id', 'dmi.parts_id'])
+            ->selectRaw('oedm.ord_id AS order_id, dmi.parts_id, SUM(dmi.qty) AS shipped_qty');
 
         $sb = DB::connection($conn)->table('invoice as inv')
             ->join('ar', 'inv.trans_id', '=', 'ar.id')
@@ -3046,15 +3045,19 @@ class ForecastRmController extends Controller
                     $j->on('rb.ordnumber', '=', 'ob.ordnumber')
                         ->on('rb.parts_id', '=', 'ob.parts_id');
                 })
+                ->leftJoinSub($db, 'db', function ($j) {
+                    $j->on('db.order_id', '=', 'ob.order_id')
+                        ->on('db.parts_id', '=', 'ob.parts_id');
+                })
                 ->leftJoin('parts as p', 'p.id', '=', 'ob.parts_id')
                 ->whereIn(DB::raw('UPPER(TRIM(p.partnumber))'), $allFgParts)
                 ->where('ob.shipped_or_received', false)
                 ->where('ob.invoiced', false)
-                ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
                 ->orderBy('ob.order_date')
                 ->selectRaw("
                 UPPER(TRIM(p.partnumber)) AS fg_partnumber,
-                (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
+                (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
             ")
                 ->get()
         )->map(fn($r) => (array) $r);
@@ -3250,13 +3253,6 @@ class ForecastRmController extends Controller
 
             $ob = DB::connection($conn)->table('orderitems as oi')
                 ->join('oe', 'oi.trans_id', '=', 'oe.id')
-                ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
-                ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
-                ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-                ->leftJoin('dmitems as dmi', function ($join) {
-                    $join->on('dmpredm.dmitems_id', '=', 'dmi.id')
-                        ->on('dmi.parts_id', '=', 'oi.parts_id');
-                })
                 ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
                 ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
                 ->whereNotNull('oe.ordnumber')
@@ -3264,29 +3260,35 @@ class ForecastRmController extends Controller
                 ->where('oe.cancelled', false)
                 ->where('oe.invoiced', false)
                 ->groupBy([
+                    'oe.id',
                     'oe.ordnumber',
                     'oi.parts_id',
                     'oe.customer_id',
                     'cus.saleperson_id',
                     'oe.shipped_or_received',
                     'oe.invoiced',
-                    'oi.qty',
                     'oe.transdate',
-                    'oi.reqdate',
                     'wo.reqdate'
                 ])
                 ->selectRaw("
                 MAX(oe.custponumber) AS po,
+                oe.id AS order_id,
                 oe.ordnumber AS ordnumber,
                 oi.parts_id AS parts_id,
-                oi.qty AS ordered_qty,
+                SUM(oi.qty) AS ordered_qty,
                 oe.transdate AS order_date,
                 oe.customer_id AS customer_id,
-                COALESCE(oi.reqdate, wo.reqdate) AS due_date,
+                MIN(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
                 oe.shipped_or_received,
-                oe.invoiced,
-                SUM(dmi.qty) AS shipped_qty
+                oe.invoiced
             ");
+
+            $db = DB::connection($conn)->table('oedm')
+                ->join('dm', 'oedm.dm_id', '=', 'dm.id')
+                ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+                ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
+                ->groupBy(['oedm.ord_id', 'dmi.parts_id'])
+                ->selectRaw('oedm.ord_id AS order_id, dmi.parts_id, SUM(dmi.qty) AS shipped_qty');
 
             $sb = DB::connection($conn)->table('invoice as inv')
                 ->join('ar', 'inv.trans_id', '=', 'ar.id')
@@ -3321,12 +3323,16 @@ class ForecastRmController extends Controller
                     $j->on('rb.ordnumber', '=', 'ob.ordnumber')
                         ->on('rb.parts_id', '=', 'ob.parts_id');
                 })
+                ->leftJoinSub($db, 'db', function ($j) {
+                    $j->on('db.order_id', '=', 'ob.order_id')
+                        ->on('db.parts_id', '=', 'ob.parts_id');
+                })
                 ->leftJoin('parts as p', 'p.id', '=', 'ob.parts_id')
                 ->leftJoin('customer as cus', 'cus.id', '=', 'ob.customer_id')
                 ->whereIn(DB::raw('UPPER(TRIM(p.partnumber))'), $fgParts)
                 ->where('ob.shipped_or_received', false)
                 ->where('ob.invoiced', false)
-                ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
                 ->orderBy('ob.order_date')
                 ->selectRaw("
                 UPPER(TRIM(p.partnumber)) AS fg_partnumber,
@@ -3336,7 +3342,7 @@ class ForecastRmController extends Controller
                 ob.order_date,
                 ob.due_date,
                 cus.name AS customer_name,
-                (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
+                (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
                 'MENAM WIRE' AS company
             ")
                 ->get();
