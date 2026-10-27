@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.2.0');
+        $latestVersion = config('app.version', '1.2.1');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -42,6 +42,17 @@
                     </div>
                     <div class="card-body px-4">
                         <div class="list-group list-group-flush">
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <strong>แก้ไข Deadstock Excel Sheet 2</strong>
+                                </div>
+                                <ul class="mb-0 text-muted">
+                                    <li>ปรับ FG Stock by Due Month ให้หัวตาราง การแบ่งกำหนดส่ง และรายการที่เคลียร์ ใช้เดือนจาก Snapshot เดียวกัน</li>
+                                    <li>ป้องกันยอดเดือนถัดไปคลาดเคลื่อนเมื่อ Export ช่วงวันที่รับเข้าหลายเดือนหรือทั้งปี</li>
+                                </ul>
+                            </div>
+
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                     <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
