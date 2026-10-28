@@ -10,6 +10,16 @@ use Tests\TestCase;
 
 class StockWithdrawalPlanningServiceTest extends TestCase
 {
+    public function test_withdrawal_is_complete_at_ten_percent_shortage(): void
+    {
+        $service = new StockWithdrawalPlanningService();
+
+        $this->assertFalse($service->isWithdrawalComplete(100, 89.9999));
+        $this->assertTrue($service->isWithdrawalComplete(100, 90));
+        $this->assertTrue($service->isWithdrawalComplete(100, 110));
+        $this->assertFalse($service->isWithdrawalComplete(0, 0));
+    }
+
     public function test_subtract_working_days_counts_monday_through_saturday(): void
     {
         $service = new StockWithdrawalPlanningService();
@@ -90,6 +100,22 @@ class StockWithdrawalPlanningServiceTest extends TestCase
 
         $this->assertSame('PLANNER_CLOSED', $item->withdrawal_status_code);
         $this->assertSame('ปิดโดย Planner', $item->withdrawal_status);
+    }
+
+    public function test_snapshot_partial_status_becomes_complete_at_ninety_percent(): void
+    {
+        $service = new StockWithdrawalPlanningService();
+        $item = new StockWithdrawalPlanItem([
+            'quantity' => 100, 'withdraw_quantity' => 100,
+            'erp_status_code' => 'PARTIAL', 'erp_withdrawn_qty' => 90, 'erp_remaining_qty' => 10,
+        ]);
+        $item->setRelation('plan', new StockWithdrawalPlan());
+
+        $service->attachSnapshotBalances(collect([$item]));
+
+        $this->assertSame('COMPLETED', $item->withdrawal_status_code);
+        $this->assertSame('เบิกครบแล้ว', $item->withdrawal_status);
+        $this->assertSame(10.0, $item->remaining_qty);
     }
 
     public function test_only_nce_prefix_is_classified_as_ncr(): void

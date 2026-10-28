@@ -12,6 +12,14 @@ use Illuminate\Support\Facades\Schema;
 class StockWithdrawalPlanningService
 {
     private const CONNECTIONS = ['WIRE' => 'pgsqlmfgw', 'PLUS' => 'pgsqlmfgp'];
+    private const COMPLETION_RATIO = 0.90;
+
+    public function isWithdrawalComplete(float $requiredQuantity, float $withdrawnQuantity): bool
+    {
+        if ($requiredQuantity <= 0) return false;
+
+        return round($withdrawnQuantity, 4) >= round($requiredQuantity * self::COMPLETION_RATIO, 4);
+    }
 
     public function allMfg(array $filters = []): Collection
     {
@@ -53,9 +61,9 @@ class StockWithdrawalPlanningService
     }
 
     /**
-     * Hide open MFGs only when every withdrawal-related BOM part has already
-     * been issued in full. MFGs without a matching BOM stay visible so data
-     * problems do not disappear silently from the planning screen.
+     * Hide open MFGs only when every withdrawal-related BOM part has reached
+     * at least 90% of its required quantity. MFGs without a matching BOM stay
+     * visible so data problems do not disappear silently from planning.
      */
     public function excludeFullyWithdrawnMfg(Collection $rows): Collection
     {
@@ -98,7 +106,10 @@ class StockWithdrawalPlanningService
                     ]);
 
                 foreach ($balances->groupBy('workorder_id') as $workorderId => $parts) {
-                    if ($parts->isNotEmpty() && $parts->every(fn ($part) => round((float) $part->issued_qty, 4) >= round((float) $part->required_qty, 4))) {
+                    if ($parts->isNotEmpty() && $parts->every(fn ($part) => $this->isWithdrawalComplete(
+                        (float) $part->required_qty,
+                        (float) $part->issued_qty
+                    ))) {
                         $completedKeys->push($site.'|'.$workorderId);
                     }
                 }
@@ -286,7 +297,9 @@ class StockWithdrawalPlanningService
                 $item->first_work_center_number = trim((string) ($workCenter->workcenternumber ?? '')) ?: null;
                 $item->first_work_center_name = trim((string) ($workCenter->workcenter_name ?? '')) ?: null;
                 $item->first_work_center = collect([$item->first_work_center_number, $item->first_work_center_name])->filter()->implode(' — ') ?: null;
-                $item->withdrawal_status_code = $withdrawn <= 0 ? 'NOT_STARTED' : ($item->remaining_qty > 0 ? 'PARTIAL' : 'COMPLETED');
+                $item->withdrawal_status_code = $withdrawn <= 0
+                    ? 'NOT_STARTED'
+                    : ($this->isWithdrawalComplete($total, $withdrawn) ? 'COMPLETED' : 'PARTIAL');
                 $item->withdrawal_status = [
                     'NOT_STARTED' => 'ยังไม่เบิก',
                     'PARTIAL' => 'เบิกบางส่วน',
@@ -341,7 +354,12 @@ class StockWithdrawalPlanningService
                         'erp_remaining_qty' => $item->remaining_qty,
                         'erp_status_code' => in_array($item->withdrawal_status_code, ['NOT_STARTED', 'PARTIAL', 'COMPLETED'], true)
                             ? $item->withdrawal_status_code
-                            : ((float) $item->withdrawn_qty <= 0 ? 'NOT_STARTED' : ((float) $item->remaining_qty > 0 ? 'PARTIAL' : 'COMPLETED')),
+                            : ((float) $item->withdrawn_qty <= 0
+                                ? 'NOT_STARTED'
+                                : ($this->isWithdrawalComplete(
+                                    (float) ($item->withdraw_quantity ?? $item->quantity ?? 0),
+                                    (float) $item->withdrawn_qty
+                                ) ? 'COMPLETED' : 'PARTIAL')),
                         'erp_first_work_center_number' => $item->first_work_center_number,
                         'erp_first_work_center_name' => $item->first_work_center_name,
                         'erp_synced_at' => $syncedAt,
@@ -380,7 +398,11 @@ class StockWithdrawalPlanningService
             $item->first_work_center_number = $item->erp_first_work_center_number ?: null;
             $item->first_work_center_name = $item->erp_first_work_center_name ?: null;
             $item->first_work_center = collect([$item->first_work_center_number, $item->first_work_center_name])->filter()->implode(' — ') ?: null;
+            $total = round((float) ($item->withdraw_quantity ?? $item->quantity ?? 0), 4);
             $item->withdrawal_status_code = $item->erp_status_code ?: 'NOT_STARTED';
+            if ($item->withdrawal_status_code === 'PARTIAL' && $this->isWithdrawalComplete($total, $item->withdrawn_qty)) {
+                $item->withdrawal_status_code = 'COMPLETED';
+            }
             $item->withdrawal_status = [
                 'NOT_STARTED' => 'ยังไม่เบิก', 'PARTIAL' => 'เบิกบางส่วน', 'COMPLETED' => 'เบิกครบแล้ว',
             ][$item->withdrawal_status_code] ?? 'ยังไม่เบิก';
