@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.2.1');
+        $latestVersion = config('app.version', '1.2.2');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -42,6 +42,17 @@
                     </div>
                     <div class="card-body px-4">
                         <div class="list-group list-group-flush">
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <strong>ปรับเกณฑ์จบรายการในแผนการเบิก</strong>
+                                </div>
+                                <ul class="mb-0 text-muted">
+                                    <li>รายการ MFG + Part ที่มียอดเบิก ERP ตั้งแต่ 90% ของยอดที่ต้องเบิก ถือว่าจบและซ่อนจากรายการรอวางแผน</li>
+                                    <li>ข้อมูลเดิมไม่ถูกลบและยังตรวจสอบย้อนหลังได้</li>
+                                </ul>
+                            </div>
+
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                     <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
