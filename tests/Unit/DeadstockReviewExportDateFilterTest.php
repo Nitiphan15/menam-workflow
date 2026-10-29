@@ -434,6 +434,60 @@ class DeadstockReviewExportDateFilterTest extends TestCase
         $spreadsheet->disconnectWorksheets();
     }
 
+    public function test_sales_delivery_status_summary_orders_pending_before_cleared_then_qty_desc(): void
+    {
+        $items = [
+            $this->salesDeliveryStatusItem('Sales B', 'PART-01', 50, 'ส่งแล้ว'),
+            $this->salesDeliveryStatusItem('Sales A', 'PART-02', 20, 'ยังไม่ส่ง'),
+            $this->salesDeliveryStatusItem('Sales A', 'PART-03', 80, 'ส่งแล้ว'),
+            $this->salesDeliveryStatusItem('Sales A', 'PART-01', 70, 'ยังไม่ส่ง'),
+            $this->salesDeliveryStatusItem('Sales A', 'PART-04', 30, 'ส่งแล้ว'),
+        ];
+
+        $groups = $this->invokePrivate(new DeadstockReviewExport(), 'salesDeliveryStatusSummary', [$items]);
+
+        $this->assertSame(['Sales A', 'Sales B'], array_column($groups, 'salesperson'));
+        $this->assertSame(200.0, $groups[0]['total_qty']);
+        $this->assertSame(90.0, $groups[0]['pending_qty']);
+        $this->assertSame(110.0, $groups[0]['cleared_qty']);
+        $this->assertSame(
+            ['PART-01', 'PART-02', 'PART-03', 'PART-04'],
+            array_column($groups[0]['rows'], 'partnumber')
+        );
+        $this->assertSame(
+            ['ยังไม่ส่ง', 'ยังไม่ส่ง', 'ส่งแล้ว', 'ส่งแล้ว'],
+            array_column($groups[0]['rows'], 'delivery_status')
+        );
+    }
+
+    public function test_sales_delivery_status_sheet_has_status_column_and_green_cleared_rows(): void
+    {
+        $export = new DeadstockReviewExport();
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $groups = $this->invokePrivate($export, 'salesDeliveryStatusSummary', [[
+            $this->salesDeliveryStatusItem('Sales A', 'PART-PENDING', 20, 'ยังไม่ส่ง'),
+            $this->salesDeliveryStatusItem('Sales A', 'PART-CLEARED', 10, 'ส่งแล้ว'),
+        ]]);
+
+        $this->invokePrivate($export, 'buildSalesDeliveryStatusSheet', [$sheet, [
+            'report_date' => Carbon::parse('2026-10-29'),
+            'report_range_label' => 'ช่วงวันที่รับเข้า 01/01/2026 - 29/10/2026',
+            'sales_delivery_status_summary' => $groups,
+        ]]);
+
+        $this->assertSame('Sales by Delivery Status', $sheet->getTitle());
+        $this->assertSame('สถานะการส่ง', $sheet->getCell('E6')->getValue());
+        $this->assertSame('ยังไม่ส่ง', $sheet->getCell('E7')->getValue());
+        $this->assertSame('ส่งแล้ว', $sheet->getCell('E8')->getValue());
+        $this->assertSame('FFE2F0D9', $sheet->getStyle('A8')->getFill()->getStartColor()->getARGB());
+        $this->assertSame('J', $sheet->getHighestDataColumn());
+        $this->assertNotContains('แนวทางแก้ไข', $sheet->rangeToArray('A6:J6')[0]);
+        $this->assertNotContains('แนวทางป้องกัน', $sheet->rangeToArray('A6:J6')[0]);
+
+        $spreadsheet->disconnectWorksheets();
+    }
+
     public function test_delivery_performance_can_skip_pdf_unused_cleared_item_list(): void
     {
         $report = $this->invokePrivate(new DeadstockReviewExport(), 'calculateDeliveryPerformance', [
@@ -482,6 +536,27 @@ class DeadstockReviewExportDateFilterTest extends TestCase
         $this->assertSame('K', $sheet->getHighestDataColumn());
 
         $spreadsheet->disconnectWorksheets();
+    }
+
+    private function salesDeliveryStatusItem(
+        string $salesperson,
+        string $partnumber,
+        float $qty,
+        string $deliveryStatus
+    ): array {
+        return [
+            'salesperson' => $salesperson,
+            'purchase_date' => '2026-06-23',
+            'partnumber' => $partnumber,
+            'part_description' => 'Part description',
+            'qty' => $qty,
+            'delivery_status' => $deliveryStatus,
+            'due_date' => '2026-06-29',
+            'revised_due_date' => '2026-08-31',
+            'customer' => 'Customer',
+            'reason_code' => 'SS17-2',
+            'review_detail' => 'ติดตาม',
+        ];
     }
 
     private function performanceItem(
