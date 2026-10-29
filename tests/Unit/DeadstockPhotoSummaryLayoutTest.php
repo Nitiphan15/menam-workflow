@@ -74,6 +74,7 @@ class DeadstockPhotoSummaryLayoutTest extends TestCase
         $this->assertSame(63112, $sheet->getCell('I4')->getValue());
         $this->assertSame(94673, $sheet->getCell('J4')->getValue());
         $this->assertSame('J', $sheet->getHighestDataColumn());
+        $this->assertNull($sheet->getFreezePane());
         $spreadsheet->disconnectWorksheets();
     }
 

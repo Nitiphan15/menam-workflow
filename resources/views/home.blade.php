@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.3.0');
+        $latestVersion = config('app.version', '1.3.1');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -42,6 +42,17 @@
                     </div>
                     <div class="card-body px-4">
                         <div class="list-group list-group-flush">
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <strong>ปรับปรุงความเร็ว Deadstock Excel Export</strong>
+                                </div>
+                                <ul class="mb-0 text-muted">
+                                    <li>ลดการอ่านข้อมูลซ้ำ โดยรวมการคำนวณ Summary และ Sheet รายละเอียดที่เกี่ยวข้องไว้ในรอบเดียว</li>
+                                    <li>ยกเลิกการตรึงแถวใน Sheet "FG Stock by Due Month" เพื่อเลื่อนดูหลายตารางได้ต่อเนื่อง</li>
+                                </ul>
+                            </div>
+
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                     <span class="badge text-bg-primary">v {{ $latestVersion }}</span>

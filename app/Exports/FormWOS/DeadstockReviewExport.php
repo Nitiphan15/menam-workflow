@@ -264,7 +264,6 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $sheet->mergeCells('A' . ($rowNo + 4) . ':J' . ($rowNo + 4));
         $sheet->getColumnDimension('A')->setWidth(22);
         foreach (range('B', 'J') as $column) $sheet->getColumnDimension($column)->setWidth(18);
-        $sheet->freezePane('A4');
     }
 
     private function writePhotoSummaryTable(Worksheet $sheet, int $titleRow, string $title, array $table, Carbon $month): int
@@ -848,8 +847,9 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
 
     public function summaryReport(bool $includeDetailLists = true, bool $includePdfLists = false): array
     {
+        [$photoSourceMonth, $latestReportDate] = $this->reportSnapshotContext();
         $reportDate = $this->reportDateFromFilters()
-            ?? $this->latestReportDate()
+            ?? $latestReportDate
             ?? now('Asia/Bangkok');
         $reportDate = $reportDate instanceof Carbon ? $reportDate->copy() : Carbon::parse($reportDate);
         $reportYear = (int) $reportDate->year;
@@ -858,7 +858,6 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $yearStart = Carbon::create($reportYear, 1, 1)->startOfDay();
         $currentMonthStart = $reportDate->copy()->startOfMonth();
         $previousMonthEnd = $currentMonthStart->copy()->subDay();
-        $photoSourceMonth = $this->latestPhotoSnapshotMonth($this->iterateItems());
         $photoReportDate = $photoSourceMonth?->snapshot_month ?? $reportDate;
         $photoReportDate = $photoReportDate instanceof Carbon ? $photoReportDate->copy() : Carbon::parse($photoReportDate);
         $photoCurrentMonthStart = $photoReportDate->copy()->startOfMonth();
@@ -906,6 +905,8 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         ];
         $salesReceivedPartItems = [];
         $salesDeliveryStatusItems = [];
+        $rescheduledRows = [];
+        $includeRescheduledItems = $includeDetailLists || $includePdfLists;
 
         foreach ($this->iterateItems() as $item) {
             $purchaseDate = $item->purchase_date instanceof Carbon ? $item->purchase_date : null;
@@ -922,8 +923,35 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             $code = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
             $owner = str_starts_with($code, 'SS') ? 'sales' : (str_starts_with($code, 'FF') ? 'factory' : null);
 
+            if ($includeRescheduledItems) {
+                $rescheduledRow = $this->rescheduledItemRow($item);
+                if ($rescheduledRow !== null) {
+                    $rescheduledRows[] = $rescheduledRow;
+                }
+            }
+
             if ($owner === null) {
                 continue;
+            }
+
+            if ((int) $item->snapshot_month_id === (int) $photoSourceMonth?->id) {
+                $photoBucket = $this->summaryBucket($purchaseDate, $historicalStart, $yearStart, $photoCurrentMonthStart);
+                $clearedThisMonth = $item->compare_status === 'cleared'
+                    && $item->cleared_at
+                    && Carbon::parse($item->cleared_at)->isSameMonth($photoCurrentMonthStart);
+
+                if (isset($photoRows[$photoBucket])
+                    && (in_array($item->compare_status, ['active', 'changed'], true) || $clearedThisMonth)) {
+                    $due = $item->review?->revised_due_date ?? $item->current_due_date ?? $item->due_date;
+                    $due = $due ? Carbon::parse($due) : null;
+                    $isWip = preg_match('/^(SS|FF)02(?:-|$)/', $code) === 1;
+                    $photoQty = $clearedThisMonth
+                        ? (float) $item->snapshot_qty
+                        : (float) ($item->current_qty ?? $item->snapshot_qty);
+                    $photoKey = $this->photoSummaryCategory($due, $isWip, (bool) $clearedThisMonth, $photoCurrentMonthStart);
+                    $photoRows[$photoBucket][$photoKey] += $photoQty;
+                    $photoOwnerRows[substr($code, 0, 2)][$photoBucket][$photoKey] += $photoQty;
+                }
             }
 
             $slot = $this->summarySlot($item->review?->revised_due_date, $targetMonth);
@@ -1029,36 +1057,6 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             $totals['decrease_percent'] = null;
         }
 
-        foreach ($this->iterateItems() as $item) {
-            if ((int) $item->snapshot_month_id !== (int) $photoSourceMonth?->id) {
-                continue;
-            }
-            $purchaseDate = $item->purchase_date instanceof Carbon ? $item->purchase_date : null;
-            $photoBucket = $this->summaryBucket($purchaseDate, $historicalStart, $yearStart, $photoCurrentMonthStart);
-            if (!isset($photoRows[$photoBucket])) {
-                continue;
-            }
-            $code = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
-            if (!str_starts_with($code, 'SS') && !str_starts_with($code, 'FF')) {
-                continue;
-            }
-            $clearedThisMonth = $item->compare_status === 'cleared'
-                && $item->cleared_at
-                && Carbon::parse($item->cleared_at)->isSameMonth($photoCurrentMonthStart);
-            if (!in_array($item->compare_status, ['active', 'changed'], true) && !$clearedThisMonth) {
-                continue;
-            }
-            $due = $item->review?->revised_due_date ?? $item->current_due_date ?? $item->due_date;
-            $due = $due ? Carbon::parse($due) : null;
-            $isWip = preg_match('/^(SS|FF)02(?:-|$)/', $code) === 1;
-            $photoQty = $clearedThisMonth
-                ? (float) $item->snapshot_qty
-                : (float) ($item->current_qty ?? $item->snapshot_qty);
-            $photoKey = $this->photoSummaryCategory($due, $isWip, (bool) $clearedThisMonth, $photoCurrentMonthStart);
-            $photoRows[$photoBucket][$photoKey] += $photoQty;
-            $photoOwnerRows[substr($code, 0, 2)][$photoBucket][$photoKey] += $photoQty;
-        }
-
         $photoSummary = $this->finalizePhotoSummaryRows($photoRows);
         $photoSummary['by_owner'] = [
             'FF' => $this->finalizePhotoSummaryRows($photoOwnerRows['FF']),
@@ -1091,8 +1089,8 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
                 $includeDetailLists,
                 $includeDetailLists || $includePdfLists
             ),
-            'rescheduled_items' => $includeDetailLists || $includePdfLists
-                ? $this->rescheduledItemsReport($this->iterateItems(), $rangeLabel)
+            'rescheduled_items' => $includeRescheduledItems
+                ? $this->finalizeRescheduledItemsReport($rescheduledRows, $rangeLabel)
                 : ['range_label' => $rangeLabel, 'division_summary' => [], 'rows' => []],
         ];
     }
@@ -1101,35 +1099,49 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
     {
         $rows = [];
         foreach ($items as $item) {
-            $originalDue = $item->due_date;
-            $latestDue = $item->review?->revised_due_date ?? $item->current_due_date;
-            if (!$originalDue || !$latestDue) {
-                continue;
+            $row = $this->rescheduledItemRow($item);
+            if ($row !== null) {
+                $rows[] = $row;
             }
-            $originalDue = $originalDue instanceof Carbon ? $originalDue->copy() : Carbon::parse($originalDue);
-            $latestDue = $latestDue instanceof Carbon ? $latestDue->copy() : Carbon::parse($latestDue);
-            if (!$latestDue->gt($originalDue)) {
-                continue;
-            }
-
-            $reasonCode = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
-            $rows[] = [
-                'division' => DeadstockSalesMap::accessKey($item->salesperson_name),
-                'salesperson' => DeadstockSalesMap::label($item->salesperson_name),
-                'partnumber' => (string) $item->partnumber,
-                'part_description' => (string) $item->part_description,
-                'serialnumber' => (string) $item->serialnumber,
-                'customer' => (string) $item->customer_name,
-                'qty' => (float) ($item->current_qty ?? $item->snapshot_qty),
-                'original_due_date' => $originalDue->format('Y-m-d'),
-                'latest_due_date' => $latestDue->format('Y-m-d'),
-                'postponed_days' => $originalDue->diffInDays($latestDue),
-                'postpone_count' => $this->postponeCount($item, $originalDue, $latestDue),
-                'site' => $this->siteLabel((string) $item->company),
-                'reason_code' => $reasonCode,
-            ];
         }
 
+        return $this->finalizeRescheduledItemsReport($rows, $rangeLabel);
+    }
+
+    private function rescheduledItemRow(DeadstockSnapshotItem $item): ?array
+    {
+        $originalDue = $item->due_date;
+        $latestDue = $item->review?->revised_due_date ?? $item->current_due_date;
+        if (!$originalDue || !$latestDue) {
+            return null;
+        }
+        $originalDue = $originalDue instanceof Carbon ? $originalDue->copy() : Carbon::parse($originalDue);
+        $latestDue = $latestDue instanceof Carbon ? $latestDue->copy() : Carbon::parse($latestDue);
+        if (!$latestDue->gt($originalDue)) {
+            return null;
+        }
+
+        $reasonCode = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
+
+        return [
+            'division' => DeadstockSalesMap::accessKey($item->salesperson_name),
+            'salesperson' => DeadstockSalesMap::label($item->salesperson_name),
+            'partnumber' => (string) $item->partnumber,
+            'part_description' => (string) $item->part_description,
+            'serialnumber' => (string) $item->serialnumber,
+            'customer' => (string) $item->customer_name,
+            'qty' => (float) ($item->current_qty ?? $item->snapshot_qty),
+            'original_due_date' => $originalDue->format('Y-m-d'),
+            'latest_due_date' => $latestDue->format('Y-m-d'),
+            'postponed_days' => $originalDue->diffInDays($latestDue),
+            'postpone_count' => $this->postponeCount($item, $originalDue, $latestDue),
+            'site' => $this->siteLabel((string) $item->company),
+            'reason_code' => $reasonCode,
+        ];
+    }
+
+    private function finalizeRescheduledItemsReport(array $rows, string $rangeLabel): array
+    {
         $rows = collect($rows)
             ->sortBy(fn(array $row) => [$row['division'], $row['latest_due_date'], $row['salesperson'], $row['partnumber']])
             ->values();
@@ -1443,20 +1455,32 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         return $latest;
     }
 
-    private function latestReportDate(): ?Carbon
+    private function reportSnapshotContext(): array
     {
-        $latest = null;
-
-        foreach ($this->iterateItems() as $item) {
-            $date = $item->snapshotMonth?->recv_date
-                ?? $item->snapshotMonth?->as_of_date
-                ?? $item->snapshotMonth?->snapshot_month;
-            if ($date && ($latest === null || $date->gt($latest))) {
-                $latest = $date->copy();
-            }
+        if ($this->items !== null) {
+            $latestMonth = $this->latestPhotoSnapshotMonth($this->items);
+        } else {
+            $snapshotIds = $this->query()
+                ->withoutEagerLoads()
+                ->reorder()
+                ->select('snapshot_month_id')
+                ->distinct();
+            $months = DeadstockSnapshotMonth::query()
+                ->whereIn('id', $snapshotIds)
+                ->get();
+            $latestMonth = $months
+                ->sortBy(fn(DeadstockSnapshotMonth $month) => [
+                    ($month->recv_date ?? $month->as_of_date ?? $month->snapshot_month)?->timestamp ?? 0,
+                    (int) $month->id,
+                ])
+                ->last();
         }
 
-        return $latest;
+        $latestDate = $latestMonth?->recv_date
+            ?? $latestMonth?->as_of_date
+            ?? $latestMonth?->snapshot_month;
+
+        return [$latestMonth, $latestDate?->copy()];
     }
 
     private function photoSummaryCategory(?Carbon $due, bool $isWip, bool $clearedThisMonth, Carbon $targetMonth): string
