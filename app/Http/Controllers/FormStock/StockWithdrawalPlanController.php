@@ -340,46 +340,71 @@ class StockWithdrawalPlanController extends Controller
 
     public function sendMail(Request $request, StockWithdrawalPlanningService $service)
     {
-        $filters = $request->validate([
-            'date_from' => ['required', 'date'],
-            'date_to' => ['required', 'date', 'after_or_equal:date_from'],
-        ]);
-        [$dateFrom, $dateTo] = $this->mailQueueDateRange($filters);
-        $dates = $dateFrom === $dateTo ? [$dateFrom] : [$dateFrom, $dateTo];
+        try {
+            $result = $this->sendDueMail($service, auth()->id());
+        } catch (\Throwable $e) {
+            return back()->withErrors(['mail' => 'ส่งเมลไม่สำเร็จ: '.$e->getMessage()]);
+        }
+
+        if ($result['count'] === 0) {
+            return back()->withErrors(['mail' => 'ไม่พบรายการที่ถึงกำหนดแล้วและยังเบิกไม่ครบ']);
+        }
+
+        return back()->with('success', "ส่งเมล {$result['count']} รายการไป {$result['recipient']} แล้ว");
+    }
+
+    public function sendDueMail(StockWithdrawalPlanningService $service, ?int $sentBy = null): array
+    {
+        $cutoff = $this->mailDueDateCutoff();
         $query = StockWithdrawalPlanItem::query()->with('plan')
-            ->whereBetween('queue_date', [$dateFrom, $dateTo])
+            ->whereDate('planned_withdraw_date', '<=', $cutoff)
             ->whereNull('planner_closed_at')
             ->whereHas('plan', fn($q) => $q->whereNull('cancelled_at'));
         $items = $query->get();
         $this->attachWithdrawalBalances($items, $service);
         $items = $items->reject(fn($item) => $item->withdrawal_status_code === 'COMPLETED');
         $groups = $this->mailGroups($items);
-        if (!$groups) return back()->withErrors(['mail' => 'ไม่พบรายการที่ยังเบิกไม่ครบในช่วงวันที่ที่ Filter ไว้']);
+        if (!$groups) {
+            return ['count' => 0, 'recipient' => implode(', ', $this->mailRecipients())];
+        }
         $riskCounts = $service->alertRiskCounts($items);
         $attachments = [];
         foreach ($groups as $date => $rows) $attachments[] = ['name'=>"stock-withdrawal-{$date}.xlsx", 'content'=>$this->xlsxContent($rows)];
-        $recipient = config('stock-withdrawal.fallback_email');
+        $recipients = $this->mailRecipients();
+        $recipient = implode(', ', $recipients);
         try {
-            Mail::to($recipient)->send(new StockWithdrawalFilteredAlertMail($groups, $attachments));
-            DB::connection('sqlsrv_menam')->transaction(function () use ($recipient, $items, $attachments, $filters, $dates, $riskCounts) {
+            Mail::to($recipients)->send(new StockWithdrawalFilteredAlertMail($groups, $attachments));
+            DB::connection('sqlsrv_menam')->transaction(function () use ($recipient, $items, $attachments, $cutoff, $riskCounts, $sentBy) {
                 $now = now('Asia/Bangkok');
-                $logId = DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_logs')->insertGetId(array_merge(['run_at'=>$now,'recipient'=>$recipient,'sent_by'=>auth()->id(),'item_count'=>$items->count(),'status'=>'SENT','mail_type'=>'AUTO','attachment_name'=>implode(',',array_column($attachments,'name')),'payload'=>json_encode(['filters'=>$filters,'dates'=>$dates]),'created_at'=>$now,'updated_at'=>$now], $riskCounts));
+                $logId = DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_logs')->insertGetId(array_merge(['run_at'=>$now,'recipient'=>$recipient,'sent_by'=>$sentBy,'item_count'=>$items->count(),'status'=>'SENT','mail_type'=>'AUTO','attachment_name'=>implode(',',array_column($attachments,'name')),'payload'=>json_encode(['due_date_to'=>$cutoff]),'created_at'=>$now,'updated_at'=>$now], $riskCounts));
                 $rows = $items->map(fn($item) => ['stock_withdrawal_alert_log_id'=>$logId,'stock_withdrawal_plan_item_id'=>$item->id,'snapshot'=>json_encode(['mfg'=>$item->plan->mfg,'partnumber'=>$item->partnumber,'quantity'=>(float)($item->withdraw_quantity??$item->quantity),'request_date'=>$item->request_date?->toDateString(),'due_date'=>$item->planned_withdraw_date?->toDateString()]),'created_at'=>$now,'updated_at'=>$now])->all();
                 if ($rows) DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_log_items')->insert($rows);
             });
         } catch (\Throwable $e) {
-            DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_logs')->insert(array_merge(['run_at'=>now('Asia/Bangkok'),'recipient'=>$recipient,'sent_by'=>auth()->id(),'item_count'=>$items->count(),'status'=>'FAILED','mail_type'=>'AUTO','error_message'=>mb_substr($e->getMessage(),0,2000),'payload'=>json_encode(['filters'=>$filters,'dates'=>$dates]),'created_at'=>now(),'updated_at'=>now()], $riskCounts));
-            return back()->withErrors(['mail' => 'ส่งเมลไม่สำเร็จ: '.$e->getMessage()]);
+            DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_logs')->insert(array_merge(['run_at'=>now('Asia/Bangkok'),'recipient'=>$recipient,'sent_by'=>$sentBy,'item_count'=>$items->count(),'status'=>'FAILED','mail_type'=>'AUTO','error_message'=>mb_substr($e->getMessage(),0,2000),'payload'=>json_encode(['due_date_to'=>$cutoff]),'created_at'=>now(),'updated_at'=>now()], $riskCounts));
+            throw $e;
         }
-        return back()->with('success', "ส่งเมล {$items->count()} รายการไป {$recipient} แล้ว");
+
+        return ['count' => $items->count(), 'recipient' => $recipient];
     }
 
-    private function mailQueueDateRange(array $filters): array
+    private function mailDueDateCutoff(): string
     {
-        return [
-            Carbon::parse($filters['date_from'])->toDateString(),
-            Carbon::parse($filters['date_to'])->toDateString(),
-        ];
+        return now('Asia/Bangkok')->toDateString();
+    }
+
+    private function mailRecipients(): array
+    {
+        $recipients = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) config('stock-withdrawal.fallback_email'))
+        ), fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL)));
+
+        if (!$recipients) {
+            throw new \RuntimeException('ไม่พบอีเมลผู้รับที่ถูกต้องใน STOCK_WITHDRAWAL_FALLBACK_TO');
+        }
+
+        return $recipients;
     }
 
     public function closeItems(Request $request, StockWithdrawalPlanningService $service)
@@ -493,9 +518,9 @@ class StockWithdrawalPlanController extends Controller
         $groups = $this->mailGroups($items);
         $rows = collect($groups)->flatten(1)->values()->all();
         $attachments = [['name'=>'stock-withdrawal-special-'.now('Asia/Bangkok')->format('Y-m-d').'.xlsx','content'=>$this->xlsxContent($rows)]];
-        $recipient = config('stock-withdrawal.fallback_email'); $riskCounts=$service->alertRiskCounts($items);
+        $recipients = $this->mailRecipients(); $recipient = implode(', ', $recipients); $riskCounts=$service->alertRiskCounts($items);
         try {
-            Mail::to($recipient)->send(new StockWithdrawalFilteredAlertMail($groups,$attachments,'SPECIAL'));
+            Mail::to($recipients)->send(new StockWithdrawalFilteredAlertMail($groups,$attachments,'SPECIAL'));
             DB::connection('sqlsrv_menam')->transaction(function () use ($items,$recipient,$attachments,$riskCounts) {
                 $now=now('Asia/Bangkok');
                 $logId=DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_logs')->insertGetId(array_merge(['run_at'=>$now,'recipient'=>$recipient,'sent_by'=>auth()->id(),'item_count'=>$items->count(),'status'=>'SENT','mail_type'=>'SPECIAL','attachment_name'=>$attachments[0]['name'],'payload'=>json_encode(['manual'=>true]),'created_at'=>$now,'updated_at'=>$now],$riskCounts));
@@ -557,6 +582,7 @@ class StockWithdrawalPlanController extends Controller
                 'site'=>$item->plan->site,'mfg'=>$item->plan->mfg,'customer'=>$item->plan->customer_name,
                 'partnumber'=>$item->partnumber,'job_type'=>$item->job_type_name,'quantity'=>(float)($item->withdraw_quantity??$item->quantity),
                 'remaining_quantity'=>(float)$item->remaining_qty,'status'=>$item->withdrawal_status,'unit'=>$item->unit_label,
+                'withdraw_to'=>$item->first_work_center,
                 'lead_time_days'=>$item->lead_time_days,'due_date'=>$item->planned_withdraw_date?->format('d/m/Y'),
                 'request_date'=>$item->request_date?->format('d/m/Y'),'queue_date'=>$item->queue_date?->format('d/m/Y'),
                 'production_date'=>$item->plan->production_date?->format('d/m/Y'),'delivery_date'=>$item->plan->delivery_date?->format('d/m/Y'),
@@ -568,7 +594,7 @@ class StockWithdrawalPlanController extends Controller
     private function xlsxContent(array $rows): string
     {
         $book = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-        $headers = ['คิว','Special','MFG','โรงงาน','ลูกค้า','Part Number','ประเภทงาน','จำนวนที่ต้องเบิก','จำนวนคงเหลือ','หน่วย','วันแจ้ง','วันที่ต้องเบิก','วันที่เข้าคิว','วันขึ้นผลิต','วันส่งมอบ','สถานะ','หมายเหตุ'];
+        $headers = ['คิว','Special','MFG','โรงงาน','ลูกค้า','Part Number','ประเภทงาน','เบิกไป','จำนวนที่ต้องเบิก','จำนวนคงเหลือ','หน่วย','วันแจ้ง','วันที่ต้องเบิก','วันที่เข้าคิว','วันขึ้นผลิต','วันส่งมอบ','สถานะ','หมายเหตุ'];
         $writeSheet = function ($worksheet, string $title, array $sheetRows) use ($headers): void {
             $worksheet->setTitle($title);
             $worksheet->fromArray($headers, null, 'A1');
@@ -576,16 +602,16 @@ class StockWithdrawalPlanController extends Controller
             foreach ($sheetRows as $row) {
                 $worksheet->fromArray([
                     $row['is_backlog']?'งานค้าง':'วันนี้', $row['is_special']?'Special':'', $row['mfg'], $row['site'] ?? '', $row['customer'] ?? '', $row['partnumber'],
-                    $row['job_type'], $row['quantity'], $row['remaining_quantity'] ?? $row['quantity'], $row['unit'],
+                    $row['job_type'], $row['withdraw_to'] ?? '', $row['quantity'], $row['remaining_quantity'] ?? $row['quantity'], $row['unit'],
                     $row['request_date'], $row['due_date'], $row['queue_date'], $row['production_date'], $row['delivery_date'], $row['status'] ?? 'ยังไม่เบิก', $row['special_note'] ?? '',
                 ], null, 'A'.$line++);
             }
             $lastRow = max(1, $line - 1);
             $worksheet->freezePane('A2');
-            $worksheet->setAutoFilter("A1:Q{$lastRow}");
-            $worksheet->getStyle('A1:Q1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
-            $worksheet->getStyle('A1:Q1')->getFill()->setFillType('solid')->getStartColor()->setARGB('FF0F766E');
-            foreach (range('A', 'Q') as $column) $worksheet->getColumnDimension($column)->setAutoSize(true);
+            $worksheet->setAutoFilter("A1:R{$lastRow}");
+            $worksheet->getStyle('A1:R1')->getFont()->setBold(true)->getColor()->setARGB('FFFFFFFF');
+            $worksheet->getStyle('A1:R1')->getFill()->setFillType('solid')->getStartColor()->setARGB('FF0F766E');
+            foreach (range('A', 'R') as $column) $worksheet->getColumnDimension($column)->setAutoSize(true);
         };
 
         $writeSheet($book->getActiveSheet(), 'คิวทั้งหมด', $rows);
