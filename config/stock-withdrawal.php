@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'fallback_email' => env('STOCK_WITHDRAWAL_FALLBACK_TO', 'nitiphan@menamstainless.co.th'),
+    'fallback_email' => env('STOCK_WITHDRAWAL_FALLBACK_TO', ''),
     'refresh_seconds' => 300,
     'working_days' => [1, 2, 3, 4, 5, 6],
     'job_types' => [
