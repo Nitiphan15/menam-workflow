@@ -144,6 +144,7 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
                 $this->buildClearedItemsSheet($spreadsheet->createSheet(5), $report['delivery_performance']);
                 $this->buildSalesItemsSheet($spreadsheet->createSheet(6), $report);
                 $this->buildSalesReceivedPartSheet($spreadsheet->createSheet(7), $report);
+                $this->buildSalesDeliveryStatusSheet($spreadsheet->createSheet(8), $report);
                 $spreadsheet->setActiveSheetIndex(0);
             },
         ];
@@ -559,6 +560,87 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         }
     }
 
+    private function buildSalesDeliveryStatusSheet(Worksheet $sheet, array $report): void
+    {
+        $groups = $report['sales_delivery_status_summary'];
+
+        $sheet->setTitle('Sales by Delivery Status');
+        $sheet->setCellValue('A1', 'สรุป Deadstock แยกตามสถานะการส่ง · ' . $report['report_range_label']);
+        $sheet->mergeCells('A1:J1');
+        $sheet->getStyle('A1:J1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:J1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF1F4E78');
+
+        $rowNo = 3;
+        if ($groups === []) {
+            $sheet->setCellValue("A{$rowNo}", 'ไม่มีรายการ Sales ตาม Filter ที่เลือก');
+            $sheet->mergeCells("A{$rowNo}:J{$rowNo}");
+        } else {
+            foreach ($groups as $group) {
+                $sheet->fromArray([[
+                    'Update', 'พนักงานขาย', 'จำนวนรวม (KGS)', 'ยังไม่ส่ง (KGS)', 'ส่งแล้ว (KGS)',
+                ]], null, "A{$rowNo}");
+                $sheet->mergeCells("E{$rowNo}:J{$rowNo}");
+                $sheet->getStyle("A{$rowNo}:J{$rowNo}")->getFont()->setBold(true);
+                $sheet->getStyle("A{$rowNo}:J{$rowNo}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFD9EAF7');
+
+                $valueRow = $rowNo + 1;
+                $sheet->fromArray([[
+                    $report['report_date']->format('d/m/Y'),
+                    $group['salesperson'],
+                    $group['total_qty'],
+                    $group['pending_qty'],
+                    $group['cleared_qty'],
+                ]], null, "A{$valueRow}");
+                $sheet->mergeCells("E{$valueRow}:J{$valueRow}");
+                $sheet->getStyle("C{$valueRow}:E{$valueRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle("D{$valueRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
+                $sheet->getStyle("E{$valueRow}:J{$valueRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE2F0D9');
+
+                $headerRow = $rowNo + 3;
+                $sheet->fromArray([[
+                    'วันที่รับเข้า', 'รายการ (Part)', 'รายละเอียด Part', 'จำนวน (KG.)', 'สถานะการส่ง',
+                    'กำหนดส่ง (S/O)', 'กำหนดส่งใหม่', 'ลูกค้า', 'รหัสสาเหตุ', 'รายละเอียด',
+                ]], null, "A{$headerRow}");
+                $sheet->getStyle("A{$headerRow}:J{$headerRow}")->getFont()->setBold(true);
+                $sheet->getStyle("A{$headerRow}:J{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE2F0D9');
+
+                $dataRow = $headerRow + 1;
+                foreach ($group['rows'] as $row) {
+                    $sheet->fromArray([[
+                        $row['purchase_date'],
+                        $row['partnumber'],
+                        $row['part_description'],
+                        $row['qty'],
+                        $row['delivery_status'],
+                        $row['due_date'],
+                        $row['revised_due_date'],
+                        $row['customer'],
+                        $row['reason_code'],
+                        $row['review_detail'],
+                    ]], null, "A{$dataRow}");
+                    if ($row['delivery_status'] === 'ส่งแล้ว') {
+                        $sheet->getStyle("A{$dataRow}:J{$dataRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE2F0D9');
+                    }
+                    $dataRow++;
+                }
+
+                $lastDataRow = $dataRow - 1;
+                $sheet->getStyle("A{$rowNo}:J{$lastDataRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+                $sheet->getStyle("A{$rowNo}:J{$lastDataRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+                $sheet->getStyle('D' . ($headerRow + 1) . ":D{$lastDataRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+                $rowNo = $lastDataRow + 3;
+            }
+        }
+
+        $sheet->freezePane('A2');
+        foreach ([
+            'A' => 15, 'B' => 24, 'C' => 34, 'D' => 15, 'E' => 16,
+            'F' => 18, 'G' => 18, 'H' => 30, 'I' => 15, 'J' => 32,
+        ] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+    }
+
     private function buildDeliveryPerformanceSheet(Worksheet $sheet, array $performance): void
     {
         $sheet->setTitle('Delivery Performance');
@@ -823,6 +905,7 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             'problem' => [],
         ];
         $salesReceivedPartItems = [];
+        $salesDeliveryStatusItems = [];
 
         foreach ($this->iterateItems() as $item) {
             $purchaseDate = $item->purchase_date instanceof Carbon ? $item->purchase_date : null;
@@ -847,6 +930,24 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             $rows[$bucket][$owner][$slot] += $openQty;
 
             if ($owner === 'sales' && $includeDetailLists) {
+                $isCleared = (string) $item->compare_status === 'cleared';
+                $deliveryQty = $isCleared ? $snapshotQty : $openQty;
+                if ($deliveryQty > 0) {
+                    $salesDeliveryStatusItems[] = [
+                        'salesperson' => DeadstockSalesMap::label($item->salesperson_name),
+                        'purchase_date' => $item->purchase_date?->format('Y-m-d') ?? '',
+                        'partnumber' => (string) $item->partnumber,
+                        'part_description' => (string) $item->part_description,
+                        'qty' => $deliveryQty,
+                        'delivery_status' => $isCleared ? 'ส่งแล้ว' : 'ยังไม่ส่ง',
+                        'due_date' => $item->due_date?->format('Y-m-d') ?? '',
+                        'revised_due_date' => $item->review?->revised_due_date?->format('Y-m-d') ?? '',
+                        'customer' => (string) $item->customer_name,
+                        'reason_code' => $code,
+                        'review_detail' => (string) ($item->review?->review_detail ?? ''),
+                    ];
+                }
+
                 if ($openQty > 0) {
                     $salesReceivedPartItems[] = [
                         'salesperson' => DeadstockSalesMap::label($item->salesperson_name),
@@ -978,6 +1079,9 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             'sales_item_lists' => $salesItemLists,
             'sales_received_part_summary' => $includeDetailLists
                 ? $this->salesReceivedPartSummary($salesReceivedPartItems)
+                : [],
+            'sales_delivery_status_summary' => $includeDetailLists
+                ? $this->salesDeliveryStatusSummary($salesDeliveryStatusItems)
                 : [],
             'report_range_label' => $rangeLabel,
             'start_label' => 'Start 1/1/' . $reportDate->format('y') . ' TOTAL (KGS)',
@@ -1485,6 +1589,79 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
 
                 return $row;
             }, $group['rows']));
+        }
+        unset($group);
+
+        return array_values($groups);
+    }
+
+    private function salesDeliveryStatusSummary(array $items): array
+    {
+        $groups = [];
+
+        foreach ($items as $item) {
+            $salesperson = trim((string) $item['salesperson']) ?: 'ไม่ระบุ Sales';
+            $groups[$salesperson] ??= [
+                'salesperson' => $salesperson,
+                'total_qty' => 0.0,
+                'pending_qty' => 0.0,
+                'cleared_qty' => 0.0,
+                'rows' => [],
+            ];
+
+            $qty = (float) $item['qty'];
+            $isCleared = $item['delivery_status'] === 'ส่งแล้ว';
+            $groups[$salesperson]['total_qty'] += $qty;
+            $groups[$salesperson][$isCleared ? 'cleared_qty' : 'pending_qty'] += $qty;
+
+            $rowKey = ($isCleared ? '1' : '0') . '|' . ($item['purchase_date'] ?: '-') . '|' . ($item['partnumber'] ?: '-');
+            $groups[$salesperson]['rows'][$rowKey] ??= [
+                'purchase_date' => $item['purchase_date'],
+                'partnumber' => $item['partnumber'],
+                'part_description' => [],
+                'qty' => 0.0,
+                'delivery_status' => $item['delivery_status'],
+                'due_date' => [],
+                'revised_due_date' => [],
+                'customer' => [],
+                'reason_code' => [],
+                'review_detail' => [],
+            ];
+
+            $groups[$salesperson]['rows'][$rowKey]['qty'] += $qty;
+            foreach (['due_date', 'revised_due_date', 'part_description', 'customer', 'reason_code', 'review_detail'] as $field) {
+                $value = trim((string) $item[$field]);
+                if ($value !== '') {
+                    $groups[$salesperson]['rows'][$rowKey][$field][$value] = true;
+                }
+            }
+        }
+
+        ksort($groups, SORT_NATURAL | SORT_FLAG_CASE);
+        foreach ($groups as &$group) {
+            $group['rows'] = array_values(array_map(function (array $row) {
+                $row['purchase_date'] = $this->formatSummaryDate($row['purchase_date']);
+                foreach (['due_date', 'revised_due_date'] as $field) {
+                    $row[$field] = implode("\n", array_map(fn(string $date) => $this->formatSummaryDate($date), array_keys($row[$field])));
+                }
+                foreach (['part_description', 'customer', 'reason_code', 'review_detail'] as $field) {
+                    $row[$field] = implode("\n", array_keys($row[$field]));
+                }
+
+                return $row;
+            }, $group['rows']));
+
+            usort($group['rows'], fn(array $left, array $right) => [
+                $left['delivery_status'] === 'ส่งแล้ว' ? 1 : 0,
+                -$left['qty'],
+                $left['purchase_date'],
+                $left['partnumber'],
+            ] <=> [
+                $right['delivery_status'] === 'ส่งแล้ว' ? 1 : 0,
+                -$right['qty'],
+                $right['purchase_date'],
+                $right['partnumber'],
+            ]);
         }
         unset($group);
 
