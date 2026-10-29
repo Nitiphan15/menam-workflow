@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.2.2');
+        $latestVersion = config('app.version', '1.3.0');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -42,6 +42,17 @@
                     </div>
                     <div class="card-body px-4">
                         <div class="list-group list-group-flush">
+                            <div class="list-group-item px-0 py-3">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                    <strong>เพิ่ม Deadstock Excel แยกสถานะการส่งตาม Sales</strong>
+                                </div>
+                                <ul class="mb-0 text-muted">
+                                    <li>เพิ่ม Sheet "Sales by Delivery Status" แยกรายการยังไม่ส่งและส่งแล้วตามพนักงานขาย</li>
+                                    <li>เรียง Qty จากมากไปน้อยภายในแต่ละสถานะ และแสดงรายการส่งแล้วด้วยพื้นสีเขียว</li>
+                                </ul>
+                            </div>
+
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                     <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
