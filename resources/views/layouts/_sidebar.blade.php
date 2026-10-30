@@ -131,8 +131,13 @@
 
         if (config('menu.show_guest_menu_when_auth', false)) {
             $hiddenGuestRoutes = config('menu.hide_guest_menu_routes_when_auth', []);
-            $guestMenus = array_filter(config('menu.menu.guest', []), function ($item) use ($hiddenGuestRoutes) {
-                return !in_array($item['route'] ?? null, $hiddenGuestRoutes, true);
+            $publicSidebarRoutes = config('menu.auth_sidebar_public_routes', []);
+            $guestMenus = array_filter(config('menu.menu.guest', []), function ($item) use ($hiddenGuestRoutes, $publicSidebarRoutes) {
+                $route = $item['route'] ?? null;
+
+                return $route
+                    && !in_array($route, $hiddenGuestRoutes, true)
+                    && in_array($route, $publicSidebarRoutes, true);
             });
 
             $menus = $appendMenus($menus, array_values($guestMenus));
@@ -231,7 +236,7 @@
         $text = $item['text'] ?? '';
         $route = $item['route'] ?? '';
 
-        if ($route === 'home') {
+        if (in_array($route, ['home', 'menus.index'], true)) {
             return 'Main';
         }
 
