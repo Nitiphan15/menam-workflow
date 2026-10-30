@@ -5,53 +5,177 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.3.1');
+        $latestVersion = config('app.version', '1.5.0');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
         $canPo = $user && $user->hasRoleCode(['PO', 'POPUR']);
+        $canStock = $user && $user->hasRoleCode(['STOCK', 'STOCK_ACTION', 'STOCK_ADMIN']);
     @endphp
 
     <div class="container py-4">
-        <div class="bg-white border-0 shadow-sm rounded-3 p-4 p-lg-5 mb-4">
-            <div class="row align-items-center g-4">
-                <div class="col-lg-8">
-                    <div class="text-primary fw-semibold mb-2">MENAM Online</div>
-                    <h2 class="fw-bold mb-3">ยินดีต้อนรับเข้าสู่ระบบ MENAM Online</h2>
-                    <p class="text-muted mb-0">
-                        เลือกเมนูด้านซ้ายเพื่อเริ่มใช้งานระบบที่ต้องการ หากไม่พบเมนูที่ต้องใช้
-                        กรุณาติดต่อผู้ดูแลระบบเพื่อตรวจสอบสิทธิ์การเข้าใช้งาน
-                    </p>
-                </div>
-                <div class="col-lg-4">
-                    <div class="rounded-3 bg-primary-subtle text-primary p-3">
-                        <div class="small fw-semibold">Version ล่าสุด</div>
-                        <div class="h4 fw-bold mb-1">v {{ $latestVersion }}</div>
-                        <div class="small text-primary-emphasis">Delivery Plan, Inquiry และ Logistics workflow</div>
-                    </div>
-                </div>
+        <section class="mb-4" aria-labelledby="home-welcome-title">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <h2 class="h3 fw-bold mb-0" id="home-welcome-title">ยินดีต้อนรับ</h2>
+                <span class="badge rounded-pill text-bg-light border text-primary">Version {{ $latestVersion }}</span>
             </div>
-        </div>
+            <p class="text-muted mb-0">เลือกงานที่ต้องการจากรายการตามสิทธิ์ของคุณ</p>
+        </section>
 
-        <div class="row g-4">
-            <div class="col-lg-7">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-4 px-4">
-                        <h4 class="mb-1">ข่าวประกาศ</h4>
-                        <div class="text-muted small">รายการอัปเดตล่าสุดของระบบ</div>
+        <section class="card border-0 shadow-sm mb-4" aria-labelledby="quick-access-title">
+            <div class="card-body p-4">
+                <div class="mb-3">
+                    <h3 class="h5 fw-bold mb-1" id="quick-access-title">งานที่ใช้บ่อย</h3>
+                    <p class="text-muted small mb-0">ระบบจะแสดงเฉพาะงานที่บัญชีของคุณมีสิทธิ์ใช้งาน</p>
+                </div>
+
+                <div class="row g-2">
+                    @if ($canDp)
+                        <div class="col-md-6 col-xl-4">
+                            <a href="{{ route('dp.inquiry') }}" class="btn btn-outline-primary text-start w-100 h-100 py-3">
+                                <i class="fa-solid fa-magnifying-glass me-2"></i> Delivery Plan Inquiry
+                            </a>
+                        </div>
+
+                        <div class="col-md-6 col-xl-4">
+                            <a href="{{ route('dp.production-status') }}" class="btn btn-outline-primary text-start w-100 h-100 py-3">
+                                <i class="fa-solid fa-list-check me-2"></i> Production Status Tracking
+                            </a>
+                        </div>
+                    @endif
+
+                    @if ($canDpa)
+                        <div class="col-md-6 col-xl-4">
+                            <a href="{{ route('dp.dashboard.logistics-summary') }}" class="btn btn-outline-primary text-start w-100 h-100 py-3">
+                                <i class="fa-solid fa-truck-loading me-2"></i> จัดรถส่งสินค้า
+                            </a>
+                        </div>
+
+                        <div class="col-md-6 col-xl-4">
+                            <a href="{{ route('dp.dashboard.truck-board') }}" class="btn btn-outline-primary text-start w-100 h-100 py-3">
+                                <i class="fa-solid fa-truck me-2"></i> ตารางรถขนส่ง
+                            </a>
+                        </div>
+                    @endif
+
+                    @if ($canPo)
+                        <div class="col-md-6 col-xl-4">
+                            <a href="{{ route('po.myActions') }}" class="btn btn-outline-primary text-start w-100 h-100 py-3">
+                                <i class="fa-solid fa-tasks me-2"></i> PO My Actions
+                            </a>
+                        </div>
+                    @endif
+
+                    @if ($canStock)
+                        <div class="col-md-6 col-xl-4">
+                            <a href="{{ route('stock-withdrawal.index') }}" class="btn btn-outline-primary text-start w-100 h-100 py-3">
+                                <i class="fa-solid fa-boxes-stacked me-2"></i> แผนเบิกงาน
+                            </a>
+                        </div>
+                    @endif
+
+                    <div class="col-md-6 col-xl-4">
+                        <a href="{{ route('profile.edit') }}" class="btn btn-outline-secondary text-start w-100 h-100 py-3">
+                            <i class="fa-solid fa-signature me-2"></i> เพิ่ม / เปลี่ยนลายเซ็นตัวเอง
+                        </a>
                     </div>
-                    <div class="card-body px-4">
-                        <div class="list-group list-group-flush">
-                            <div class="list-group-item px-0 py-3">
-                                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
-                                    <strong>ปรับปรุงความเร็ว Deadstock Excel Export</strong>
-                                </div>
-                                <ul class="mb-0 text-muted">
-                                    <li>ลดการอ่านข้อมูลซ้ำ โดยรวมการคำนวณ Summary และ Sheet รายละเอียดที่เกี่ยวข้องไว้ในรอบเดียว</li>
-                                    <li>ยกเลิกการตรึงแถวใน Sheet "FG Stock by Due Month" เพื่อเลื่อนดูหลายตารางได้ต่อเนื่อง</li>
-                                </ul>
+                </div>
+
+                <p class="text-muted small mt-3 mb-0">
+                    ไม่พบงานที่ต้องใช้? ติดต่อผู้ดูแลระบบเพื่อตรวจสอบสิทธิ์บัญชี
+                </p>
+            </div>
+        </section>
+
+        <section class="card border-0 shadow-sm mb-4" aria-labelledby="latest-update-title">
+            <div class="card-body p-4">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                    <h3 class="h5 fw-bold mb-0" id="latest-update-title">อัปเดตล่าสุด</h3>
+                </div>
+                <ul class="text-muted mb-0">
+                    <li>เพิ่ม Deadstock Background Export: สร้าง Excel ผ่าน Queue พร้อมหน้าประวัติ สถานะ และดาวน์โหลดไฟล์เฉพาะผู้ร้องขอ</li>
+                    <li>เพิ่ม Queue connection และ SQL schema สำหรับงาน Export ขนาดใหญ่ โดยไม่บล็อกหน้าเว็บ</li>
+                    <li>ขยายข้อความ Approval Remarks ในอีเมลปิด Form PO ให้อ่านง่ายขึ้น</li>
+                    <li>อีเมลปิด Form PO แสดง Remark จากการอนุมัติ Step 2 และ Step 3 พร้อมชื่อผู้อนุมัติและเวลา</li>
+                    <li>เพิ่มอีเมลแจ้งคิวแผนเบิกประจำวัน เรียงตาม Special และลำดับที่ Planner จัด</li>
+                    <li>อีเมลและ Excel แสดงปลายทางการเบิก Work Center พร้อมยอดคงเหลือที่ยังต้องเบิก</li>
+                    <li>ปรับปรุงความเร็ว Deadstock Excel Export และยกเลิกการตรึงแถวใน FG Stock by Due Month</li>
+                    <li>Deadstock Excel เพิ่ม Sheet “Sales by Delivery Status” แยกสถานะการส่งตามพนักงานขาย</li>
+                    <li>แผนการเบิกถือว่ารายการจบเมื่อยอดเบิก ERP ตั้งแต่ 90% โดยยังตรวจสอบข้อมูลเดิมย้อนหลังได้</li>
+                    <li>แก้ไข FG Stock by Due Month ให้ใช้เดือนจาก Snapshot เดียวกันตลอดทั้ง Sheet</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="card border-0 shadow-sm" aria-labelledby="release-history-title">
+            <div class="card-body p-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <div>
+                        <h3 class="h5 fw-bold mb-1" id="release-history-title">ประวัติเวอร์ชัน</h3>
+                        <p class="text-muted small mb-0">รายละเอียดการปรับปรุงระบบทั้งหมด</p>
+                    </div>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse"
+                        data-bs-target="#releaseHistory" aria-expanded="false" aria-controls="releaseHistory">
+                        <i class="fa-solid fa-clock-rotate-left me-1"></i> ดูประวัติทั้งหมด
+                    </button>
+                </div>
+
+                <div class="collapse" id="releaseHistory">
+                    <div class="list-group list-group-flush mt-3">
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.5.0</span>
+                                <strong>เพิ่ม Deadstock Background Export</strong>
                             </div>
+                            <ul class="mb-0 text-muted">
+                                <li>สร้างไฟล์ Wire Rod Deadstock Excel ผ่าน Queue เพื่อลดเวลารอและรองรับข้อมูลจำนวนมาก</li>
+                                <li>เพิ่มหน้าประวัติ สถานะ และดาวน์โหลดไฟล์ โดยตรวจสิทธิ์เจ้าของคำขอก่อนดาวน์โหลด</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.4.2</span>
+                                <strong>ปรับขนาดข้อความ Remark ในอีเมล Form PO</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>ขยายหัวข้อ Step, ข้อความ Remark และข้อมูลผู้อนุมัติในอีเมลปิด PO ให้อ่านง่ายขึ้น</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.4.1</span>
+                                <strong>เพิ่ม Remark การอนุมัติในอีเมลปิด Form PO</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>แสดงเฉพาะ APPROVE Remark ที่มีข้อความจาก Step 2 Purchase Head และ Step 3 Head of Department</li>
+                                <li>แสดงชื่อผู้อนุมัติและเวลาที่อนุมัติ เพื่อให้ตรวจสอบย้อนหลังได้ง่ายขึ้น</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.4.0</span>
+                                <strong>เพิ่มอีเมลแจ้งเตือนคิวแผนเบิกประจำวัน</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>แจ้งรายการคิววันนี้ รวมงานค้างที่ยังเบิกไม่ครบ โดยเรียง Special ก่อนลำดับที่ Planner จัด</li>
+                                <li>รองรับผู้รับหลายคน และแสดง Work Center ปลายทางในอีเมลกับ Excel</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v {{ $latestVersion }}</span>
+                                <strong>ปรับปรุงความเร็ว Deadstock Excel Export</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>ลดการอ่านข้อมูลซ้ำ โดยรวมการคำนวณ Summary และ Sheet รายละเอียดที่เกี่ยวข้องไว้ในรอบเดียว</li>
+                                <li>ยกเลิกการตรึงแถวใน Sheet "FG Stock by Due Month" เพื่อเลื่อนดูหลายตารางได้ต่อเนื่อง</li>
+                            </ul>
+                        </div>
 
                             <div class="list-group-item px-0 py-3">
                                 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
@@ -170,56 +294,9 @@
                                     ปรับปรุงหน้าจอ Forecast และข้อมูลที่เกี่ยวข้องให้ใช้งานสะดวกขึ้น
                                 </div>
                             </div>
-                        </div>
                     </div>
                 </div>
             </div>
-
-            <div class="col-lg-5">
-                <div class="card border-0 shadow-sm h-100">
-                    <div class="card-header bg-white border-0 pt-4 px-4">
-                        <h4 class="mb-1">เริ่มใช้งานอย่างรวดเร็ว</h4>
-                        <div class="text-muted small">เมนูที่ใช้งานบ่อย</div>
-                    </div>
-                    <div class="card-body px-4">
-                        <div class="d-grid gap-2">
-                            @if ($canDp)
-                                <a href="{{ route('dp.inquiry') }}" class="btn btn-outline-primary text-start">
-                                    <i class="fa-solid fa-magnifying-glass me-2"></i> Delivery Plan Inquiry
-                                </a>
-
-                                <a href="{{ route('dp.production-status') }}" class="btn btn-outline-primary text-start">
-                                    <i class="fa-solid fa-list-check me-2"></i> Production Status Tracking
-                                </a>
-                            @endif
-
-                            @if ($canDpa)
-                                <a href="{{ route('dp.dashboard.logistics-summary') }}" class="btn btn-outline-primary text-start">
-                                    <i class="fa-solid fa-truck-loading me-2"></i> จัดรถส่งสินค้า
-                                </a>
-
-                                <a href="{{ route('dp.dashboard.truck-board') }}" class="btn btn-outline-primary text-start">
-                                    <i class="fa-solid fa-truck me-2"></i> ตารางรถขนส่ง
-                                </a>
-                            @endif
-
-                            @if ($canPo)
-                                <a href="{{ route('po.myActions') }}" class="btn btn-outline-primary text-start">
-                                    <i class="fa-solid fa-tasks me-2"></i> PO My Actions
-                                </a>
-                            @endif
-
-                            <a href="{{ route('profile.edit') }}" class="btn btn-outline-secondary text-start">
-                                <i class="fa-solid fa-signature me-2"></i> เพิ่ม / เปลี่ยนลายเซ็นตัวเอง
-                            </a>
-                        </div>
-
-                        <div class="alert alert-info mt-4 mb-0">
-                            หากไม่เห็นปุ่มหรือเมนูที่ต้องใช้ แสดงว่าสิทธิ์ยังไม่ถูกกำหนดให้บัญชีของคุณ
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        </section>
     </div>
 @endsection
