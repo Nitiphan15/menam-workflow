@@ -894,6 +894,14 @@ Route::middleware(['auth', 'can:WR'])
     Route::get('/deadstock/review', [WireRodDeadstockController::class, 'review'])->name('deadstock.review');
     Route::get('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'show'])->whereNumber('lifecycle')->name('deadstock.show');
     Route::get('/deadstock/export', [WireRodDeadstockController::class, 'export'])->name('deadstock.export');
+    Route::get('/deadstock/exports', [WireRodDeadstockController::class, 'exportHistory'])
+      ->middleware('permission.any:WR_DS_EXPORT,WR_DS_MANAGE_ALL,WR_DS_ADMIN')->name('deadstock.exports.index');
+    Route::get('/deadstock/exports/status', [WireRodDeadstockController::class, 'exportStatus'])
+      ->middleware(['permission.any:WR_DS_EXPORT,WR_DS_MANAGE_ALL,WR_DS_ADMIN', 'throttle:30,1'])->name('deadstock.exports.status');
+    Route::post('/deadstock/exports', [WireRodDeadstockController::class, 'queueExport'])
+      ->middleware(['permission.any:WR_DS_EXPORT,WR_DS_MANAGE_ALL,WR_DS_ADMIN', 'throttle:5,1'])->name('deadstock.exports.store');
+    Route::get('/deadstock/exports/{token}/download', [WireRodDeadstockController::class, 'downloadExport'])
+      ->middleware('permission.any:WR_DS_EXPORT,WR_DS_MANAGE_ALL,WR_DS_ADMIN')->name('deadstock.exports.download');
     Route::post('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'saveReview'])
       ->middleware('permission.any:WR_DS_EDIT_OWN,WR_DS_MANAGE_ALL,WR_DS_ADMIN')
       ->whereNumber('lifecycle')->name('deadstock.review.save');
