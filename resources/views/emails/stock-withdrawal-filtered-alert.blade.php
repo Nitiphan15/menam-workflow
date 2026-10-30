@@ -8,12 +8,12 @@
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr><td style="padding:18px 22px 0;font-size:17px;line-height:22px;letter-spacing:1px;color:#ccfbf1">STOCK WITHDRAWAL</td></tr>
                 <tr><td style="padding:5px 22px 0;font-size:30px;line-height:38px;font-weight:bold;color:#ffffff">{{ $mailType === 'SPECIAL' ? 'งานเบิกด่วน Special' : 'แจ้งเตือนรายการเบิก Stock' }}</td></tr>
-                <tr><td style="padding:6px 22px 18px;font-size:18px;line-height:26px;color:#ccfbf1">ข้อมูลจริงจากระบบ · เฉพาะรายการที่ยังเบิกไม่ครบ · Excel แยกคิวทั้งหมด งานค้าง และ Special</td></tr>
+                <tr><td style="padding:6px 22px 18px;font-size:18px;line-height:26px;color:#ccfbf1">เฉพาะรายการที่ยังเบิกไม่ครบ</td></tr>
             </table>
         </td></tr>
         <tr><td style="padding:18px 20px 24px">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ecfdf5;border-left:4px solid #10b981;margin-bottom:18px">
-                <tr><td style="padding:12px 14px 3px;font-size:18px;line-height:25px">เรียงตาม <strong>ลำดับที่ Planner จัดไว้</strong></td></tr>
+                <tr><td style="padding:12px 14px 3px;font-size:18px;line-height:25px"><strong>Priority:</strong> วันที่เข้าคิว → Special → ลำดับที่ Planner จัด</td></tr>
                 <tr><td style="padding:3px 14px 12px;font-size:17px;line-height:24px;color:#475569">รายละเอียดทั้งหมดอยู่ในไฟล์ Excel ที่แนบมาพร้อมอีเมลนี้</td></tr>
             </table>
 
@@ -50,7 +50,8 @@
                             </td>
                             <td valign="top" style="padding:10px 9px;border-bottom:1px solid #dbe3ea">
                                 <strong>{{ $row['job_type'] }}</strong><br>
-                                <span style="color:#64748b;font-size:16px;line-height:26px">Lead Time {{ $row['lead_time_days']??'-' }} วันทำงาน</span>
+                                <span style="color:#0f766e;font-size:16px;line-height:26px">เบิกไป: <strong>{{ $row['withdraw_to']?:'-' }}</strong></span><br>
+                                <span style="color:#64748b;font-size:16px;line-height:26px">ระยะเวลาเตรียมเบิก: {{ $row['lead_time_days']??'-' }} วันทำงาน</span>
                                 @if(!empty($row['special_note']))<br><span style="color:#b91c1c;font-size:15px">{{ $row['special_note'] }}</span>@endif
                             </td>
                             <td valign="top" align="right" style="padding:10px 9px;border-bottom:1px solid #dbe3ea">
