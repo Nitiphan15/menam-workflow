@@ -32,6 +32,13 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->withoutOverlapping();
 
+        $schedule->command('stock-withdrawal:send-daily-alert')
+            ->days([1, 2, 3, 4, 5, 6])
+            ->dailyAt('08:30')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping();
+
         // Deadstock schedules are owned by mail-daily/routes/deadstock-schedule.php.
         // Keep the commands here: they use this application's review services/database.
 
