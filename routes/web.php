@@ -193,6 +193,9 @@ Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
   ->name('dp.history');
 
 Route::view('/home', 'home')->name('home');
+Route::view('/menus', 'menus.index')
+  ->middleware('auth')
+  ->name('menus.index');
 Route::get('/organization', [DepartmentOrganizationController::class, 'index'])
   ->name('organization.index');
 
