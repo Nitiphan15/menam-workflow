@@ -1,0 +1,6 @@
+<form method="get" class="dr-card"><div class="dr-grid">
+<label>ตั้งแต่วันที่<input type="date" name="from" value="{{ request('from') }}"></label><label>ถึงวันที่<input type="date" name="to" value="{{ request('to') }}"></label>
+<label>Site<select name="site"><option value="">ทั้งหมด</option>@foreach(['W'=>'Wire','P'=>'Plus'] as $key=>$label)<option value="{{ $key }}" @selected(request('site')===$key)>{{ $label }}</option>@endforeach</select></label>
+<label>DIE / WO<input name="q" value="{{ request('q') }}" maxlength="100"></label><label>สาเหตุ<input name="reason" value="{{ request('reason') }}" maxlength="255"></label><label>ประเภท DIE<input name="die_type" value="{{ request('die_type') }}" maxlength="255"></label>
+@if(isset($report))<label>รายงาน<select name="report">@foreach(\App\Services\FormDIE\DieDamageReportService::REPORTS as $key=>$definition)<option value="{{ $key }}" @selected($report===$key)>{{ $definition[0] }}</option>@endforeach</select></label>@endif
+</div><div class="dr-actions" style="margin-top:14px"><button class="dr-button dr-primary">แสดงข้อมูล</button><a class="dr-button" href="{{ url()->current() }}">ล้างตัวกรอง</a>@if($ready)<a class="dr-button" href="{{ route('die-reports.export', request()->only(['from','to','site','q','reason','die_type','report'])) }}">Export Excel</a>@endif</div></form>
