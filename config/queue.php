@@ -32,6 +32,15 @@ return [
 
     'connections' => [
 
+        'wr-deadstock-export' => [
+            'driver' => 'database',
+            'connection' => 'sqlsrv_menam',
+            'table' => 'wr_ds_export_jobs',
+            'queue' => 'wr-deadstock-export',
+            'retry_after' => 1200,
+            'after_commit' => true,
+        ],
+
         'po-mail' => [
             'driver' => 'database',
             'connection' => 'sqlsrv_menam',
