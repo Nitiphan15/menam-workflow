@@ -27,6 +27,17 @@ return [
 
     'request_form' => [
         'url' => env('REQUEST_FORM_URL', '/request-form-system/requests/create'),
+        'sso_enabled' => env('REQUEST_FORM_SSO_ENABLED', false),
+        'sso_url' => env('REQUEST_FORM_SSO_URL', '/request-form-system/sso/menam/consume'),
+        'sso_issuer' => env('REQUEST_FORM_SSO_ISSUER', 'menam-workflow'),
+        'sso_audience' => env('REQUEST_FORM_SSO_AUDIENCE', 'request-form-system'),
+        'sso_key_id' => env('REQUEST_FORM_SSO_KEY_ID'),
+        'sso_private_key_path' => env('REQUEST_FORM_SSO_PRIVATE_KEY_PATH'),
+        'sso_ttl_seconds' => (int) env('REQUEST_FORM_SSO_TTL_SECONDS', 120),
+        'sso_allowed_email_domains' => array_values(array_filter(array_map(
+            static fn ($domain) => strtolower(trim($domain)),
+            explode(',', (string) env('REQUEST_FORM_SSO_ALLOWED_EMAIL_DOMAINS', 'menamstainless.co.th'))
+        ))),
     ],
 
     'ses' => [

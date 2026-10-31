@@ -86,7 +86,9 @@
                         <p class="fw-semibold mb-1">มีข้อเสนอแนะ พบปัญหา หรือต้องการฟีเจอร์เพิ่มเติม?</p>
                         <p class="text-muted small mb-0">ส่งคำขอและติดตามสถานะผ่าน Request Form System</p>
                     </div>
-                    <a href="{{ config('services.request_form.url') }}"
+                    <a href="{{ auth()->check() && config('services.request_form.sso_enabled')
+                        ? route('request-form.sso')
+                        : config('services.request_form.url') }}"
                         class="btn btn-primary"
                         target="_blank"
                         rel="noopener noreferrer">

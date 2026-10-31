@@ -25,6 +25,7 @@ use App\Http\Controllers\FormWOCR\WocrReviseController;
 use App\Models\FormWOCR\WocrDataFile;
 //Login
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\RequestFormSsoController;
 use App\Http\Controllers\DepartmentOrganizationController;
 //Admin
 use App\Http\Controllers\Admin\UserAdminController;
@@ -127,6 +128,10 @@ require __DIR__ . '/po.php';
 Route::get('/', function () {
   return redirect('/home');
 });
+
+Route::get('/integrations/request-form/sso', RequestFormSsoController::class)
+  ->middleware(['auth', 'throttle:10,1'])
+  ->name('request-form.sso');
 
 // Lookup / autocomplete endpoints — ต้อง login, จำกัด IP และ rate กัน scrape ข้อมูล
 
