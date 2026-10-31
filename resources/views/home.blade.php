@@ -81,9 +81,18 @@
                     </div>
                 </div>
 
-                <p class="text-muted small mt-3 mb-0">
-                    ไม่พบงานที่ต้องใช้? ติดต่อผู้ดูแลระบบเพื่อตรวจสอบสิทธิ์บัญชี
-                </p>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 rounded-3 bg-light border p-3">
+                    <div>
+                        <p class="fw-semibold mb-1">มีข้อเสนอแนะ พบปัญหา หรือต้องการฟีเจอร์เพิ่มเติม?</p>
+                        <p class="text-muted small mb-0">ส่งคำขอและติดตามสถานะผ่าน Request Form System</p>
+                    </div>
+                    <a href="{{ config('services.request_form.url') }}"
+                        class="btn btn-primary"
+                        target="_blank"
+                        rel="noopener noreferrer">
+                        <i class="fa-solid fa-paper-plane me-2" aria-hidden="true"></i>ส่งคำขอ
+                    </a>
+                </div>
             </div>
         </section>
 
