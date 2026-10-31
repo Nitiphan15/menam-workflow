@@ -25,6 +25,10 @@ return [
         'token' => env('POSTMARK_TOKEN'),
     ],
 
+    'request_form' => [
+        'url' => env('REQUEST_FORM_URL', '/request-form-system/requests/create'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
