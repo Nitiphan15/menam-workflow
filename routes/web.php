@@ -196,6 +196,8 @@ Route::view('/home', 'home')->name('home');
 Route::get('/organization', [DepartmentOrganizationController::class, 'index'])
   ->name('organization.index');
 
+require __DIR__.'/die_reports.php';
+
 Route::prefix('/die-tracking')
   ->name('die.')
   ->group(function () {

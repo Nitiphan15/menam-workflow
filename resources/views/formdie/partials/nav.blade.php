@@ -8,6 +8,9 @@
     <a href="{{ request('wo') ? route('die.wo-detail', ['wo' => request('wo')]) : route('die.wo-detail') }}" class="{{ request()->routeIs('die.wo-detail') ? 'active' : '' }}">
         <i class="fa fa-file-lines"></i> WO Detail
     </a>
+    @auth
+    <a href="{{ route('die-reports.index') }}">DIE Reports</a>
+    @endauth
     <button type="button" id="deBackBtn" class="de-nav-back" style="display:none;" onclick="history.back()"
             title="ย้อนกลับไปหน้าก่อนหน้า">
         <i class="fa fa-arrow-left"></i> ย้อนกลับ
