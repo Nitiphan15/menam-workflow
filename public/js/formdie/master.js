@@ -4,6 +4,7 @@
     let mode = 'master';
     let suppressTabSearch = true; // กันไม่ให้ tab.click() ตอน init ยิง search ก่อนค่าจาก URL ถูกเซ็ต (กัน race ทับผล filter)
     let allRows = [];
+    let serverTotal = null;       // จำนวนจริงก่อนตัด LIMIT ฝั่ง server
     let currentPage = 1;
     let pageSize = 50;
     let categoryMs = null;        // multi-select instance ของ Category
@@ -48,7 +49,13 @@
         const title = document.querySelector('#dmCardTitle span:first-child');
         const meta = document.getElementById('dmResultMeta');
         if (title) title.innerHTML = `<i class="fa fa-database me-2 text-primary"></i>${label}`;
-        if (meta) meta.textContent = total ? `${Number(total).toLocaleString()} rows` : '-';
+        if (!meta) return;
+        const truncated = serverTotal != null && serverTotal > total;
+        meta.textContent = truncated
+            ? `แสดง ${Number(total).toLocaleString()} จาก ${Number(serverTotal).toLocaleString()} แถว · กรองเพิ่มเพื่อดูส่วนที่เหลือ`
+            : (total ? `${Number(total).toLocaleString()} rows` : '-');
+        meta.style.color = truncated ? '#b45309' : '';
+        meta.style.fontWeight = truncated ? '700' : '';
     }
 
     function updateUrl(params) {
@@ -262,6 +269,7 @@
             const data = await res.json();
             if (data.error) { setEmpty('Error: ' + data.error); return; }
             allRows = data.rows || [];
+            serverTotal = data.total_count ?? null;
             const extrasWarning = document.getElementById('dmExtrasWarning');
             if (extrasWarning) extrasWarning.style.display = (mode === 'master' && data.extras_available === false) ? '' : 'none';
             if (mode === 'master') applySort();
@@ -280,12 +288,12 @@
     }
 
     function notify(icon, text) {
-        if (window.Swal) window.Swal.fire({ icon, text });
+        if (window.Swal) window.Swal.fire({ icon, html: esc(text).replace(/\n/g, '<br>') });
         else window.alert(text);
     }
 
     // วันที่เบิกครั้งแรกจาก ERP ใช้เป็นค่าแนะนำเท่านั้น เพราะไม่ใช่วันรับเข้าจริง
-    function renderReceivedCard(extra, available, hist) {
+    function renderReceivedCard(extra, available, firstUse) {
         const notes = extra?.notes ? `<div class="small text-muted mt-1">หมายเหตุ: ${esc(extra.notes)}</div>` : '';
         const updated = extra?.updated_at ? `<div class="small text-muted mt-1">แก้ไขล่าสุด ${esc(extra.updated_at)} โดย ${esc(extra.updated_by)}</div>` : '';
         const view = `
@@ -296,7 +304,6 @@
         if (!available) {
             form = '<div class="small" style="color:#92400e;">ยังอ่านข้อมูลวันที่รับเข้าไม่ได้ จึงแก้ไขไม่ได้ชั่วคราว</div>';
         } else if (window.DM_CAN_EDIT_EXTRA) {
-            const firstUse = hist.map(h => String(h.transdate || '').slice(0, 10)).filter(Boolean).sort()[0];
             const hint = firstUse && !extra?.received_date
                 ? `<button type="button" class="btn btn-link btn-sm p-0" id="dmUseFirstDate" data-date="${esc(firstUse)}">ใช้วันที่เบิกครั้งแรก ${esc(firstUse)} (โปรดตรวจสอบก่อนบันทึก)</button>`
                 : '';
@@ -622,7 +629,7 @@
                </div>`
             : '';
 
-        document.getElementById('dmModalBody').innerHTML = renderReceivedCard(data.extra, data.extras_available !== false, hist) + renderHealthAndMaintenance(s) + summary + renderMfgList(hist) + renderTimeline(s) + chartSection +
+        document.getElementById('dmModalBody').innerHTML = renderReceivedCard(data.extra, data.extras_available !== false, data.first_use_date) + renderHealthAndMaintenance(s) + summary + renderMfgList(hist) + renderTimeline(s) + chartSection +
             '<h6 style="font-weight:700; margin:14px 0 8px;">ประวัติการเคลื่อนไหว</h6>' + histTable;
 
         renderLifecycleChart(series, useKg ? 'kg' : 'meter');

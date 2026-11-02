@@ -62,6 +62,11 @@ class DieMasterExtraService
         return ['available' => true, 'extra' => $row ? $this->payload($row) : null];
     }
 
+    public function firstUseDate(string $site, string $equipnumber): ?string
+    {
+        return $this->dieRepo->getFirstIssueDate($equipnumber, $this->connOf($site));
+    }
+
     /** @return ?array null = ไม่พบไดร์นี้ใน PCM */
     public function save(string $site, string $equipnumber, ?string $receivedDate, ?string $notes, string $user): ?array
     {

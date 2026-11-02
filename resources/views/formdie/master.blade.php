@@ -95,12 +95,14 @@
                 <span><i class="fa fa-database me-2 text-primary"></i>Master List</span>
                 <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                     @can('DIE_MASTER_EDIT')
-                        <a href="{{ route('die.extras.template') }}" class="btn btn-sm btn-outline-secondary">
-                            <i class="fa fa-download me-1"></i>แม่แบบวันที่รับเข้า
-                        </a>
-                        <button type="button" class="btn btn-sm btn-outline-success" id="dmExtraImportBtn">
-                            <i class="fa fa-file-excel me-1"></i>นำเข้าวันที่รับเข้า
-                        </button>
+                        <span data-show="master">
+                            <a href="{{ route('die.extras.template') }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fa fa-download me-1"></i>แม่แบบวันที่รับเข้า
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-success" id="dmExtraImportBtn">
+                                <i class="fa fa-file-excel me-1"></i>นำเข้าวันที่รับเข้า
+                            </button>
+                        </span>
                         <input type="file" id="dmExtraImportFile" accept=".xlsx,.xls" style="display:none;">
                     @endcan
                     <span id="dmResultMeta" class="small text-muted">-</span>

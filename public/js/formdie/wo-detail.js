@@ -141,17 +141,28 @@
             pending: { kpi: "kpi-amber", label: "รอเริ่ม" },
         };
         const st = statusMap[s.wo_status] || statusMap.pending;
+        // FG/ยีลด์ ของ WO นับจาก step สุดท้าย — ยังไม่ปิดงานจึงเป็น 0 เสมอ ห้ามโชว์เหมือนงานเสีย
+        const inFlight = s.wo_status === "in_progress" || s.wo_status === "pending";
+        const steps = d.steps || [];
+        const latestIdx = steps.reduce((acc, step, i) => (Number(step.received) > 0 ? i : acc), -1);
+        const latest = latestIdx >= 0 ? steps[latestIdx] : null;
         const varTxt =
-            s.last_variance_pct != null
+            !inFlight && s.last_variance_pct != null
                 ? `<div class="sub">Last step ${s.last_variance_pct}% off</div>`
                 : "";
+        const fgKpi = inFlight
+            ? `<div class="de-kpi"><div class="label">ถึงขั้นล่าสุด (kg)</div><div class="value">${latest ? num(latest.fg_qty) : "—"}</div>${latest ? `<div class="sub">ขั้น ${latestIdx + 1}/${steps.length} · ${esc(latest.workcenter)}</div>` : ""}</div>`
+            : `<div class="de-kpi kpi-green"><div class="label">FG (kg)</div><div class="value">${num(s.fg_total)}</div></div>`;
+        const yieldCard = inFlight
+            ? `<div class="de-kpi"><div class="label">ยีลด์ %</div><div class="value">—</div><div class="sub">รอผลขั้นสุดท้าย</div></div>`
+            : `<div class="de-kpi ${yieldKpi}"><div class="label">ยีลด์ %</div><div class="value">${s.yield_pct ?? 0}%</div></div>`;
         return `
             <div class="row g-3 mb-3">
                 <div class="col"><div class="de-kpi ${st.kpi}"><div class="label">Status</div><div class="value" style="font-size:1.1rem;">${esc(st.label)}</div>${varTxt}</div></div>
                 <div class="col"><div class="de-kpi"><div class="label">แผน (kg)</div><div class="value">${num(s.plan_qty)}</div></div></div>
-                <div class="col"><div class="de-kpi kpi-green"><div class="label">FG (kg)</div><div class="value">${num(s.fg_total)}</div></div></div>
+                <div class="col">${fgKpi}</div>
                 <div class="col"><div class="de-kpi kpi-red"><div class="label">NCR (kg)</div><div class="value">${num(s.ncr_total)}</div></div></div>
-                <div class="col"><div class="de-kpi ${yieldKpi}"><div class="label">ยีลด์ %</div><div class="value">${s.yield_pct ?? 0}%</div></div></div>
+                <div class="col">${yieldCard}</div>
             </div>
         `;
     }

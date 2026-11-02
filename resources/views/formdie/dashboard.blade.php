@@ -212,7 +212,7 @@
             </div>
         </div>
 
-        {{-- ไดร์ที่อยู่บนเครื่อง ณ ปัจจุบัน --}}
+        {{-- ไดร์ที่อยู่บนเครื่อง ณ ปัจจุบัน (พับเป็นค่าเริ่มต้น เพื่อให้เห็นผลการค้นหาโดยไม่ต้องเลื่อนไกล) --}}
         <div class="de-card" id="dieMachineCard">
             <div class="de-card-header" style="flex-wrap:wrap; gap:8px;">
                 <span><i class="fa fa-industry me-2 text-primary"></i>ไดร์ที่อยู่บนเครื่องรีด (DRAWING) ณ ปัจจุบัน</span>
@@ -225,10 +225,27 @@
                         <i class="fa fa-list me-1"></i>ทั้งหมด
                     </button>
                     <span id="dieMachineMeta" class="small text-muted">-</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dieMachineToggle" aria-expanded="false" aria-controls="dieMachineBody">
+                        <i class="fa fa-chevron-down me-1"></i><span>แสดง</span>
+                    </button>
                 </div>
             </div>
-            <div class="de-card-body" id="dieMachineBody">
+            <div class="de-card-body" id="dieMachineBody" style="display:none; max-height:440px; overflow:auto;">
                 <div class="de-loading"><i class="fa fa-spinner fa-spin me-2"></i>กำลังโหลด…</div>
+            </div>
+        </div>
+
+        {{-- Result table --}}
+        <div class="de-card">
+            <div class="de-card-header">
+                <span><i class="fa fa-table me-2 text-primary"></i>ผลการค้นหา</span>
+                <span id="dieResultMeta" class="small text-muted">-</span>
+            </div>
+            <div class="de-table-wrap" id="dieTableContainer">
+                <div class="de-empty">
+                    <div class="icon"><i class="fa fa-magnifying-glass"></i></div>
+                    <div class="text">ระบุเงื่อนไขด้านบนแล้วกดค้นหา</div>
+                </div>
             </div>
         </div>
 
@@ -260,19 +277,6 @@
             </div>
         </div>
 
-        {{-- Result table --}}
-        <div class="de-card">
-            <div class="de-card-header">
-                <span><i class="fa fa-table me-2 text-primary"></i>ผลการค้นหา</span>
-                <span id="dieResultMeta" class="small text-muted">-</span>
-            </div>
-            <div class="de-table-wrap" id="dieTableContainer">
-                <div class="de-empty">
-                    <div class="icon"><i class="fa fa-magnifying-glass"></i></div>
-                    <div class="text">ระบุเงื่อนไขด้านบนแล้วกดค้นหา</div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <div class="die-modal" id="dieHeatmapModal" role="dialog" aria-modal="true">

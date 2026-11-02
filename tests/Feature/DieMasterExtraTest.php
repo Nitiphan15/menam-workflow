@@ -145,6 +145,18 @@ class DieMasterExtraTest extends TestCase
             ->assertJsonPath('rows.0.equipnumber', 'D0001');
     }
 
+    public function test_profile_suggests_true_first_use_date_only_when_not_filled(): void
+    {
+        Cache::flush();
+        $this->mock(DieTrackingService::class, fn($mock) => $mock->shouldReceive('dieProfile')->andReturn(['info' => null]));
+        $this->mock(DieUsageEquipmentRepository::class, fn($mock) => $mock->shouldReceive('getFirstIssueDate')->once()->andReturn('2019-03-04'));
+
+        $this->getJson('/die-tracking/api/profile/D0001')->assertOk()->assertJsonPath('first_use_date', '2019-03-04');
+
+        DieMasterExtra::create(['site' => 'W', 'equipnumber' => 'D0001', 'received_date' => '2020-01-01', 'updated_by' => 'x']);
+        $this->getJson('/die-tracking/api/profile/D0001')->assertOk()->assertJsonPath('first_use_date', null);
+    }
+
     public function test_import_buttons_render_only_for_editor(): void
     {
         \Illuminate\Support\Facades\View::share('errors', new \Illuminate\Support\ViewErrorBag());

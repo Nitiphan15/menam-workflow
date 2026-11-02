@@ -740,6 +740,26 @@
         }
     });
 
+    // พับ/กาง การ์ดไดร์บนเครื่อง — จำค่าไว้ต่อเครื่องผู้ใช้
+    (function () {
+        const btn = document.getElementById('dieMachineToggle');
+        const body = document.getElementById('dieMachineBody');
+        if (!btn || !body) return;
+        const KEY = 'die.machineCard.open';
+        const setOpen = (open) => {
+            body.style.display = open ? '' : 'none';
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            btn.querySelector('span').textContent = open ? 'ซ่อน' : 'แสดง';
+            btn.querySelector('i').className = `fa fa-chevron-${open ? 'up' : 'down'} me-1`;
+        };
+        try { setOpen(localStorage.getItem(KEY) === '1'); } catch (e) { setOpen(false); }
+        btn.addEventListener('click', () => {
+            const open = body.style.display === 'none';
+            setOpen(open);
+            try { localStorage.setItem(KEY, open ? '1' : '0'); } catch (e) { /* เบราว์เซอร์ไม่ให้เก็บ → ใช้ค่าเฉพาะรอบนี้ */ }
+        });
+    })();
+
     document.getElementById('filterConn')?.addEventListener('change', loadCurrentMachineDies);
     document.getElementById('dieMachineFrom')?.addEventListener('change', loadCurrentMachineDies);
     document.getElementById('dieMachineTo')?.addEventListener('change', loadCurrentMachineDies);

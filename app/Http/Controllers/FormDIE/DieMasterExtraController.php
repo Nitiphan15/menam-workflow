@@ -19,6 +19,10 @@ class DieMasterExtraController extends Controller
             'equipnumber'   => 'required|string|max:100',
             'received_date' => 'nullable|date_format:Y-m-d|before_or_equal:today',
             'notes'         => 'nullable|string|max:1000',
+        ], [
+            'received_date.date_format'     => 'รูปแบบวันที่รับเข้าไม่ถูกต้อง',
+            'received_date.before_or_equal' => 'วันที่รับเข้าต้องไม่เป็นวันในอนาคต',
+            'notes.max'                     => 'หมายเหตุยาวเกิน 1000 ตัวอักษร',
         ]);
 
         $extra = $this->service->save(
@@ -42,7 +46,10 @@ class DieMasterExtraController extends Controller
 
     public function import(Request $request)
     {
-        $request->validate(['file' => 'required|file|mimes:xlsx,xls|max:10240']);
+        $request->validate(['file' => 'required|file|mimes:xlsx,xls|max:10240'], [
+            'file.mimes' => 'รองรับเฉพาะไฟล์ Excel (.xlsx, .xls)',
+            'file.max'   => 'ไฟล์ต้องไม่เกิน 10 MB',
+        ]);
 
         $result = $this->service->import($request->file('file')->getRealPath(), (string) $request->user()->name);
 

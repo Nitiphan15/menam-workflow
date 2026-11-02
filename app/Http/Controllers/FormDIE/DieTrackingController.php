@@ -140,7 +140,7 @@ class DieTrackingController extends Controller
             'vendor'      => $request->query('vendor'),
             'description' => $request->query('description'),
         ];
-        $data = Cache::remember("die_track:master:v4:" . md5(json_encode([$sites, $filters])), 300,
+        $data = Cache::remember("die_track:master:v5:" . md5(json_encode([$sites, $filters])), 300,
             fn() => $this->service->dieMaster($sites, array_filter($filters)));
         $data['extras_available'] = $extras->attachToMasterRows($data['rows'] ?? []);
         return response()->json($data);
@@ -186,9 +186,13 @@ class DieTrackingController extends Controller
         $conn = $this->resolveConn($request);
         $data = Cache::remember("die_track:profile:v3:{$equipnumber}:{$conn}", 300,
             fn() => $this->service->dieProfile($equipnumber, $conn));
-        $extra = $extras->forDie($conn === 'pgsqlpcmp' ? 'P' : 'W', $equipnumber);
+        $site = $conn === 'pgsqlpcmp' ? 'P' : 'W';
+        $extra = $extras->forDie($site, $equipnumber);
         $data['extra'] = $extra['extra'];
         $data['extras_available'] = $extra['available'];
+        $data['first_use_date'] = $extra['extra']['received_date'] ?? null
+            ? null
+            : $extras->firstUseDate($site, $equipnumber);
         return response()->json($data);
     }
 
@@ -201,7 +205,7 @@ class DieTrackingController extends Controller
             'category'  => $request->query('category'),
             'equiptype' => $request->query('equiptype'),
         ];
-        $data = Cache::remember("die_track:loc:" . md5(json_encode([$sites, $filters])), 300,
+        $data = Cache::remember("die_track:loc:v2:" . md5(json_encode([$sites, $filters])), 300,
             fn() => $this->service->currentLocations($sites, array_filter($filters)));
         return response()->json($data);
     }
