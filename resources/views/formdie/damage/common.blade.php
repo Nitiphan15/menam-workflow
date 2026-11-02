@@ -15,6 +15,8 @@
     .dr-button:hover { background:#f8fafc; color:#1f2937; }
     .dr-primary { background:#0d6efd; border-color:#0d6efd; color:#fff; }
     .dr-primary:hover { background:#0b5ed7; color:#fff; }
+    .dr-export { background:#198754; border-color:#198754; color:#fff; }
+    .dr-export:hover { background:#157347; border-color:#146c43; color:#fff; }
     .dr-card { background:#fff; border:1px solid #dfe5ec; border-radius:8px; padding:14px 16px; margin-bottom:12px; }
     .dr-card.dr-table { padding:0; }
     .dr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px; }
