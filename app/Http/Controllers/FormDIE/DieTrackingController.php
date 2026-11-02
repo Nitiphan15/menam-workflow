@@ -5,6 +5,7 @@ namespace App\Http\Controllers\FormDIE;
 use App\Exports\FormDIE\DieTrackingExport;
 use App\Http\Controllers\Controller;
 use App\Repositories\FormDIE\SuggestRepository;
+use App\Services\FormDIE\DieMasterExtraService;
 use App\Services\FormDIE\DieTrackingService;
 use App\Services\FormDIE\WoDetailService;
 use Carbon\Carbon;
@@ -128,7 +129,7 @@ class DieTrackingController extends Controller
         return view('formdie.master');
     }
 
-    public function dieMaster(Request $request)
+    public function dieMaster(Request $request, DieMasterExtraService $extras)
     {
         $sites = $this->resolveSites($request);
         $filters = [
@@ -141,6 +142,7 @@ class DieTrackingController extends Controller
         ];
         $data = Cache::remember("die_track:master:v4:" . md5(json_encode([$sites, $filters])), 300,
             fn() => $this->service->dieMaster($sites, array_filter($filters)));
+        $data['extras_available'] = $extras->attachToMasterRows($data['rows'] ?? []);
         return response()->json($data);
     }
 
@@ -179,11 +181,14 @@ class DieTrackingController extends Controller
         return response()->json($data);
     }
 
-    public function dieProfile(Request $request, string $equipnumber)
+    public function dieProfile(Request $request, DieMasterExtraService $extras, string $equipnumber)
     {
         $conn = $this->resolveConn($request);
         $data = Cache::remember("die_track:profile:v3:{$equipnumber}:{$conn}", 300,
             fn() => $this->service->dieProfile($equipnumber, $conn));
+        $extra = $extras->forDie($conn === 'pgsqlpcmp' ? 'P' : 'W', $equipnumber);
+        $data['extra'] = $extra['extra'];
+        $data['extras_available'] = $extra['available'];
         return response()->json($data);
     }
 
@@ -342,7 +347,7 @@ class DieTrackingController extends Controller
         return response()->json($data);
     }
 
-    public function export(Request $request)
+    public function export(Request $request, DieMasterExtraService $extras)
     {
         $mode = $request->query('mode', 'workorder');
         $sites = $this->resolveSites($request);
@@ -366,6 +371,7 @@ class DieTrackingController extends Controller
         };
 
         $rows = $this->service->attachWoKg($data['rows'] ?? [], $sites[0]);
+        $rows = $extras->attachToExportRows($rows);
 
         $filename = 'die-tracking-' . $mode . '-' . date('Ymd-His') . '.xlsx';
         return Excel::download(new DieTrackingExport($rows), $filename);

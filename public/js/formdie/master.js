@@ -87,6 +87,7 @@
         if (sort === 'kg_desc')        allRows.sort((a, b) => num(b.total_kg) - num(a.total_kg));
         else if (sort === 'meter_desc') allRows.sort((a, b) => num(b.total_meter) - num(a.total_meter));
         else if (sort === 'used_desc')  allRows.sort((a, b) => num(b.usage_count) - num(a.usage_count));
+        else if (sort === 'age_desc')   allRows.sort((a, b) => Number(b.age_days ?? -1) - Number(a.age_days ?? -1));
         // 'last' = คงลำดับจาก server (last_used DESC)
     }
 
@@ -106,6 +107,7 @@
     function renderMasterTable(rows) {
         const head = `<thead><tr>
             <th>Site</th><th>Die#</th><th>Description</th><th>Category</th><th>Type</th><th>Supplier</th>
+            <th>วันที่รับเข้า</th><th>อายุ</th>
             <th>Used</th><th>Total Meter</th><th>kg ผลิต</th><th>Last Used</th>
             <th title="ตำแหน่ง/แผนกปัจจุบันของไดร์ (จาก transfer ล่าสุด)">ตำแหน่งปัจจุบัน</th>
             <th title="เครื่องผลิตจริงล่าสุดของไดร์ (จาก WO ผลิตล่าสุด)">เครื่องปัจจุบัน</th>
@@ -119,6 +121,8 @@
                 <td>${r.equipcategory ?? ''}</td>
                 <td>${r.equiptype ?? ''}</td>
                 <td>${r.supplier ?? ''}</td>
+                <td>${r.received_date ?? '<span class="text-muted">—</span>'}</td>
+                <td>${r.age_text ?? '<span class="text-muted">—</span>'}</td>
                 <td class="num">${Number(r.usage_count ?? 0).toLocaleString()}</td>
                 <td class="num">${Number(r.total_meter ?? 0).toLocaleString()}</td>
                 <td class="num">${Number(r.total_kg ?? 0).toLocaleString()}</td>
@@ -258,6 +262,8 @@
             const data = await res.json();
             if (data.error) { setEmpty('Error: ' + data.error); return; }
             allRows = data.rows || [];
+            const extrasWarning = document.getElementById('dmExtrasWarning');
+            if (extrasWarning) extrasWarning.style.display = (mode === 'master' && data.extras_available === false) ? '' : 'none';
             if (mode === 'master') applySort();
             updateCardMeta(allRows.length);
             currentPage = 1;
@@ -267,10 +273,136 @@
         }
     }
 
+    let currentProfile = null;
+
+    function csrfToken() {
+        return document.querySelector('meta[name="csrf-token"]')?.content || '';
+    }
+
+    function notify(icon, text) {
+        if (window.Swal) window.Swal.fire({ icon, text });
+        else window.alert(text);
+    }
+
+    // วันที่เบิกครั้งแรกจาก ERP ใช้เป็นค่าแนะนำเท่านั้น เพราะไม่ใช่วันรับเข้าจริง
+    function renderReceivedCard(extra, available, hist) {
+        const notes = extra?.notes ? `<div class="small text-muted mt-1">หมายเหตุ: ${esc(extra.notes)}</div>` : '';
+        const updated = extra?.updated_at ? `<div class="small text-muted mt-1">แก้ไขล่าสุด ${esc(extra.updated_at)} โดย ${esc(extra.updated_by)}</div>` : '';
+        const view = `
+            <div style="font-size:18px; font-weight:800;">อายุ ${esc(extra?.age_text ?? '—')}</div>
+            <div class="small">วันที่รับเข้า: ${esc(extra?.received_date ?? 'ยังไม่ได้กรอก')}</div>${notes}${updated}`;
+
+        let form = '';
+        if (!available) {
+            form = '<div class="small" style="color:#92400e;">ยังอ่านข้อมูลวันที่รับเข้าไม่ได้ จึงแก้ไขไม่ได้ชั่วคราว</div>';
+        } else if (window.DM_CAN_EDIT_EXTRA) {
+            const firstUse = hist.map(h => String(h.transdate || '').slice(0, 10)).filter(Boolean).sort()[0];
+            const hint = firstUse && !extra?.received_date
+                ? `<button type="button" class="btn btn-link btn-sm p-0" id="dmUseFirstDate" data-date="${esc(firstUse)}">ใช้วันที่เบิกครั้งแรก ${esc(firstUse)} (โปรดตรวจสอบก่อนบันทึก)</button>`
+                : '';
+            form = `
+                <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:10px;">
+                    <label class="small">วันที่รับเข้า
+                        <input type="date" id="dmReceivedDate" class="form-control form-control-sm" value="${esc(extra?.received_date ?? '')}">
+                    </label>
+                    <label class="small" style="flex:1; min-width:200px;">หมายเหตุ
+                        <input type="text" id="dmReceivedNotes" class="form-control form-control-sm" maxlength="1000" value="${esc(extra?.notes ?? '')}">
+                    </label>
+                    <button type="button" class="btn btn-primary btn-sm" id="dmReceivedSave">บันทึก</button>
+                </div>${hint}`;
+        }
+
+        return `<div class="de-sub-card" style="margin-bottom:14px;"><div class="title">วันที่รับเข้าและอายุไดร์</div><div id="dmReceivedView">${view}</div>${form}</div>`;
+    }
+
+    function wireReceivedCard() {
+        document.getElementById('dmUseFirstDate')?.addEventListener('click', (e) => {
+            document.getElementById('dmReceivedDate').value = e.currentTarget.dataset.date;
+        });
+        document.getElementById('dmReceivedSave')?.addEventListener('click', saveReceived);
+    }
+
+    async function saveReceived() {
+        const btn = document.getElementById('dmReceivedSave');
+        btn.disabled = true;
+        try {
+            const res = await fetch(window.DM_ROUTES.extrasUpdate, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+                body: JSON.stringify({
+                    site: currentProfile.site,
+                    equipnumber: currentProfile.equipnumber,
+                    received_date: document.getElementById('dmReceivedDate').value || null,
+                    notes: document.getElementById('dmReceivedNotes').value.trim() || null,
+                }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { notify('error', data.message || 'บันทึกไม่สำเร็จ'); return; }
+
+            const extra = data.extra;
+            document.getElementById('dmReceivedView').innerHTML = `
+                <div style="font-size:18px; font-weight:800;">อายุ ${esc(extra.age_text ?? '—')}</div>
+                <div class="small">วันที่รับเข้า: ${esc(extra.received_date ?? 'ยังไม่ได้กรอก')}</div>
+                ${extra.notes ? `<div class="small text-muted mt-1">หมายเหตุ: ${esc(extra.notes)}</div>` : ''}
+                <div class="small text-muted mt-1">แก้ไขล่าสุด ${esc(extra.updated_at)} โดย ${esc(extra.updated_by)}</div>`;
+            const row = allRows.find(r => r.equipnumber === currentProfile.equipnumber && (r.site ?? 'W') === currentProfile.site);
+            if (row && mode === 'master') {
+                row.received_date = extra.received_date;
+                row.age_days = extra.age_days;
+                row.age_text = extra.age_text;
+                applySort();
+                rerender();
+            }
+            notify('success', 'บันทึกแล้ว');
+        } catch (e) {
+            notify('error', 'บันทึกไม่สำเร็จ: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    document.getElementById('dmExtraImportBtn')?.addEventListener('click', () => {
+        document.getElementById('dmExtraImportFile').click();
+    });
+    document.getElementById('dmExtraImportFile')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        const body = new FormData();
+        body.append('file', file);
+        const btn = document.getElementById('dmExtraImportBtn');
+        btn.disabled = true;
+        try {
+            const res = await fetch(window.DM_ROUTES.extrasImport, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+                body,
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data.errors && !Array.isArray(data.errors)) {
+                notify('error', data.message || 'ไฟล์ไม่ถูกต้อง');
+            } else if (!res.ok) {
+                const errors = data.errors || [];
+                const more = errors.length > 20 ? `\n...และอีก ${errors.length - 20} รายการ` : '';
+                notify('error', errors.length
+                    ? `ยังไม่ได้บันทึกข้อมูล พบ ${errors.length} รายการที่ต้องแก้:\n${errors.slice(0, 20).join('\n')}${more}`
+                    : (data.message || 'นำเข้าไม่สำเร็จ'));
+            } else {
+                notify('success', `นำเข้าแล้ว ${data.imported} รายการ, ข้าม ${data.skipped} แถวที่ไม่มีข้อมูล`);
+                search();
+            }
+        } catch (err) {
+            notify('error', 'นำเข้าไม่สำเร็จ: ' + err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
     async function openProfile(equipnumber, site) {
         // เมื่อ Site = ALL ต้องใช้ site ของแถวที่คลิก เพื่อชี้ฐานให้ถูก
         const dmSiteVal = document.getElementById('dmSite').value;
         const conn = dmSiteVal === 'ALL' ? (site === 'P' ? 'pgsqlpcmp' : 'pgsqlpcmw') : dmSiteVal;
+        currentProfile = { equipnumber, site: conn === 'pgsqlpcmp' ? 'P' : 'W' };
         document.getElementById('dmModalBg').style.display = 'flex';
         document.getElementById('dmModalTitle').textContent = 'Die Profile — ' + equipnumber;
         document.getElementById('dmModalBody').innerHTML = '<div class="dm-loading">กำลังโหลด...</div>';
@@ -490,11 +622,12 @@
                </div>`
             : '';
 
-        document.getElementById('dmModalBody').innerHTML = renderHealthAndMaintenance(s) + summary + renderMfgList(hist) + renderTimeline(s) + chartSection +
+        document.getElementById('dmModalBody').innerHTML = renderReceivedCard(data.extra, data.extras_available !== false, hist) + renderHealthAndMaintenance(s) + summary + renderMfgList(hist) + renderTimeline(s) + chartSection +
             '<h6 style="font-weight:700; margin:14px 0 8px;">ประวัติการเคลื่อนไหว</h6>' + histTable;
 
         renderLifecycleChart(series, useKg ? 'kg' : 'meter');
         wireMfgSearch();
+        wireReceivedCard();
     }
 
     // กรองรายการ MFG ตามคำค้น (chip ที่ไม่ตรงจะถูกซ่อน) + อัปเดตตัวนับ

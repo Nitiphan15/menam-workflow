@@ -217,6 +217,13 @@ Route::prefix('/die-tracking')
     Route::get('/api/location',              [DieTrackingController::class, 'currentLocation'])->name('api.location');
     Route::get('/api/material',              [DieTrackingController::class, 'materialTrace'])->name('api.material');
 
+    // วันที่รับเข้าไดร์ (กรอกเอง)
+    Route::middleware(['auth', 'can:DIE_MASTER_EDIT'])->group(function () {
+      Route::put('/api/extras',       [\App\Http\Controllers\FormDIE\DieMasterExtraController::class, 'update'])->name('extras.update');
+      Route::get('/extras/template',  [\App\Http\Controllers\FormDIE\DieMasterExtraController::class, 'template'])->name('extras.template');
+      Route::post('/extras/import',   [\App\Http\Controllers\FormDIE\DieMasterExtraController::class, 'import'])->name('extras.import');
+    });
+
     // Autocomplete suggest endpoints: type ∈ wo|die|heat|coil
     Route::get('/api/suggest/{type}',        [DieTrackingController::class, 'suggest'])
       ->whereIn('type', ['wo', 'die', 'heat', 'coil', 'desc'])

@@ -452,6 +452,19 @@ class DieUsageEquipmentRepository
         return DB::connection($connection)->select($sql, ['en' => $equipnumber]);
     }
 
+    /** คืนเฉพาะ Die# ที่มีอยู่จริงในฐาน PCM */
+    public function getExistingEquipnumbers(array $equipnumbers, string $connection): array
+    {
+        if (empty($equipnumbers)) return [];
+
+        $rows = DB::connection($connection)->select(
+            "SELECT e.equipnumber FROM equipment e WHERE e.equipnumber = ANY(:ens)",
+            ['ens' => self::pgTextArray($equipnumbers)]
+        );
+
+        return array_map(fn($r) => $r->equipnumber, $rows);
+    }
+
     public function getDieInfo(string $equipnumber, string $connection): ?object
     {
         $sql = "

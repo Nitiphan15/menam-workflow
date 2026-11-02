@@ -46,6 +46,7 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('WR_DS_EDIT_OWN', fn(User $u) => $u->hasRoleCode(['WR_DS_EDIT_OWN', 'WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
         Gate::define('WR_DS_MANAGE_ALL', fn(User $u) => $u->hasRoleCode(['WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
         Gate::define('WR_DS_ADMIN', fn(User $u) => $u->hasRoleCode(['WR_DS_ADMIN']));
+        Gate::define('DIE_MASTER_EDIT', fn(User $u) => $u->hasRoleCode(['DIE_MASTER_EDIT']));
         Gate::define('STOCK', fn(User $u) => $u->hasRoleCode(['STOCK', 'STOCK_ACTION', 'STOCK_ADMIN']));
         Gate::define('STOCK_ACTION', fn(User $u) => $u->hasRoleCode(['STOCK_ACTION', 'STOCK_ADMIN']));
         Gate::define('STOCK_ADMIN', fn(User $u) => $u->hasRoleCode(['STOCK_ADMIN']));
