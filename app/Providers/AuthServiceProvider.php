@@ -44,6 +44,7 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('WOCR',      fn(User $u) => $u->hasRoleCode(['WOCR']));
         Gate::define('WR',      fn(User $u) => $u->hasRoleCode(['WR']));
         Gate::define('WR_DS_EDIT_OWN', fn(User $u) => $u->hasRoleCode(['WR_DS_EDIT_OWN', 'WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
+        Gate::define('WR_DS_EXPORT', fn(User $u) => $u->hasRoleCode(['WR_DS_EXPORT', 'WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
         Gate::define('WR_DS_MANAGE_ALL', fn(User $u) => $u->hasRoleCode(['WR_DS_MANAGE_ALL', 'WR_DS_ADMIN']));
         Gate::define('WR_DS_ADMIN', fn(User $u) => $u->hasRoleCode(['WR_DS_ADMIN']));
         Gate::define('DIE_MASTER_EDIT', fn(User $u) => $u->hasRoleCode(['DIE_MASTER_EDIT']));

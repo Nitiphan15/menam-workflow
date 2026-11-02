@@ -906,6 +906,11 @@ Route::middleware(['auth', 'can:WR'])
     Route::get('/formwr/export', [IncomeController::class, 'export'])->name('export');
     Route::get('/deadstock', [WireRodDeadstockController::class, 'dashboard'])->name('deadstock.dashboard');
     Route::get('/deadstock/review', [WireRodDeadstockController::class, 'review'])->name('deadstock.review');
+    Route::get('/deadstock/items', [WireRodDeadstockController::class, 'itemSummary'])->name('deadstock.items');
+    Route::get('/deadstock/autocomplete', [WireRodDeadstockController::class, 'autocomplete'])
+      ->middleware('throttle:30,1')->name('deadstock.autocomplete');
+    Route::get('/deadstock/review/{lifecycle}/modal-data', [WireRodDeadstockController::class, 'modalData'])
+      ->whereNumber('lifecycle')->name('deadstock.modal-data');
     Route::get('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'show'])->whereNumber('lifecycle')->name('deadstock.show');
     Route::get('/deadstock/export', [WireRodDeadstockController::class, 'export'])->name('deadstock.export');
     Route::get('/deadstock/exports', [WireRodDeadstockController::class, 'exportHistory'])
@@ -919,6 +924,10 @@ Route::middleware(['auth', 'can:WR'])
     Route::post('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'saveReview'])
       ->middleware('permission.any:WR_DS_EDIT_OWN,WR_DS_MANAGE_ALL,WR_DS_ADMIN')
       ->whereNumber('lifecycle')->name('deadstock.review.save');
+    Route::post('/deadstock/review/{lifecycle}/customers', [WireRodDeadstockController::class, 'storeAdditionalCustomer'])
+      ->whereNumber('lifecycle')->name('deadstock.customer.store');
+    Route::post('/deadstock/customers/{customer}/revoke', [WireRodDeadstockController::class, 'revokeAdditionalCustomer'])
+      ->middleware('permission.any:WR_DS_ADMIN')->whereNumber('customer')->name('deadstock.customer.revoke');
     Route::post('/deadstock/refresh', [WireRodDeadstockController::class, 'refresh'])
       ->middleware('permission.any:WR_DS_MANAGE_ALL,WR_DS_ADMIN')->name('deadstock.refresh');
     Route::post('/deadstock/review/{lifecycle}/override', [WireRodDeadstockController::class, 'storeOverride'])

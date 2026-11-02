@@ -346,6 +346,8 @@ return [
                 'children' => [
                     ['icon' => 'fa-solid fa-tape', 'text' => 'Wirerod', 'route' => 'wr.index', 'permission' => 'WR'],
                     ['icon' => 'fa-solid fa-diagram-project', 'text' => 'Wire Rod Master', 'route' => 'wr.master', 'permission' => 'WR'],
+                    ['icon' => 'fa-solid fa-chart-column', 'text' => 'Wire Rod Dead Stock', 'route' => 'wr.deadstock.dashboard', 'permission' => 'WR'],
+                    ['icon' => 'fa-solid fa-clipboard-check', 'text' => 'Wire Rod Dead Stock Review', 'route' => 'wr.deadstock.review', 'permission' => 'WR'],
                 ],
             ],
         ],
