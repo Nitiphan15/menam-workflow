@@ -16,7 +16,7 @@ class DieDamageLookupTest extends TestCase
         $wo = Mockery::mock(WoDetailRepository::class);
         $source = Mockery::mock(\App\Repositories\FormDIE\DieDamageSourceRepository::class);
         $source->shouldReceive('master')->with('D1', 'pgsqlpcmp')->andReturn((object) ['ordered_size' => 2, 'present_diameter' => 3]);
-        $dies->shouldReceive('getDieProfile')->andReturn([
+        $dies->shouldReceive('getDieHistoryAsOf')->with('D1', 'pgsqlpcmp', '2024-06-01')->andReturn([
             (object) ['transdate' => '2025-01-01', 'prod_wo' => '+FUTURE', 'txn_type' => 'issue', 'transnumber' => 'EU2'],
             (object) ['transdate' => '2024-01-01', 'prod_wo' => '+W1', 'txn_type' => 'issue', 'transnumber' => 'EU1'],
         ]);
@@ -30,5 +30,22 @@ class DieDamageLookupTest extends TestCase
         $this->assertArrayNotHasKey('wire_grade', $result['values']);
         $this->assertArrayNotHasKey('production_kg', $result['values']);
         $this->assertArrayNotHasKey('current_size', $result['values']);
+    }
+
+    public function test_lookup_counts_every_issue_beyond_the_profile_row_limit(): void
+    {
+        $dies = Mockery::mock(DieUsageEquipmentRepository::class);
+        $source = Mockery::mock(\App\Repositories\FormDIE\DieDamageSourceRepository::class);
+        $source->shouldReceive('master')->andReturn((object) []);
+        $dies->shouldReceive('getDieProfile')->never();
+        $history = [];
+        for ($i = 1; $i <= 250; $i++) {
+            $history[] = (object) ['transdate' => '2024-01-01', 'prod_wo' => null, 'txn_type' => 'issue', 'transnumber' => "EU{$i}"];
+        }
+        $dies->shouldReceive('getDieHistoryAsOf')->andReturn($history);
+
+        $result = (new DieDamageLookupService($dies, Mockery::mock(WoDetailRepository::class), $source))->lookup('W', 'D1', '2024-06-01', null);
+
+        $this->assertSame(250, $result['values']['usage_count']);
     }
 }

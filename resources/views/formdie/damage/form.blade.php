@@ -21,10 +21,15 @@
 <div class="dr-actions"><button class="dr-button dr-primary" type="submit">บันทึกเหตุการณ์</button><a class="dr-button" href="{{ route('die-reports.index') }}">ยกเลิก</a></div>
 @if($record->source_snapshot)<details class="dr-card"><summary>แหล่งข้อมูลที่ดึงไว้</summary><pre style="white-space:pre-wrap">{{ json_encode($record->source_snapshot, JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE) }}</pre></details>@endif
 </form></div>
+<script src="{{ asset('js/formdie/autocomplete.js') }}?v={{ filemtime(public_path('js/formdie/autocomplete.js')) }}"></script>
 <script>
 (() => {
  const form=document.getElementById('damageForm'), result=document.getElementById('lookupResult'), button=document.getElementById('lookupDie');
  const field=n=>form.elements.namedItem(n);
+ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const getSite=()=>field('site').value;
+ DieAutocomplete.attach(field('die_code'),{url:@json(route('die.api.suggest',['type'=>'die'])),getSiteFn:getSite,renderItem:r=>`<div class="main">${esc(r.value)}</div><div class="sub">${esc(r.description)}${r.status?' · '+esc(r.status):''}</div>`});
+ DieAutocomplete.attach(field('workorder'),{url:@json(route('die.api.suggest',['type'=>'wo'])),getSiteFn:getSite,renderItem:r=>`<div class="main">${esc(r.value)}</div><div class="sub">${[r.brand,r.fcat,r.fsize].filter(Boolean).map(esc).join(' · ')}</div>`});
  const calculate=()=>{const kg=field('production_kg').value,price=field('price').value,a=field('initial_size').value,b=field('current_size').value;document.getElementById('thbKg').value=kg!==''&&Number(kg)>0&&price!==''?(Number(price)/Number(kg)).toFixed(4):'';document.getElementById('sizeDiff').value=a!==''&&b!==''?(Number(b)-Number(a)).toFixed(4):'';};
  form.addEventListener('input',calculate); calculate();
  button.addEventListener('click',async()=>{

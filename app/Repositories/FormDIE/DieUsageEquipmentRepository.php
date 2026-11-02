@@ -475,6 +475,34 @@ class DieUsageEquipmentRepository
         return DB::connection($connection)->select($sql, ['en' => $equipnumber]);
     }
 
+    /**
+     * ประวัติทั้งหมดของไดร์ถึงวันที่ระบุ — getDieProfile จำกัด 200 แถวล่าสุด จึงนับย้อนหลังไม่ครบ
+     * prod_wo ใช้กฎเดียวกับ getDieProfile และหาจากทุกแถวก่อนตัดวันที่ เพื่อให้แถวคืนจับคู่แถวเบิกได้
+     */
+    public function getDieHistoryAsOf(string $equipnumber, string $connection, string $asOf): array
+    {
+        return DB::connection($connection)->select("
+            WITH h AS (
+                SELECT etf.id, etf.transnumber, etf.transdate, etfi.f3, etf.from_class_id, etf.to_class_id,
+                       LAG(etfi.f3) OVER (PARTITION BY etfi.equipment_id ORDER BY etf.transdate, etf.id) AS prev_f3
+                FROM equipmenttransfer etf
+                JOIN equipmenttransferitems etfi ON etf.id = etfi.trans_id
+                JOIN equipment e                 ON e.id = etfi.equipment_id
+                WHERE e.equipnumber = :en
+            )
+            SELECT h.transnumber, h.transdate,
+                   CASE WHEN h.transnumber ILIKE 'EU%' THEN 'issue' ELSE 'other' END AS txn_type,
+                   CASE
+                       WHEN h.to_class_id = 0    THEN h.prev_f3
+                       WHEN h.from_class_id = -1 THEN h.f3
+                       ELSE NULL
+                   END AS prod_wo
+            FROM h
+            WHERE CAST(h.transdate AS date) <= :asof
+            ORDER BY h.transdate DESC, h.id DESC
+        ", ['en' => $equipnumber, 'asof' => $asOf]);
+    }
+
     /** วันที่เบิกครั้งแรกของไดร์ (แถวเบิก from_class=-1) — getDieProfile จำกัด 200 แถวล่าสุด จึงใช้แทนไม่ได้ */
     public function getFirstIssueDate(string $equipnumber, string $connection): ?string
     {
