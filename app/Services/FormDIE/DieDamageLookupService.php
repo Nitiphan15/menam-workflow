@@ -23,7 +23,7 @@ class DieDamageLookupService
         $warnings = [];
         // Master sizes describe today; never present them as an event-date snapshot.
         $master = (array) $info;
-        $history = array_values(array_filter($this->dies->getDieProfile($die, $conn), fn ($r) => substr($r->transdate, 0, 10) <= $date));
+        $history = array_values(array_filter($this->dies->getDieHistoryAsOf($die, $conn, $date), fn ($r) => substr($r->transdate, 0, 10) <= $date));
         $candidates = array_values(array_unique(array_filter(array_map(fn ($r) => $r->prod_wo ?? null, $history))));
         $issues = array_unique(array_map(fn ($r) => $r->transnumber, array_filter($history, fn ($r) => ($r->txn_type ?? null) === 'issue')));
         if ($issues) {
