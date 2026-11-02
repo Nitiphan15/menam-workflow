@@ -9,7 +9,9 @@
         <i class="fa fa-file-lines"></i> WO Detail
     </a>
     @auth
-    <a href="{{ route('die-reports.index') }}">DIE Reports</a>
+    <a href="{{ route('die-reports.index') }}" class="{{ request()->routeIs('die-reports.*') ? 'active' : '' }}">
+        <i class="fa fa-triangle-exclamation"></i> DIE Reports
+    </a>
     @endauth
     <button type="button" id="deBackBtn" class="de-nav-back" style="display:none;" onclick="history.back()"
             title="ย้อนกลับไปหน้าก่อนหน้า">
