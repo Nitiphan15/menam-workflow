@@ -61,15 +61,17 @@ class DieTrackingService
     public function dieMaster($connection, array $filters = []): array
     {
         $rows = [];
+        $totalCount = 0;
         foreach ($this->normConns($connection) as $conn) {
             $site = $this->siteOf($conn);
             $part = $this->dieRepo->getDieMaster($conn, $filters);
+            $totalCount += $this->dieRepo->getDieMasterCount($conn, $filters);
             foreach ($part as $r) { $r->site = $site; }
             $part = $this->attachDieKg($part, $conn);
             $part = $this->attachCurrentLocationAndMachine($part, $conn);
             $rows = array_merge($rows, $part);
         }
-        return ['rows' => $rows];
+        return ['rows' => $rows, 'total_count' => $totalCount];
     }
 
     /**
@@ -337,14 +339,16 @@ class DieTrackingService
     public function currentLocations($connection, array $filters = []): array
     {
         $rows = [];
+        $totalCount = 0;
         foreach ($this->normConns($connection) as $conn) {
             $site = $this->siteOf($conn);
+            $totalCount += $this->dieRepo->getCurrentLocationCount($conn, $filters);
             foreach ($this->dieRepo->getCurrentLocations($conn, $filters) as $r) {
                 $r->site = $site;
                 $rows[] = $r;
             }
         }
-        return ['rows' => $rows];
+        return ['rows' => $rows, 'total_count' => $totalCount];
     }
 
     public function topConsumers(string $start, string $end, string $connection, ?string $category = null): array

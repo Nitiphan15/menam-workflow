@@ -173,7 +173,8 @@ class DieUsageEquipmentRepository
         ", $bind);
     }
 
-    public function getDieMaster(string $connection, array $filters = []): array
+    /** @return array{0: array, 1: array} เงื่อนไข + bindings ที่ list และ count ใช้ร่วมกัน */
+    private function dieMasterConditions(array $filters): array
     {
         // จำแนกด้วย equiptype (default 'ไดร์') แทน ILIKE '%ไดร์%' เดิมที่ดึงของไม่ใช่ไดร์ปนมา
         $where = [];
@@ -208,6 +209,28 @@ class DieUsageEquipmentRepository
             $where[] = "e.description ILIKE :descf";
             $bind['descf'] = '%' . $filters['description'] . '%';
         }
+
+        return [$where, $bind];
+    }
+
+    /** จำนวนจริงก่อนตัด LIMIT ของ getDieMaster */
+    public function getDieMasterCount(string $connection, array $filters = []): int
+    {
+        [$where, $bind] = $this->dieMasterConditions($filters);
+
+        $rows = DB::connection($connection)->select("
+            SELECT COUNT(*) AS n
+            FROM equipment e
+            JOIN equipcategory ec ON ec.id = e.equipcategory_id
+            JOIN equiptype et     ON et.id = e.equiptype_id
+            " . (empty($where) ? '' : 'WHERE ' . implode(' AND ', $where)), $bind);
+
+        return (int) ($rows[0]->n ?? 0);
+    }
+
+    public function getDieMaster(string $connection, array $filters = []): array
+    {
+        [$where, $bind] = $this->dieMasterConditions($filters);
 
         $sql = "
             SELECT e.equipnumber, e.description AS die_description, e.status,
@@ -452,6 +475,33 @@ class DieUsageEquipmentRepository
         return DB::connection($connection)->select($sql, ['en' => $equipnumber]);
     }
 
+    /** วันที่เบิกครั้งแรกของไดร์ (แถวเบิก from_class=-1) — getDieProfile จำกัด 200 แถวล่าสุด จึงใช้แทนไม่ได้ */
+    public function getFirstIssueDate(string $equipnumber, string $connection): ?string
+    {
+        $rows = DB::connection($connection)->select("
+            SELECT MIN(etf.transdate) AS first_date
+            FROM equipmenttransfer etf
+            JOIN equipmenttransferitems etfi ON etf.id = etfi.trans_id
+            JOIN equipment e                 ON e.id = etfi.equipment_id
+            WHERE e.equipnumber = :en AND etf.from_class_id = -1
+        ", ['en' => $equipnumber]);
+
+        return empty($rows[0]->first_date) ? null : substr((string) $rows[0]->first_date, 0, 10);
+    }
+
+    /** คืนเฉพาะ Die# ที่มีอยู่จริงในฐาน PCM */
+    public function getExistingEquipnumbers(array $equipnumbers, string $connection): array
+    {
+        if (empty($equipnumbers)) return [];
+
+        $rows = DB::connection($connection)->select(
+            "SELECT e.equipnumber FROM equipment e WHERE e.equipnumber = ANY(:ens)",
+            ['ens' => self::pgTextArray($equipnumbers)]
+        );
+
+        return array_map(fn($r) => $r->equipnumber, $rows);
+    }
+
     public function getDieInfo(string $equipnumber, string $connection): ?object
     {
         $sql = "
@@ -472,7 +522,8 @@ class DieUsageEquipmentRepository
         return $rows[0] ?? null;
     }
 
-    public function getCurrentLocations(string $connection, array $filters = []): array
+    /** @return array{0: array, 1: array} เงื่อนไข + bindings ที่ list และ count ใช้ร่วมกัน */
+    private function currentLocationConditions(array $filters): array
     {
         $where = [
             "etf.transdate >= CURRENT_DATE - (:days * INTERVAL '1 day')",
@@ -498,6 +549,30 @@ class DieUsageEquipmentRepository
             $where[] = "ec.description = ANY(:cats)";
             $bind['cats'] = self::pgTextArray($catArr);
         }
+
+        return [$where, $bind];
+    }
+
+    /** จำนวนไดร์จริงก่อนตัด LIMIT ของ getCurrentLocations */
+    public function getCurrentLocationCount(string $connection, array $filters = []): int
+    {
+        [$where, $bind] = $this->currentLocationConditions($filters);
+
+        $rows = DB::connection($connection)->select("
+            SELECT COUNT(DISTINCT e.id) AS n
+            FROM equipment e
+            JOIN equipcategory ec ON ec.id = e.equipcategory_id
+            JOIN equiptype et     ON et.id = e.equiptype_id
+            JOIN equipmenttransferitems etfi ON etfi.equipment_id = e.id
+            JOIN equipmenttransfer etf       ON etf.id = etfi.trans_id
+            WHERE " . implode(' AND ', $where), $bind);
+
+        return (int) ($rows[0]->n ?? 0);
+    }
+
+    public function getCurrentLocations(string $connection, array $filters = []): array
+    {
+        [$where, $bind] = $this->currentLocationConditions($filters);
 
         // ตำแหน่งปัจจุบัน = transfer ล่าสุดของไดร์ (DISTINCT ON + ORDER BY transdate DESC)
         // ไม่ join equipmentmvmt แล้ว (กันแถวซ้ำ) — ดึง 1 แถวต่อ transfer จาก etfi โดยตรง

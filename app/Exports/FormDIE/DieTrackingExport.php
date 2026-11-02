@@ -20,7 +20,7 @@ class DieTrackingExport implements FromArray, WithHeadings, WithStyles
             'Machine', 'Issued By', 'Requested By', 'Qty', 'FG kg (WO)',
             'Die#', 'Die Description', 'Equip Type', 'Equip Category',
             'Size In', 'Size Out', 'Extra F3', 'Extra F4',
-            'Status', 'From Dept', 'To Dept',
+            'Status', 'From Dept', 'To Dept', 'วันที่รับเข้า', 'อายุไดร์',
         ];
     }
 
@@ -53,6 +53,8 @@ class DieTrackingExport implements FromArray, WithHeadings, WithStyles
             $r['status']          ?? '',
             $r['from_class']      ?? '',
             $r['to_class']        ?? '',
+            $r['received_date']   ?? '',
+            $r['age_text']        ?? '',
         ], $this->rows);
     }
 

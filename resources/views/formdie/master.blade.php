@@ -68,6 +68,7 @@
                             <option value="kg_desc">ยอดผลิต (kg) มาก→น้อย</option>
                             <option value="meter_desc">Meter มาก→น้อย</option>
                             <option value="used_desc">จำนวนเบิก มาก→น้อย</option>
+                            <option value="age_desc">อายุไดร์ มาก→น้อย</option>
                         </select>
                     </label>
                     <label data-show="material" style="display:none;">Heat No
@@ -92,7 +93,23 @@
         <div class="de-card">
             <div class="de-card-header" id="dmCardTitle">
                 <span><i class="fa fa-database me-2 text-primary"></i>Master List</span>
-                <span id="dmResultMeta" class="small text-muted">-</span>
+                <span style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    @can('DIE_MASTER_EDIT')
+                        <span data-show="master">
+                            <a href="{{ route('die.extras.template') }}" class="btn btn-sm btn-outline-secondary">
+                                <i class="fa fa-download me-1"></i>แม่แบบวันที่รับเข้า
+                            </a>
+                            <button type="button" class="btn btn-sm btn-outline-success" id="dmExtraImportBtn">
+                                <i class="fa fa-file-excel me-1"></i>นำเข้าวันที่รับเข้า
+                            </button>
+                        </span>
+                        <input type="file" id="dmExtraImportFile" accept=".xlsx,.xls" style="display:none;">
+                    @endcan
+                    <span id="dmResultMeta" class="small text-muted">-</span>
+                </span>
+            </div>
+            <div id="dmExtrasWarning" class="small" style="display:none; padding:8px 14px; background:#fffbeb; color:#92400e;">
+                ยังอ่านข้อมูลวันที่รับเข้าไม่ได้ จึงแสดงอายุไดร์เป็น "—" ชั่วคราว
             </div>
             <div class="de-table-wrap" id="dmResult" style="max-height:calc(100vh - 360px); min-height:300px;">
                 <div class="de-empty">
@@ -133,7 +150,10 @@
     </div>
 
     <script>
+        window.DM_CAN_EDIT_EXTRA = @json(auth()->check() && auth()->user()->can('DIE_MASTER_EDIT'));
         window.DM_ROUTES = {
+            extrasUpdate: "{{ route('die.extras.update') }}",
+            extrasImport: "{{ route('die.extras.import') }}",
             master:      "{{ route('die.api.master') }}",
             profile:     "{{ url('/die-tracking/api/profile') }}",
             location:    "{{ route('die.api.location') }}",
