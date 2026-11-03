@@ -2,13 +2,13 @@
 <div class="card card-shadow border-0 mb-3">
     <div class="card-header bg-white">
         <div class="fw-semibold">สรุป Stock Wire Rod และกำหนดเข้าโรงงาน (MT)</div>
-        <div class="text-muted small">ยอดล่าสุด {{ $stockReport['retrieved_at'] }} (เวลาไทย) · กรองตามบริษัท/Item เท่านั้น · สัปดาห์นับเสาร์-ศุกร์ · กำหนดเข้าโรงงานใช้วันที่กำหนดรับใน PO</div>
+        <div class="text-muted small">ยอดล่าสุด {{ $stockReport['retrieved_at'] }} (เวลาไทย) · กรองตามบริษัท/Item เท่านั้น · Target แสดงเฉพาะเมื่อไม่กรอง Item · สัปดาห์นับเสาร์-ศุกร์ · กำหนดเข้าโรงงานใช้วันที่กำหนดรับใน PO</div>
     </div>
     <div class="card-body">
         @if ($shipmentSummary)
             <div class="row g-3">
                 @foreach ($shipmentSummary as $section)
-                    <div class="col-md-6 col-xl-4">
+                    <div class="col-lg-6">
                         <div class="fw-semibold mb-1">{{ $section['title'] }}</div>
                         <div class="table-responsive">
                             <table class="table table-sm table-bordered align-middle mb-0">

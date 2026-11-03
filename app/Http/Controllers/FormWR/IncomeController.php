@@ -616,7 +616,7 @@ class IncomeController extends Controller
         $shipmentSummary = null;
         try {
             $shipmentService = app(ShipmentSummaryService::class);
-            $shipmentSummary = $shipmentService->sections($shipmentService->report($companies, $itemLike, $stockReport));
+            $shipmentSummary = $shipmentService->sections($shipmentService->report($companies, $itemLike, $stockReport), $itemLike === '');
         } catch (\Throwable $e) {
             report($e);
         }

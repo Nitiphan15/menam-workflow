@@ -43,6 +43,9 @@ class WirerodShipmentSummaryTest extends TestCase
         $this->assertSame([110.0,52.0],$byLabel['Over all stock']);
         $this->assertSame([80.0,48.0],$byLabel['Stock End Year']);
         $this->assertSame([-1920.0,-1052.0],$byLabel['Over stock / (Shortfall)']);
+        $filtered=(new ShipmentSummaryService)->sections(['date'=>'2026-11-03','stock'=>[1.0,0.0],'excluded'=>[0.0,0.0],'received'=>[],'incoming'=>[],'orders'=>[]],false);
+        $labels=array_column(end($filtered)['rows'],'label');
+        $this->assertSame(['Over all stock','Stock End Year'],$labels);
     }
     public function test_month_end_does_not_skip_february_and_blank_rows_keep_formula_positions(): void
     {

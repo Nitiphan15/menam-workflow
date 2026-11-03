@@ -89,8 +89,11 @@ class ShipmentSummaryService
         return $weeks;
     }
 
-    /** Page rows for the same figures as the Excel summary sheet; all quantities are MT. */
-    public function sections(array $data): array
+    /**
+     * Page rows for the same figures as the Excel summary sheet; all quantities are MT.
+     * The target is company-wide, so it is left out when the data is filtered to some Items.
+     */
+    public function sections(array $data, bool $withTarget = true): array
     {
         $date = Carbon::parse($data['date']);
         $row = fn(string $label, array $values, bool $total = false) => ['label' => $label, 'values' => $values, 'total' => $total];
@@ -125,8 +128,10 @@ class ShipmentSummaryService
             ['title' => 'ประมาณการสิ้นปี', 'rows' => [
                 $row('Over all stock', $overall, true),
                 $row('Stock End Year', $end, true),
-                $row('Target', self::TARGET),
-                $row('Over stock / (Shortfall)', [$end[0] - self::TARGET[0], $end[1] - self::TARGET[1]], true),
+                ...($withTarget ? [
+                    $row('Target', self::TARGET),
+                    $row('Over stock / (Shortfall)', [$end[0] - self::TARGET[0], $end[1] - self::TARGET[1]], true),
+                ] : []),
             ]],
         ];
     }

@@ -35,7 +35,7 @@ Company and Item filters apply to stock/reservations. Year, PO and vendor filter
 
 ## Weekly stock and shipment summary
 
-- The Wirerod Incoming page shows the same figures as the `Stock & Shipment Summary` sheet, in MT, filtered by company and Item only.
+- The Wirerod Incoming page shows the same figures as the `Stock & Shipment Summary` sheet, in MT, filtered by company and Item only. The company-wide target and over-stock rows are hidden on the page when an Item filter is set; the Excel sheet is unchanged.
 - Weeks run Saturday-Friday. The first week of a month keeps its days from the previous month (27 Jun - 3 Jul belongs to July), matching the PU-30 report.
 - Data is live on each request. There is no weekly snapshot or email. To be arrived uses the PO required date (`oe.reqdate`), which may differ from the ETA in the manual PU-30 report.
 - A failure in this summary is logged and shown in its card; the rest of the page keeps working.
