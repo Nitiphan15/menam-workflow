@@ -266,6 +266,19 @@
   --}}
     </div>
 
+    @if ($stockReport['warnings'])
+        <div class="alert alert-warning">
+            <div class="fw-semibold">MFG ที่ยังไม่นับเป็นยอดจอง</div>
+            <ul class="mb-0 small">
+                @foreach ($stockReport['warnings'] as $warning)
+                    <li>{{ $warning }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    @include('formwr.shipment-summary')
+
     {{-- BODY: 2 COLUMNS --}}
     <div class="row g-3">
         {{-- Left: Monthly summary --}}
@@ -339,7 +352,7 @@
             <div class="card card-shadow border-0">
                 <div class="card-header bg-white">
                     <div class="fw-semibold">ยอดคงเหลือ / จองวัตถุดิบ / สุทธิ (KG.)</div>
-                    <div class="text-muted small">ยอดล่าสุด {{ $stockReport['retrieved_at'] }} (เวลาไทย) · สต็อกและยอดจองกรองตามบริษัท/Item<br>ปี, คู่ค้า และ PO ใช้กรองค้างรับเท่านั้น · สุทธิ = คงเหลือ − จองที่ยังไม่เบิก · คลิก Item เพื่อดู Heat</div>
+                    <div class="text-muted small">ยอดล่าสุด {{ $stockReport['retrieved_at'] }} (เวลาไทย) · สต็อกและยอดจองกรองตามบริษัท/Item<br>ปี, คู่ค้า และ PO ใช้กรองค้างรับเท่านั้น · สุทธิ = คงเหลือ − จองที่ยังไม่เบิก · MFG ที่เบิกถึง {{ round($stockReport['complete_ratio'] * 100) }}% ไม่นับจอง · คลิก Item เพื่อดู Heat</div>
                 </div>
                 <div class="card-body p-0">
                     <div class="h-560 table-responsive">

@@ -612,8 +612,18 @@ class IncomeController extends Controller
             $totals[$column] = (float) collect($balanceWithOpenScaled)->sum($column);
         }
 
+        // สรุปเป็นส่วนเสริม ถ้าคำนวณไม่ได้ต้องไม่ทำให้ทั้งหน้าใช้งานไม่ได้
+        $shipmentSummary = null;
+        try {
+            $shipmentService = app(ShipmentSummaryService::class);
+            $shipmentSummary = $shipmentService->sections($shipmentService->report($companies, $itemLike, $stockReport));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         // ---------- ส่งให้ Blade ----------
         return view('formwr.index', [
+            'shipmentSummary' => $shipmentSummary,
             'stockReport'     => $stockReport,
             'monthOrder'      => $monthOrder,    // << ใช้ตัวเดียวให้ชัด
             'monthLabels'     => $monthLabels,
@@ -868,7 +878,7 @@ class IncomeController extends Controller
         $stockReport = $reservationService->report($companies, $itemLike);
         $balanceWithOpen = $reservationService->mergeBalances($balanceWithOpen, $stockReport);
         $reservationSheets = [new WirerodReservationSheet($stockReport), new WirerodReservationSheet($stockReport, true),
-            new WirerodShipmentSummarySheet(app(ShipmentSummaryService::class)->report($companies, $itemLike))];
+            new WirerodShipmentSummarySheet(app(ShipmentSummaryService::class)->report($companies, $itemLike, $stockReport))];
 
         // --- SCALE 1000 เฉพาะจำนวน (KG.) ---
         $SCALE = 1000;

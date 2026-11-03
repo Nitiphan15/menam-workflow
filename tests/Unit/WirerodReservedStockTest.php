@@ -7,7 +7,6 @@ use App\Services\FormWR\ReservedStockService;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 class WirerodReservedStockTest extends TestCase
 {
@@ -74,10 +73,26 @@ class WirerodReservedStockTest extends TestCase
         $this->assertCount(2, $merged['stock_details']);
     }
 
-    public function test_multiple_material_allocations_cannot_duplicate_mfg_quantity(): void
+    public function test_multiple_material_allocations_warn_without_duplicating_mfg_quantity(): void
     {
-        $this->expectException(RuntimeException::class);
-        (new ReservedStockService)->assemble([], [], [$this->order(['allocation_count' => 2])]);
+        $report = (new ReservedStockService)->assemble([], [], [
+            $this->order(['allocation_count' => 2, 'heat' => 'H1']),
+            $this->order(['allocation_count' => 2, 'heat' => 'H2']),
+            $this->order(['mfg' => 'W2']),
+        ]);
+        $this->assertSame(3000.0, $report['items'][0]['reserved']);
+        $this->assertCount(1, $report['warnings']);
+        $this->assertStringContainsString('W1', $report['warnings'][0]);
+    }
+
+    public function test_order_issued_up_to_the_complete_ratio_no_longer_reserves(): void
+    {
+        $service = new ReservedStockService;
+        $this->assertSame([], $service->assemble([], [], [$this->order(['planned' => 1500, 'issued' => 1425])])['items']);
+        $below = $service->assemble([], [], [$this->order(['planned' => 1500, 'issued' => 1424])]);
+        $this->assertSame(76.0, $below['items'][0]['reserved']);
+        $strict = $service->assemble([], [], [$this->order(['planned' => 1500, 'issued' => 1425])], 1.0);
+        $this->assertSame(75.0, $strict['items'][0]['reserved']);
     }
 
     public function test_multiple_receipt_dates_do_not_duplicate_reservations(): void
