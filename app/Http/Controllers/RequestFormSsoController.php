@@ -14,12 +14,9 @@ class RequestFormSsoController extends Controller
         abort_unless(config('services.request_form.sso_enabled'), 404);
 
         $user = $request->user();
-        if (!$user || !$user->is_active) {
-            throw new RuntimeException('บัญชีนี้ไม่สามารถใช้งาน Request Form SSO ได้');
-        }
-
         $user->loadMissing('department');
         try {
+            $destination = $this->destination();
             $token = $signer->sign([
                 'id' => $user->getKey(),
                 'email' => $user->email,
@@ -41,11 +38,23 @@ class RequestFormSsoController extends Controller
 
         return response()
             ->view('integrations.request-form-sso-handoff', [
-                'destination' => (string) config('services.request_form.sso_url'),
+                'destination' => $destination,
                 'token' => $token,
             ])
             ->header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
             ->header('Referrer-Policy', 'no-referrer')
             ->header('X-Frame-Options', 'DENY');
+    }
+
+    private function destination(): string
+    {
+        $destination = (string) config('services.request_form.sso_url');
+
+        // url() resolves a relative path against the current request's scheme.
+        if (app()->isProduction() && parse_url(url($destination), PHP_URL_SCHEME) !== 'https') {
+            throw new RuntimeException('Request Form SSO URL must use HTTPS in production.');
+        }
+
+        return $destination;
     }
 }
