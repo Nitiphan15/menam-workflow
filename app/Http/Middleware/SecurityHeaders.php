@@ -16,13 +16,17 @@ class SecurityHeaders
         $response = $next($request);
 
         // กันโดนฝังใน iframe จากโดเมนอื่น (clickjacking)
-        $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
+        if (!$response->headers->has('X-Frame-Options')) {
+            $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
+        }
 
         // กัน browser เดา content type เอง (MIME sniffing)
         $response->headers->set('X-Content-Type-Options', 'nosniff');
 
         // ไม่ส่ง URL ภายในระบบไปเป็น referrer ให้เว็บภายนอก
-        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        if (!$response->headers->has('Referrer-Policy')) {
+            $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        }
 
         // ปิด browser feature ที่ระบบไม่ได้ใช้
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
