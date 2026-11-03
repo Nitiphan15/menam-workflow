@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Services\FormWR\ShipmentSummaryService;
 use Carbon\Carbon;
 use Maatwebsite\Excel\Concerns\{FromArray, WithTitle, WithStyles, WithColumnWidths, WithEvents, WithCustomValueBinder};
 use Maatwebsite\Excel\Events\AfterSheet;
@@ -27,12 +28,8 @@ class WirerodShipmentSummarySheet extends \PhpOffice\PhpSpreadsheet\Cell\Default
         $add('Excluded Slit Coil (reference only)', $this->data['excluded']);
         $rows[]=['']; $rows[]=['Already arrived - '.$d->format('M Y')];
         $first=count($rows)+1;
-        $week=$d->copy()->startOfMonth()->startOfWeek(Carbon::SATURDAY);
-        while($week->lte($d)) {
-            $end=$week->copy()->addDays(6)->min($d);
-            $start=$week->copy()->max($d->copy()->startOfMonth());
-            $add($start->format('d M').' - '.$end->format('d M'),$this->data['received'][$week->toDateString()] ?? [0,0]);
-            $week->addWeek();
+        foreach(ShipmentSummaryService::weeks($d) as $week) {
+            $add($week['start']->format('d M').' - '.$week['end']->format('d M'),$this->data['received'][$week['start']->toDateString()] ?? [0,0]);
         }
         $last=count($rows);$add('Total arrived', ['=SUM(B'.$first.':B'.$last.')','=SUM(C'.$first.':C'.$last.')']);
         $totals=[];
@@ -48,7 +45,7 @@ class WirerodShipmentSummarySheet extends \PhpOffice\PhpSpreadsheet\Cell\Default
         $rows[]=[''];
         $overall=$add('Over all stock', ['=B'.$stock.'+B'.$totals['incoming'],'=C'.$stock.'+C'.$totals['incoming']]);
         $end=$add('Stock End Year (estimate)', ['=B'.$overall.'-B'.$totals['orders'],'=C'.$overall.'-C'.$totals['orders']]);
-        $target=$add('Target (editable)', [2000,1100]);
+        $target=$add('Target (editable)', ShipmentSummaryService::TARGET);
         $add('Over stock / (Shortfall)', ['=B'.$end.'-B'.$target,'=C'.$end.'-C'.$target]);
         $rows[]=[''];$rows[]=['Outside year-end estimate (reference only)'];
         foreach(['incoming'=>'Incoming','orders'=>'Order'] as $field=>$label) {
@@ -59,6 +56,8 @@ class WirerodShipmentSummarySheet extends \PhpOffice\PhpSpreadsheet\Cell\Default
         $rows[]=['Slit Coil excluded throughout this sheet; the other sheets retain their existing scope.'];
         $rows[]=['Order = MFG quantity less issued; not a sales forecast. Undated/next-year rows excluded from estimate.'];
         $rows[]=['Already arrived is included in current stock; it is not added again. Target cells B/C may be edited.'];
+        $rows[]=['Weeks run Saturday-Friday; the first week keeps its days from the previous month.'];
+        foreach($this->data['warnings'] ?? [] as $warning) $rows[]=[$warning];
         return $rows;
     }
 

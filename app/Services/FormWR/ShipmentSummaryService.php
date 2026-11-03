@@ -8,10 +8,14 @@ use RuntimeException;
 
 class ShipmentSummaryService
 {
-    public function report(array $companies, string $item = ''): array
+    /** Default year-end stock target in MT [stainless, carbon]; from the supplied PU-30 report. */
+    public const TARGET = [2000, 1100];
+
+    public function report(array $companies, string $item = '', ?array $stockReport = null): array
     {
         $today = Carbon::today('Asia/Bangkok');
         $result = ['date' => $today->toDateString(), 'stock' => [0.0, 0.0], 'received' => [], 'incoming' => [], 'orders' => [], 'excluded' => [0.0, 0.0]];
+        $firstWeek = self::weeks($today)[0]['start'];
         $classes = [];
         foreach (['MENAM WIRE' => 'pgsqlw', 'MENAM PLUS' => 'pgsqlp'] as $company => $connection) {
             if (!in_array($company, $companies, true)) continue;
@@ -40,7 +44,7 @@ class ShipmentSummaryService
             $received = $db->select("SELECT UPPER(TRIM(p.partnumber)) AS item, ap.transdate AS date, SUM(ri.qty) AS qty, oi.unit, p.unit AS base_unit, p.purchase_unit, p.purchase_unit_qty
                 FROM receiveitems ri JOIN orderitems oi ON oi.id=ri.orderitems_id JOIN parts p ON p.id=oi.parts_id JOIN receive r ON r.id=ri.receive_id JOIN ap ON ap.id=r.ap_id
                 WHERE {$filter} AND ap.transdate >= :month_start AND ap.transdate <= :today
-                GROUP BY UPPER(TRIM(p.partnumber)),ap.transdate,oi.unit,p.unit,p.purchase_unit,p.purchase_unit_qty", $bindings + ['month_start' => $today->copy()->startOfMonth()->toDateString(), 'today' => $today->toDateString()]);
+                GROUP BY UPPER(TRIM(p.partnumber)),ap.transdate,oi.unit,p.unit,p.purchase_unit,p.purchase_unit_qty", $bindings + ['month_start' => $firstWeek->toDateString(), 'today' => $today->toDateString()]);
             foreach ($received as $row) {
                 $meta = $classes[$company.'|'.$row->item];
                 if ($meta['class'] === null || $meta['slit']) continue;
@@ -58,7 +62,8 @@ class ShipmentSummaryService
                 $this->add($result['incoming'], $key, $meta['class'], $this->tonnes($row));
             }
         }
-        $stockReport = app(ReservedStockService::class)->report($companies, $item);
+        $stockReport ??= app(ReservedStockService::class)->report($companies, $item);
+        $result['warnings'] = $stockReport['warnings'] ?? [];
         foreach ($stockReport['items'] as $stock) {
             $meta = $classes[$stock['company'].'|'.$stock['item']] ?? null;
             if (!$meta || $meta['class'] === null || $meta['slit']) continue;
@@ -67,6 +72,68 @@ class ShipmentSummaryService
             }
         }
         return $result;
+    }
+
+    /**
+     * Saturday-Friday weeks of the report month, up to the report date.
+     * The first week keeps its days from the previous month (27 Jun - 3 Jul belongs to July).
+     */
+    public static function weeks(Carbon $date): array
+    {
+        $weeks = [];
+        $week = $date->copy()->startOfMonth()->startOfWeek(Carbon::SATURDAY);
+        while ($week->lte($date)) {
+            $weeks[] = ['start' => $week->copy(), 'end' => $week->copy()->addDays(6)->min($date)];
+            $week->addWeek();
+        }
+        return $weeks;
+    }
+
+    /**
+     * Page rows for the same figures as the Excel summary sheet; all quantities are MT.
+     * The target is company-wide, so it is left out when the data is filtered to some Items.
+     */
+    public function sections(array $data, bool $withTarget = true): array
+    {
+        $date = Carbon::parse($data['date']);
+        $row = fn(string $label, array $values, bool $total = false) => ['label' => $label, 'values' => $values, 'total' => $total];
+        $sum = fn(array $rows) => [array_sum(array_column(array_column($rows, 'values'), 0)), array_sum(array_column(array_column($rows, 'values'), 1))];
+
+        $arrived = [];
+        foreach (self::weeks($date) as $week) {
+            $arrived[] = $row($week['start']->format('d M').' - '.$week['end']->format('d M'), $data['received'][$week['start']->toDateString()] ?? [0.0, 0.0]);
+        }
+        $arrivedTotal = $sum($arrived);
+        $byMonth = [];
+        foreach (['incoming', 'orders'] as $field) {
+            $byMonth[$field] = [$row('ยกมา', $data[$field]['Carried forward'] ?? [0.0, 0.0])];
+            for ($month = $date->month; $month <= 12; $month++) {
+                $key = $date->copy()->startOfMonth()->month($month);
+                $byMonth[$field][] = $row($key->format('M Y'), $data[$field][$key->format('Y-m')] ?? [0.0, 0.0]);
+            }
+        }
+        $incoming = $sum($byMonth['incoming']);
+        $orders = $sum($byMonth['orders']);
+        $overall = [$data['stock'][0] + $incoming[0], $data['stock'][1] + $incoming[1]];
+        $end = [$overall[0] - $orders[0], $overall[1] - $orders[1]];
+
+        return [
+            ['title' => 'สต็อกปัจจุบัน', 'rows' => [
+                $row('Stock on hand '.$date->format('d M Y'), $data['stock'], true),
+                $row('Slit Coil (ไม่รวมในสรุป)', $data['excluded']),
+            ]],
+            ['title' => 'รับเข้าแล้วรายสัปดาห์ (เสาร์-ศุกร์)', 'rows' => [...$arrived, $row('รวมรับเข้า', $arrivedTotal, true)]],
+            ['title' => 'กำหนดเข้าโรงงาน (To be arrived)', 'rows' => [...$byMonth['incoming'], $row('รวมกำหนดเข้า', $incoming, true)]],
+            ['title' => 'ยอดจองผลิต (Order)', 'rows' => [...$byMonth['orders'], $row('รวมยอดจอง', $orders, true)]],
+            ['title' => 'ประมาณการสิ้นปี', 'rows' => [
+                $row('Over all stock', $overall, true),
+                $row('Stock End Year', $end, true),
+                ...($withTarget ? [
+                    $row('Target', self::TARGET),
+                    $row('Over stock / (Shortfall)', [$end[0] - self::TARGET[0], $end[1] - self::TARGET[1]], true),
+                ] : []),
+            ]],
+        ];
     }
 
     public function tonnes(object $row): float

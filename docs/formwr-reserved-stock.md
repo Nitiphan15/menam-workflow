@@ -6,7 +6,8 @@
 - Reservation starts with `workorder.qty` in KG, as confirmed by the user. Do not add a loss allowance. `workorderbom.qty` is not populated in the current databases.
 - Remaining reservation = `max(MFG quantity - sum(workordermatusage.qty), 0)`. Aggregate issues per work order and material before joining. Do not sum production-step `workorderusage` rows.
 - Include open, non-suspended work orders with a positive quantity at 4-decimal KG precision, including unapproved MFG waiting for material. Closed, suspended, fully issued and overissued orders do not reserve stock.
-- One distinct RM Item/Heat allocation per work order. Duplicate identical BOM rows are deduplicated. If a future work order has multiple distinct allocations, fail explicitly instead of duplicating its entire MFG quantity across allocations.
+- An MFG issued to at least `config('formwr.reservation_complete_ratio')` (default 95%) of its quantity counts as fully issued, so its small remainder does not reserve stock. The 95% default is pending planner confirmation.
+- One distinct RM Item/Heat allocation per work order. Duplicate identical BOM rows are deduplicated. A work order with multiple distinct allocations is left out of the totals and listed as a warning on the page and summary sheet, instead of duplicating its MFG quantity or failing the whole report.
 - Net stock = movement balance minus remaining reservation; negative values remain visible.
 - Keep companies separate in Heat/MFG details. The existing Item summary combines the selected companies.
 - Empty or `-` BOM Heat goes into the waiting-material bucket, with zero stock and negative net. Never allocate it to an arbitrary Heat.
@@ -31,6 +32,14 @@ Company and Item filters apply to stock/reservations. Year, PO and vendor filter
 - MFG detail includes order/due dates, sales order, customer, product, state, planned, issued and remaining reservation quantities.
 - Existing three Excel sheets remain in their original order; `Stock by Heat` and `MFG Reservations` are appended. The balance sheet gains reservation and net columns. New detail sheets preserve identifiers such as `+W...` as text.
 - Retrieval time is shown in Bangkok time. It is retrieval time, not a historical closing date. Separate live requests may differ when ERP data changes.
+
+## Weekly stock and shipment summary
+
+- The Wirerod Incoming page shows the same figures as the `Stock & Shipment Summary` sheet, in MT, filtered by company and Item only. The company-wide target and over-stock rows are hidden on the page when an Item filter is set; the Excel sheet is unchanged.
+- Weeks run Saturday-Friday. The first week of a month keeps its days from the previous month (27 Jun - 3 Jul belongs to July), matching the PU-30 report.
+- Data is live on each request. There is no weekly snapshot or email. To be arrived uses the PO required date (`oe.reqdate`), which may differ from the ETA in the manual PU-30 report.
+- A failure in this summary is logged and shown in its card; the rest of the page keeps working.
+- Not included: PU-30 shipment detail (L/C, Invoice, ETD/ETA, shipping documents).
 
 ## Verification and release
 

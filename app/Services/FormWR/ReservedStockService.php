@@ -3,7 +3,6 @@
 namespace App\Services\FormWR;
 
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 
 class ReservedStockService
 {
@@ -76,13 +75,13 @@ class ReservedStockService
             }
         }
 
-        return $this->assemble($stocks, $heats, $orders);
+        return $this->assemble($stocks, $heats, $orders, (float) config('formwr.reservation_complete_ratio', 0.95));
     }
 
     /** Pure calculation shared by the page and export; all quantities are KG. */
-    public function assemble(array $stocks, array $heatStocks, array $orders): array
+    public function assemble(array $stocks, array $heatStocks, array $orders, float $completeRatio = 0.95): array
     {
-        $items = [];
+        $items = $warnings = [];
         $ensure = function (array $row) use (&$items): string {
             $key = $row['company'].'|'.$row['item'];
             if (!isset($items[$key])) {
@@ -116,13 +115,15 @@ class ReservedStockService
         }
         foreach ($orders as $row) {
             // A WO quantity cannot be copied to multiple materials/heats without an allocation rule.
+            // Leave it out of the totals and warn, so one MFG cannot take the whole report down.
             if ((int) $row['allocation_count'] !== 1) {
-                throw new RuntimeException('MFG '.$row['mfg'].' มีหลาย Item/Heat ต้องระบุจำนวนจองแยกก่อนคำนวณ');
+                $warnings[$row['company'].'|'.$row['mfg']] = $row['company'].' MFG '.$row['mfg'].' มีหลาย Item/Heat จึงยังไม่นับเป็นยอดจอง ต้องระบุจำนวนจองแยก';
+                continue;
             }
             $row['planned'] = round((float) $row['planned'], 4);
             $row['issued'] = round((float) $row['issued'], 4);
             $row['reserved'] = max(0.0, round($row['planned'] - $row['issued'], 4));
-            if ($row['reserved'] <= 0) {
+            if ($row['reserved'] <= 0 || $row['issued'] >= round($row['planned'] * $completeRatio, 4)) {
                 continue;
             }
             $key = $ensure($row);
@@ -161,7 +162,10 @@ class ReservedStockService
         $items = array_filter($items, fn($r) => $r['balance'] != 0 || $r['reserved'] > 0 || array_filter($r['heats'], fn($h) => $h['balance'] != 0));
         uasort($items, fn($a, $b) => [$a['item'], $a['company']] <=> [$b['item'], $b['company']]);
 
-        return ['items' => array_values($items), 'retrieved_at' => now('Asia/Bangkok')->format('Y-m-d H:i:s')];
+        return [
+            'items' => array_values($items), 'warnings' => array_values($warnings), 'complete_ratio' => $completeRatio,
+            'retrieved_at' => now('Asia/Bangkok')->format('Y-m-d H:i:s'),
+        ];
     }
 
     public function mergeBalances(array $balances, array $report): array
