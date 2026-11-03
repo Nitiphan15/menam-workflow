@@ -29,12 +29,9 @@
                             </div>
 
                             <div class="col-md-6 mb-3">
-                                <label for="email" class="form-label">อีเมล <span class="text-danger">*</span></label>
-                                <input type="email" class="form-control @error('email') is-invalid @enderror"
-                                    id="email" name="email" value="{{ old('email', $user->email) }}" required>
-                                @error('email')
-                                    <div class="invalid-feedback">{{ $message }}</div>
-                                @enderror
+                                <label for="email" class="form-label">อีเมล</label>
+                                <input type="email" class="form-control" id="email" value="{{ $user->email }}" readonly>
+                                <div class="form-text">หากต้องการเปลี่ยนอีเมล กรุณาติดต่อผู้ดูแลระบบ</div>
                             </div>
                         </div>
 

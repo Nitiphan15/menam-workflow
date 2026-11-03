@@ -40,7 +40,6 @@ class ProfileController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:sqlsrv_menam.users,email,' . $user->id,
             'phone' => 'required|string|max:20',
             'department' => 'nullable|string|max:255',
             'position' => 'nullable|string|max:255',
@@ -51,10 +50,10 @@ class ProfileController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
+        // Email is the SSO identity for Request Form: only admins may change it (UserAdminController).
         $payload = [
             'name' => $request->name,
             'username' => WorkflowUser::uniqueUsernameForName($request->name, (int) $user->id),
-            'email' => $request->email,
             'phone' => $request->phone,
             'department' => $request->department,
             'position' => $request->position,
