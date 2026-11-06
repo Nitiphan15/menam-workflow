@@ -25,13 +25,6 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->withoutOverlapping();
 
-        // สรุป PO ที่ยังรออนุมัติ Step 3 เวลา 08:00 และ 13:00 วันจันทร์-ศุกร์
-        $schedule->command('po:send-step3-pending-digest')
-            ->cron('0 8,13 * * 1-5')
-            ->timezone('Asia/Bangkok')
-            ->onOneServer()
-            ->withoutOverlapping();
-
         $schedule->command('stock-withdrawal:rollover-queue')
             ->days([1, 2, 3, 4, 5, 6])
             ->dailyAt('00:05')
