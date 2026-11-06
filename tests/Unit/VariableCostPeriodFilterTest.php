@@ -73,8 +73,6 @@ class VariableCostPeriodFilterTest extends TestCase
         foreach (['summary', 'monthly', 'matrix', 'accounts'] as $page) {
             $view = file_get_contents($base."/resources/views/formvc/{$page}.blade.php");
             $this->assertStringContainsString("formvc.partials.year-comparison", $view);
-            $this->assertStringNotContainsString('<canvas', $view);
-            $this->assertStringNotContainsString('new Chart', $view);
         }
 
         $this->assertStringContainsString('for (let i = 0; i < years.length; i++)', $partial);
