@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PO Online - Step 3 Pending Approval</title>
+    <title>PO Online - {{ $stepName }} Pending Approval</title>
 </head>
 <body style="margin:0; padding:0; background:#eef4f8; font-family:Tahoma, Arial, sans-serif; color:#263241;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef4f8; padding:28px 12px;">
@@ -13,7 +13,7 @@
                     <tr>
                         <td style="background:#dcebf5; padding:24px 28px; border-bottom:1px solid #cbddea;">
                             <div style="font-size:13px; color:#5f7288; letter-spacing:.08em;">PO ONLINE</div>
-                            <div style="font-size:24px; font-weight:700; color:#243b53; margin-top:6px;">รายการ PO รออนุมัติ Step 3</div>
+                            <div style="font-size:24px; font-weight:700; color:#243b53; margin-top:6px;">รายการ PO รออนุมัติ {{ $stepName }}</div>
                             <div style="font-size:14px; color:#60758c; margin-top:8px;">รอดำเนินการ {{ count($poItems) }} รายการ</div>
                         </td>
                     </tr>

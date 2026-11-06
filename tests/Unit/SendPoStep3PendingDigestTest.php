@@ -44,6 +44,17 @@ class SendPoStep3PendingDigestTest extends TestCase
             $table->unsignedBigInteger('approver_user_id');
             $table->string('status');
         });
+        Schema::connection('sqlsrv_menam')->create('workflows', function (Blueprint $table) {
+            $table->id();
+            $table->string('code');
+        });
+        Schema::connection('sqlsrv_menam')->create('workflow_steps', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('workflow_id');
+            $table->unsignedInteger('step_no');
+            $table->string('name');
+            $table->boolean('is_active')->default(true);
+        });
         Schema::connection('sqlsrv_menam')->create('po_headers', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('workflow_id');
@@ -56,6 +67,16 @@ class SendPoStep3PendingDigestTest extends TestCase
             $table->decimal('netamount', 12, 2)->nullable();
             $table->string('curr')->nullable();
         });
+        DB::connection('sqlsrv_menam')->table('workflows')->insert([
+            'id' => 1, 'code' => 'po',
+        ]);
+        DB::connection('sqlsrv_menam')->table('workflow_steps')->insert([
+            'id' => 3,
+            'workflow_id' => 1,
+            'step_no' => 3,
+            'name' => 'Department Manager Approval',
+            'is_active' => 1,
+        ]);
     }
 
     public function test_it_sends_one_table_digest_per_step_three_approver_without_cc(): void
@@ -95,6 +116,7 @@ class SendPoStep3PendingDigestTest extends TestCase
             return $mail->hasTo('manager1@example.com')
                 && ! $mail->hasCc('manager2@example.com')
                 && ! $mail->hasBcc('manager2@example.com')
+                && $mail->stepName === 'Department Manager Approval'
                 && collect($mail->poItems)->pluck('ordnumber')->all() === ['PO-001', 'PO-002'];
         });
         Mail::assertSent(PoStep3PendingDigestMail::class, function (PoStep3PendingDigestMail $mail) {

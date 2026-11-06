@@ -34,6 +34,14 @@ class SendPoStep3PendingDigest extends Command
             return self::SUCCESS;
         }
 
+        $stepName = (string) (SqlServerDb::table('workflow_steps as ws')
+            ->join('workflows as w', 'w.id', '=', 'ws.workflow_id')
+            ->whereRaw('LOWER(w.code) = ?', ['po'])
+            ->where('ws.step_no', 3)
+            ->where('ws.is_active', 1)
+            ->orderBy('ws.id')
+            ->value('ws.name') ?: 'Department Manager Approval');
+
         $rows = SqlServerDb::table('wf_form_authorizes as wa')
             ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
             ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
@@ -105,6 +113,7 @@ class SendPoStep3PendingDigest extends Command
                 Mail::to($recipient)->send(new PoStep3PendingDigestMail(
                     approverName: (string) ($first->approver_name ?: $email),
                     poItems: $items,
+                    stepName: $stepName,
                 ));
                 $sent++;
             } catch (\Throwable $exception) {
