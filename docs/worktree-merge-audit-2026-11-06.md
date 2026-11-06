@@ -11,6 +11,7 @@ Remote and local target after approved merges: `9c046916`
 | `codex/formfc-e-piece-kg-display` | Merged as `1ad10e48` | Production endpoint and Excel verified; PHP lint passed; focused test passed 3 tests / 11 assertions |
 | `codex/stock-withdrawal-daily-mail` | No-content merge as `bf5c0632` | Four runtime files matched Production exactly; focused test passed 2 tests / 2 assertions |
 | `codex/formfc-approval-sales-remark` | No-content merge as `9c046916` | Virtual merge and real merge changed no target files; main already contained the content |
+| `codex/formpo-step3-digest-production-controls` | Merged concurrently through PR #28 as `84d024ee` | Focused `SendPoStep3PendingDigestTest` passed before the remote merge was detected |
 
 Backup branches retained:
 
@@ -30,7 +31,6 @@ Backup branches retained:
 
 - `codex/formdp-planner-department-access` — `InquiryByShipDateExportTest` passed 4 tests / 12 assertions.
 - `codex/formdp-tracking-quick-access` — `ProductionProcessGroupTest` passed.
-- `codex/formpo-step3-digest-production-controls` — `SendPoStep3PendingDigestTest` passed.
 - `codex/invoice-mfg-profit` — `InvoiceMfgProfitServiceTest` passed.
 - `codex/po-step3-recovery-mail` — `PoStep3RecoveryServiceTest` passed.
 - `codex/sidebar-essential-menus` — `SidebarEssentialMenusTest` passed.
@@ -90,8 +90,7 @@ Running all FormFC unit tests on the target produced two errors in `FormFcPlanne
 
 ## Recommended approval order
 
-1. `codex/formpo-step3-digest-production-controls` — smallest continuation of the already merged Step 3 digest.
-2. `codex/formdp-planner-department-access` and `codex/formdp-tracking-quick-access` — clean virtual merges with passing focused tests.
-3. `codex/invoice-mfg-profit` and `codex/po-step3-recovery-mail` — clean virtual merges with passing focused tests.
-4. Dependency-missing worktrees — provide/reuse dependencies in an isolated test checkout, then retest.
-5. Conflict branches — review feature intent and rebase one at a time; never resolve by choosing an entire side.
+1. `codex/formdp-planner-department-access` and `codex/formdp-tracking-quick-access` — clean virtual merges with passing focused tests.
+2. `codex/invoice-mfg-profit` and `codex/po-step3-recovery-mail` — clean virtual merges with passing focused tests.
+3. Dependency-missing worktrees — provide/reuse dependencies in an isolated test checkout, then retest.
+4. Conflict branches — review feature intent and rebase one at a time; never resolve by choosing an entire side.
