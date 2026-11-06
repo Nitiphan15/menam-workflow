@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.7.1');
+        $latestVersion = config('app.version', '1.7.2');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -105,6 +105,7 @@
                     <h3 class="h5 fw-bold mb-0" id="latest-update-title">อัปเดตล่าสุด</h3>
                 </div>
                 <ul class="text-muted mb-0">
+                    <li>FormFC: Manager Export Excel แสดง Sales Remark ของแต่ละรายการตามหน้าจอ</li>
                     <li>PO Online: อีเมลรายการรออนุมัติแสดงชื่อขั้นตอนจริงแทนข้อความ Step 3</li>
                     <li>PO Online: แจ้งเตือนเอกสารรออนุมัติ Step 3 เวลา 08:00 และ 13:00 วันจันทร์-ศุกร์ แยกตามผู้อนุมัติ</li>
                     <li>FormFC: แปลง SO ของ FG Part ลงท้าย E หน่วย 03 จากจำนวนเส้นเป็น KG ตาม Dia และ Length</li>
@@ -139,6 +140,16 @@
 
                 <div class="collapse" id="releaseHistory">
                     <div class="list-group list-group-flush mt-3">
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.7.2</span>
+                                <strong>FormFC: แก้ไข Sales Remark ใน Manager Excel Export</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>Excel จากหน้า Manager Approval ดึง Sales Remark รายการเดียวกับที่แสดงบนหน้าจอ แทนการอ่านช่อง Approval Remark ที่ว่าง</li>
+                            </ul>
+                        </div>
+
                         <div class="list-group-item px-0 py-3">
                             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                 <span class="badge text-bg-primary">v 1.7.1</span>

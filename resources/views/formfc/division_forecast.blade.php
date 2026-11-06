@@ -792,7 +792,7 @@
                                         <td>
                                             @if (!empty($isApprovalMode))
                                                 <div class="small text-muted mb-1">Sales Remark</div>
-                                                <div class="small bg-light border rounded px-2 py-1 mb-2 text-wrap">
+                                                <div class="small bg-light border rounded px-2 py-1 mb-2 text-wrap js-sales-remark">
                                                     {{ filled($r['row_remark'] ?? null) ? $r['row_remark'] : '-' }}
                                                 </div>
                                                 <label class="small text-muted mb-1"
@@ -2286,10 +2286,13 @@
                         cells.push('');
                         continue;
                     }
+                    const salesRemark = td.querySelector('.js-sales-remark');
                     const input = td.querySelector(
                         'input[type="number"], input[type="text"], input[type="checkbox"]');
                     let v;
-                    if (input) {
+                    if (salesRemark) {
+                        v = salesRemark.innerText.trim();
+                    } else if (input) {
                         if (input.type === 'checkbox') v = input.checked ? '1' : '0';
                         else v = input.value || '';
                     } else {
