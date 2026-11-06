@@ -20,7 +20,7 @@
                     <tr>
                         <td style="padding:24px 28px 14px;">
                             <p style="margin:0 0 10px; font-size:16px;">เรียนคุณ {{ $approverName }}</p>
-                            <p style="margin:0; font-size:14px; line-height:1.7; color:#4b5d70;">กรุณาตรวจสอบ PO ที่ยังรอการดำเนินการของท่าน รายการจะยังคงแสดงจนกว่าจะอนุมัติ ปฏิเสธ หรือส่งกลับ</p>
+                            <p style="margin:0; font-size:14px; line-height:1.7; color:#4b5d70;">กรุณาตรวจสอบ PO ที่ยังรอการดำเนินการของท่าน</p>
                         </td>
                     </tr>
                     <tr>
