@@ -3197,6 +3197,46 @@ class ForecastRmDivisionController extends Controller
         }
     }
 
+    private function manualForecastInputErrors(array $rows, array $metaRows): array
+    {
+        $errors = [];
+
+        foreach ($rows as $rowKey => $qty) {
+            if ($qty === '' || $qty === null) {
+                continue;
+            }
+            if (!is_numeric($qty)) {
+                $errors[] = "ค่า Manual แถว {$rowKey} ต้องเป็นตัวเลข";
+                continue;
+            }
+            if ((float) $qty < 0) {
+                $errors[] = "ค่า Manual แถว {$rowKey} ต้องไม่ติดลบ";
+                continue;
+            }
+            if ((float) $qty <= 0) {
+                continue;
+            }
+
+            $meta = json_decode((string) ($metaRows[$rowKey] ?? ''), true);
+            if (!is_array($meta)) {
+                $errors[] = "ข้อมูล Manual row {$rowKey} ไม่สมบูรณ์ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ";
+                continue;
+            }
+
+            $customerId = (int) ($meta['customer_id'] ?? 0);
+            $customerName = trim((string) ($meta['customer_name'] ?? ''));
+            $fgPartnumber = strtoupper(trim((string) ($meta['fg_partnumber'] ?? '')));
+            if ($customerId <= 0 || $fgPartnumber === '') {
+                $label = $customerName !== '' || $fgPartnumber !== ''
+                    ? trim($customerName . ' / ' . $fgPartnumber, ' /')
+                    : (string) $rowKey;
+                $errors[] = "ข้อมูล Manual ไม่ครบ ({$label}) กรุณาเลือก Customer และ FG Part จากรายการแนะนำ";
+            }
+        }
+
+        return array_values(array_unique($errors));
+    }
+
     public function generateFgForecast(Request $request)
     {
         $u = $this->userOr403();
@@ -3228,6 +3268,7 @@ class ForecastRmDivisionController extends Controller
             'row_k_factor' => ['nullable', 'array'],
             'row_meta' => ['nullable', 'array'],
             'manual_forecast_1m' => ['nullable', 'array'],
+            'manual_forecast_1m.*' => ['nullable', 'numeric', 'min:0'],
             'row_remark' => ['nullable', 'array'],
             'supplier_code' => ['nullable', 'array'],
             'supplier_name_manual' => ['nullable', 'array'],
@@ -3270,13 +3311,28 @@ class ForecastRmDivisionController extends Controller
         $rowKFactor = $request->input('row_k_factor', []);
         $rowMeta = $request->input('row_meta', []);
 
+        $manualInputErrors = $this->manualForecastInputErrors((array) $manualRows, (array) $rowMeta);
+        if (!empty($manualInputErrors)) {
+            return back()->with('error', implode("\n", $manualInputErrors))->withInput();
+        }
+
         $settingRows = [];
         $snapshotRows = [];
         $historyRows = [];
 
         foreach ($rowMeta as $rowKey => $metaJson) {
             $meta = json_decode((string) $metaJson, true);
-            if (!is_array($meta)) continue;
+            $manualRaw = $manualRows[$rowKey] ?? null;
+            $hasPositiveManual = is_numeric($manualRaw) && (float) $manualRaw > 0;
+
+            if (!is_array($meta)) {
+                if ($hasPositiveManual) {
+                    return back()
+                        ->with('error', "ข้อมูล Manual row {$rowKey} ไม่สมบูรณ์ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
+                        ->withInput();
+                }
+                continue;
+            }
 
             $custId = (int) ($meta['customer_id'] ?? 0);
             $custName = (string) ($meta['customer_name'] ?? '-');
@@ -3309,7 +3365,15 @@ class ForecastRmDivisionController extends Controller
                 }
             }
 
-            if ($fgPartnumber === '') continue;
+            if ($fgPartnumber === '' || ($hasPositiveManual && $custId <= 0)) {
+                if ($hasPositiveManual) {
+                    $label = trim($custName . ' / ' . $fgPartnumber, ' /');
+                    return back()
+                        ->with('error', "ข้อมูล Manual ไม่ครบ ({$label}) กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
+                        ->withInput();
+                }
+                continue;
+            }
 
             $isSelected = isset($forecastFlag[$rowKey]) && (string) $forecastFlag[$rowKey] === '1';
 
@@ -3588,6 +3652,11 @@ class ForecastRmDivisionController extends Controller
             return back()->with('error', 'ไม่มีข้อมูล Manual Forecast สำหรับบันทึก');
         }
 
+        $manualInputErrors = $this->manualForecastInputErrors($rows, is_array($metaRows) ? $metaRows : []);
+        if (!empty($manualInputErrors)) {
+            return back()->with('error', implode("\n", $manualInputErrors))->withInput();
+        }
+
         $baseMonth = now('Asia/Bangkok')->startOfMonth()->toDateString();
         if ($this->divisionForecastSubmitted($salesCode, $baseMonth)) {
             return back()->with('error', 'Division นี้ submit Forecast ของเดือนนี้แล้ว ห้ามบันทึก Manual ทับอีก กรุณาให้หัวหน้าแก้ผ่านหน้า Approval')->withInput();
@@ -3604,9 +3673,27 @@ class ForecastRmDivisionController extends Controller
                 continue;
             }
 
+            if ($qty === '' || $qty === null) {
+                continue;
+            }
+
+            if (!is_numeric($qty)) {
+                return back()->with('error', 'ค่า Manual ต้องเป็นตัวเลข')->withInput();
+            }
+
+            $qty = round((float) $qty, 2);
+            if ($qty < 0) {
+                return back()->with('error', 'ค่า Manual ต้องไม่ติดลบ')->withInput();
+            }
+            if ($qty <= 0) {
+                continue;
+            }
+
             $meta = json_decode((string) ($metaRows[$rowKey] ?? ''), true);
             if (!is_array($meta)) {
-                continue;
+                return back()
+                    ->with('error', "ข้อมูล Manual row {$rowKey} ไม่สมบูรณ์ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
+                    ->withInput();
             }
 
             $customerId = (int) ($meta['customer_id'] ?? 0);
@@ -3616,23 +3703,13 @@ class ForecastRmDivisionController extends Controller
             $rmPartnumber = strtoupper(trim((string) ($meta['rm_partnumber'] ?? '')));
 
             if ($customerId <= 0 || $fgPartnumber === '') {
-                continue;
-            }
+                $label = $customerName !== '' || $fgPartnumber !== ''
+                    ? trim($customerName . ' / ' . $fgPartnumber, ' /')
+                    : $rowKey;
 
-            if ($qty === '' || $qty === null) {
-                continue;
-            }
-
-            if (!is_numeric($qty)) {
-                return back()->with('error', "ค่า Manual ของ {$fgPartnumber} ต้องเป็นตัวเลข")->withInput();
-            }
-
-            $qty = round((float) $qty, 2);
-            if ($qty < 0) {
-                return back()->with('error', "ค่า Manual ของ {$fgPartnumber} ต้องไม่ติดลบ")->withInput();
-            }
-            if ($qty <= 0) {
-                continue;
+                return back()
+                    ->with('error', "ข้อมูล Manual ไม่ครบ ({$label}) กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
+                    ->withInput();
             }
 
             $manualKey = $customerId . '|' . $fgPartnumber;

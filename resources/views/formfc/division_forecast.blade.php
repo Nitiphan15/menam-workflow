@@ -1139,6 +1139,19 @@
     </div>
 
     <script>
+        @php
+            $serverAlertMessages = collect($errors->all())
+                ->push(session('error'))
+                ->filter(fn ($message) => trim((string) $message) !== '')
+                ->unique()
+                ->values();
+        @endphp
+        @if ($serverAlertMessages->isNotEmpty())
+            window.addEventListener('DOMContentLoaded', function() {
+                window.alert(@json($serverAlertMessages->implode("\n")));
+            });
+        @endif
+
         const OLD_PAYLOAD_JSON = @json(old('payload'));
 
         document.getElementById('checkAllForecast')?.addEventListener('click', () => {
@@ -1468,6 +1481,38 @@
             });
             tr.querySelector('.js-manual-customer-input')?.focus();
         });
+
+        [manualFormEl, document.getElementById('gen-form')].filter(Boolean).forEach(form => form.addEventListener('submit', function(event) {
+            const invalidRows = [];
+
+            manualTableRows().forEach((tr, index) => {
+                tr.classList.remove('table-danger');
+
+                const qty = parseFloat(String(tr.querySelector('.js-manual-1m-only')?.value || '0').replace(/,/g, '')) || 0;
+                if (qty <= 0) return;
+
+                const identity = manualRowIdentity(tr);
+                if (identity.key !== '') return;
+
+                tr.classList.add('table-danger');
+                const customerText = tr.querySelector('.js-manual-customer-input')?.value?.trim() || '';
+                const fgText = tr.querySelector('.js-manual-fg-input')?.value?.trim() || '';
+                invalidRows.push({
+                    tr,
+                    label: customerText || fgText
+                        ? `${customerText || '-'} / ${fgText || '-'}`
+                        : `แถวที่ ${index + 1}`,
+                });
+            });
+
+            if (invalidRows.length === 0) return;
+
+            event.preventDefault();
+            const labels = invalidRows.slice(0, 5).map(row => row.label).join('\n');
+            window.alert(`บันทึกไม่ได้ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ:\n${labels}`);
+            invalidRows[0].tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            invalidRows[0].tr.querySelector('.js-manual-customer-input, .js-manual-fg-input')?.focus();
+        }));
 
         // ย่อ/ขยายตาราง Manual Forecast
         (function () {
