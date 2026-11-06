@@ -1476,7 +1476,12 @@
                             },
                             {
                                 key: 'backorder_qty',
-                                label: 'SO Qty',
+                                label: 'SO Qty (KG)',
+                                type: 'number'
+                            },
+                            {
+                                key: 'backorder_pcs',
+                                label: 'SO Qty (เส้น)',
                                 type: 'number'
                             },
                         ]);

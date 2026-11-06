@@ -40,5 +40,9 @@ class FormFcSoPieceWeightTest extends TestCase
 
         $this->assertGreaterThanOrEqual(3, substr_count($controller, "'SO (KG)'"));
         $this->assertStringContainsString('SO (KG)</th>', $blade);
+        $this->assertStringContainsString("detailCacheKey('so-kg-v1'", $controller);
+        $this->assertStringContainsString("'backorder_pcs'", $controller);
+        $this->assertStringContainsString("label: 'SO Qty (KG)'", $blade);
+        $this->assertStringContainsString("label: 'SO Qty (เส้น)'", $blade);
     }
 }

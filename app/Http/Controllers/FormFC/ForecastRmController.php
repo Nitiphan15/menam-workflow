@@ -3274,7 +3274,7 @@ class ForecastRmController extends Controller
             return response()->json([]);
         }
 
-        $cacheKey = $this->detailCacheKey('so', [
+        $cacheKey = $this->detailCacheKey('so-kg-v1', [
             'sku' => $sku,
             'company' => 'WIRE',
         ]);
@@ -3376,6 +3376,9 @@ class ForecastRmController extends Controller
                 ->selectRaw("
                 UPPER(TRIM(p.partnumber)) AS fg_partnumber,
                 p.description,
+                UPPER(TRIM(COALESCE(p.ref_unit, ''))) AS ref_unit,
+                p.f1 AS diameter_mm,
+                p.f2 AS length_mm,
                 ob.po,
                 ob.ordnumber,
                 ob.order_date,
@@ -3389,7 +3392,15 @@ class ForecastRmController extends Controller
             return collect($rows)
                 ->map(function ($r) {
                     $r = (array) $r;
-                    $r['backorder_qty'] = max((float) ($r['backorder_qty'] ?? 0), 0);
+                    $pieceQty = max((float) ($r['backorder_qty'] ?? 0), 0);
+                    $r['backorder_pcs'] = $pieceQty;
+                    $r['backorder_qty'] = self::calculateSoWeightKg(
+                        $pieceQty,
+                        (string) ($r['fg_partnumber'] ?? ''),
+                        (string) ($r['ref_unit'] ?? ''),
+                        $r['diameter_mm'] ?? null,
+                        $r['length_mm'] ?? null
+                    );
                     return $r;
                 })
                 ->filter(fn($r) => (float) $r['backorder_qty'] > 0)
