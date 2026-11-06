@@ -1330,7 +1330,7 @@ class ForecastRmController extends Controller
             'FG',
             'Total PO',
             'WIP',
-            'SO',
+            'SO (KG)',
             'Total Forecast',
             'Safety Forecast (Planner)',
             'Forecast + SO',
@@ -1744,7 +1744,7 @@ class ForecastRmController extends Controller
             'FG',
             'Total PO',
             'WIP',
-            'SO',
+            'SO (KG)',
             'Total Forecast',
             'Safety Forecast (Planner)',
             'Forecast + SO',
@@ -1768,7 +1768,7 @@ class ForecastRmController extends Controller
             'FG',
             'Total PO',
             'WIP',
-            'SO',
+            'SO (KG)',
             'Total Forecast',
             'Safety Forecast (Planner)',
             'Forecast + SO',
@@ -2945,6 +2945,34 @@ class ForecastRmController extends Controller
             });
     }
 
+    private static function calculateSoWeightKg(
+        float $pieceQty,
+        string $partNumber,
+        string $unit,
+        $diameterMm,
+        $lengthMm
+    ): float {
+        $partNumber = strtoupper(trim($partNumber));
+        $unit = strtoupper(trim($unit));
+
+        if (
+            $unit !== '03'
+            || !str_ends_with($partNumber, 'E')
+            || !is_numeric($diameterMm)
+            || !is_numeric($lengthMm)
+            || (float) $diameterMm <= 0
+            || (float) $lengthMm <= 0
+        ) {
+            return $pieceQty;
+        }
+
+        $diameter = (float) $diameterMm;
+        $lengthMeter = (float) $lengthMm / 1000;
+        $kgPerPiece = ($diameter * $diameter * 3.14 * 0.00793 * $lengthMeter) / 4;
+
+        return $pieceQty * $kgPerPiece;
+    }
+
     private function fetchSoIndex(string $conn, string $skuLike)
     {
         // SO ใช้ WIRE เท่านั้น
@@ -3057,6 +3085,9 @@ class ForecastRmController extends Controller
                 ->orderBy('ob.order_date')
                 ->selectRaw("
                 UPPER(TRIM(p.partnumber)) AS fg_partnumber,
+                UPPER(TRIM(COALESCE(p.ref_unit, ''))) AS ref_unit,
+                p.f1 AS diameter_mm,
+                p.f2 AS length_mm,
                 (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
             ")
                 ->get()
@@ -3077,6 +3108,14 @@ class ForecastRmController extends Controller
             if ($backorder < 0) {
                 $backorder = 0;
             }
+
+            $backorder = self::calculateSoWeightKg(
+                $backorder,
+                $fg,
+                (string) ($r['ref_unit'] ?? ''),
+                $r['diameter_mm'] ?? null,
+                $r['length_mm'] ?? null
+            );
 
             $rmTotals[$rm] = ($rmTotals[$rm] ?? 0) + $backorder;
         }

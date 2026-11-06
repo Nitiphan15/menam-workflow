@@ -565,7 +565,9 @@
                                 <th class="h-po" style="min-width:110px;">FG</th>
                                 <th class="h-po" style="min-width:110px;">Total PO</th>
                                 <th class="h-po" style="min-width:110px;">WIP</th>
-                                <th class="h-po" style="min-width:110px;">SO</th>
+                                <th class="h-po" style="min-width:110px;"
+                                    title="SO หน่วย KG; FG Part ลงท้าย E หน่วย 03 แปลงจากจำนวนเส้นด้วย Dia และ Length"
+                                    data-bs-toggle="tooltip">SO (KG)</th>
 
                                 <th class="h-sales" style="min-width:120px;">Total Forecast</th>
                                 <th class="h-sales" style="min-width:150px;">Safety Forecast (Planner)</th>
