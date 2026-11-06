@@ -11,12 +11,29 @@ use Illuminate\Support\Facades\Mail;
 
 class SendPoStep3PendingDigest extends Command
 {
-    protected $signature = 'po:send-step3-pending-digest {--dry-run : แสดงจำนวนรายการโดยไม่ส่งอีเมล}';
+    protected $signature = 'po:send-step3-pending-digest
+                            {--dry-run : แสดงจำนวนรายการโดยไม่ส่งอีเมล}
+                            {--to= : ส่งตัวอย่างทุกกลุ่มไปยังอีเมลนี้แทนผู้อนุมัติจริง}';
 
     protected $description = 'ส่งอีเมลสรุป PO ที่ยังรอผู้อนุมัติ Step 3 แยกตามผู้อนุมัติ';
 
     public function handle(): int
     {
+        $dryRun = (bool) $this->option('dry-run');
+        $overrideRecipient = trim((string) $this->option('to'));
+
+        if ($overrideRecipient !== '' && filter_var($overrideRecipient, FILTER_VALIDATE_EMAIL) === false) {
+            $this->error('อีเมลใน --to ไม่ถูกต้อง');
+
+            return self::INVALID;
+        }
+
+        if (! config('po.step3_digest_enabled', false) && ! $dryRun && $overrideRecipient === '') {
+            $this->info('PO Step 3 pending digest is disabled (PO_STEP3_DIGEST_ENABLED=false)');
+
+            return self::SUCCESS;
+        }
+
         $rows = SqlServerDb::table('wf_form_authorizes as wa')
             ->join('wf_forms as wf', 'wf.id', '=', 'wa.wf_form_id')
             ->join('users as u', 'u.id', '=', 'wa.approver_user_id')
@@ -76,14 +93,16 @@ class SendPoStep3PendingDigest extends Command
                 ->values()
                 ->all();
 
-            if ($this->option('dry-run')) {
+            if ($dryRun) {
                 $this->line("[dry-run] approver_user_id={$approverId} -> {$email}: ".count($items).' รายการ');
 
                 continue;
             }
 
+            $recipient = $overrideRecipient !== '' ? $overrideRecipient : $email;
+
             try {
-                Mail::to($email)->send(new PoStep3PendingDigestMail(
+                Mail::to($recipient)->send(new PoStep3PendingDigestMail(
                     approverName: (string) ($first->approver_name ?: $email),
                     poItems: $items,
                 ));
@@ -92,21 +111,23 @@ class SendPoStep3PendingDigest extends Command
                 $failed++;
                 Log::error('PO Step 3 pending digest mail failed', [
                     'approver_user_id' => $approverId,
-                    'to' => $email,
+                    'to' => $recipient,
+                    'original_to' => $email,
                     'item_count' => count($items),
                     'error' => $exception->getMessage(),
                 ]);
-                $this->error("ส่งไม่สำเร็จ approver_user_id={$approverId} -> {$email}: {$exception->getMessage()}");
+                $this->error("ส่งไม่สำเร็จ approver_user_id={$approverId} -> {$recipient}: {$exception->getMessage()}");
             }
         }
 
-        if ($this->option('dry-run')) {
+        if ($dryRun) {
             $this->info("[dry-run] พบผู้อนุมัติ {$groups->count()} คน รวม {$rows->unique('po_id')->count()} PO");
 
             return self::SUCCESS;
         }
 
-        $this->info("ส่งสำเร็จ {$sent} ฉบับ; ไม่สำเร็จ {$failed} ฉบับ");
+        $mode = $overrideRecipient !== '' ? "ทดสอบไปยัง {$overrideRecipient}" : 'ส่งจริง';
+        $this->info("{$mode}: สำเร็จ {$sent} ฉบับ; ไม่สำเร็จ {$failed} ฉบับ");
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
     }

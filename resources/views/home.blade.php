@@ -5,7 +5,7 @@
 
 @section('content')
     @php
-        $latestVersion = config('app.version', '1.5.0');
+        $latestVersion = config('app.version', '1.7.0');
         $user = auth()->user();
         $canDp = $user && $user->hasRoleCode(['DP', 'DPA', 'DPEMAIL', 'DPMAIL']);
         $canDpa = $user && $user->hasRoleCode('DPA');
@@ -105,6 +105,10 @@
                     <h3 class="h5 fw-bold mb-0" id="latest-update-title">อัปเดตล่าสุด</h3>
                 </div>
                 <ul class="text-muted mb-0">
+                    <li>PO Online: แจ้งเตือนเอกสารรออนุมัติ Step 3 เวลา 08:00 และ 13:00 วันจันทร์-ศุกร์ แยกตามผู้อนุมัติ</li>
+                    <li>FormFC: แปลง SO ของ FG Part ลงท้าย E หน่วย 03 จากจำนวนเส้นเป็น KG ตาม Dia และ Length</li>
+                    <li>Wirerod Incoming: เพิ่มสรุป Stock Wire Rod รับเข้ารายสัปดาห์ กำหนดเข้าโรงงาน และยอดจองผลิต</li>
+                    <li>แก้ไข FG Stock by Due Month ให้หัวเดือนและการจัดกลุ่มกำหนดส่งตรงตามเดือนที่เลือกใน Filter</li>
                     <li>เพิ่ม Deadstock Background Export: สร้าง Excel ผ่าน Queue พร้อมหน้าประวัติ สถานะ และดาวน์โหลดไฟล์เฉพาะผู้ร้องขอ</li>
                     <li>เพิ่ม Queue connection และ SQL schema สำหรับงาน Export ขนาดใหญ่ โดยไม่บล็อกหน้าเว็บ</li>
                     <li>ขยายข้อความ Approval Remarks ในอีเมลปิด Form PO ให้อ่านง่ายขึ้น</li>
@@ -134,6 +138,49 @@
 
                 <div class="collapse" id="releaseHistory">
                     <div class="list-group list-group-flush mt-3">
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.7.0</span>
+                                <strong>PO Online: แจ้งเตือนรายการรออนุมัติ Step 3 ตามรอบเวลา</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>ส่งตาราง PO ที่ยังรออนุมัติแยกตามผู้อนุมัติ เวลา 08:00 และ 13:00 วันจันทร์-ศุกร์</li>
+                                <li>แต่ละรายการมีปุ่มเปิดหน้า PO โดยตรง และรองรับโหมด Dry Run กับผู้รับทดสอบก่อนเปิดใช้งานจริง</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.6.1</span>
+                                <strong>FormFC: แสดง SO ของสินค้าหน่วยเส้นเป็น KG</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>FG Part ลงท้าย E หน่วย 03 คำนวณน้ำหนัก SO จาก Dia และ Length ก่อนรวมเข้า RM Part</li>
+                                <li>หน้า FormFC, SO Detail และ Excel Export ใช้ค่า SO (KG) ตรงกัน</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.6.0</span>
+                                <strong>Wirerod Incoming: สรุปรายสัปดาห์และยอดจองวัตถุดิบ</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>เพิ่มสรุป Stock on hand, รับเข้ารายสัปดาห์, กำหนดเข้าโรงงาน และยอดจองผลิต</li>
+                                <li>MFG ที่เบิกแล้วตั้งแต่ 95% ของจำนวน MFG ไม่นับเป็นยอดจองวัตถุดิบ</li>
+                            </ul>
+                        </div>
+
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.5.1</span>
+                                <strong>แก้ไขเดือนใน Deadstock FG Stock by Due Month</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>หัวเดือนและการจัดกลุ่มกำหนดส่งใช้เดือนที่เลือกใน Filter เหมือน Sheet Summary</li>
+                            </ul>
+                        </div>
+
                         <div class="list-group-item px-0 py-3">
                             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                 <span class="badge text-bg-primary">v 1.5.0</span>
