@@ -1404,9 +1404,6 @@ class ForecastRmDivisionController extends Controller
                     DB::raw('UPPER(TRIM(parts.partnumber)) as fg_partnumber'),
                     'parts.description as fg_description',
                     DB::raw("UPPER(LTRIM(RTRIM(COALESCE(parts.f4, '')))) as rm_partnumber"),
-                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(parts.ref_unit, '')))) as ref_unit"),
-                    'parts.f1 as diameter_mm',
-                    'parts.f2 as length_mm',
                     DB::raw("COALESCE(partstype.description, '') as product_type"),
                 ])
                 ->map(fn($r) => (array) $r);
@@ -1433,40 +1430,8 @@ class ForecastRmDivisionController extends Controller
                     'fg_description' => (string) ($first['fg_description'] ?? ''),
                     'rm_partnumber' => (string) ($first['rm_partnumber'] ?? ''),
                     'product_type' => (string) ($productTypeRow['product_type'] ?? ''),
-                    'piece_weight_kg' => self::calculatePieceWeightKg(
-                        (string) ($first['fg_partnumber'] ?? ''),
-                        (string) ($first['ref_unit'] ?? ''),
-                        $first['diameter_mm'] ?? null,
-                        $first['length_mm'] ?? null
-                    ),
                 ];
             });
-    }
-
-    private static function calculatePieceWeightKg(
-        string $partNumber,
-        string $unit,
-        $diameterMm,
-        $lengthMm
-    ): ?float {
-        $partNumber = strtoupper(trim($partNumber));
-        $unit = strtoupper(trim($unit));
-
-        if (
-            $unit !== '03'
-            || !str_ends_with($partNumber, 'E')
-            || !is_numeric($diameterMm)
-            || !is_numeric($lengthMm)
-            || (float) $diameterMm <= 0
-            || (float) $lengthMm <= 0
-        ) {
-            return null;
-        }
-
-        $diameter = (float) $diameterMm;
-        $lengthMeter = (float) $lengthMm / 1000;
-
-        return ($diameter * $diameter * 3.14 * 0.00793 * $lengthMeter) / 4;
     }
 
     private function fetchOlderCustomerFgCandidates(
@@ -3103,18 +3068,13 @@ class ForecastRmDivisionController extends Controller
             ->values()
             ->all();
 
-        $displayPartDetails = $this->fetchFgPartDetails($fgParts, $companyMode);
         $soMap = $this->fetchSalesOrderSummaryByFg($fgParts, $companyMode);
 
-        $rows = $rows->map(function ($r) use ($soMap, $displayPartDetails) {
+        $rows = $rows->map(function ($r) use ($soMap) {
             $fg = strtoupper(trim((string) ($r['fg_partnumber'] ?? '')));
             $so = (array) ($soMap->get($fg, []) ?? []);
-            $partDetail = (array) ($displayPartDetails->get($fg, []) ?? []);
             $r['sales_order_qty'] = (float) ($so['qty'] ?? 0);
             $r['sales_order_numbers'] = (string) ($so['order_numbers'] ?? '');
-            $r['piece_weight_kg'] = isset($partDetail['piece_weight_kg'])
-                ? (float) $partDetail['piece_weight_kg']
-                : null;
             return $r;
         })->values();
 

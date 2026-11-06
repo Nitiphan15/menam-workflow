@@ -706,9 +706,6 @@
                             <tbody>
                                 @foreach ($rows as $r)
                                     @php
-                                        $pieceWeightKg = isset($r['piece_weight_kg']) && (float) $r['piece_weight_kg'] > 0
-                                            ? (float) $r['piece_weight_kg']
-                                            : null;
                                         $meta = [
                                             'customer_id' => $r['customer_id'],
                                             'customer_name' => $r['customer_name'],
@@ -721,37 +718,26 @@
                                             'division_forecast_6m' => (float) ($r['forecast_6m'] ?? 0),
                                         ];
                                     @endphp
-                                    <tr data-row-key="{{ $r['row_key'] }}" data-avg6="{{ (float) $r['avg6'] }}"
-                                        data-piece-weight-kg="{{ $pieceWeightKg ?? '' }}">
+                                    <tr data-row-key="{{ $r['row_key'] }}" data-avg6="{{ (float) $r['avg6'] }}">
                                         <td>{{ $r['customer_name'] }}</td>
                                         <td class="fw-semibold">{{ $r['fg_partnumber'] }}</td>
                                         <td>{{ $r['fg_description'] }}</td>
                                         <td class="fw-semibold text-muted">{{ $r['rm_partnumber'] ?: '-' }}</td>
 
-                                        <td class="num" @if ($pieceWeightKg) data-quantity-value="{{ (float) ($r['sales_order_qty'] ?? 0) }}" @endif>
+                                        <td class="num">
                                             <button type="button" class="btn btn-link clean-link p-0 js-so-detail"
                                                 data-fg="{{ $r['fg_partnumber'] }}" data-company="ALL">
-                                                @if ($pieceWeightKg)
-                                                    <span class="d-block fw-semibold">{{ number_format((float) ($r['sales_order_qty'] ?? 0) * $pieceWeightKg, 2) }} KG</span>
-                                                    <span class="d-block small text-muted">{{ number_format((float) ($r['sales_order_qty'] ?? 0), 2) }} เส้น</span>
-                                                @else
-                                                    {{ number_format((float) ($r['sales_order_qty'] ?? 0), 2) }}
-                                                @endif
+                                                {{ number_format((float) ($r['sales_order_qty'] ?? 0), 2) }}
                                             </button>
                                         </td>
 
-                                        <td class="num js-avg6" @if ($pieceWeightKg) data-quantity-value="{{ (float) $r['avg6'] }}" @endif>
+                                        <td class="num js-avg6">
                                             <button type="button" class="btn btn-link clean-link p-0 avg6-link"
                                                 data-customer="{{ $r['customer_name'] }}"
                                                 data-fg="{{ $r['fg_partnumber'] }}"
                                                 data-description="{{ $r['fg_description'] }}"
                                                 data-history='@json($r['history_detail'] ?? [])'>
-                                                @if ($pieceWeightKg)
-                                                    <span class="d-block fw-semibold">{{ number_format((float) $r['avg6'] * $pieceWeightKg, 2) }} KG</span>
-                                                    <span class="d-block small text-muted">{{ number_format((float) $r['avg6'], 2) }} เส้น</span>
-                                                @else
-                                                    {{ number_format((float) $r['avg6'], 2) }}
-                                                @endif
+                                                {{ number_format((float) $r['avg6'], 2) }}
                                             </button>
                                         </td>
 
@@ -778,31 +764,15 @@
                                         </td>
 
                                         <td>
-                                            @if ($pieceWeightKg)
-                                                <div class="num fw-semibold mb-1 js-f1-kg">
-                                                    {{ number_format((float) (!empty($isApprovalMode) ? ($r['approval_forecast_1m'] ?? $r['forecast_1m'] ?? 0) : ($r['manual_forecast_1m'] ?? 0)) * $pieceWeightKg, 2) }} KG
-                                                </div>
-                                            @endif
                                             <input type="number" step="0.01" min="0"
-                                                class="form-control form-control-sm js-manual-forecast {{ $pieceWeightKg ? 'text-muted' : '' }}"
+                                                class="form-control form-control-sm js-manual-forecast"
                                                 name="{{ !empty($isApprovalMode) ? 'approval_forecast_1m' : 'manual_forecast_1m' }}[{{ $r['row_key'] }}]"
                                                 value="{{ number_format((float) (!empty($isApprovalMode) ? ($r['approval_forecast_1m'] ?? $r['forecast_1m'] ?? 0) : ($r['manual_forecast_1m'] ?? 0)), 2, '.', '') }}"
                                                 data-user-edited="{{ !empty($r['manual_forecast_saved']) ? '1' : '0' }}"
                                                 @readonly((!empty($isSubmitted) && empty($isApprovalMode)) || (!empty($isApprovalMode) && empty($canApproveCurrentSubmission)))>
-                                            @if ($pieceWeightKg)
-                                                <div class="small text-muted mt-1">เส้น (ค่าที่บันทึก)</div>
-                                            @endif
                                         </td>
 
-                                        <td class="num js-f6" data-pcs="{{ (float) $r['forecast_6m'] }}"
-                                            @if ($pieceWeightKg) data-quantity-value="{{ (float) $r['forecast_6m'] }}" @endif>
-                                            @if ($pieceWeightKg)
-                                                <span class="d-block fw-semibold js-f6-kg">{{ number_format((float) $r['forecast_6m'] * $pieceWeightKg, 2) }} KG</span>
-                                                <span class="d-block small text-muted js-f6-pcs">{{ number_format((float) $r['forecast_6m'], 2) }} เส้น</span>
-                                            @else
-                                                {{ number_format((float) $r['forecast_6m'], 2) }}
-                                            @endif
-                                        </td>
+                                        <td class="num js-f6">{{ number_format((float) $r['forecast_6m'], 2) }}</td>
 
                                         <td>
                                             <div class="supplier-cell-wrap js-supplier-wrap">
@@ -1605,7 +1575,6 @@
             const rowKEl = tr.querySelector('.js-row-kfactor');
             const manualInput = tr.querySelector('.js-manual-forecast');
             const f6El = tr.querySelector('.js-f6');
-            const kgPerPiece = parseFloat(tr.dataset.pieceWeightKg || '0') || 0;
 
             if (!forecastFlagEl || !rowKEl || !manualInput || !f6El) {
                 return;
@@ -1641,18 +1610,7 @@
                 }
             }
 
-            f6El.dataset.pcs = String(f6);
-            if (f6El.dataset.quantityValue !== undefined) f6El.dataset.quantityValue = String(f6);
-            if (kgPerPiece > 0) {
-                const f1KgEl = tr.querySelector('.js-f1-kg');
-                const f6KgEl = f6El.querySelector('.js-f6-kg');
-                const f6PcsEl = f6El.querySelector('.js-f6-pcs');
-                if (f1KgEl) f1KgEl.textContent = `${formatNum(f1 * kgPerPiece)} KG`;
-                if (f6KgEl) f6KgEl.textContent = `${formatNum(f6 * kgPerPiece)} KG`;
-                if (f6PcsEl) f6PcsEl.textContent = `${formatNum(f6)} เส้น`;
-            } else {
-                f6El.textContent = formatNum(f6);
-            }
+            f6El.textContent = formatNum(f6);
         }
 
         function recalcKpi() {
@@ -1673,7 +1631,7 @@
 
                 if (forecastFlagEl.checked) {
                     f1 += parseFloat((manualInput.value || '0').replace(/,/g, '')) || 0;
-                    f6 += parseFloat(String(f6El.dataset.pcs || f6El.textContent || '0').replace(/,/g, '')) || 0;
+                    f6 += parseFloat((f6El.textContent || '0').replace(/,/g, '')) || 0;
                 }
             });
 
@@ -2145,7 +2103,6 @@
 
         function getCellInputAwareValue(td) {
             if (!td) return '';
-            if (td.dataset.quantityValue !== undefined) return td.dataset.quantityValue;
             const input = td.querySelector('input[type="number"], input[type="text"], input[type="checkbox"]');
             if (input) {
                 return input.type === 'checkbox' ? (input.checked ? '1' : '0') : String(input.value || '');
@@ -2287,9 +2244,7 @@
                     const input = td.querySelector(
                         'input[type="number"], input[type="text"], input[type="checkbox"]');
                     let v;
-                    if (td.dataset.quantityValue !== undefined) {
-                        v = td.dataset.quantityValue;
-                    } else if (input) {
+                    if (input) {
                         if (input.type === 'checkbox') v = input.checked ? '1' : '0';
                         else v = input.value || '';
                     } else {
