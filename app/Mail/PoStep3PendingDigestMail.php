@@ -13,13 +13,14 @@ class PoStep3PendingDigestMail extends Mailable
     public function __construct(
         public string $approverName,
         public array $poItems,
+        public string $stepName,
     ) {
     }
 
     public function build()
     {
         return $this->from(config('mail.from.address'), 'Menam PO Online')
-            ->subject("เรียนคุณ {$this->approverName} มีเอกสาร PO รออนุมัติ Step 3 ".count($this->poItems).' รายการ')
+            ->subject("เรียนคุณ {$this->approverName} มีเอกสาร PO รออนุมัติ {$this->stepName} ".count($this->poItems).' รายการ')
             ->view('emails.po.step3_pending_digest');
     }
 }
