@@ -907,33 +907,7 @@ class DeliveryPlanController extends Controller
         $q = trim((string)$request->query('q', ''));
         if ($q === '' || mb_strlen($q) < 2) return response()->json(['items' => []]);
 
-        $qLike = $q . '%';
-
-        $rows = $this->conn()->table('saleorder as so')
-            ->leftJoin('parts as p', 'p.id', '=', 'so.parts_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'so.customer_id')
-            ->leftJoin('employees as e', 'e.id', '=', 'so.salesperson_id')
-            ->selectRaw("
-                so.ordnumber,
-                so.parts_id,
-                so.ordered_qty,
-                p.partnumber,
-                p.description,
-                COALESCE(p.totalonhand, 0) as stock_qty,
-
-                so.customer_id,
-                c.name,
-                c.customernumber,
-
-                so.salesperson_id as sales_id,
-                e.login as sales_login,
-                e.name  as sales_name
-            ")
-            ->where('so.ordnumber', 'like', $qLike)
-            ->orderBy('so.ordnumber')
-            ->orderBy('p.partnumber')
-            ->limit(30)
-            ->get();
+        $rows = $this->fetchSaleOrderRows('so.ordnumber LIKE ?', $q . '%', 30);
 
         $items = $rows->map(function ($r) {
             $login = trim((string)($r->sales_login ?? ''));
@@ -946,7 +920,7 @@ class DeliveryPlanController extends Controller
                 'ordered_qty'    => (float)($r->ordered_qty ?? 0),
                 'part_number'    => (string)($r->partnumber ?? ''),
                 'part_desc'      => (string)($r->description ?? ''),
-
+                'stock_qty'      => (float)($r->stock_qty ?? 0),
 
                 'customer_id'    => (string)($r->customer_id ?? ''),
                 'customer_name'  => (string)($r->name ?? ''),
@@ -968,33 +942,12 @@ class DeliveryPlanController extends Controller
         $ord = trim((string)$request->query('ordnumber', ''));
         if ($ord === '') return response()->json(['items' => []]);
 
-        $rows = $this->conn()->table('saleorder as so')
-            ->leftJoin('parts as p', 'p.id', '=', 'so.parts_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'so.customer_id')
-            ->leftJoin('employees as e', 'e.id', '=', 'so.salesperson_id')
-            ->selectRaw("
-                so.ordnumber,
-                so.parts_id,
-                so.ordered_qty,
-                p.partnumber,
-                p.description,
-                COALESCE(p.totalonhand, 0) as stock_qty,
-
-                so.customer_id,
-                c.name,
-                c.customernumber,
-
-                so.salesperson_id as sales_id,
-                e.login as sales_login,
-                e.name  as sales_name
-            ")
-            ->where('so.ordnumber', '=', $ord)
-            ->orderBy('p.partnumber')
-            ->get();
+        $rows = $this->fetchSaleOrderRows('so.ordnumber = ?', $ord, 500);
 
         $items = $rows->map(function ($r) {
             $login = trim((string)($r->sales_login ?? ''));
             $name  = trim((string)($r->sales_name ?? ''));
+            $thai  = $this->mapSalesThai($login, $name);
             $salesText = $this->salesDisplayText($login, $name);
 
             return [
@@ -1018,6 +971,73 @@ class DeliveryPlanController extends Controller
         });
 
         return response()->json(['items' => $items]);
+    }
+
+    /**
+     * ดึงบรรทัด SO + part/customer/sales สำหรับ soLookup/soLines
+     *
+     * saleorder/parts เก็บ ordnumber/partnumber เป็น nvarchar(max) และ saleorder เป็น heap ไม่มี index
+     * ถ้าให้ SQL Server ORDER BY คอลัมน์เหล่านี้ จะต้องขอ memory grant สำหรับ sort
+     * และเมื่อ server memory ตึง query จะรอคิว (RESOURCE_SEMAPHORE) นานหลายสิบวินาที
+     *
+     * จึงให้ SQL Server แค่ "กรอง" (ไม่มี ORDER BY / GROUP BY) แล้วเรียงลำดับใน PHP แทน:
+     *   1) ดึงเฉพาะ ordnumber ที่ตรงเงื่อนไข -> unique + sort ใน PHP -> เอาไม่เกิน $limit เลข SO แรก
+     *   2) ดึงรายละเอียดของ SO เหล่านั้นด้วย IN (...) -> sort ตาม ordnumber, partnumber ใน PHP -> ตัดเหลือ $limit
+     *
+     * @param string $whereSql เงื่อนไขบน alias so ที่มี placeholder ? หนึ่งตัว (ค่าคงที่ในโค้ดเท่านั้น ห้ามรับจาก user)
+     */
+    private function fetchSaleOrderRows(string $whereSql, string $value, int $limit)
+    {
+        $limit = max(1, min($limit, 1000));
+        $conn = $this->conn();
+
+        $ordNumbers = collect($conn->select(
+            "SELECT so.ordnumber FROM saleorder AS so WHERE {$whereSql}",
+            [$value]
+        ))
+            ->map(fn ($r) => (string) $r->ordnumber)
+            ->unique()
+            ->sort(fn ($a, $b) => strcmp($a, $b))
+            ->take($limit)
+            ->values()
+            ->all();
+
+        if (empty($ordNumbers)) {
+            return collect();
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ordNumbers), '?'));
+
+        $rows = $conn->select("
+            SELECT
+                so.ordnumber,
+                so.parts_id,
+                so.ordered_qty,
+                p.partnumber,
+                p.description,
+                COALESCE(p.totalonhand, 0) AS stock_qty,
+
+                so.customer_id,
+                c.name,
+                c.customernumber,
+
+                so.salesperson_id AS sales_id,
+                e.login AS sales_login,
+                e.name  AS sales_name
+            FROM saleorder AS so
+            LEFT JOIN parts AS p ON p.id = so.parts_id
+            LEFT JOIN customer AS c ON c.id = so.customer_id
+            LEFT JOIN employees AS e ON e.id = so.salesperson_id
+            WHERE so.ordnumber IN ({$placeholders})
+        ", $ordNumbers);
+
+        return collect($rows)
+            ->sort(function ($a, $b) {
+                return strcmp((string) $a->ordnumber, (string) $b->ordnumber)
+                    ?: strcmp((string) ($a->partnumber ?? ''), (string) ($b->partnumber ?? ''));
+            })
+            ->take($limit)
+            ->values();
     }
 
     /* =========================================================
