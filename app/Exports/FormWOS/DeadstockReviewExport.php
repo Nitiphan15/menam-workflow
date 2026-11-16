@@ -26,6 +26,12 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
 {
     private ?Collection $items = null;
 
+    private ?array $dueHistory = null;
+
+    private const TOP_LIMIT = 20;
+
+    private const TOP_HIGHLIGHT = 10;
+
     public function __construct(private array $filters = [])
     {
     }
@@ -141,10 +147,12 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
                 $this->buildDeliveryPerformanceSheet($spreadsheet->createSheet(2), $report['delivery_performance']);
                 $this->buildOverdueItemsSheet($spreadsheet->createSheet(3), $report['delivery_performance']);
                 $this->buildRescheduledItemsSheet($spreadsheet->createSheet(4), $report['rescheduled_items']);
-                $this->buildClearedItemsSheet($spreadsheet->createSheet(5), $report['delivery_performance']);
-                $this->buildSalesItemsSheet($spreadsheet->createSheet(6), $report);
-                $this->buildSalesReceivedPartSheet($spreadsheet->createSheet(7), $report);
-                $this->buildSalesDeliveryStatusSheet($spreadsheet->createSheet(8), $report);
+                $this->buildTopPostponedSheet($spreadsheet->createSheet(5), $report['rescheduled_items']);
+                $this->buildTopCustomersSheet($spreadsheet->createSheet(6), $report['customer_ranking']);
+                $this->buildClearedItemsSheet($spreadsheet->createSheet(7), $report['delivery_performance']);
+                $this->buildSalesItemsSheet($spreadsheet->createSheet(8), $report);
+                $this->buildSalesReceivedPartSheet($spreadsheet->createSheet(9), $report);
+                $this->buildSalesDeliveryStatusSheet($spreadsheet->createSheet(10), $report);
                 $spreadsheet->setActiveSheetIndex(0);
             },
         ];
@@ -226,6 +234,24 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $sheet->mergeCells('A' . ($noteRow + 1) . ':J' . ($noteRow + 1));
         $sheet->mergeCells('A' . ($noteRow + 2) . ':J' . ($noteRow + 2));
         $sheet->getStyle("A{$noteRow}:A" . ($noteRow + 2))->getFont()->getColor()->setARGB('FFFF0000');
+
+        $uncoded = $report['uncoded'] ?? ['count' => 0, 'qty' => 0.0];
+        if (($uncoded['count'] ?? 0) > 0) {
+            $uncodedRow = $noteRow + 3;
+            $sheet->setCellValue(
+                "A{$uncodedRow}",
+                sprintf(
+                    '***ตารางนี้ไม่รวมรายการที่ยังไม่ระบุรหัสสาเหตุ (SS/FF) %s รายการ %s KGS — ยอดรวมทั้งหมดรวมรายการนี้ = %s KGS (ดูได้ใน Sheet Details / Top Customers)',
+                    number_format((int) $uncoded['count']),
+                    number_format((float) $uncoded['qty'], 2),
+                    number_format((float) $report['totals']['grand_total'] + (float) $uncoded['qty'], 2)
+                )
+            );
+            $sheet->mergeCells("A{$uncodedRow}:J{$uncodedRow}");
+            $sheet->getStyle("A{$uncodedRow}")->getFont()->setBold(true)->getColor()->setARGB('FFC00000');
+            $sheet->getStyle("A{$uncodedRow}")->getAlignment()->setWrapText(true);
+            $sheet->getRowDimension($uncodedRow)->setRowHeight(32);
+        }
 
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(18);
         $sheet->getStyle('A4:J6')->getFont()->setBold(true);
@@ -383,6 +409,7 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $sheet->fromArray([[
             'ลำดับ', 'Div.', 'Sales', 'Part', 'รายละเอียด Part', 'Serial no.', 'ลูกค้า', 'Qty (KGS)',
             'กำหนดส่งเดิม', 'กำหนดส่งใหม่ล่าสุด', 'เลื่อน (วัน)', 'เลื่อน (ครั้ง)', 'Site', 'รหัสสาเหตุ',
+            'เลื่อนใน ERP (ครั้ง)', 'เลื่อนในหน้า Review (ครั้ง)',
         ]], null, "A{$headerRow}");
         $rowNo = $headerRow + 1;
         foreach ($report['rows'] as $index => $item) {
@@ -391,12 +418,13 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
                 $item['part_description'], $item['serialnumber'], $item['customer'], $item['qty'],
                 $item['original_due_date'], $item['latest_due_date'], $item['postponed_days'],
                 $item['postpone_count'], $item['site'], $item['reason_code'],
+                $item['postpone_count_erp'] ?? null, $item['postpone_count_review'] ?? null,
             ]], null, "A{$rowNo}");
             $rowNo++;
         }
         if ($report['rows'] === []) {
             $sheet->setCellValue("A{$rowNo}", 'ไม่มีรายการตาม Filter ที่เลือก');
-            $sheet->mergeCells("A{$rowNo}:N{$rowNo}");
+            $sheet->mergeCells("A{$rowNo}:P{$rowNo}");
             $rowNo++;
         }
 
@@ -405,16 +433,164 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $sheet->getStyle("A3:E{$lastSummaryRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
         $sheet->getStyle('A3:E3')->getFont()->setBold(true);
         $sheet->getStyle('A3:E3')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
-        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
-        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFont()->setBold(true);
-        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
+        $sheet->getStyle("A{$headerRow}:P{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A{$headerRow}:P{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+        $sheet->getStyle("A{$headerRow}:P{$headerRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$headerRow}:P{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
         $sheet->getStyle('H' . ($headerRow + 1) . ":H{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
-        $sheet->setAutoFilter("A{$headerRow}:N{$lastRow}");
+        $sheet->setAutoFilter("A{$headerRow}:P{$lastRow}");
         $sheet->freezePane('A' . ($headerRow + 1));
-        foreach (['A' => 9, 'B' => 12, 'C' => 22, 'D' => 20, 'E' => 34, 'F' => 22, 'G' => 26, 'H' => 14, 'I' => 18, 'J' => 20, 'K' => 14, 'L' => 14, 'M' => 12, 'N' => 14] as $column => $width) {
+        foreach (['A' => 9, 'B' => 12, 'C' => 22, 'D' => 20, 'E' => 34, 'F' => 22, 'G' => 26, 'H' => 14, 'I' => 18, 'J' => 20, 'K' => 14, 'L' => 14, 'M' => 12, 'N' => 14, 'O' => 14, 'P' => 16] as $column => $width) {
             $sheet->getColumnDimension($column)->setWidth($width);
         }
+    }
+
+    private function buildTopPostponedSheet(Worksheet $sheet, array $report): void
+    {
+        $sheet->setTitle('Top Postponed');
+        $sheet->setCellValue('A1', 'Top ' . self::TOP_LIMIT . ' รายการเลื่อนกำหนดส่ง · ' . $report['range_label']);
+        $sheet->setCellValue('A2', 'นับรวมการเลื่อนจาก Snapshot ERP แต่ละเดือน + ERP เปลี่ยนวันส่งระหว่างเดือน + Sales แก้วันส่งในหน้า Review (นับเมื่อวันส่งใหม่ช้ากว่าวันส่งล่าสุดก่อนหน้า)');
+        $sheet->mergeCells('A1:N1');
+        $sheet->mergeCells('A2:N2');
+        $sheet->getStyle('A1:N1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:N1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF9C5700');
+        $sheet->getStyle('A2')->getFont()->setItalic(true)->getColor()->setARGB('FF595959');
+
+        $rows = collect($report['rows']);
+        $byCount = $rows
+            ->sortBy([['postpone_count', 'desc'], ['postponed_days', 'desc'], ['qty', 'desc']])
+            ->take(self::TOP_LIMIT)->values()->all();
+        $byQty = $rows
+            ->sortBy([['qty', 'desc'], ['postpone_count', 'desc']])
+            ->take(self::TOP_LIMIT)->values()->all();
+
+        $next = $this->writeTopPostponedTable($sheet, 4, 'Top ' . self::TOP_LIMIT . ' เลื่อนบ่อยที่สุด (จำนวนครั้ง)', $byCount, 'L');
+        $next = $this->writeTopPostponedTable($sheet, $next + 2, 'Top ' . self::TOP_LIMIT . ' เลื่อนด้วยน้ำหนักมากที่สุด (KGS)', $byQty, 'H');
+
+        $sheet->setCellValue("A{$next}", 'รายการเลื่อนทั้งหมด ' . number_format($rows->count()) . ' รายการ ' . number_format((float) $rows->sum('qty'), 2) . ' KGS ดูได้ใน Sheet Rescheduled Items');
+        $sheet->mergeCells("A{$next}:N{$next}");
+        $sheet->getStyle("A{$next}")->getFont()->getColor()->setARGB('FFFF0000');
+
+        foreach (['A' => 8, 'B' => 10, 'C' => 20, 'D' => 18, 'E' => 32, 'F' => 20, 'G' => 28, 'H' => 14, 'I' => 14, 'J' => 14, 'K' => 12, 'L' => 12, 'M' => 12, 'N' => 14] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+    }
+
+    private function writeTopPostponedTable(Worksheet $sheet, int $titleRow, string $title, array $rows, string $rankColumn): int
+    {
+        $sheet->setCellValue("A{$titleRow}", $title);
+        $sheet->mergeCells("A{$titleRow}:N{$titleRow}");
+        $sheet->getStyle("A{$titleRow}:N{$titleRow}")->getFont()->setBold(true)->setSize(13)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle("A{$titleRow}:N{$titleRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF1F4E78');
+
+        $headerRow = $titleRow + 1;
+        $sheet->fromArray([[
+            'อันดับ', 'Div.', 'Sales', 'Part', 'รายละเอียด Part', 'Serial no.', 'ลูกค้า', 'Qty (KGS)',
+            'กำหนดส่งเดิม', 'กำหนดส่งล่าสุด', 'เลื่อน (วัน)', 'เลื่อน (ครั้ง)', 'ERP / Review', 'รหัสสาเหตุ',
+        ]], null, "A{$headerRow}");
+
+        $rowNo = $headerRow + 1;
+        foreach ($rows as $index => $item) {
+            $sheet->fromArray([[
+                $index + 1, $item['division'], $item['salesperson'], $item['partnumber'],
+                $item['part_description'], $item['serialnumber'], $item['customer'], $item['qty'],
+                $item['original_due_date'], $item['latest_due_date'], $item['postponed_days'], $item['postpone_count'],
+                ($item['postpone_count_erp'] ?? 0) . ' / ' . ($item['postpone_count_review'] ?? 0), $item['reason_code'],
+            ]], null, "A{$rowNo}");
+            $sheet->getCell("F{$rowNo}")->setValueExplicit((string) $item['serialnumber'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->getCell("D{$rowNo}")->setValueExplicit((string) $item['partnumber'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            if ($index < self::TOP_HIGHLIGHT) {
+                $sheet->getStyle("A{$rowNo}:N{$rowNo}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFFF2CC');
+            }
+            $rowNo++;
+        }
+        if ($rows === []) {
+            $sheet->setCellValue("A{$rowNo}", 'ไม่มีรายการตาม Filter ที่เลือก');
+            $sheet->mergeCells("A{$rowNo}:N{$rowNo}");
+            $rowNo++;
+        }
+
+        $lastRow = $rowNo - 1;
+        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
+        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+        $sheet->getStyle('H' . ($headerRow + 1) . ":H{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        // เน้นคอลัมน์ที่ใช้จัดอันดับ
+        $sheet->getStyle("{$rankColumn}" . ($headerRow + 1) . ":{$rankColumn}{$lastRow}")->getFont()->setBold(true)->getColor()->setARGB('FFC00000');
+
+        return $rowNo + 1;
+    }
+
+    private function buildTopCustomersSheet(Worksheet $sheet, array $ranking): void
+    {
+        $sheet->setTitle('Top Customers');
+        $sheet->setCellValue('A1', 'ลูกค้าที่มี Deadstock คงค้างมากที่สุด (KGS)');
+        $sheet->setCellValue('A2', 'ยอดคงค้างตาม Filter: ' . number_format((int) $ranking['total_items']) . ' รายการ · ' . number_format((float) $ranking['total_qty'], 2) . ' KGS · ' . number_format(count($ranking['rows'])) . ' ลูกค้า');
+        $sheet->mergeCells('A1:N1');
+        $sheet->mergeCells('A2:N2');
+        $sheet->getStyle('A1:N1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:N1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF375623');
+        $sheet->getStyle('A2')->getFont()->setBold(true);
+
+        $top = array_slice($ranking['rows'], 0, self::TOP_LIMIT);
+        $next = $this->writeCustomerTable($sheet, 4, 'Top ' . self::TOP_LIMIT . ' ลูกค้า (แถบเหลือง = Top ' . self::TOP_HIGHLIGHT . ')', $top, true);
+        $this->writeCustomerTable($sheet, $next + 1, 'ลูกค้าทั้งหมด (' . number_format(count($ranking['rows'])) . ' ราย)', $ranking['rows'], false, true);
+
+        foreach (['A' => 8, 'B' => 12, 'C' => 36, 'D' => 12, 'E' => 16, 'F' => 10, 'G' => 14, 'H' => 14, 'I' => 14, 'J' => 12, 'K' => 14, 'L' => 12, 'M' => 16, 'N' => 16] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
+        }
+        $sheet->freezePane('A4');
+    }
+
+    private function writeCustomerTable(Worksheet $sheet, int $titleRow, string $title, array $rows, bool $highlightTop, bool $autoFilter = false): int
+    {
+        $sheet->setCellValue("A{$titleRow}", $title);
+        $sheet->mergeCells("A{$titleRow}:N{$titleRow}");
+        $sheet->getStyle("A{$titleRow}:N{$titleRow}")->getFont()->setBold(true)->setSize(13)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle("A{$titleRow}:N{$titleRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF1F4E78');
+
+        $headerRow = $titleRow + 1;
+        $sheet->fromArray([[
+            'อันดับ', 'Customer ID', 'ลูกค้า', 'จำนวนรายการ', 'Qty คงค้าง (KGS)', '% ของทั้งหมด',
+            'Sales (SS) KGS', 'Factory (FF) KGS', 'ไม่ระบุรหัส KGS', 'รายการที่ถูกเลื่อน', 'KGS ที่ถูกเลื่อน',
+            'เลื่อนรวม (ครั้ง)', 'Div.', 'รับเข้าเก่าสุด',
+        ]], null, "A{$headerRow}");
+
+        $rowNo = $headerRow + 1;
+        foreach ($rows as $index => $row) {
+            $sheet->fromArray([[
+                $index + 1, null, $row['customer'], $row['item_count'], $row['qty'], $row['share'],
+                $row['sales_qty'], $row['factory_qty'], $row['uncoded_qty'], $row['rescheduled_count'], $row['rescheduled_qty'],
+                $row['postpone_count'], $row['divisions'], $row['oldest_purchase_date'] ?? '',
+            ]], null, "A{$rowNo}");
+            $sheet->getCell("B{$rowNo}")->setValueExplicit((string) $row['customer_id'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            if ($highlightTop && $index < self::TOP_HIGHLIGHT) {
+                $sheet->getStyle("A{$rowNo}:N{$rowNo}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFFF2CC');
+            }
+            $rowNo++;
+        }
+        if ($rows === []) {
+            $sheet->setCellValue("A{$rowNo}", 'ไม่มีรายการตาม Filter ที่เลือก');
+            $sheet->mergeCells("A{$rowNo}:N{$rowNo}");
+            $rowNo++;
+        }
+
+        $lastRow = $rowNo - 1;
+        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFE2EFDA');
+        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+        $sheet->getStyle('E' . ($headerRow + 1) . ":E{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle('E' . ($headerRow + 1) . ":E{$lastRow}")->getFont()->setBold(true);
+        $sheet->getStyle('F' . ($headerRow + 1) . ":F{$lastRow}")->getNumberFormat()->setFormatCode('0.00%');
+        $sheet->getStyle('G' . ($headerRow + 1) . ":I{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle('K' . ($headerRow + 1) . ":K{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        if ($autoFilter && $rows !== []) {
+            $sheet->setAutoFilter("A{$headerRow}:N{$lastRow}");
+        }
+
+        return $rowNo + 1;
     }
 
     private function buildSalesItemsSheet(Worksheet $sheet, array $report): void
@@ -907,6 +1083,8 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $salesDeliveryStatusItems = [];
         $rescheduledRows = [];
         $includeRescheduledItems = $includeDetailLists || $includePdfLists;
+        $customerTotals = [];
+        $uncoded = ['count' => 0, 'qty' => 0.0];
 
         foreach ($this->iterateItems() as $item) {
             $purchaseDate = $item->purchase_date instanceof Carbon ? $item->purchase_date : null;
@@ -923,6 +1101,7 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             $code = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
             $owner = str_starts_with($code, 'SS') ? 'sales' : (str_starts_with($code, 'FF') ? 'factory' : null);
 
+            $rescheduledRow = null;
             if ($includeRescheduledItems) {
                 $rescheduledRow = $this->rescheduledItemRow($item);
                 if ($rescheduledRow !== null) {
@@ -930,7 +1109,16 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
                 }
             }
 
+            if ($includeDetailLists && $openQty > 0) {
+                $this->addCustomerRankingItem($customerTotals, $item, $openQty, $owner, $rescheduledRow);
+            }
+
             if ($owner === null) {
+                // Summary แยกเฉพาะ SS/FF: เก็บยอดที่ยังไม่ระบุรหัสไว้แจ้งใต้ตาราง ไม่ให้ยอดหายเงียบ
+                if ($openQty > 0) {
+                    $uncoded['count']++;
+                    $uncoded['qty'] += $openQty;
+                }
                 continue;
             }
 
@@ -1092,7 +1280,73 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             'rescheduled_items' => $includeRescheduledItems
                 ? $this->finalizeRescheduledItemsReport($rescheduledRows, $rangeLabel)
                 : ['range_label' => $rangeLabel, 'division_summary' => [], 'rows' => []],
+            'customer_ranking' => $this->finalizeCustomerRanking($customerTotals),
+            'uncoded' => $uncoded,
         ];
+    }
+
+    private function addCustomerRankingItem(array &$totals, DeadstockSnapshotItem $item, float $openQty, ?string $owner, ?array $rescheduledRow): void
+    {
+        $name = trim((string) $item->customer_name);
+        $customerId = trim((string) $item->customer_id);
+        $key = $customerId !== '' ? 'id:' . $customerId : 'name:' . strtoupper($name);
+
+        $totals[$key] ??= [
+            'customer_id' => $customerId,
+            'customer' => $name !== '' ? $name : '(ไม่ระบุลูกค้า)',
+            'item_count' => 0,
+            'qty' => 0.0,
+            'value' => 0.0,
+            'sales_qty' => 0.0,
+            'factory_qty' => 0.0,
+            'uncoded_qty' => 0.0,
+            'rescheduled_count' => 0,
+            'rescheduled_qty' => 0.0,
+            'postpone_count' => 0,
+            'divisions' => [],
+            'oldest_purchase_date' => null,
+        ];
+
+        $row = &$totals[$key];
+        $row['item_count']++;
+        $row['qty'] += $openQty;
+        $row['value'] += $openQty * (float) $item->unitcost;
+        $row[match ($owner) { 'sales' => 'sales_qty', 'factory' => 'factory_qty', default => 'uncoded_qty' }] += $openQty;
+
+        if ($rescheduledRow !== null) {
+            $row['rescheduled_count']++;
+            $row['rescheduled_qty'] += $openQty;
+            $row['postpone_count'] += (int) $rescheduledRow['postpone_count'];
+        }
+
+        $division = DeadstockSalesMap::accessKey($item->salesperson_name);
+        if ($division !== '') {
+            $row['divisions'][$division] = ($row['divisions'][$division] ?? 0) + $openQty;
+        }
+
+        $purchase = $item->purchase_date?->toDateString();
+        if ($purchase && ($row['oldest_purchase_date'] === null || $purchase < $row['oldest_purchase_date'])) {
+            $row['oldest_purchase_date'] = $purchase;
+        }
+    }
+
+    private function finalizeCustomerRanking(array $totals): array
+    {
+        $grandQty = array_sum(array_column($totals, 'qty'));
+
+        $rows = collect($totals)
+            ->map(function (array $row) use ($grandQty) {
+                arsort($row['divisions']);
+                $row['divisions'] = implode(', ', array_keys($row['divisions']));
+                $row['share'] = $grandQty > 0 ? $row['qty'] / $grandQty : 0.0;
+
+                return $row;
+            })
+            ->sortBy([['qty', 'desc'], ['customer', 'asc']])
+            ->values()
+            ->all();
+
+        return ['rows' => $rows, 'total_qty' => $grandQty, 'total_items' => array_sum(array_column($totals, 'item_count'))];
     }
 
     private function rescheduledItemsReport(iterable $items, string $rangeLabel): array
@@ -1110,8 +1364,10 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
 
     private function rescheduledItemRow(DeadstockSnapshotItem $item): ?array
     {
-        $originalDue = $item->due_date;
-        $latestDue = $item->review?->revised_due_date ?? $item->current_due_date;
+        $snapshotDues = $this->dueHistory()['snapshot'][$this->serialHistoryKey($item)] ?? [];
+        // กำหนดส่งเดิม = วันส่งจาก Snapshot เดือนแรกสุดของ Serial นี้ (ถ้ามีหลายเดือน) ไม่งั้นใช้ของ Snapshot ปัจจุบัน
+        $originalDue = $snapshotDues[0]['due'] ?? $item->due_date;
+        $latestDue = $item->review?->revised_due_date ?? $item->current_due_date ?? $item->due_date;
         if (!$originalDue || !$latestDue) {
             return null;
         }
@@ -1121,6 +1377,7 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             return null;
         }
 
+        $postpone = $this->postponeBreakdown($item, $originalDue, $latestDue);
         $reasonCode = strtoupper(trim((string) ($item->latestCompareLog?->matched_deadstock_code ?: $item->deadstock_code)));
 
         return [
@@ -1134,7 +1391,9 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             'original_due_date' => $originalDue->format('Y-m-d'),
             'latest_due_date' => $latestDue->format('Y-m-d'),
             'postponed_days' => $originalDue->diffInDays($latestDue),
-            'postpone_count' => $this->postponeCount($item, $originalDue, $latestDue),
+            'postpone_count' => $postpone['total'],
+            'postpone_count_erp' => $postpone['erp'],
+            'postpone_count_review' => $postpone['review'],
             'site' => $this->siteLabel((string) $item->company),
             'reason_code' => $reasonCode,
         ];
@@ -1163,10 +1422,31 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
 
     private function postponeCount(DeadstockSnapshotItem $item, Carbon $originalDue, Carbon $latestDue): int
     {
-        $cursor = $originalDue->copy();
-        $count = 0;
-        $logs = $item->review?->logs?->sortBy(fn($log) => [$log->changed_at?->timestamp ?? 0, $log->id ?? 0]) ?? collect();
+        return $this->postponeBreakdown($item, $originalDue, $latestDue)['total'];
+    }
 
+    /**
+     * นับจำนวนครั้งที่เลื่อนกำหนดส่ง โดยรวม timeline จาก 3 แหล่งเรียงตามเวลา:
+     *  1) Snapshot แต่ละเดือนของ Serial เดียวกัน (due_date จาก ERP ณ วันที่ snapshot)
+     *  2) Compare log รายชั่วโมง (matched_due_date ที่ ERP เปลี่ยนหลัง snapshot)
+     *  3) Log หน้า Review (revised_due_date ที่ Sales แก้)
+     * นับ 1 ครั้งเมื่อวันส่งใหม่ "ช้ากว่า" วันส่งล่าสุดที่รู้ก่อนหน้า
+     *
+     * @return array{total: int, erp: int, review: int}
+     */
+    private function postponeBreakdown(DeadstockSnapshotItem $item, Carbon $originalDue, Carbon $latestDue): array
+    {
+        $events = [];
+        $history = $this->dueHistory();
+
+        foreach ($history['snapshot'][$this->serialHistoryKey($item)] ?? [] as $row) {
+            $events[] = ['at' => $row['at'], 'due' => $row['due'], 'source' => 'erp'];
+        }
+        foreach ($history['erp'][(int) $item->id] ?? [] as $row) {
+            $events[] = ['at' => $row['at'], 'due' => $row['due'], 'source' => 'erp'];
+        }
+
+        $logs = $item->review?->logs ?? collect();
         foreach ($logs as $log) {
             if (!in_array('revised_due_date', (array) $log->changed_fields, true)) {
                 continue;
@@ -1175,18 +1455,108 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             if (!$value) {
                 continue;
             }
-            $next = Carbon::parse($value);
-            if ($next->gt($cursor)) {
-                $count++;
+            $events[] = [
+                'at' => $log->changed_at?->format('Y-m-d H:i:s') ?? '',
+                'due' => Carbon::parse($value)->toDateString(),
+                'source' => 'review',
+                'id' => (int) ($log->id ?? 0),
+            ];
+        }
+
+        usort($events, fn(array $a, array $b) => [$a['at'], $a['id'] ?? 0] <=> [$b['at'], $b['id'] ?? 0]);
+
+        $cursor = $originalDue->toDateString();
+        $counts = ['erp' => 0, 'review' => 0];
+        foreach ($events as $event) {
+            if ($event['due'] > $cursor) {
+                $counts[$event['source']]++;
             }
-            $cursor = $next;
+            $cursor = $event['due'];
         }
 
-        if ($latestDue->gt($cursor)) {
-            $count++;
+        if ($latestDue->toDateString() > $cursor) {
+            $counts[$item->review?->revised_due_date ? 'review' : 'erp']++;
         }
 
-        return max(1, $count);
+        $total = $counts['erp'] + $counts['review'];
+        if ($total === 0) {
+            // latestDue > originalDue แต่ไม่มีประวัติระหว่างทาง ถือว่าเลื่อนอย่างน้อย 1 ครั้ง
+            $counts[$item->review?->revised_due_date ? 'review' : 'erp'] = 1;
+            $total = 1;
+        }
+
+        return ['total' => $total, 'erp' => $counts['erp'], 'review' => $counts['review']];
+    }
+
+    private function serialHistoryKey(DeadstockSnapshotItem $item): string
+    {
+        return strtoupper(trim((string) $item->company)) . '|' . trim((string) $item->serialnumber);
+    }
+
+    /**
+     * โหลดประวัติวันส่งครั้งเดียวต่อ export (ผลลัพธ์เล็ก: เฉพาะ serial/รายการที่วันส่งเคยเปลี่ยน)
+     * เรียงใน PHP เพื่อเลี่ยง memory grant ของ SQL Server
+     *
+     * @return array{snapshot: array<string, array<int, array{at: string, due: string}>>, erp: array<int, array<int, array{at: string, due: string}>>}
+     */
+    private function dueHistory(): array
+    {
+        if ($this->dueHistory !== null) {
+            return $this->dueHistory;
+        }
+
+        $history = ['snapshot' => [], 'erp' => []];
+
+        try {
+            $db = DB::connection((new DeadstockSnapshotItem())->getConnectionName());
+
+            $snapshotRows = $db->select(
+                'SELECT i.company, i.serialnumber, m.snapshot_month, i.due_date
+                   FROM ds_snapshot_items i
+                   JOIN ds_snapshot_months m ON m.id = i.snapshot_month_id
+                   JOIN (
+                        SELECT company, serialnumber
+                          FROM ds_snapshot_items
+                         WHERE serialnumber IS NOT NULL AND due_date IS NOT NULL
+                         GROUP BY company, serialnumber
+                        HAVING COUNT(DISTINCT due_date) > 1
+                   ) d ON d.company = i.company AND d.serialnumber = i.serialnumber
+                  WHERE i.due_date IS NOT NULL'
+            );
+            foreach ($snapshotRows as $row) {
+                $key = strtoupper(trim((string) $row->company)) . '|' . trim((string) $row->serialnumber);
+                $history['snapshot'][$key][] = [
+                    'at' => Carbon::parse($row->snapshot_month)->format('Y-m-d H:i:s'),
+                    'due' => Carbon::parse($row->due_date)->toDateString(),
+                ];
+            }
+
+            $erpRows = $db->select(
+                'SELECT l.snapshot_item_id, l.matched_due_date, MIN(l.checked_at) AS first_seen
+                   FROM ds_item_compare_logs l
+                   JOIN ds_snapshot_items i ON i.id = l.snapshot_item_id
+                  WHERE l.matched_due_date IS NOT NULL
+                    AND (i.due_date IS NULL OR l.matched_due_date <> i.due_date)
+                  GROUP BY l.snapshot_item_id, l.matched_due_date'
+            );
+            foreach ($erpRows as $row) {
+                $history['erp'][(int) $row->snapshot_item_id][] = [
+                    'at' => Carbon::parse($row->first_seen)->format('Y-m-d H:i:s'),
+                    'due' => Carbon::parse($row->matched_due_date)->toDateString(),
+                ];
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Deadstock due history load failed', ['error' => $e->getMessage()]);
+        }
+
+        foreach (['snapshot', 'erp'] as $source) {
+            foreach ($history[$source] as &$rows) {
+                usort($rows, fn(array $a, array $b) => $a['at'] <=> $b['at']);
+            }
+            unset($rows);
+        }
+
+        return $this->dueHistory = $history;
     }
 
     public function deliveryPerformanceReport(

@@ -33,6 +33,8 @@ class DeadstockReviewService
             $matchedQty = null;
             $matchedDueDate = null;
             $matchedCode = null;
+            // วันส่งล่าสุดที่เคยเห็น (ก่อนรอบนี้) ใช้จับการเปลี่ยนวันส่งใน ERP แม้ไม่ได้เปิด writeLogs
+            $previousDueDate = optional($item->current_due_date ?? $item->due_date)->toDateString();
 
             if ($live) {
                 $matchedQty = (float) ($live->qty ?? 0);
@@ -56,7 +58,13 @@ class DeadstockReviewService
                 'cleared_at' => $status === 'cleared' ? ($item->cleared_at ?? $checkedAt) : null,
             ])->save();
 
-            if ($writeLogs) {
+            // รอบ scheduler รายชั่วโมงไม่เขียน log ทุกรายการ (กัน log บวม) แต่ต้องเก็บทุกครั้งที่วันส่ง ERP เปลี่ยน
+            // เพื่อใช้นับจำนวนครั้งที่เลื่อนกำหนดส่งใน Excel export
+            $dueDateMoved = $live !== null
+                && $matchedDueDate !== null
+                && $matchedDueDate !== $previousDueDate;
+
+            if ($writeLogs || $dueDateMoved) {
                 DeadstockItemCompareLog::create([
                     'snapshot_item_id' => $item->id,
                     'checked_at' => $checkedAt,
