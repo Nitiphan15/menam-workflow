@@ -113,6 +113,10 @@ class ErrorAlertService
     {
         $lines = [];
 
+        if (! empty($context['module'])) {
+            $lines[] = 'Module: ' . $this->clean((string) $context['module'], 40);
+        }
+
         if (! empty($context['command'])) {
             $lines[] = 'Command: ' . $this->clean((string) $context['command'], 200);
         }

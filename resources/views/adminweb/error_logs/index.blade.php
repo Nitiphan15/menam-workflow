@@ -49,6 +49,11 @@
                 : number_format($bytes / 1024, 0) . ' KB';
         };
         $isClientFile = str_starts_with($filters['file'], 'client-errors');
+        // ให้ module ที่เลือกอยู่ยังอยู่ใน dropdown แม้ช่วงที่อ่านจะไม่มีรายการของ module นั้น
+        $moduleOptions = $modules;
+        if ($filters['module'] !== '' && ! array_key_exists($filters['module'], $moduleOptions)) {
+            $moduleOptions[$filters['module']] = 0;
+        }
     @endphp
 
     <div class="container-fluid py-4">
@@ -62,7 +67,7 @@
             </div>
             <div class="card-body">
                 <form method="GET" action="{{ route('adminweb.error-logs.index') }}" class="row g-2 align-items-end">
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label mb-1">ไฟล์</label>
                         <select name="file" class="form-select form-select-sm">
                             @forelse ($files as $file)
@@ -86,7 +91,19 @@
                         </select>
                     </div>
 
-                    <div class="col-md-4">
+                    <div class="col-md-2">
+                        <label class="form-label mb-1">ระบบ (module)</label>
+                        <select name="module" class="form-select form-select-sm">
+                            <option value="">ทุกระบบ</option>
+                            @foreach ($moduleOptions as $module => $count)
+                                <option value="{{ $module }}" @selected($filters['module'] === $module)>
+                                    {{ $module === \App\Services\OpsMonitoring\LogFileReader::NO_MODULE ? 'ไม่ระบุ' : $module }} ({{ number_format($count) }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
                         <label class="form-label mb-1">ค้นหา</label>
                         <input type="text" name="q" value="{{ $filters['q'] }}" class="form-control form-control-sm"
                             placeholder="ข้อความ / route / ชื่อผู้ใช้ / ชื่อไฟล์ (เช่น FormVC, SQLSTATE)">
@@ -103,7 +120,7 @@
         <div class="row g-3 mb-3">
             @foreach ($levelLabel as $group => $label)
                 <div class="col-6 col-md-3">
-                    <a href="{{ route('adminweb.error-logs.index', ['file' => $filters['file'], 'level' => $group]) }}"
+                    <a href="{{ route('adminweb.error-logs.index', array_filter(['file' => $filters['file'], 'level' => $group, 'module' => $filters['module']])) }}"
                         class="card shadow-sm text-decoration-none h-100 {{ $filters['level'] === $group ? 'border-' . $levelBadge[$group] . ' border-2' : '' }}">
                         <div class="card-body py-3">
                             <div class="text-muted small">{{ $label }}</div>
@@ -113,6 +130,23 @@
                 </div>
             @endforeach
         </div>
+
+        @if (count($modules) > 0)
+            {{-- สรุปจำนวนแยกตามระบบ (ตามระดับที่เลือก) — กดเพื่อกรอง --}}
+            <div class="card shadow-sm mb-3">
+                <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+                    <span class="small text-muted me-1">แยกตามระบบ:</span>
+                    @foreach ($modules as $module => $count)
+                        @php $active = $filters['module'] === $module; @endphp
+                        <a href="{{ route('adminweb.error-logs.index', array_filter(['file' => $filters['file'], 'level' => $filters['level'], 'module' => $active ? null : $module])) }}"
+                            class="btn btn-sm {{ $active ? 'btn-dark' : 'btn-outline-secondary' }} py-0">
+                            {{ $module === \App\Services\OpsMonitoring\LogFileReader::NO_MODULE ? 'ไม่ระบุ' : $module }}
+                            <span class="badge {{ $active ? 'bg-light text-dark' : 'bg-secondary' }} ms-1">{{ number_format($count) }}</span>
+                        </a>
+                    @endforeach
+                </div>
+            </div>
+        @endif
 
         <div class="card shadow-sm">
             <div class="card-header d-flex flex-wrap align-items-center gap-2">
@@ -147,7 +181,12 @@
                                             <span class="badge bg-{{ $levelBadge[$entry['group']] ?? 'secondary' }}">{{ $entry['level'] }}</span>
                                             {{ $entry['time'] }}
                                         </div>
-                                        <div class="fw-semibold">{{ $entry['message'] }}</div>
+                                        <div class="fw-semibold">
+                                            @if ($entry['module'])
+                                                <span class="badge bg-dark me-1">{{ $entry['module'] }}</span>
+                                            @endif
+                                            {{ $entry['message'] }}
+                                        </div>
 
                                         @if (! empty($entry['context']))
                                             <div class="mt-1 d-flex flex-wrap gap-1">

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Users\User;
 use App\Services\OpsMonitoring\LogFileReader;
+use App\Support\ModuleLogContext;
 use Illuminate\Support\Facades\Gate;
 use Tests\TestCase;
 
@@ -176,5 +177,101 @@ class ErrorLogViewerTest extends TestCase
         $this->actingAs($this->user())
             ->postJson('/client-errors', ['message' => '', 'type' => 'hack'])
             ->assertUnprocessable();
+    }
+
+    public function test_module_labels_from_route_command_and_message(): void
+    {
+        // 4 module เดิมต้องได้ค่าเดิม (ใช้ร่วมกับ audit log)
+        $this->assertSame('DP', ModuleLogContext::labelForRouteName('dp.inquiry.index'));
+        $this->assertSame('FC', ModuleLogContext::labelForRouteName('fc.index'));
+
+        $this->assertSame('VC', ModuleLogContext::labelForRouteName('variable-cost.index'));
+        $this->assertSame('WOS', ModuleLogContext::labelForRouteName('deadstock.dashboard'));
+        $this->assertSame('ADMIN', ModuleLogContext::labelForRouteName('adminweb.error-logs.index'));
+        $this->assertSame('PO', ModuleLogContext::labelForRouteName('po.index'));
+        $this->assertNull(ModuleLogContext::labelForRouteName(null));
+
+        $this->assertSame('WR', ModuleLogContext::labelForCommand('wr-deadstock:sync --snapshot=DAILY'));
+        $this->assertSame('STOCK', ModuleLogContext::labelForCommand('stock-withdrawal:send-daily-alert'));
+        $this->assertSame('SCHEDULER', ModuleLogContext::labelForCommand('schedule:run'));
+
+        $this->assertSame('VC', ModuleLogContext::labelFromMessage('FormVC: load ERP classinfo failed'));
+        $this->assertNull(ModuleLogContext::labelFromMessage('Something else'));
+
+        // module อื่นที่ไม่ใช่ 4 ตัวหลัก ต้องไม่เปิด audit log ของ middleware
+        $this->assertNull(ModuleLogContext::moduleForRouteName('variable-cost.index'));
+    }
+
+    public function test_reader_filters_and_counts_by_module(): void
+    {
+        $this->writeLog('laravel.log', implode("\n", [
+            '[2026-11-17 08:00:00] production.ERROR: DP failed {"module":"DP","route":"dp.inquiry.index"}',
+            '[2026-11-17 08:01:00] production.WARNING: FormVC: load ERP classinfo failed {"site":"WIRE","error":"timeout"}',
+            '[2026-11-17 08:02:00] production.ERROR: VC query failed {"route":"variable-cost.index"}',
+            '[2026-11-17 08:03:00] production.ERROR: sync failed {"command":"wr-deadstock:sync"}',
+            '[2026-11-17 08:04:00] production.ERROR: unknown failure',
+        ]));
+
+        $reader = new LogFileReader();
+        $path = $reader->resolve('laravel.log');
+
+        $all = $reader->entries($path, ['level' => 'error']);
+        $this->assertSame(['DP' => 1, 'VC' => 1, 'WR' => 1, LogFileReader::NO_MODULE => 1], $all['modules'] + []);
+        $this->assertSame('DP', $all['entries'][3]['module']);
+        $this->assertArrayNotHasKey('module', $all['entries'][3]['context']); // แสดงเป็น badge แยก
+
+        $vc = $reader->entries($path, ['module' => 'vc']);
+        $this->assertCount(2, $vc['entries']); // error + warning (จากข้อความ FormVC:)
+        $this->assertSame(['error' => 1, 'warning' => 1, 'info' => 0, 'debug' => 0], $vc['counts']);
+
+        $other = $reader->entries($path, ['module' => LogFileReader::NO_MODULE]);
+        $this->assertSame('unknown failure', $other['entries'][0]['message']);
+    }
+
+    public function test_reader_falls_back_to_stack_trace_folder_for_old_logs(): void
+    {
+        $this->writeLog('laravel.log', implode("\n", [
+            '[2026-11-10 08:00:00] production.ERROR: SQLSTATE[42S22] Invalid column {"userId":1,"exception":"[object] (PDOException(code: 42S22): x at C:\\\\xampp\\\\vendor\\\\laravel\\\\Connection.php:10)',
+            '[stacktrace]',
+            '#0 C:\\xampp\\vendor\\laravel\\Connection.php(20): foo()',
+            '#1 C:\\xampp\\htdocs\\menam-workflow\\app\\Http\\Controllers\\FormDP\\DeliveryPlanController.php(88): bar()',
+            '"} ',
+        ]));
+
+        $reader = new LogFileReader();
+        $entry = $reader->entries($reader->resolve('laravel.log'))['entries'][0];
+
+        $this->assertSame('DP', $entry['module']);
+    }
+
+    public function test_client_error_gets_module_from_page_route(): void
+    {
+        $this->withoutMiddleware(\App\Http\Middleware\VerifyCsrfToken::class);
+
+        $this->actingAs($this->user())
+            ->postJson('/client-errors', [
+                'message' => 'Uncaught ReferenceError: chart is not defined',
+                'page' => 'http://localhost/variable-cost?site=WIRE',
+            ])
+            ->assertNoContent();
+
+        $reader = new LogFileReader();
+        $file = basename(glob($this->dir . '/logs/client-errors-*.log')[0]);
+        $entry = $reader->entries($reader->resolve($file))['entries'][0];
+
+        $this->assertSame('VC', $entry['module']);
+    }
+
+    public function test_handler_context_contains_module(): void
+    {
+        $handler = new \App\Exceptions\Handler($this->app);
+        $method = new \ReflectionMethod($handler, 'context');
+        $method->setAccessible(true);
+
+        $_SERVER['argv'] = ['artisan', 'wr-deadstock:sync', '--snapshot=DAILY'];
+        $context = $method->invoke($handler);
+
+        $this->assertSame('WR', $context['module']);
+        $this->assertSame('wr-deadstock:sync --snapshot=DAILY', $context['command']);
     }
 }

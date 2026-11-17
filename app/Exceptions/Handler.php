@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use App\Services\OpsMonitoring\ErrorAlertService;
+use App\Support\ModuleLogContext;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
@@ -85,6 +86,10 @@ class Handler extends ExceptionHandler
             if ($this->container->runningInConsole()) {
                 $argv = $_SERVER['argv'] ?? [];
                 $context['command'] = mb_substr(implode(' ', array_slice($argv, 1)), 0, 255);
+                $module = ModuleLogContext::labelForCommand($argv[1] ?? null);
+                if ($module !== null) {
+                    $context['module'] = $module;
+                }
 
                 return $context;
             }
@@ -95,10 +100,12 @@ class Handler extends ExceptionHandler
             }
 
             $user = $request->user();
+            $routeName = $request->route()?->getName();
 
             return array_merge($context, array_filter([
+                'module'   => ModuleLogContext::labelForRouteName($routeName),
                 'userName' => $user?->name,
-                'route'    => $request->route()?->getName(),
+                'route'    => $routeName,
                 'method'   => $request->getMethod(),
                 'url'      => '/' . ltrim($request->path(), '/'),
                 'ip'       => $request->ip(),

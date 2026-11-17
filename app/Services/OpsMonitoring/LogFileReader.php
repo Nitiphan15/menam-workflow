@@ -2,6 +2,8 @@
 
 namespace App\Services\OpsMonitoring;
 
+use App\Support\ModuleLogContext;
+
 /**
  * อ่านไฟล์ log ใน storage/logs แบบอ่านอย่างเดียว สำหรับหน้า adminweb
  *
@@ -18,6 +20,9 @@ class LogFileReader
     ];
 
     private const FILE_PATTERNS = ['laravel*.log', 'client-errors*.log'];
+
+    /** ค่าที่ใช้แทน entry ที่ไม่รู้ module (log เก่า / error นอก route) */
+    public const NO_MODULE = 'OTHER';
 
     private const ENTRY_DETAIL_LIMIT = 20000;
 
@@ -66,8 +71,8 @@ class LogFileReader
     }
 
     /**
-     * @param  array{level?: string, q?: string}  $filters
-     * @return array{entries: array<int, array<string, mixed>>, counts: array<string, int>, truncated: bool, read_bytes: int}
+     * @param  array{level?: string, q?: string, module?: string}  $filters
+     * @return array{entries: array<int, array<string, mixed>>, counts: array<string, int>, modules: array<string, int>, truncated: bool, read_bytes: int}
      */
     public function entries(string $path, array $filters = [], int $maxBytes = 3_145_728, int $limit = 300): array
     {
@@ -76,7 +81,7 @@ class LogFileReader
 
         $handle = fopen($path, 'rb');
         if ($handle === false) {
-            return ['entries' => [], 'counts' => [], 'truncated' => false, 'read_bytes' => 0];
+            return ['entries' => [], 'counts' => [], 'modules' => [], 'truncated' => false, 'read_bytes' => 0];
         }
 
         try {
@@ -100,8 +105,10 @@ class LogFileReader
 
         $levelFilter = self::LEVEL_GROUPS[$filters['level'] ?? ''] ?? null;
         $keyword = trim((string) ($filters['q'] ?? ''));
+        $moduleFilter = strtoupper(trim((string) ($filters['module'] ?? '')));
 
         $counts = array_fill_keys(array_keys(self::LEVEL_GROUPS), 0);
+        $modules = [];
         $entries = [];
 
         for ($i = count($chunks) - 1; $i >= 0; $i--) {
@@ -110,13 +117,20 @@ class LogFileReader
                 continue;
             }
 
-            $counts[$entry['group']] = ($counts[$entry['group']] ?? 0) + 1;
+            $module = $entry['module'] ?? self::NO_MODULE;
+            $matchModule = $moduleFilter === '' || $module === $moduleFilter;
+            $matchLevel = $levelFilter === null || in_array($entry['level'], $levelFilter, true);
 
-            if (count($entries) >= $limit) {
-                continue; // ยังนับจำนวนต่อ แต่ไม่เก็บรายการเพิ่ม
+            // การ์ดระดับนับตาม module ที่เลือก / dropdown module นับตามระดับที่เลือก
+            if ($matchModule) {
+                $counts[$entry['group']] = ($counts[$entry['group']] ?? 0) + 1;
             }
-            if ($levelFilter !== null && ! in_array($entry['level'], $levelFilter, true)) {
-                continue;
+            if ($matchLevel) {
+                $modules[$module] = ($modules[$module] ?? 0) + 1;
+            }
+
+            if (count($entries) >= $limit || ! $matchModule || ! $matchLevel) {
+                continue; // ยังนับจำนวนต่อ แต่ไม่เก็บรายการเพิ่ม
             }
             if ($keyword !== '' && mb_stripos($entry['raw'], $keyword) === false) {
                 continue;
@@ -126,9 +140,19 @@ class LogFileReader
             $entries[] = $entry;
         }
 
+        // จำนวนมากก่อน, เท่ากันเรียงตามชื่อ, "ไม่ระบุ" อยู่ท้ายเสมอ
+        uksort($modules, function ($a, $b) use ($modules) {
+            if (($a === self::NO_MODULE) !== ($b === self::NO_MODULE)) {
+                return $a === self::NO_MODULE ? 1 : -1;
+            }
+
+            return [$modules[$b], $a] <=> [$modules[$a], $b];
+        });
+
         return [
             'entries' => $entries,
             'counts' => $counts,
+            'modules' => $modules,
             'truncated' => $offset > 0,
             'read_bytes' => $size - $offset,
         ];
@@ -166,11 +190,41 @@ class LogFileReader
             'level' => $level,
             'group' => $group,
             'message' => mb_substr($message, 0, 1000),
+            'module' => $this->moduleOf($message, $context, $chunk),
             'context' => $this->summarizeContext($context),
             'detail' => mb_substr($detail, 0, self::ENTRY_DETAIL_LIMIT),
             'exception' => is_array($context) && isset($context['exception']) ? mb_substr((string) $context['exception'], 0, 2000) : null,
             'raw' => $chunk,
         ];
+    }
+
+    /**
+     * module ของ entry: ป้าย module ใน context -> route -> command -> ข้อความแบบ "FormVC: ..."
+     * -> โฟลเดอร์ Form* ใน stack trace (สำหรับ log เก่าที่ยังไม่มีป้าย)
+     */
+    private function moduleOf(string $message, ?array $context, string $raw = ''): ?string
+    {
+        $module = null;
+
+        if (is_array($context)) {
+            if (! empty($context['module']) && is_scalar($context['module'])) {
+                $module = (string) $context['module'];
+            } elseif (! empty($context['route']) && is_scalar($context['route'])) {
+                $module = ModuleLogContext::labelForRouteName((string) $context['route']);
+            } elseif (! empty($context['command']) && is_scalar($context['command'])) {
+                $module = ModuleLogContext::labelForCommand((string) $context['command']);
+            }
+        }
+
+        $module ??= ModuleLogContext::labelFromMessage($message);
+
+        // frame แรกของโค้ดเราใน stack trace เช่น app\Http\Controllers\FormDP\... -> DP
+        if ($module === null && $raw !== ''
+            && preg_match('/app[\\\\\/]+(?:Http[\\\\\/]+Controllers|Services|Exports|Console[\\\\\/]+Commands)[\\\\\/]+Form([A-Za-z]+)[\\\\\/]/i', substr($raw, 0, 20000), $m)) {
+            $module = strtoupper($m[1]);
+        }
+
+        return $module !== null && preg_match('/^[A-Za-z0-9_-]{1,40}$/', $module) ? strtoupper($module) : null;
     }
 
     /**
@@ -223,7 +277,7 @@ class LogFileReader
 
         $out = [];
         foreach ($context as $key => $value) {
-            if ($key === 'exception') {
+            if ($key === 'exception' || $key === 'module') { // module แสดงเป็น badge แยกแล้ว
                 continue;
             }
             $out[(string) $key] = mb_substr(is_scalar($value) ? (string) $value : (string) json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 0, 300);

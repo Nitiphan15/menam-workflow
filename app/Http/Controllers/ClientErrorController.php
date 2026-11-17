@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\ModuleLogContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -27,9 +28,12 @@ class ClientErrorController extends Controller
 
         $user = $request->user();
 
+        $page = $this->stripQuery($data['page'] ?? null);
+
         $context = array_filter([
+            'module'   => $this->moduleForPage($request, $page),
             'type'     => $data['type'] ?? 'error',
-            'page'     => $this->stripQuery($data['page'] ?? null),
+            'page'     => $page,
             'source'   => $this->stripQuery($data['source'] ?? null),
             'line'     => $data['line'] ?? null,
             'column'   => $data['column'] ?? null,
@@ -47,6 +51,30 @@ class ClientErrorController extends Controller
             . ($stack !== '' ? "\n" . $stack : ''));
 
         return response()->noContent();
+    }
+
+    /**
+     * หา module ของหน้าที่เกิด JS error จาก route ที่ตรงกับ path ของหน้านั้น
+     */
+    private function moduleForPage(Request $request, ?string $page): ?string
+    {
+        if ($page === null) {
+            return null;
+        }
+
+        try {
+            $path = (string) (parse_url($page, PHP_URL_PATH) ?? '');
+            $base = $request->getBaseUrl(); // เช่น /menam-workflow/public เมื่อรันใต้ sub-folder
+            if ($base !== '' && str_starts_with($path, $base)) {
+                $path = substr($path, strlen($base));
+            }
+
+            $route = app('router')->getRoutes()->match(Request::create($path === '' ? '/' : $path, 'GET'));
+
+            return ModuleLogContext::labelForRouteName($route->getName());
+        } catch (\Throwable) {
+            return null; // หน้าไม่ตรงกับ route ใด (404 / external)
+        }
     }
 
     private function stripQuery(?string $url): ?string
