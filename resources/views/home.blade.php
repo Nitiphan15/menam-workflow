@@ -81,20 +81,25 @@
                     </div>
                 </div>
 
+                @php
+                    $requestFormHref = auth()->check() && config('services.request_form.sso_enabled')
+                        ? route('request-form.sso')
+                        : config('services.request_form.url');
+                @endphp
+                @if (filled($requestFormHref))
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mt-4 rounded-3 bg-light border p-3">
                     <div>
                         <p class="fw-semibold mb-1">มีข้อเสนอแนะ พบปัญหา หรือต้องการฟีเจอร์เพิ่มเติม?</p>
                         <p class="text-muted small mb-0">ส่งคำขอและติดตามสถานะผ่าน Request Form System</p>
                     </div>
-                    <a href="{{ auth()->check() && config('services.request_form.sso_enabled')
-                        ? route('request-form.sso')
-                        : config('services.request_form.url') }}"
+                    <a href="{{ $requestFormHref }}"
                         class="btn btn-primary"
                         target="_blank"
                         rel="noopener noreferrer">
                         <i class="fa-solid fa-paper-plane me-2" aria-hidden="true"></i>ส่งคำขอ
                     </a>
                 </div>
+                @endif
             </div>
         </section>
 

@@ -26,7 +26,8 @@ return [
     ],
 
     'request_form' => [
-        'url' => env('REQUEST_FORM_URL', '/request-form-system/requests/create'),
+        // ว่าง = ซ่อนกล่อง "ส่งคำขอ" บนหน้า home (ยกเว้นเปิด SSO) จนกว่าระบบ Request Form จะพร้อมบน server นั้น
+        'url' => env('REQUEST_FORM_URL'),
         'sso_enabled' => env('REQUEST_FORM_SSO_ENABLED', false),
         'sso_url' => env('REQUEST_FORM_SSO_URL', '/request-form-system/sso/menam/consume'),
         'sso_issuer' => env('REQUEST_FORM_SSO_ISSUER', 'menam-workflow'),
