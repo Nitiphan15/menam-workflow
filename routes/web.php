@@ -198,7 +198,7 @@ Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
   ->name('dp.history');
 
 Route::view('/home', 'home')->name('home');
-Route::view('/menus', 'menus.index')
+Route::get('/menus', [\App\Http\Controllers\MenuController::class, 'index'])
   ->middleware('auth')
   ->name('menus.index');
 Route::get('/organization', [DepartmentOrganizationController::class, 'index'])

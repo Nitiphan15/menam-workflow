@@ -1,32 +1,6 @@
 @extends('layouts.layout')
 
 @section('content')
-    @php
-        $user = auth()->user();
-        $canSee = fn(array $item) => empty($item['permission']) || $user->hasRoleCode($item['permission']);
-
-        $menuGroups = collect(config('menu.menu.guest', []))
-            ->reject(fn(array $item) => in_array($item['route'] ?? null, ['home', 'login'], true))
-            ->map(function (array $item) use ($canSee) {
-                if (!empty($item['children'])) {
-                    $item['children'] = collect($item['children'])
-                        ->filter($canSee)
-                        ->values()
-                        ->all();
-                }
-
-                return $item;
-            })
-            ->filter(function (array $item) use ($canSee) {
-                if (!empty($item['children'])) {
-                    return count($item['children']) > 0;
-                }
-
-                return !empty($item['route']) && $canSee($item);
-            })
-            ->values();
-    @endphp
-
     <div class="container-fluid py-3 all-menus-page">
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-4">
             <div>
@@ -44,24 +18,21 @@
         </div>
 
         <div class="row g-3" id="allMenuGrid">
-            @foreach ($menuGroups as $item)
-                @php
-                    $links = !empty($item['children']) ? $item['children'] : [$item];
-                    $searchText = mb_strtolower(collect($links)->pluck('text')->prepend($item['text'])->implode(' '));
-                @endphp
-                <div class="col-12 col-md-6 col-xl-4 all-menu-card" data-menu-search="{{ $searchText }}">
+            @foreach ($menuGroups as $group)
+                <div class="col-12 col-md-6 col-xl-4 all-menu-card" data-menu-group="{{ mb_strtolower($group['text']) }}">
                     <section class="card h-100 shadow-sm border-0">
                         <div class="card-body">
                             <div class="d-flex align-items-center gap-3 mb-3">
-                                <span class="all-menu-icon"><i class="fas {{ $item['icon'] ?? 'fa-circle' }}"></i></span>
-                                <h2 class="h6 mb-0">{{ $item['text'] }}</h2>
+                                <span class="all-menu-icon"><i class="{{ $group['icon'] }}"></i></span>
+                                <h2 class="h6 mb-0">{{ $group['text'] }}</h2>
                             </div>
 
                             <div class="list-group list-group-flush">
-                                @foreach ($links as $link)
-                                    <a class="list-group-item list-group-item-action px-0 d-flex align-items-center justify-content-between gap-3"
-                                        href="{{ route($link['route'], $link['query'] ?? []) }}">
-                                        <span><i class="fas {{ $link['icon'] ?? 'fa-angle-right' }} fa-fw me-2 text-muted"></i>{{ $link['text'] }}</span>
+                                @foreach ($group['links'] as $link)
+                                    <a class="list-group-item list-group-item-action px-0 d-flex align-items-center justify-content-between gap-3 all-menu-link"
+                                        data-menu-text="{{ mb_strtolower($link['text']) }}"
+                                        href="{{ $link['url'] }}">
+                                        <span><i class="{{ $link['icon'] }} fa-fw me-2 text-muted"></i>{{ $link['text'] }}</span>
                                         <i class="fas fa-chevron-right small text-muted"></i>
                                     </a>
                                 @endforeach
@@ -72,9 +43,9 @@
             @endforeach
         </div>
 
-        <div id="allMenuEmpty" class="text-center text-muted py-5 d-none">
+        <div id="allMenuEmpty" class="text-center text-muted py-5 {{ count($menuGroups) ? 'd-none' : '' }}">
             <i class="fas fa-search fa-2x mb-3"></i>
-            <p class="mb-0">ไม่พบเมนูที่ค้นหา</p>
+            <p class="mb-0">{{ count($menuGroups) ? 'ไม่พบเมนูที่ค้นหา' : 'ยังไม่มีเมนูที่คุณเข้าถึงได้' }}</p>
         </div>
     </div>
 @endsection
@@ -108,15 +79,24 @@
 
             input?.addEventListener('input', () => {
                 const query = input.value.trim().toLocaleLowerCase('th-TH');
-                let visible = 0;
+                let visibleCards = 0;
 
                 cards.forEach(card => {
-                    const matched = !query || card.dataset.menuSearch.includes(query);
-                    card.classList.toggle('d-none', !matched);
-                    if (matched) visible++;
+                    // ชื่อกลุ่มตรง → แสดงทุกลิงก์ในการ์ด, ไม่งั้นแสดงเฉพาะลิงก์ที่ตรง
+                    const groupMatched = !query || card.dataset.menuGroup.includes(query);
+                    let visibleLinks = 0;
+
+                    card.querySelectorAll('.all-menu-link').forEach(link => {
+                        const matched = groupMatched || link.dataset.menuText.includes(query);
+                        link.classList.toggle('d-none', !matched);
+                        if (matched) visibleLinks++;
+                    });
+
+                    card.classList.toggle('d-none', visibleLinks === 0);
+                    if (visibleLinks > 0) visibleCards++;
                 });
 
-                empty?.classList.toggle('d-none', visible > 0);
+                empty?.classList.toggle('d-none', visibleCards > 0);
             });
         });
     </script>

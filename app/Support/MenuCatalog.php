@@ -3,58 +3,130 @@
 namespace App\Support;
 
 use App\Models\Users\User;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Route;
 
+/**
+ * รวบรวมเมนูสาธารณะ (config menu.menu.guest) สำหรับหน้า "เมนูทั้งหมด"
+ * โดยกรองตามสิทธิ์ผู้ใช้ และตัดรายการที่ route ไม่มีอยู่จริงออก (กันหน้า 500)
+ */
 class MenuCatalog
 {
-    public static function forUser(User $user): Collection
+    /** route ที่ไม่ต้องแสดงในหน้าเมนูทั้งหมด */
+    public const EXCLUDED_ROUTES = ['home', 'login', 'menus.index'];
+
+    /**
+     * @return array<int, array{text: string, icon: string, links: array<int, array{route: string, text: string, icon: string, url: string}>}>
+     */
+    public static function forUser(User $user): array
     {
-        $entries = collect();
+        // โหลด role code ของผู้ใช้ครั้งเดียว แทนการเรียก hasRoleCode() ทีละเมนู
+        $roleCodes = $user->deptRoles()
+            ->pluck('code')
+            ->map(fn($code) => strtoupper((string) $code))
+            ->unique()
+            ->values()
+            ->all();
 
-        foreach (config('menu.menu', []) as $menuItems) {
-            foreach ($menuItems as $item) {
-                if (!self::canSee($user, $item)) {
-                    continue;
-                }
+        $groups = self::groups(
+            config('menu.menu.guest', []),
+            $roleCodes,
+            fn(string $route) => Route::has($route),
+        );
 
-                if (!empty($item['children'])) {
-                    foreach ($item['children'] as $child) {
-                        self::append($entries, $user, $child, $item['text'] ?? 'เมนูอื่น');
-                    }
-
-                    continue;
-                }
-
-                self::append($entries, $user, $item, $item['text'] ?? 'เมนูอื่น');
+        foreach ($groups as &$group) {
+            foreach ($group['links'] as &$link) {
+                $link['url'] = route($link['route'], $link['query']);
+                unset($link['query']);
             }
+            unset($link);
         }
+        unset($group);
 
-        return $entries
-            ->reject(fn(array $entry) => in_array($entry['route'], ['home', 'login', 'menus.index'], true))
-            ->unique('route')
-            ->values();
+        return $groups;
     }
 
-    private static function append(Collection $entries, User $user, array $item, string $group): void
+    /**
+     * Logic ล้วน (ไม่แตะ DB / router) เพื่อให้ unit test ได้
+     *
+     * @param  array<int, array<string, mixed>>  $menuItems
+     * @param  array<int, string>  $roleCodes  role code ของผู้ใช้ (ตัวพิมพ์ใหญ่)
+     * @param  callable(string): bool  $routeExists
+     */
+    public static function groups(array $menuItems, array $roleCodes, callable $routeExists): array
     {
-        $route = $item['route'] ?? null;
+        $groups = [];
+        $seenRoutes = [];
 
-        if (!$route || !empty($item['header']) || !self::canSee($user, $item) || !Route::has($route)) {
-            return;
+        foreach ($menuItems as $item) {
+            if (!self::canSee($item, $roleCodes)) {
+                continue; // ตัวแม่ไม่มีสิทธิ์ → ซ่อนทั้งกลุ่ม รวม children
+            }
+
+            $candidates = !empty($item['children']) ? $item['children'] : [$item];
+            $links = [];
+
+            foreach ($candidates as $child) {
+                $route = $child['route'] ?? null;
+
+                if (
+                    !$route
+                    || !empty($child['header'])
+                    || in_array($route, self::EXCLUDED_ROUTES, true)
+                    || isset($seenRoutes[$route])
+                    || !self::canSee($child, $roleCodes)
+                    || !$routeExists($route)
+                ) {
+                    continue;
+                }
+
+                $seenRoutes[$route] = true;
+                $links[] = [
+                    'route' => $route,
+                    'text' => (string) ($child['text'] ?? $route),
+                    'icon' => self::iconClass($child['icon'] ?? 'fa-angle-right'),
+                    'query' => $child['query'] ?? [],
+                ];
+            }
+
+            if ($links === []) {
+                continue;
+            }
+
+            $groups[] = [
+                'text' => (string) ($item['text'] ?? 'เมนูอื่น'),
+                'icon' => self::iconClass($item['icon'] ?? 'fa-circle'),
+                'links' => $links,
+            ];
         }
 
-        $entries->push([
-            'route' => $route,
-            'text' => $item['text'] ?? $route,
-            'icon' => $item['icon'] ?? 'fa-circle',
-            'group' => $group,
-            'url' => route($route, $item['query'] ?? []),
-        ]);
+        return $groups;
     }
 
-    private static function canSee(User $user, array $item): bool
+    /**
+     * @param  array<int, string>  $roleCodes
+     */
+    private static function canSee(array $item, array $roleCodes): bool
     {
-        return empty($item['permission']) || $user->hasRoleCode($item['permission']);
+        if (empty($item['permission'])) {
+            return true;
+        }
+
+        $required = array_map(fn($code) => strtoupper((string) $code), (array) $item['permission']);
+
+        return array_intersect($required, $roleCodes) !== [];
+    }
+
+    /** config ใช้ทั้งแบบ "fa-box" และ "fa-solid fa-box" → ทำให้เป็น class ที่ใช้ได้เสมอ */
+    private static function iconClass(string $icon): string
+    {
+        $icon = trim($icon);
+
+        $styles = ['fa', 'fas', 'far', 'fab', 'fa-solid', 'fa-regular', 'fa-brands'];
+
+        if (array_intersect(preg_split('/\s+/', $icon), $styles) !== []) {
+            return $icon;
+        }
+
+        return 'fas ' . $icon;
     }
 }
