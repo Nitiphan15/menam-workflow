@@ -1,154 +1,236 @@
 @extends('layouts.layout')
 
 @section('title', 'WIP ' . $row['wo_no'])
-@section('page-title', 'WIP Detail · ' . $row['wo_no'])
+@section('page-title', 'WIP Detail')
+
+@push('styles')
+    <style>
+        .wip { font-variant-numeric: tabular-nums; }
+        .wip .card { border: 1px solid rgba(0, 0, 0, .06); border-radius: .75rem; }
+        .wip .card-header { background: transparent; border-bottom: 1px solid rgba(0, 0, 0, .06); font-weight: 600; padding: .75rem 1rem; }
+        .wip .muted-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--bs-secondary-color); }
+        .wip-dot { width: .65rem; height: .65rem; border-radius: 50%; display: inline-block; }
+        .wip-pill { display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem; font-weight: 600; padding: .25rem .7rem; border-radius: 999px; }
+        .wip-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .9rem 1.25rem; }
+        .wip-facts .v { word-break: break-word; }
+        .wip-facts .v { font-weight: 600; }
+        .wip-stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--bs-tertiary-bg); }
+        .wip-legend { display: grid; grid-template-columns: auto 1fr auto; gap: .35rem .6rem; font-size: .875rem; align-items: center; }
+
+        /* route stepper */
+        .wip-route { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .25rem; }
+        .wip-step { flex: 1 0 120px; max-width: 200px; border-radius: .6rem; padding: .55rem .7rem; border: 1px solid rgba(0, 0, 0, .08); border-top: 4px solid var(--step-color); background: var(--bs-body-bg); position: relative; }
+        .wip-step.current { box-shadow: 0 0 0 2px var(--step-color); }
+        .wip-step .code { font-weight: 700; }
+        .wip-step .meter { height: 5px; border-radius: 3px; background: var(--bs-tertiary-bg); overflow: hidden; margin: .35rem 0 .25rem; }
+        .wip-step .meter > div { height: 100%; background: var(--step-color); }
+
+        .wip-table { font-size: .875rem; }
+        .wip-table th { font-size: .74rem; font-weight: 600; color: var(--bs-secondary-color); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+        .wip-table td { vertical-align: middle; }
+        .wip-scroll { max-height: 440px; overflow-y: auto; }
+        .wip-scroll thead th { position: sticky; top: 0; background: var(--bs-body-bg); z-index: 1; }
+    </style>
+@endpush
 
 @section('content')
     @php
+        $colors = [
+            'WAITING_PRODUCTION' => '#6c757d', 'IN_PROCESS' => '#0d6efd', 'WAITING_PACKAGING' => '#0dcaf0',
+            'WAITING_QC' => '#adb5bd', 'WAITING_FG' => '#f0ad00', 'HOLD' => '#dc3545', 'COMPLETED' => '#198754',
+        ];
+        $bandColors = ['NORMAL' => '#198754', 'MONITOR' => '#0dcaf0', 'WARNING' => '#f0ad00', 'CRITICAL' => '#dc3545'];
         $kg = fn($v) => number_format($v ?? 0, 1);
         $fmtDate = fn($v) => $v ? \Carbon\Carbon::parse($v)->format('d/m/Y') : '-';
         $fmtDt = fn($v) => $v ? \Carbon\Carbon::parse($v)->format('d/m/Y H:i') : '-';
         $st = $statuses[$row['status']];
         $ag = $agingBands[$row['aging_band']];
-        $typeLabel = [0 => ['WIP', 'secondary'], 1 => ['ของดี', 'success'], 3 => ['NCR/Rework', 'danger'], 4 => ['Type 4', 'warning']];
+        $bc = $bandColors[$row['aging_band']];
+        $sc = $colors[$row['status']];
+        $typeLabel = [0 => ['WIP', '#6c757d'], 1 => ['ของดี', '#198754'], 3 => ['NCR/Rework', '#dc3545'], 4 => ['Type 4', '#f0ad00']];
         $lastIdx = count($row['steps']) - 1;
+        $bucketTotal = max(1, array_sum($row['buckets']));
+        $target = max(1, (float) $row['qty']);
     @endphp
 
-    <div class="mb-3">
-        <a href="{{ $backUrl }}" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-arrow-left"></i> กลับ</a>
-    </div>
+    <div class="wip">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <a href="{{ $backUrl }}" class="btn btn-sm btn-outline-secondary"><i class="fa-solid fa-arrow-left"></i> กลับ</a>
+            <span class="fs-4 fw-bold ms-1">{{ $row['wo_no'] }}</span>
+            <span class="badge rounded-pill text-bg-dark">{{ $row['site'] }}</span>
+            <span class="wip-pill" style="background: {{ $sc }}1f; color: {{ $sc }}"><span class="wip-dot" style="background: {{ $sc }}"></span>{{ $st['th'] }}</span>
+            @if ($row['status'] !== 'COMPLETED')
+                <span class="wip-pill" style="background: {{ $bc }}1f; color: {{ $bc }}"><i class="fa-regular fa-hourglass-half"></i> ค้าง {{ $row['aging_days'] }} วัน · {{ $ag['label'] }}</span>
+            @endif
+            @if ($row['suspended'])<span class="wip-pill" style="background:#dc35451f;color:#dc3545">Suspended</span>@endif
+            @if ($row['dateclose'])<span class="wip-pill" style="background:#6c757d1f;color:#6c757d">ปิด WO {{ $fmtDate($row['dateclose']) }}</span>@endif
+        </div>
 
-    <div class="row g-3 mb-3">
-        <div class="col-lg-7">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-                        <span class="fs-4 fw-bold">{{ $row['wo_no'] }}</span>
-                        <span class="badge text-bg-dark">{{ $row['site'] }}</span>
-                        <span class="badge text-bg-{{ $st['class'] }}">{{ $st['label'] }} · {{ $st['th'] }}</span>
-                        <span class="badge text-bg-{{ $ag['class'] }}">Aging {{ $row['aging_days'] }} วัน ({{ $ag['label'] }})</span>
-                        @if ($row['suspended'])<span class="badge text-bg-danger">Suspended</span>@endif
-                        @if ($row['dateclose'])<span class="badge text-bg-secondary">ปิด WO แล้ว {{ $fmtDate($row['dateclose']) }}</span>@endif
+        <div class="row g-3 mb-3">
+            <div class="col-xl-8">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="fw-semibold">{{ $row['part_number'] }}</div>
+                        <div class="text-secondary mb-3">{{ $row['part_desc'] }}</div>
+                        <div class="wip-facts">
+                            <div><div class="muted-label">Customer</div><div class="v">{{ $row['customer'] }}</div></div>
+                            <div><div class="muted-label">Size / Grade</div><div class="v">{{ $row['size'] ?: '-' }} / {{ $row['grade'] ?: '-' }}</div></div>
+                            <div><div class="muted-label">SO</div><div class="v">{{ $row['ord_number'] ?: '-' }}</div></div>
+                            <div><div class="muted-label">Qty WO</div><div class="v">{{ $kg($row['qty']) }} kg</div></div>
+                            <div><div class="muted-label">เปิด WO / Due</div><div class="v">{{ $fmtDate($row['dateopen']) }} / {{ $fmtDate($row['reqdate']) }}</div></div>
+                            <div><div class="muted-label">เริ่มผลิต</div><div class="v">{{ $fmtDt($row['production_start']) }}</div></div>
+                            <div><div class="muted-label">เคลื่อนไหวล่าสุด</div><div class="v">{{ $fmtDt($row['last_tx']) }}</div></div>
+                            <div><div class="muted-label">ขั้นปัจจุบัน</div><div class="v">{{ $row['current_wc'] }}@if ($row['current_machine'] !== '-') · {{ $row['current_machine'] }}@endif</div></div>
+                            <div><div class="muted-label">Aging นับจาก</div><div class="v">{{ $fmtDt($row['aging_ref']) }}</div></div>
+                        </div>
                     </div>
-                    <dl class="row small mb-0">
-                        <dt class="col-sm-3">Product</dt><dd class="col-sm-9">{{ $row['part_number'] }} — {{ $row['part_desc'] }}</dd>
-                        <dt class="col-sm-3">Customer</dt><dd class="col-sm-9">{{ $row['customer'] }}</dd>
-                        <dt class="col-sm-3">Size / Grade</dt><dd class="col-sm-9">{{ $row['size'] ?: '-' }} / {{ $row['grade'] ?: '-' }}</dd>
-                        <dt class="col-sm-3">SO (ordnumber)</dt><dd class="col-sm-9">{{ $row['ord_number'] ?: '-' }}</dd>
-                        <dt class="col-sm-3">Qty WO</dt><dd class="col-sm-9">{{ $kg($row['qty']) }} kg</dd>
-                        <dt class="col-sm-3">เปิด / Due</dt><dd class="col-sm-9">{{ $fmtDate($row['dateopen']) }} / {{ $fmtDate($row['reqdate']) }}</dd>
-                        <dt class="col-sm-3">เริ่มผลิต / ล่าสุด</dt><dd class="col-sm-9">{{ $fmtDt($row['production_start']) }} / {{ $fmtDt($row['last_tx']) }}</dd>
-                        <dt class="col-sm-3">ขั้นปัจจุบัน</dt><dd class="col-sm-9">{{ $row['current_wc'] }} @if ($row['current_machine'] !== '-') / {{ $row['current_machine'] }} @endif</dd>
-                        <dt class="col-sm-3">Aging นับจาก</dt><dd class="col-sm-9">{{ $fmtDt($row['aging_ref']) }}</dd>
-                    </dl>
+                </div>
+            </div>
+            <div class="col-xl-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header">น้ำหนักแยกตามสถานะ</div>
+                    <div class="card-body">
+                        <div class="wip-stack mb-3">
+                            @foreach ($row['buckets'] as $key => $v)
+                                @if ($v > 0)
+                                    <div style="width: {{ $v / $bucketTotal * 100 }}%; background: {{ $colors[$key] }}" title="{{ $statuses[$key]['label'] }} {{ $kg($v) }} kg"></div>
+                                @endif
+                            @endforeach
+                        </div>
+                        <div class="wip-legend">
+                            @foreach ($row['buckets'] as $key => $v)
+                                <span class="wip-dot" style="background: {{ $colors[$key] }}"></span>
+                                <span class="{{ $v > 0 ? '' : 'text-secondary' }}">{{ $statuses[$key]['th'] }}</span>
+                                <span class="text-end {{ $v > 0 ? 'fw-semibold' : 'text-secondary' }}">{{ $v > 0 ? $kg($v) . ' kg' : '–' }}</span>
+                            @endforeach
+                        </div>
+                        <hr class="my-2">
+                        <div class="d-flex justify-content-between small text-secondary"><span>Output ขั้นสุดท้าย (WMSOne)</span><span>{{ $kg($row['final_output']) }}</span></div>
+                        <div class="d-flex justify-content-between small text-secondary"><span>รับเข้า FG (ERP)</span><span>{{ $kg($row['erp_received']) }}</span></div>
+                        <div class="d-flex justify-content-between small text-secondary"><span>NCR สะสมทุกขั้น</span><span>{{ $kg($row['ncr_total']) }}</span></div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-lg-5">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-white fw-bold">น้ำหนักแยกตามสถานะ (kg)</div>
-                <ul class="list-group list-group-flush">
-                    @foreach ($row['buckets'] as $key => $v)
-                        <li class="list-group-item d-flex justify-content-between py-1">
-                            <span><span class="badge text-bg-{{ $statuses[$key]['class'] }}">&nbsp;</span> {{ $statuses[$key]['label'] }}</span>
-                            <span class="{{ $v > 0 ? 'fw-bold' : 'text-muted' }}">{{ $v > 0 ? $kg($v) : '-' }}</span>
-                        </li>
-                    @endforeach
-                    <li class="list-group-item d-flex justify-content-between py-1 small text-muted">
-                        <span>Output ขั้นสุดท้าย (WMSOne) / รับเข้า FG (ERP)</span>
-                        <span>{{ $kg($row['final_output']) }} / {{ $kg($row['erp_received']) }}</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between py-1 small text-muted">
-                        <span>NCR สะสมทุกขั้น</span><span>{{ $kg($row['ncr_total']) }}</span>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </div>
 
-    {{-- Routing / step balance --}}
-    <div class="card shadow-sm mb-3">
-        <div class="card-header bg-white fw-bold">ขั้นตอนการผลิตและยอดคงเหลือแต่ละขั้น</div>
-        <div class="card-body p-0 table-responsive">
-            <table class="table table-sm mb-0 align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>Seq</th><th>Work Center</th><th>Size in → out</th>
-                        <th class="text-end">เบิกเข้า (usage)</th><th class="text-end">Output ของดี</th><th class="text-end">NCR</th>
-                        <th class="text-end">ค้างที่ขั้นนี้</th><th>เครื่องล่าสุด</th><th>รับครั้งแรก</th><th>รับล่าสุด</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($row['steps'] as $i => $s)
-                        <tr class="{{ $s['wc_code'] === $row['current_wc'] ? 'table-warning' : '' }}">
-                            <td>{{ $s['seq'] }}</td>
-                            <td><span class="fw-semibold">{{ $s['wc_code'] }}</span> <span class="small text-muted">{{ $s['wc_name'] }}</span>
-                                @if ($row['ends_with_pk'] && $i === $lastIdx)<span class="badge text-bg-info">Packaging</span>@endif
-                            </td>
-                            <td class="small">{{ $s['size_in'] ?? '-' }} → {{ $s['size_out'] ?? '-' }}</td>
-                            <td class="text-end">{{ $s['input_qty'] > 0 ? $kg($s['input_qty']) : '-' }}</td>
-                            <td class="text-end">{{ $s['good_qty'] > 0 ? $kg($s['good_qty']) : '-' }}</td>
-                            <td class="text-end {{ $s['ncr_qty'] > 0 ? 'text-danger' : '' }}">{{ $s['ncr_qty'] > 0 ? $kg($s['ncr_qty']) : '-' }}</td>
-                            <td class="text-end fw-bold">{{ $s['balance'] > 0 ? $kg($s['balance']) : '-' }}</td>
-                            <td>{{ $s['machine'] ?: '-' }}</td>
-                            <td class="small">{{ $fmtDt($s['first_stamp']) }}</td>
-                            <td class="small">{{ $fmtDt($s['last_stamp']) }}</td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="10" class="text-center text-muted py-3">ไม่พบ Routing ใน WMSOne</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="row g-3">
-        <div class="col-lg-4">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-white fw-bold">รับเข้า FG Stock (ERP)</div>
-                <div class="card-body p-0">
-                    @if ($erpError)
-                        <div class="alert alert-danger m-2 py-2">{{ $erpError }}</div>
-                    @endif
-                    <table class="table table-sm mb-0">
-                        <thead class="table-light"><tr><th>เลขที่</th><th>วันที่</th><th class="text-end">Qty</th></tr></thead>
-                        <tbody>
-                            @forelse ($erpLines as $l)
-                                <tr><td class="small">{{ $l->transnumber }}</td><td class="small">{{ $fmtDate($l->transdate) }}</td><td class="text-end">{{ $kg($l->qty) }}</td></tr>
-                            @empty
-                                <tr><td colspan="3" class="text-center text-muted py-3">ยังไม่มีการรับเข้า</td></tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
+        {{-- Route stepper + step table --}}
+        <div class="card shadow-sm mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fa-solid fa-route me-1 text-secondary"></i> ขั้นตอนการผลิต</span>
+                <span class="small fw-normal text-secondary d-none d-md-inline">แถบสี = output ของดีเทียบกับ Qty WO</span>
             </div>
-        </div>
-        <div class="col-lg-8">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-white fw-bold">ประวัติการรับในแต่ละขั้น (WMSOne, ล่าสุด 500 รายการ)</div>
-                <div class="card-body p-0 table-responsive" style="max-height: 420px; overflow-y: auto">
-                    <table class="table table-sm mb-0">
-                        <thead class="table-light sticky-top">
-                            <tr><th>เวลา</th><th>Seq</th><th>WC</th><th>เครื่อง</th><th>ประเภท</th><th class="text-end">Qty</th><th>Heat / Coil</th><th>หมายเหตุ</th></tr>
+            <div class="card-body">
+                @if ($row['steps'])
+                    <div class="wip-route mb-3">
+                        @foreach ($row['steps'] as $i => $s)
+                            @php
+                                $done = \App\Support\FormDP\ProductionWeightTolerance::isComplete($s['good_qty'], (float) $row['qty']);
+                                $color = $s['balance'] > 0 ? ($row['ends_with_pk'] && $i === $lastIdx ? $colors['WAITING_PACKAGING'] : $colors['IN_PROCESS'])
+                                    : ($done ? $colors['COMPLETED'] : ($s['good_qty'] > 0 ? $colors['IN_PROCESS'] : '#ced4da'));
+                                $pct = min(100, $s['good_qty'] / $target * 100);
+                            @endphp
+                            <div class="wip-step {{ $s['wc_code'] === $row['current_wc'] ? 'current' : '' }}" style="--step-color: {{ $color }}" title="{{ $s['wc_name'] }}">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="code">{{ $s['wc_code'] }}</span>
+                                    <span class="small text-secondary">#{{ $s['seq'] }}</span>
+                                </div>
+                                <div class="meter"><div style="width: {{ $pct }}%"></div></div>
+                                <div class="small">{{ $s['good_qty'] > 0 ? $kg($s['good_qty']) : '–' }} <span class="text-secondary">kg</span></div>
+                                @if ($s['balance'] > 0)
+                                    <div class="small fw-semibold" style="color: {{ $color }}">ค้าง {{ $kg($s['balance']) }}</div>
+                                @elseif ($done)
+                                    <div class="small text-success"><i class="fa-solid fa-check"></i> ครบ</div>
+                                @else
+                                    <div class="small text-secondary">{{ $s['good_qty'] > 0 ? 'ทำบางส่วน' : 'ยังไม่เริ่ม' }}</div>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 wip-table">
+                        <thead>
+                            <tr>
+                                <th>Seq</th><th>Work Center</th><th>Size in → out</th>
+                                <th class="text-end">เบิกเข้า</th><th class="text-end">Output ของดี</th><th class="text-end">NCR</th>
+                                <th class="text-end">ค้างที่ขั้นนี้</th><th>เครื่องล่าสุด</th><th>รับครั้งแรก</th><th>รับล่าสุด</th>
+                            </tr>
                         </thead>
                         <tbody>
-                            @forelse ($history as $h)
-                                @php [$tl, $tc] = $typeLabel[(int) $h->receivetype] ?? ['Type ' . $h->receivetype, 'light']; @endphp
-                                <tr>
-                                    <td class="small">{{ $fmtDt($h->receivestamp) }}</td>
-                                    <td>{{ $h->workseq }}</td>
-                                    <td>{{ $h->wc_code }}</td>
-                                    <td>{{ $h->machine ?? '-' }}</td>
-                                    <td><span class="badge text-bg-{{ $tc }}">{{ $tl }}</span></td>
-                                    <td class="text-end">{{ $kg($h->qty) }}</td>
-                                    <td class="small">{{ $h->heatno }} / {{ $h->coilno }}</td>
-                                    <td class="small">{{ $h->reworkreason }}</td>
+                            @forelse ($row['steps'] as $i => $s)
+                                <tr class="{{ $s['wc_code'] === $row['current_wc'] ? 'table-warning' : '' }}">
+                                    <td class="text-secondary">{{ $s['seq'] }}</td>
+                                    <td><span class="fw-semibold">{{ $s['wc_code'] }}</span> <span class="small text-secondary">{{ $s['wc_name'] }}</span></td>
+                                    <td class="small">{{ $s['size_in'] ?? '-' }} → {{ $s['size_out'] ?? '-' }}</td>
+                                    <td class="text-end">{{ $s['input_qty'] > 0 ? $kg($s['input_qty']) : '–' }}</td>
+                                    <td class="text-end">{{ $s['good_qty'] > 0 ? $kg($s['good_qty']) : '–' }}</td>
+                                    <td class="text-end {{ $s['ncr_qty'] > 0 ? 'text-danger' : 'text-secondary' }}">{{ $s['ncr_qty'] > 0 ? $kg($s['ncr_qty']) : '–' }}</td>
+                                    <td class="text-end fw-bold">{{ $s['balance'] > 0 ? $kg($s['balance']) : '–' }}</td>
+                                    <td>{{ $s['machine'] ?: '–' }}</td>
+                                    <td class="small text-secondary">{{ $fmtDt($s['first_stamp']) }}</td>
+                                    <td class="small text-secondary">{{ $fmtDt($s['last_stamp']) }}</td>
                                 </tr>
                             @empty
-                                <tr><td colspan="8" class="text-center text-muted py-3">ยังไม่มีการรับ</td></tr>
+                                <tr><td colspan="10" class="text-center text-secondary py-4">ไม่พบ Routing ใน WMSOne</td></tr>
                             @endforelse
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-xl-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header"><i class="fa-solid fa-warehouse me-1 text-secondary"></i> รับเข้า FG Stock (ERP)</div>
+                    <div class="card-body p-0 wip-scroll">
+                        @if ($erpError)
+                            <div class="alert alert-danger m-2 py-2">{{ $erpError }}</div>
+                        @endif
+                        <table class="table table-sm mb-0 wip-table">
+                            <thead><tr><th class="ps-3">เลขที่</th><th>วันที่</th><th class="text-end pe-3">Qty (kg)</th></tr></thead>
+                            <tbody>
+                                @forelse ($erpLines as $l)
+                                    <tr><td class="ps-3 small">{{ $l->transnumber }}</td><td class="small">{{ $fmtDate($l->transdate) }}</td><td class="text-end pe-3">{{ $kg($l->qty) }}</td></tr>
+                                @empty
+                                    <tr><td colspan="3" class="text-center text-secondary py-4">ยังไม่มีการรับเข้า</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-8">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="fa-solid fa-clock-rotate-left me-1 text-secondary"></i> ประวัติการรับในแต่ละขั้น (WMSOne)</span>
+                        <span class="small fw-normal text-secondary">ล่าสุด 500 รายการ</span>
+                    </div>
+                    <div class="card-body p-0 table-responsive wip-scroll">
+                        <table class="table table-sm table-hover mb-0 wip-table">
+                            <thead>
+                                <tr><th class="ps-3">เวลา</th><th>Seq</th><th>WC</th><th>เครื่อง</th><th>ประเภท</th><th class="text-end">Qty</th><th>Heat / Coil</th><th class="pe-3">หมายเหตุ</th></tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($history as $h)
+                                    @php [$tl, $tc] = $typeLabel[(int) $h->receivetype] ?? ['Type ' . $h->receivetype, '#adb5bd']; @endphp
+                                    <tr>
+                                        <td class="ps-3 small">{{ $fmtDt($h->receivestamp) }}</td>
+                                        <td class="text-secondary">{{ $h->workseq }}</td>
+                                        <td class="fw-semibold">{{ $h->wc_code }}</td>
+                                        <td>{{ $h->machine ?? '–' }}</td>
+                                        <td><span class="wip-pill" style="background: {{ $tc }}1f; color: {{ $tc }}; font-size: .72rem; padding: .1rem .5rem">{{ $tl }}</span></td>
+                                        <td class="text-end">{{ $kg($h->qty) }}</td>
+                                        <td class="small text-secondary">{{ $h->heatno }} / {{ $h->coilno }}</td>
+                                        <td class="small pe-3">{{ $h->reworkreason }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="8" class="text-center text-secondary py-4">ยังไม่มีการรับ</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>

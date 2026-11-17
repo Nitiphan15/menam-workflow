@@ -456,9 +456,12 @@ class WipMonitoringService
             ->values();
     }
 
-    private function machineSummary(Collection $rows): Collection
+    /** งานค้างรายเครื่อง — งานที่ยังไม่มีการรับในขั้นนั้นจะยังไม่รู้เครื่อง จึงแยกยอดไว้ต่างหาก */
+    private function machineSummary(Collection $rows): array
     {
         $acc = [];
+        $unassignedKg = 0.0;
+        $unassignedWo = 0;
         foreach ($rows as $r) {
             if ($r['suspended']) {
                 continue;
@@ -467,14 +470,23 @@ class WipMonitoringService
                 if ($s['balance'] <= 0) {
                     continue;
                 }
-                $key = $s['wc_code'] . '|' . ($s['machine'] ?: '(ยังไม่ลงเครื่อง)');
-                $acc[$key] ??= ['wc_code' => $s['wc_code'], 'machine' => $s['machine'] ?: '(ยังไม่ลงเครื่อง)', 'kg' => 0.0, 'wo_count' => 0];
+                if (empty($s['machine'])) {
+                    $unassignedKg += $s['balance'];
+                    $unassignedWo++;
+                    continue;
+                }
+                $key = $s['wc_code'] . '|' . $s['machine'];
+                $acc[$key] ??= ['wc_code' => $s['wc_code'], 'machine' => $s['machine'], 'kg' => 0.0, 'wo_count' => 0];
                 $acc[$key]['kg'] += $s['balance'];
                 $acc[$key]['wo_count']++;
             }
         }
 
-        return collect($acc)->sortByDesc('kg')->take(15)->values();
+        return [
+            'top' => collect($acc)->sortByDesc('kg')->take(15)->values(),
+            'unassigned_kg' => $unassignedKg,
+            'unassigned_wo' => $unassignedWo,
+        ];
     }
 
     private function agingSummary(Collection $rows): array
