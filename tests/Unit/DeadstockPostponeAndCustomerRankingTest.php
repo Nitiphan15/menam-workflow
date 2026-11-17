@@ -94,6 +94,51 @@ class DeadstockPostponeAndCustomerRankingTest extends TestCase
         $this->assertSame(550.0, $ranking['total_qty']);
     }
 
+    public function test_top_postponed_groups_serials_of_the_same_order_line(): void
+    {
+        $base = [
+            'division' => 'D2', 'salesperson' => 'S', 'partnumber' => 'P-1', 'part_description' => 'Bar',
+            'customer' => 'INNO', 'original_due_date' => '2026-10-01', 'latest_due_date' => '2026-12-01',
+            'postponed_days' => 61, 'postpone_count' => 1, 'postpone_count_erp' => 0, 'postpone_count_review' => 1,
+            'site' => 'WIRE', 'reason_code' => 'SS01',
+        ];
+        $rows = [
+            [...$base, 'serialnumber' => 'S-003', 'qty' => 500.0],
+            [...$base, 'serialnumber' => 'S-001', 'qty' => 510.0, 'postpone_count' => 2, 'postpone_count_review' => 2],
+            [...$base, 'serialnumber' => 'S-002', 'qty' => 520.0, 'reason_code' => 'SS02'],
+            // ลูกค้าเดียวกัน part เดียวกัน แต่กำหนดส่งต่าง = คนละงาน
+            [...$base, 'serialnumber' => 'S-009', 'qty' => 700.0, 'latest_due_date' => '2027-01-15'],
+        ];
+
+        $groups = collect($this->invokePrivate(new DeadstockReviewExport(), 'groupRescheduledByOrderLine', [$rows]))
+            ->keyBy('latest_due_date');
+
+        $this->assertCount(2, $groups);
+        $line = $groups['2026-12-01'];
+        $this->assertSame(3, $line['serial_count']);
+        $this->assertSame(1530.0, $line['qty']);
+        $this->assertSame('S-001 … S-003', $line['serial_sample']);
+        $this->assertSame(2, $line['postpone_count']);
+        $this->assertSame('SS01, SS02', $line['reason_code']);
+        $this->assertSame(1, $groups['2027-01-15']['serial_count']);
+        $this->assertSame('S-009', $groups['2027-01-15']['serial_sample']);
+    }
+
+    public function test_customer_division_shows_only_real_divisions(): void
+    {
+        $export = new DeadstockReviewExport();
+        $totals = [];
+        $this->invokePrivateByRef($export, 'addCustomerRankingItem', $totals,
+            $this->item(['customer_id' => 1, 'customer_name' => 'A', 'salesperson_name' => 'ไม่ระบุ Sales']), 10.0, 'sales', null);
+        $this->invokePrivateByRef($export, 'addCustomerRankingItem', $totals,
+            $this->item(['customer_id' => 2, 'customer_name' => 'B', 'salesperson_name' => 'Sales Person 05']), 5.0, 'sales', null);
+
+        $ranking = collect($this->invokePrivate($export, 'finalizeCustomerRanking', [$totals])['rows'])->keyBy('customer');
+
+        $this->assertSame('-', $ranking['A']['divisions']);
+        $this->assertSame('D5', $ranking['B']['divisions']);
+    }
+
     public function test_top_sheets_are_built_with_top_and_full_lists(): void
     {
         $spreadsheet = new Spreadsheet();
@@ -115,11 +160,13 @@ class DeadstockPostponeAndCustomerRankingTest extends TestCase
         ]]);
 
         $this->assertSame('Top Postponed', $postponedSheet->getTitle());
-        // ตารางแรก: เลื่อนบ่อยสุด → serial 0001 (25 ครั้ง)
-        $this->assertSame('0001', $postponedSheet->getCell('F6')->getValue());
-        $this->assertSame(25, $postponedSheet->getCell('L6')->getValue());
+        $this->assertSame('Qty รวม (KGS)', $postponedSheet->getCell('I5')->getValue());
+        // ตารางแรก: เลื่อนบ่อยสุด → ลูกค้า C1 (25 ครั้ง), serial เดียว
+        $this->assertSame('C1', $postponedSheet->getCell('F6')->getValue());
+        $this->assertSame('0001', $postponedSheet->getCell('H6')->getValue());
+        $this->assertSame(25, $postponedSheet->getCell('M6')->getValue());
         // ตารางที่ 2: title 29, header 30: แถวแรกเป็น qty มากสุด (25)
-        $this->assertSame(25.0, $postponedSheet->getCell('H31')->getValue());
+        $this->assertSame(25.0, $postponedSheet->getCell('I31')->getValue());
 
         $customerRows = [];
         for ($i = 1; $i <= 22; $i++) {

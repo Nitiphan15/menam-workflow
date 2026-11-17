@@ -448,74 +448,138 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
     private function buildTopPostponedSheet(Worksheet $sheet, array $report): void
     {
         $sheet->setTitle('Top Postponed');
-        $sheet->setCellValue('A1', 'Top ' . self::TOP_LIMIT . ' รายการเลื่อนกำหนดส่ง · ' . $report['range_label']);
-        $sheet->setCellValue('A2', 'นับรวมการเลื่อนจาก Snapshot ERP แต่ละเดือน + ERP เปลี่ยนวันส่งระหว่างเดือน + Sales แก้วันส่งในหน้า Review (นับเมื่อวันส่งใหม่ช้ากว่าวันส่งล่าสุดก่อนหน้า)');
-        $sheet->mergeCells('A1:N1');
-        $sheet->mergeCells('A2:N2');
-        $sheet->getStyle('A1:N1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
-        $sheet->getStyle('A1:N1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF9C5700');
+        $sheet->setCellValue('A1', 'Top ' . self::TOP_LIMIT . ' งานที่เลื่อนกำหนดส่ง · ' . $report['range_label']);
+        $sheet->setCellValue('A2', 'รวมกลุ่มตาม ลูกค้า + Part + กำหนดส่งเดิม + กำหนดส่งล่าสุด (1 แถว = 1 งาน รวมทุก Serial) · นับการเลื่อนจาก Snapshot ERP + ERP เปลี่ยนวันส่งระหว่างเดือน + Sales แก้วันส่งในหน้า Review');
+        $sheet->mergeCells('A1:O1');
+        $sheet->mergeCells('A2:O2');
+        $sheet->getStyle('A1:O1')->getFont()->setBold(true)->setSize(16)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle('A1:O1')->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF9C5700');
         $sheet->getStyle('A2')->getFont()->setItalic(true)->getColor()->setARGB('FF595959');
+        $sheet->getStyle('A2')->getAlignment()->setWrapText(true);
+        $sheet->getRowDimension(2)->setRowHeight(30);
 
-        $rows = collect($report['rows']);
-        $byCount = $rows
-            ->sortBy([['postpone_count', 'desc'], ['postponed_days', 'desc'], ['qty', 'desc']])
+        $groups = collect($this->groupRescheduledByOrderLine($report['rows']));
+        $byCount = $groups
+            ->sortBy([['postpone_count', 'desc'], ['qty', 'desc'], ['postponed_days', 'desc']])
             ->take(self::TOP_LIMIT)->values()->all();
-        $byQty = $rows
+        $byQty = $groups
             ->sortBy([['qty', 'desc'], ['postpone_count', 'desc']])
             ->take(self::TOP_LIMIT)->values()->all();
 
-        $next = $this->writeTopPostponedTable($sheet, 4, 'Top ' . self::TOP_LIMIT . ' เลื่อนบ่อยที่สุด (จำนวนครั้ง)', $byCount, 'L');
-        $next = $this->writeTopPostponedTable($sheet, $next + 2, 'Top ' . self::TOP_LIMIT . ' เลื่อนด้วยน้ำหนักมากที่สุด (KGS)', $byQty, 'H');
+        $next = $this->writeTopPostponedTable($sheet, 4, 'Top ' . self::TOP_LIMIT . ' เลื่อนบ่อยที่สุด (จำนวนครั้ง)', $byCount, 'M');
+        $next = $this->writeTopPostponedTable($sheet, $next + 2, 'Top ' . self::TOP_LIMIT . ' เลื่อนด้วยน้ำหนักมากที่สุด (KGS รวมทุก Serial)', $byQty, 'I');
 
-        $sheet->setCellValue("A{$next}", 'รายการเลื่อนทั้งหมด ' . number_format($rows->count()) . ' รายการ ' . number_format((float) $rows->sum('qty'), 2) . ' KGS ดูได้ใน Sheet Rescheduled Items');
-        $sheet->mergeCells("A{$next}:N{$next}");
+        $sheet->setCellValue("A{$next}", sprintf(
+            'งานที่เลื่อนทั้งหมด %s งาน (%s Serial) %s KGS — รายละเอียดราย Serial ดูได้ใน Sheet Rescheduled Items',
+            number_format($groups->count()),
+            number_format(count($report['rows'])),
+            number_format((float) $groups->sum('qty'), 2)
+        ));
+        $sheet->mergeCells("A{$next}:O{$next}");
         $sheet->getStyle("A{$next}")->getFont()->getColor()->setARGB('FFFF0000');
 
-        foreach (['A' => 8, 'B' => 10, 'C' => 20, 'D' => 18, 'E' => 32, 'F' => 20, 'G' => 28, 'H' => 14, 'I' => 14, 'J' => 14, 'K' => 12, 'L' => 12, 'M' => 12, 'N' => 14] as $column => $width) {
+        foreach (['A' => 8, 'B' => 10, 'C' => 20, 'D' => 20, 'E' => 32, 'F' => 30, 'G' => 10, 'H' => 26, 'I' => 14, 'J' => 13, 'K' => 13, 'L' => 11, 'M' => 11, 'N' => 12, 'O' => 14] as $column => $width) {
             $sheet->getColumnDimension($column)->setWidth($width);
         }
+    }
+
+    /**
+     * รวม Serial (ม้วน) ที่เป็นงานเดียวกันเป็น 1 แถว: ลูกค้า + Part + กำหนดส่งเดิม + กำหนดส่งล่าสุด + Site
+     * KGS = ผลรวมทุก Serial; จำนวนครั้ง/วันที่เลื่อน = ค่ามากสุดในกลุ่ม (ม้วนในงานเดียวกันเลื่อนพร้อมกัน ไม่บวกซ้ำ)
+     */
+    private function groupRescheduledByOrderLine(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $key = implode('|', [
+                $row['customer'], $row['partnumber'], $row['original_due_date'], $row['latest_due_date'], $row['site'] ?? '',
+            ]);
+
+            $groups[$key] ??= [
+                'division' => $row['division'],
+                'salesperson' => $row['salesperson'],
+                'partnumber' => $row['partnumber'],
+                'part_description' => $row['part_description'],
+                'customer' => $row['customer'],
+                'original_due_date' => $row['original_due_date'],
+                'latest_due_date' => $row['latest_due_date'],
+                'serials' => [],
+                'qty' => 0.0,
+                'postponed_days' => 0,
+                'postpone_count' => 0,
+                'postpone_count_erp' => 0,
+                'postpone_count_review' => 0,
+                'reason_codes' => [],
+            ];
+
+            $group = &$groups[$key];
+            $group['serials'][] = (string) $row['serialnumber'];
+            $group['qty'] += (float) $row['qty'];
+            $group['postponed_days'] = max($group['postponed_days'], (int) $row['postponed_days']);
+            if ((int) $row['postpone_count'] > $group['postpone_count']) {
+                $group['postpone_count'] = (int) $row['postpone_count'];
+                $group['postpone_count_erp'] = (int) ($row['postpone_count_erp'] ?? 0);
+                $group['postpone_count_review'] = (int) ($row['postpone_count_review'] ?? 0);
+            }
+            if ((string) ($row['reason_code'] ?? '') !== '') {
+                $group['reason_codes'][(string) $row['reason_code']] = true;
+            }
+            unset($group);
+        }
+
+        return array_values(array_map(function (array $group) {
+            sort($group['serials']);
+            $group['serial_count'] = count($group['serials']);
+            $group['serial_sample'] = $group['serial_count'] > 1
+                ? $group['serials'][0] . ' … ' . end($group['serials'])
+                : ($group['serials'][0] ?? '');
+            $group['reason_code'] = implode(', ', array_keys($group['reason_codes']));
+            unset($group['serials'], $group['reason_codes']);
+
+            return $group;
+        }, $groups));
     }
 
     private function writeTopPostponedTable(Worksheet $sheet, int $titleRow, string $title, array $rows, string $rankColumn): int
     {
         $sheet->setCellValue("A{$titleRow}", $title);
-        $sheet->mergeCells("A{$titleRow}:N{$titleRow}");
-        $sheet->getStyle("A{$titleRow}:N{$titleRow}")->getFont()->setBold(true)->setSize(13)->getColor()->setARGB('FFFFFFFF');
-        $sheet->getStyle("A{$titleRow}:N{$titleRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF1F4E78');
+        $sheet->mergeCells("A{$titleRow}:O{$titleRow}");
+        $sheet->getStyle("A{$titleRow}:O{$titleRow}")->getFont()->setBold(true)->setSize(13)->getColor()->setARGB('FFFFFFFF');
+        $sheet->getStyle("A{$titleRow}:O{$titleRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FF1F4E78');
 
         $headerRow = $titleRow + 1;
         $sheet->fromArray([[
-            'อันดับ', 'Div.', 'Sales', 'Part', 'รายละเอียด Part', 'Serial no.', 'ลูกค้า', 'Qty (KGS)',
-            'กำหนดส่งเดิม', 'กำหนดส่งล่าสุด', 'เลื่อน (วัน)', 'เลื่อน (ครั้ง)', 'ERP / Review', 'รหัสสาเหตุ',
+            'อันดับ', 'Div.', 'Sales', 'Part', 'รายละเอียด Part', 'ลูกค้า', 'จำนวน Serial', 'Serial (แรก … สุดท้าย)',
+            'Qty รวม (KGS)', 'กำหนดส่งเดิม', 'กำหนดส่งล่าสุด', 'เลื่อน (วัน)', 'เลื่อน (ครั้ง)', 'ERP / Review', 'รหัสสาเหตุ',
         ]], null, "A{$headerRow}");
 
         $rowNo = $headerRow + 1;
         foreach ($rows as $index => $item) {
             $sheet->fromArray([[
-                $index + 1, $item['division'], $item['salesperson'], $item['partnumber'],
-                $item['part_description'], $item['serialnumber'], $item['customer'], $item['qty'],
-                $item['original_due_date'], $item['latest_due_date'], $item['postponed_days'], $item['postpone_count'],
-                ($item['postpone_count_erp'] ?? 0) . ' / ' . ($item['postpone_count_review'] ?? 0), $item['reason_code'],
+                $index + 1, $item['division'], $item['salesperson'], null,
+                $item['part_description'], $item['customer'], $item['serial_count'], null,
+                $item['qty'], $item['original_due_date'], $item['latest_due_date'], $item['postponed_days'],
+                $item['postpone_count'], $item['postpone_count_erp'] . ' / ' . $item['postpone_count_review'], $item['reason_code'],
             ]], null, "A{$rowNo}");
-            $sheet->getCell("F{$rowNo}")->setValueExplicit((string) $item['serialnumber'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             $sheet->getCell("D{$rowNo}")->setValueExplicit((string) $item['partnumber'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            $sheet->getCell("H{$rowNo}")->setValueExplicit((string) $item['serial_sample'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             if ($index < self::TOP_HIGHLIGHT) {
-                $sheet->getStyle("A{$rowNo}:N{$rowNo}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFFF2CC');
+                $sheet->getStyle("A{$rowNo}:O{$rowNo}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFFF2CC');
             }
             $rowNo++;
         }
         if ($rows === []) {
             $sheet->setCellValue("A{$rowNo}", 'ไม่มีรายการตาม Filter ที่เลือก');
-            $sheet->mergeCells("A{$rowNo}:N{$rowNo}");
+            $sheet->mergeCells("A{$rowNo}:O{$rowNo}");
             $rowNo++;
         }
 
         $lastRow = $rowNo - 1;
-        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFont()->setBold(true);
-        $sheet->getStyle("A{$headerRow}:N{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
-        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-        $sheet->getStyle("A{$headerRow}:N{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
-        $sheet->getStyle('H' . ($headerRow + 1) . ":H{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
+        $sheet->getStyle("A{$headerRow}:O{$headerRow}")->getFont()->setBold(true);
+        $sheet->getStyle("A{$headerRow}:O{$headerRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFFCE4D6');
+        $sheet->getStyle("A{$headerRow}:O{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+        $sheet->getStyle("A{$headerRow}:O{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_TOP)->setWrapText(true);
+        $sheet->getStyle('I' . ($headerRow + 1) . ":I{$lastRow}")->getNumberFormat()->setFormatCode('#,##0.00');
         // เน้นคอลัมน์ที่ใช้จัดอันดับ
         $sheet->getStyle("{$rankColumn}" . ($headerRow + 1) . ":{$rankColumn}{$lastRow}")->getFont()->setBold(true)->getColor()->setARGB('FFC00000');
 
@@ -1319,8 +1383,9 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
             $row['postpone_count'] += (int) $rescheduledRow['postpone_count'];
         }
 
+        // แสดงเฉพาะ Division จริง (D1–D7) ไม่เอาชื่อ Sales ที่ไม่มี mapping มาแสดงเป็น Div.
         $division = DeadstockSalesMap::accessKey($item->salesperson_name);
-        if ($division !== '') {
+        if (preg_match('/^D\d+$/', $division) === 1) {
             $row['divisions'][$division] = ($row['divisions'][$division] ?? 0) + $openQty;
         }
 
@@ -1337,7 +1402,7 @@ class DeadstockReviewExport implements FromGenerator, WithHeadings, WithStyles, 
         $rows = collect($totals)
             ->map(function (array $row) use ($grandQty) {
                 arsort($row['divisions']);
-                $row['divisions'] = implode(', ', array_keys($row['divisions']));
+                $row['divisions'] = $row['divisions'] !== [] ? implode(', ', array_keys($row['divisions'])) : '-';
                 $row['share'] = $grandQty > 0 ? $row['qty'] / $grandQty : 0.0;
 
                 return $row;
