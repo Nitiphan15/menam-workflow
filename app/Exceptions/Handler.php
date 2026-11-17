@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Services\OpsMonitoring\ErrorAlertService;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
@@ -71,14 +72,55 @@ class Handler extends ExceptionHandler
     }
 
     /**
+     * ข้อมูลประกอบที่แนบไปกับทุก error ใน laravel.log
+     * เพื่อให้รู้ว่า error เกิดกับใคร หน้าไหน (ไม่เก็บ query string / input เพื่อกันข้อมูลลับหลุด)
+     *
+     * @return array<string, mixed>
+     */
+    protected function context()
+    {
+        $context = parent::context();
+
+        try {
+            if ($this->container->runningInConsole()) {
+                $argv = $_SERVER['argv'] ?? [];
+                $context['command'] = mb_substr(implode(' ', array_slice($argv, 1)), 0, 255);
+
+                return $context;
+            }
+
+            $request = $this->container->bound('request') ? $this->container->make('request') : null;
+            if (! $request) {
+                return $context;
+            }
+
+            $user = $request->user();
+
+            return array_merge($context, array_filter([
+                'userName' => $user?->name,
+                'route'    => $request->route()?->getName(),
+                'method'   => $request->getMethod(),
+                'url'      => '/' . ltrim($request->path(), '/'),
+                'ip'       => $request->ip(),
+                'ajax'     => $request->ajax() || $request->wantsJson() ? true : null,
+            ], fn ($v) => $v !== null && $v !== ''));
+        } catch (Throwable) {
+            // ห้ามให้การเก็บ context ทำให้การ report error ล้มเหลว
+            return $context;
+        }
+    }
+
+    /**
      * Register the exception handling callbacks for the application.
      *
      * @return void
      */
     public function register()
     {
+        // แจ้งเตือน Telegram เมื่อมี error ที่ต้อง report (404/403/validation/419 ถูกกรองออกโดย Laravel แล้ว)
+        // ไม่ return false เพื่อให้ยังบันทึกลง laravel.log ตามปกติ
         $this->reportable(function (Throwable $e) {
-            //
+            $this->container->make(ErrorAlertService::class)->notifyException($e, $this->context());
         });
 
     }

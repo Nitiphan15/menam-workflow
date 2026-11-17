@@ -6,6 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Menam Workflow Online')</title>
+    @auth
+        {{-- เก็บ JavaScript error ส่งไป server (ต้องโหลดก่อน script อื่นเพื่อจับ error ได้ครบ) --}}
+        <script src="{{ asset('js/client-error-reporter.js') }}?v={{ filemtime(public_path('js/client-error-reporter.js')) }}"
+            data-endpoint="{{ route('client-errors.store') }}"></script>
+    @endauth
 
 
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">

@@ -34,6 +34,7 @@ class LogUserActivity
         'livewire',
         'debugbar',
         'telescope',
+        'client-errors', // JS error reporter — เก็บใน client-errors log แยกแล้ว
     ];
 
     public function handle(Request $request, Closure $next): Response

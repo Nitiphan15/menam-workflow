@@ -39,6 +39,8 @@ use App\Http\Controllers\Admin\UserDeptRoleAdminController;
 use App\Http\Controllers\Admin\UserDepartmentAssignmentController;
 use App\Http\Controllers\Admin\UserPermissionController;
 use App\Http\Controllers\Admin\ActivityLogController;
+use App\Http\Controllers\Admin\ErrorLogController;
+use App\Http\Controllers\ClientErrorController;
 //WR
 use App\Http\Controllers\FormWR\IncomeController;
 use App\Http\Controllers\FormWR\WireRodDeadstockController;
@@ -1157,7 +1159,15 @@ Route::middleware(['auth', 'can:ADMINWEB'])
 
     // ประวัติการใช้งาน (Activity Log)
     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+
+    // Error log (อ่านไฟล์ storage/logs แบบอ่านอย่างเดียว)
+    Route::get('/error-logs', [ErrorLogController::class, 'index'])->name('error-logs.index');
   });
+
+// รับ JavaScript error จาก browser (public/js/client-error-reporter.js) — จำกัด 30 ครั้ง/นาที/ผู้ใช้
+Route::post('/client-errors', [ClientErrorController::class, 'store'])
+  ->middleware(['auth', 'throttle:30,1'])
+  ->name('client-errors.store');
 
 
 // API สำหรับ autocomplete

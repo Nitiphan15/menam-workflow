@@ -201,6 +201,7 @@ class VariableCostController extends Controller
                 $request->user()
             );
         } catch (Throwable $e) {
+            report($e);
             return back()->withInput()->with('error', 'Unable to save truck weight. Please make sure the log table is created.');
         }
 
@@ -222,6 +223,7 @@ class VariableCostController extends Controller
                 $request->user()
             );
         } catch (Throwable $e) {
+            report($e);
             return back()->withInput()->with('error', 'Unable to update truck weight log.');
         }
 
@@ -237,6 +239,7 @@ class VariableCostController extends Controller
         try {
             $deleted = $service->deleteTruckWeightLog($id);
         } catch (Throwable $e) {
+            report($e);
             return back()->with('error', 'Unable to delete truck weight log.');
         }
 
