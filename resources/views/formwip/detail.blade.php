@@ -81,7 +81,10 @@
                             <div><div class="muted-label">เริ่มผลิต</div><div class="v">{{ $fmtDt($row['production_start']) }}</div></div>
                             <div><div class="muted-label">เคลื่อนไหวล่าสุด</div><div class="v">{{ $fmtDt($row['last_tx']) }}</div></div>
                             <div><div class="muted-label">ขั้นปัจจุบัน</div><div class="v">{{ $row['current_wc'] }}@if ($row['current_machine'] !== '-') · {{ $row['current_machine'] }}@endif</div></div>
-                            <div><div class="muted-label">Aging นับจาก</div><div class="v">{{ $fmtDt($row['aging_ref']) }}</div></div>
+                            <div>
+                                <div class="muted-label">{{ ($row['aging_source'] ?? 'activity') === 'status' ? 'อยู่ในสถานะนี้ตั้งแต่' : 'Aging นับจาก (ประมาณ)' }}</div>
+                                <div class="v">{{ $fmtDt($row['aging_ref']) }}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -117,14 +120,18 @@
         <div class="card shadow-sm mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="fa-solid fa-route me-1 text-secondary"></i> ขั้นตอนการผลิต</span>
-                <span class="small fw-normal text-secondary d-none d-md-inline">แถบสี = output ของดีเทียบกับ Qty WO</span>
+                <span class="d-flex align-items-center gap-2 small fw-normal text-secondary">
+                    <span class="d-none d-md-inline">ครบตามเกณฑ์น้ำหนักเดียวกับ Tracking: ≥ {{ $kg(\App\Support\FormDP\ProductionWeightTolerance::minimumReceivedKg((float) $row['qty'])) }} kg
+                        (ยอมรับขาด {{ rtrim(rtrim(number_format(\App\Support\FormDP\ProductionWeightTolerance::shortageRate((float) $row['qty']) * 100, 2), '0'), '.') }}%)</span>
+                    @include('formdp.production-status.partials.weight-tolerance-help')
+                </span>
             </div>
             <div class="card-body">
                 @if ($row['steps'])
                     <div class="wip-route mb-3">
                         @foreach ($row['steps'] as $i => $s)
                             @php
-                                $done = \App\Support\FormDP\ProductionWeightTolerance::isComplete($s['good_qty'], (float) $row['qty']);
+                                $done = $s['done'];
                                 $color = $s['balance'] > 0 ? ($row['ends_with_pk'] && $i === $lastIdx ? $colors['WAITING_PACKAGING'] : $colors['IN_PROCESS'])
                                     : ($done ? $colors['COMPLETED'] : ($s['good_qty'] > 0 ? $colors['IN_PROCESS'] : '#ced4da'));
                                 $pct = min(100, $s['good_qty'] / $target * 100);
@@ -139,7 +146,9 @@
                                 @if ($s['balance'] > 0)
                                     <div class="small fw-semibold" style="color: {{ $color }}">ค้าง {{ $kg($s['balance']) }}</div>
                                 @elseif ($done)
-                                    <div class="small text-success"><i class="fa-solid fa-check"></i> ครบ</div>
+                                    <div class="small text-success" title="{{ $s['done_by'] === 'passed' ? 'ขั้นถัดไปครบแล้ว จึงถือว่าขั้นนี้ครบ (กฎเดียวกับ Tracking)' : 'ยอดรับถึงเกณฑ์น้ำหนัก' }}">
+                                        <i class="fa-solid fa-check"></i> ครบ{{ $s['done_by'] === 'passed' ? ' (ขั้นหลังครบ)' : '' }}
+                                    </div>
                                 @else
                                     <div class="small text-secondary">{{ $s['good_qty'] > 0 ? 'ทำบางส่วน' : 'ยังไม่เริ่ม' }}</div>
                                 @endif
@@ -154,7 +163,7 @@
                             <tr>
                                 <th>Seq</th><th>Work Center</th><th>Size in → out</th>
                                 <th class="text-end">เบิกเข้า</th><th class="text-end">Output ของดี</th><th class="text-end">NCR</th>
-                                <th class="text-end">ค้างที่ขั้นนี้</th><th>เครื่องล่าสุด</th><th>รับครั้งแรก</th><th>รับล่าสุด</th>
+                                <th class="text-end">ค้างที่ขั้นนี้</th><th>สถานะขั้น</th><th>เครื่องล่าสุด</th><th>รับครั้งแรก</th><th>รับล่าสุด</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -167,16 +176,70 @@
                                     <td class="text-end">{{ $s['good_qty'] > 0 ? $kg($s['good_qty']) : '–' }}</td>
                                     <td class="text-end {{ $s['ncr_qty'] > 0 ? 'text-danger' : 'text-secondary' }}">{{ $s['ncr_qty'] > 0 ? $kg($s['ncr_qty']) : '–' }}</td>
                                     <td class="text-end fw-bold">{{ $s['balance'] > 0 ? $kg($s['balance']) : '–' }}</td>
+                                    <td class="small">
+                                        @if ($s['done'])
+                                            <span class="text-success">Completed{{ $s['done_by'] === 'passed' ? ' (ขั้นหลังครบ)' : '' }}</span>
+                                        @elseif ($s['good_qty'] + $s['ncr_qty'] > 0)
+                                            <span class="text-primary">In Progress</span>
+                                        @else
+                                            <span class="text-secondary">Pending</span>
+                                        @endif
+                                    </td>
                                     <td>{{ $s['machine'] ?: '–' }}</td>
                                     <td class="small text-secondary">{{ $fmtDt($s['first_stamp']) }}</td>
                                     <td class="small text-secondary">{{ $fmtDt($s['last_stamp']) }}</td>
                                 </tr>
                             @empty
-                                <tr><td colspan="10" class="text-center text-secondary py-4">ไม่พบ Routing ใน WMSOne</td></tr>
+                                <tr><td colspan="11" class="text-center text-secondary py-4">ไม่พบ Routing ใน WMSOne</td></tr>
                             @endforelse
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        {{-- Status history (snapshot) --}}
+        <div class="card shadow-sm mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fa-solid fa-timeline me-1 text-secondary"></i> ประวัติการเปลี่ยนสถานะ</span>
+                <span class="small fw-normal text-secondary">บันทึกจากการ sync อัตโนมัติทุก 15 นาที</span>
+            </div>
+            <div class="card-body p-0 wip-scroll" style="max-height: 300px">
+                @if (!$snapshotReady)
+                    <div class="text-secondary small p-3"><i class="fa-solid fa-circle-info"></i> ยังไม่ได้เปิดใช้การเก็บประวัติ (ยังไม่มีตาราง snapshot)</div>
+                @else
+                    <table class="table table-sm table-hover mb-0 wip-table">
+                        <thead><tr><th class="ps-3">เวลา</th><th>สถานะ</th><th>Work Center</th><th class="text-end">อยู่สถานะเดิม (วัน)</th><th class="text-end pe-3">WIP (kg)</th></tr></thead>
+                        <tbody>
+                            @forelse ($statusHistory as $h)
+                                @php
+                                    $label = fn($s) => $s === null ? 'พบครั้งแรก' : ($s === 'CLOSED' ? 'ปิด WO' : ($statuses[$s]['th'] ?? $s));
+                                    $color = fn($s) => $colors[$s] ?? '#6c757d';
+                                @endphp
+                                <tr>
+                                    <td class="ps-3 small">{{ $fmtDt($h->changed_at) }}</td>
+                                    <td class="small">
+                                        @if ($h->from_status !== $h->to_status)
+                                            <span class="text-secondary">{{ $label($h->from_status) }}</span>
+                                            <i class="fa-solid fa-arrow-right mx-1 text-secondary small"></i>
+                                        @endif
+                                        <span class="fw-semibold" style="color: {{ $color($h->to_status) }}">{{ $label($h->to_status) }}</span>
+                                    </td>
+                                    <td class="small">
+                                        @if ($h->from_wc && $h->from_wc !== $h->to_wc)
+                                            <span class="text-secondary">{{ $h->from_wc }}</span> <i class="fa-solid fa-arrow-right mx-1 text-secondary small"></i>
+                                        @endif
+                                        {{ $h->to_wc ?? '–' }}
+                                    </td>
+                                    <td class="text-end small">{{ $h->days_in_prev ?? '–' }}</td>
+                                    <td class="text-end pe-3 small">{{ $h->wip_kg !== null ? $kg($h->wip_kg) : '–' }}</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="5" class="text-center text-secondary py-4">ยังไม่มีประวัติ (จะเริ่มบันทึกหลัง sync รอบแรก)</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                @endif
             </div>
         </div>
 

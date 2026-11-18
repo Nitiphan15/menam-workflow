@@ -167,6 +167,23 @@ SQL;
         return collect(DB::connection($this->erp($site))->select($sql, [strtoupper(trim($workorderNumber))]));
     }
 
+    /** แผนกของแต่ละ Work Center (workcenter.class_id → classinfo) — key = workcenternumber */
+    public function workcenterDepartments(string $site): array
+    {
+        $rows = DB::connection($this->mfg($site))->select(<<<'SQL'
+SELECT wc.workcenternumber AS wc_code, COALESCE(NULLIF(TRIM(ci.description), ''), '-') AS dept
+FROM workcenter wc
+LEFT JOIN classinfo ci ON ci.id = wc.class_id
+SQL);
+
+        $map = [];
+        foreach ($rows as $r) {
+            $map[trim((string) $r->wc_code)] = (string) $r->dept;
+        }
+
+        return $map;
+    }
+
     /** ประวัติการรับในแต่ละขั้นของ WO เดียว (ใช้ในหน้า detail) */
     public function receiveHistory(string $site, int $workorderId): Collection
     {

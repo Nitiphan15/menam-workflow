@@ -157,6 +157,8 @@ Route::get('/api/wr/po',    [IncomeController::class, 'poSuggest'])->name('wr.au
 // WIP & Stock Pending Monitoring (Prototype)
 Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::get('/wip', [WipMonitoringController::class, 'index'])->name('wip.index');
+  Route::get('/wip/list', [WipMonitoringController::class, 'list'])->name('wip.list');
+  Route::get('/wip/export', [WipMonitoringController::class, 'export'])->name('wip.export');
   Route::get('/wip/{site}/{workorder}', [WipMonitoringController::class, 'detail'])
     ->whereNumber('workorder')
     ->name('wip.detail');

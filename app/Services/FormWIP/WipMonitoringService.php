@@ -25,7 +25,11 @@ use Illuminate\Support\Facades\Log;
 class WipMonitoringService
 {
     private const CACHE_TTL_SECONDS = 600;
-    private const CACHE_VERSION = 'v3';
+    private const CACHE_VERSION = 'v5';
+    /** snapshot เก่ากว่านี้ (นาที) จะกลับไป query สดแทน — sync ตั้งไว้ทุก 15 นาที */
+    private const SNAPSHOT_MAX_AGE_MINUTES = 60;
+    /** sync ดึง WO ที่เปิดย้อนหลังสูงสุดเท่ากับตัวเลือกบนหน้าจอ */
+    public const SYNC_DAYS = 730;
     private const PACK_WC = 'PK';
     private const NOISE_KG = 1.0;
 
@@ -59,38 +63,174 @@ class WipMonitoringService
     {
     }
 
-    public function getDashboardData(array $filters, int $page, int $perPage = 50): array
+    /** ข้อมูลที่ผ่าน filter แล้ว ใช้ร่วมกันทั้ง dashboard และ export */
+    private function filteredData(array $filters): array
     {
         $dataset = $this->loadDataset($filters['site'], $filters['days'], (bool) $filters['refresh']);
 
-        $scoped = collect($dataset['rows'])
-            ->filter(fn($r) => $filters['scope'] !== 'pk' || $r['ends_with_pk']);
+        $deptMaps = $this->departmentMaps(array_unique(array_column($dataset['rows'], 'site')));
 
-        // dashboard summary ใช้ filter ทุกตัว ยกเว้น status (เพื่อให้การ์ดยังแสดงครบเวลาคลิก drill-down)
+        $scoped = collect($dataset['rows'])
+            ->filter(fn($r) => $filters['scope'] !== 'pk' || $r['ends_with_pk'])
+            ->map(fn($r) => $this->withDepartments($r, $deptMaps[$r['site']] ?? []));
+
+        // summary ใช้ filter ทุกตัว ยกเว้น status (เพื่อให้การ์ดยังแสดงครบเวลาคลิก drill-down)
         $forSummary = $scoped->filter(fn($r) => $this->passes($r, array_merge($filters, ['status' => ''])))->values();
-        $rows = $forSummary->filter(fn($r) => $filters['status'] === '' || $this->matchesStatus($r, $filters['status']))
-            ->sortByDesc(fn($r) => [$r['aging_days'], $r['wip_total']])
+        $rows = $this->sortRows(
+            $forSummary->filter(fn($r) => $filters['status'] === '' || $this->matchesStatus($r, $filters['status'])),
+            $filters['sort'] ?? 'aging'
+        );
+
+        return [$dataset, $scoped, $forSummary, $rows];
+    }
+
+    private function sortRows(Collection $rows, string $sort): Collection
+    {
+        $sorted = match ($sort) {
+            'wip' => $rows->sortByDesc(fn($r) => [$r['wip_total'], $r['aging_days']]),
+            'due' => $rows->sortBy(fn($r) => [$r['reqdate'] ?: '9999-12-31', -$r['wip_total']]),
+            'open' => $rows->sortByDesc(fn($r) => [(string) $r['dateopen'], $r['wo_no']]),
+            'wo' => $rows->sortBy(fn($r) => [$r['site'], $r['wo_no']]),
+            default => $rows->sortByDesc(fn($r) => [$r['aging_days'], $r['wip_total']]),
+        };
+
+        return $sorted->values();
+    }
+
+    /** แผนกของ Work Center ต่อ site (cache 6 ชม. — master เปลี่ยนน้อย) */
+    private function departmentMaps(array $sites): array
+    {
+        $maps = [];
+        foreach ($sites as $site) {
+            try {
+                $maps[$site] = Cache::remember("wip:dept-map:{$site}", 21600, fn() => $this->repo->workcenterDepartments($site));
+            } catch (\Throwable $e) {
+                Log::warning('WIP department map failed', ['site' => $site, 'message' => $e->getMessage()]);
+                $maps[$site] = [];
+            }
+        }
+
+        return $maps;
+    }
+
+    private function withDepartments(array $r, array $map): array
+    {
+        foreach ($r['steps'] as $i => $s) {
+            $r['steps'][$i]['dept'] = $map[$s['wc_code']] ?? '-';
+        }
+        $r['current_dept'] = $r['current_wc'] !== '-' ? ($map[$r['current_wc']] ?? '-') : '-';
+
+        return $r;
+    }
+
+    /** ตัวเลือกใน dropdown ของ filter (คำนวณจากข้อมูลชุดเดียวกับหน้าจอ) */
+    private function filterOptions(Collection $scoped): array
+    {
+        $distinct = fn(callable $pick) => $scoped->map($pick)
+            ->map(fn($v) => trim((string) $v))
+            ->filter(fn($v) => $v !== '' && $v !== '-')
+            ->unique()
+            ->sort(SORT_NATURAL | SORT_FLAG_CASE)
             ->values();
+
+        $steps = $scoped->flatMap(fn($r) => $r['steps']);
+
+        return [
+            'dept' => $steps->pluck('dept')->filter(fn($v) => $v && $v !== '-')->unique()->sort()->values(),
+            'wc' => $steps->map(fn($s) => ['code' => $s['wc_code'], 'name' => $s['wc_name'], 'dept' => $s['dept'] ?? '-'])
+                ->unique('code')->sortBy('code', SORT_NATURAL)->values(),
+            'machine' => $steps->filter(fn($s) => !empty($s['machine']))
+                ->map(fn($s) => ['machine' => (string) $s['machine'], 'wc' => $s['wc_code']])
+                ->unique(fn($m) => $m['wc'] . '|' . $m['machine'])->sortBy(fn($m) => $m['wc'] . ' ' . $m['machine'], SORT_NATURAL)->values(),
+            'customer' => $distinct(fn($r) => $r['customer']),
+            'grade' => $distinct(fn($r) => $r['grade']),
+            'size' => $distinct(fn($r) => $r['size'])->sortBy(fn($v) => is_numeric($v) ? (float) $v : PHP_FLOAT_MAX)->values(),
+            'suggest' => $this->suggestions($scoped),
+        ];
+    }
+
+    /**
+     * รายการสำหรับ autocomplete ช่องค้นหา / Product (สร้างจากข้อมูลชุดเดียวกับหน้าจอ)
+     * WO มี url → เลือกแล้วเปิดหน้ารายละเอียดได้ทันที
+     */
+    private function suggestions(Collection $scoped): array
+    {
+        $wo = $scoped->map(fn($r) => [
+            'value' => $r['wo_no'],
+            'desc' => trim($r['part_number'] . ' · ' . $r['customer']),
+            'group' => 'wo',
+            'url' => route('wip.detail', ['site' => strtolower($r['site']), 'workorder' => $r['workorder_id']]),
+        ]);
+
+        $product = $scoped->groupBy('part_number')->map(fn($g, $pn) => [
+            'value' => (string) $pn,
+            'desc' => \Illuminate\Support\Str::limit((string) $g->first()['part_desc'], 70) . ' · ' . $g->count() . ' WO',
+            'group' => 'product',
+        ])->filter(fn($p) => $p['value'] !== '');
+
+        $customer = $scoped->groupBy('customer')->map(fn($g, $c) => [
+            'value' => (string) $c, 'desc' => $g->count() . ' WO', 'group' => 'customer',
+        ])->filter(fn($c) => $c['value'] !== '' && $c['value'] !== '-');
+
+        $so = $scoped->filter(fn($r) => $r['ord_number'] !== '')->groupBy('ord_number')->map(fn($g, $so) => [
+            'value' => (string) $so, 'desc' => $g->pluck('wo_no')->take(3)->implode(', ') . ($g->count() > 3 ? ' …' : ''), 'group' => 'so',
+        ]);
+
+        return $wo->concat($product->values())->concat($customer->values())->concat($so->values())->values()->all();
+    }
+
+    /** ข้อมูลสำหรับ Export Excel (ทุกแถวตาม filter ไม่แบ่งหน้า) */
+    public function getExportData(array $filters): array
+    {
+        [$dataset, , $forSummary, $rows] = $this->filteredData($filters);
+
+        return [
+            'filters' => $filters,
+            'rows' => $rows,
+            'statusCards' => $this->statusCards($forSummary),
+            'wcSummary' => $this->wcSummary($forSummary),
+            'agingSummary' => $this->agingSummary($forSummary),
+            'totalWipKg' => $forSummary->sum('wip_total'),
+            'fetchedAt' => $dataset['fetched_at'],
+            'statuses' => self::STATUSES,
+            'agingBands' => self::AGING_BANDS,
+        ];
+    }
+
+    public function getDashboardData(array $filters, int $page, int $perPage = 50, ?string $path = null): array
+    {
+        [$dataset, $scoped, $forSummary, $rows] = $this->filteredData($filters);
 
         $paginator = new LengthAwarePaginator(
             $rows->forPage($page, $perPage)->values(),
             $rows->count(),
             $perPage,
             $page,
-            ['path' => route('wip.index'), 'query' => request()->except('page', 'refresh')]
+            ['path' => $path ?? route('wip.list'), 'query' => request()->except('page', 'refresh')]
         );
+
+        // Dashboard: 10 รายการที่มี WIP ค้างและค้างนานสุด (ไม่ขึ้นกับ filter สถานะ)
+        $topCritical = $forSummary
+            ->filter(fn($r) => $r['wip_total'] > 0)
+            ->sortByDesc(fn($r) => [$r['aging_days'], $r['wip_total']])
+            ->take(10)
+            ->values();
 
         return [
             'filters' => $filters,
             'rows' => $paginator,
+            'topCritical' => $topCritical,
             'statusCards' => $this->statusCards($forSummary),
             'wcSummary' => $this->wcSummary($forSummary),
             'machineSummary' => $this->machineSummary($forSummary),
+            'postProduction' => $this->postProductionBands($forSummary),
+            'trend' => $this->trend($filters),
             'agingSummary' => $this->agingSummary($forSummary),
-            'wcOptions' => $scoped->flatMap(fn($r) => array_column($r['steps'], 'wc_code'))->unique()->sort()->values(),
+            'options' => $this->filterOptions($scoped),
             'totalWipKg' => $forSummary->sum('wip_total'),
             'fetchedAt' => $dataset['fetched_at'],
             'dataErrors' => $dataset['errors'],
+            'dataSources' => $dataset['sources'],
             'statuses' => self::STATUSES,
             'agingBands' => self::AGING_BANDS,
         ];
@@ -105,6 +245,10 @@ class WipMonitoringService
         $erp = $this->repo->erpReceipts($site, [$wo->workordernumber]);
         $row = $this->buildRow($site, $wo, $steps, $erp->get(strtoupper(trim((string) $wo->workordernumber))));
 
+        $snapshot = app(WipSnapshotService::class);
+        $row = $this->applyStatusSince([$row], $snapshot->statusSinceMap($site, $workorderId))[0];
+        $statusHistory = $snapshot->history($site, $workorderId);
+
         $erpLines = collect();
         $erpError = null;
         try {
@@ -117,6 +261,8 @@ class WipMonitoringService
         return [
             'row' => $row,
             'history' => $this->repo->receiveHistory($site, $workorderId),
+            'statusHistory' => $statusHistory,
+            'snapshotReady' => $snapshot->tablesReady(),
             'erpLines' => $erpLines,
             'erpError' => $erpError,
             'statuses' => self::STATUSES,
@@ -126,33 +272,75 @@ class WipMonitoringService
 
     // ------------------------------------------------------------------ dataset
 
+    /**
+     * แหล่งข้อมูล:
+     *  - snapshot (ตาราง wip_wo_current ที่ sync ทุก 15 นาที) ถ้ามีตารางและ sync สำเร็จล่าสุดไม่เกิน SNAPSHOT_MAX_AGE_MINUTES
+     *  - live (query WMSOne + ERP ตรง แล้ว cache 10 นาที) ถ้ายังไม่มี snapshot หรือผู้ใช้กด "อัปเดต"
+     * ทั้งสองแบบ Aging จะนับจากวันที่ WO เข้าสถานะปัจจุบัน (status_since) ถ้ามีข้อมูลใน snapshot
+     */
     private function loadDataset(string $siteFilter, int $days, bool $refresh): array
     {
         $sites = $siteFilter === 'ALL' ? array_keys(WipRepository::SITES) : [$siteFilter];
+        $snapshot = app(WipSnapshotService::class);
         $rows = [];
         $errors = [];
         $fetchedAt = null;
+        $sources = [];
 
         foreach ($sites as $site) {
-            $key = 'wip:' . self::CACHE_VERSION . ":{$site}:{$days}";
-            if ($refresh) {
-                Cache::forget($key);
-            }
-
             try {
-                $data = Cache::remember($key, self::CACHE_TTL_SECONDS, fn() => $this->buildSiteRows($site, $days));
-                $rows = array_merge($rows, $data['rows']);
-                $fetchedAt = $fetchedAt === null ? $data['fetched_at'] : min($fetchedAt, $data['fetched_at']);
+                $lastRun = $refresh ? null : $snapshot->freshRun($site, self::SNAPSHOT_MAX_AGE_MINUTES);
+
+                if ($lastRun) {
+                    $siteRows = $snapshot->openRows($site, $days);
+                    $siteFetchedAt = (string) $lastRun->finished_at;
+                    $sources[$site] = 'snapshot';
+                } else {
+                    $key = 'wip:' . self::CACHE_VERSION . ":{$site}:{$days}";
+                    if ($refresh) {
+                        Cache::forget($key);
+                    }
+                    $data = Cache::remember($key, self::CACHE_TTL_SECONDS, fn() => $this->computeSiteRows($site, $days));
+                    $siteRows = $this->applyStatusSince($data['rows'], $snapshot->statusSinceMap($site));
+                    $siteFetchedAt = $data['fetched_at'];
+                    $sources[$site] = 'live';
+                }
+
+                $rows = array_merge($rows, $siteRows);
+                $fetchedAt = $fetchedAt === null ? $siteFetchedAt : min($fetchedAt, $siteFetchedAt);
             } catch (\Throwable $e) {
                 $errors[] = "โหลดข้อมูล {$site} ไม่สำเร็จ";
                 Log::warning('WIP dataset load failed', ['site' => $site, 'message' => $e->getMessage()]);
             }
         }
 
-        return ['rows' => $rows, 'fetched_at' => $fetchedAt, 'errors' => $errors];
+        return ['rows' => $rows, 'fetched_at' => $fetchedAt, 'errors' => $errors, 'sources' => $sources];
     }
 
-    private function buildSiteRows(string $site, int $days): array
+    /**
+     * ใช้วันที่เข้าสถานะ (จาก snapshot) เป็นฐาน Aging — เฉพาะ WO ที่สถานะยังตรงกับใน snapshot
+     *
+     * @param array $map workorder_id => ['status' => ..., 'status_since' => ...]
+     */
+    public function applyStatusSince(array $rows, array $map): array
+    {
+        foreach ($rows as &$r) {
+            $snap = $map[$r['workorder_id']] ?? null;
+            if ($snap && $snap['status'] === $r['status'] && !empty($snap['status_since'])) {
+                $r['status_since'] = $snap['status_since'];
+                $r['aging_ref'] = $snap['status_since'];
+                $r['aging_source'] = 'status';
+            }
+            $r['aging_days'] = $r['aging_ref'] ? max(0, (int) Carbon::parse($r['aging_ref'])->startOfDay()->diffInDays(today(), false)) : 0;
+            $r['aging_band'] = $this->agingBand($r['aging_days'], $r['current_wc']);
+        }
+        unset($r);
+
+        return $rows;
+    }
+
+    /** คำนวณแถวของทุก WO ที่เปิดอยู่จาก WMSOne + ERP (ใช้ทั้งหน้าจอแบบ live และงาน sync snapshot) */
+    public function computeSiteRows(string $site, int $days): array
     {
         $workorders = $this->repo->openWorkorders($site, $days);
         $stepsByWo = $this->repo->steps($site, $workorders->pluck('id')->map(fn($v) => (int) $v)->all())
@@ -196,9 +384,29 @@ class WipMonitoringService
             'last_usage' => $s->last_usage,
             'machine' => $s->machine,
             'balance' => 0.0,
+            'done' => false,
+            'done_by' => null,
         ])->all();
 
         $n = count($steps);
+
+        // เกณฑ์ "ขั้นนี้ครบ" ให้ตรงกับ Production Status Tracking (Form Tracking):
+        //  1) ยอดรับของขั้น (ทุก receivetype รวม NCR) ≥ Qty WO − ค่ายอมรับตามช่วงน้ำหนัก (ProductionWeightTolerance)
+        //  2) ถ้าขั้นหลังครบแล้ว ขั้นก่อนหน้าทั้งหมดถือว่าครบ (completePassedSteps)
+        $lastDoneIdx = -1;
+        foreach ($steps as $i => $s) {
+            if (ProductionWeightTolerance::isComplete($s['good_qty'] + $s['ncr_qty'], $target)) {
+                $steps[$i]['done'] = true;
+                $steps[$i]['done_by'] = 'weight';
+                $lastDoneIdx = $i;
+            }
+        }
+        for ($i = 0; $i < $lastDoneIdx; $i++) {
+            if (!$steps[$i]['done']) {
+                $steps[$i]['done'] = true;
+                $steps[$i]['done_by'] = 'passed';
+            }
+        }
         $erpReceived = (float) ($erp->erp_received ?? 0);
         $endsWithPk = $n > 0 && strtoupper($steps[$n - 1]['wc_code']) === self::PACK_WC;
         $procEnd = $endsWithPk ? $n - 2 : $n - 1;   // ขั้นผลิตสุดท้ายก่อน PK
@@ -210,8 +418,8 @@ class WipMonitoringService
             $finalOut = $steps[$n - 1]['good_qty'];
             $maxOut = max(array_column($steps, 'good_qty'));
             $started = max($steps[0]['input_qty'], $maxOut);
-            // ถือว่าผลิตครบ ถ้า output ขั้นสุดท้าย หรือยอดรับเข้า FG ใน ERP ครบตาม tolerance
-            $finalDone = ProductionWeightTolerance::isComplete(max($finalOut, $erpReceived), $target);
+            // WO ผลิตครบ = ขั้นสุดท้ายครบตามเกณฑ์ Tracking หรือยอดรับเข้า FG ใน ERP ครบตามเกณฑ์เดียวกัน
+            $finalDone = $steps[$n - 1]['done'] || ProductionWeightTolerance::isComplete($erpReceived, $target);
 
             // In Process: ค้างระหว่างขั้น (ไม่รวมขั้น PK)
             for ($i = 0; $i <= $procEnd; $i++) {
@@ -219,11 +427,12 @@ class WipMonitoringService
                     ? max($steps[0]['input_qty'], $steps[0]['good_qty'] + $steps[0]['ncr_qty'])
                     : $steps[$i - 1]['good_qty'];
                 $balance = max(0.0, $upstream - $steps[$i]['good_qty'] - $steps[$i]['ncr_qty']);
-                // ส่วนต่างเล็ก ๆ หลังขั้นนั้นรับแล้ว = yield loss ไม่ใช่ WIP
-                if ($steps[$i]['good_qty'] > 0 && $balance <= ProductionWeightTolerance::allowedShortageKg($upstream)) {
+                // ขั้นที่ครบแล้วตามเกณฑ์ Tracking → ส่วนต่างที่เหลือคือ yield loss ไม่ใช่ WIP
+                if ($steps[$i]['done'] || $finalDone) {
                     $balance = 0.0;
                 }
-                if ($finalDone) {
+                // งาน partial: ส่วนต่างที่อยู่ในค่ายอมรับของยอดที่ส่งเข้ามา ถือเป็น yield loss
+                if ($steps[$i]['good_qty'] > 0 && $balance <= ProductionWeightTolerance::allowedShortageKg($upstream)) {
                     $balance = 0.0;
                 }
                 $steps[$i]['balance'] = $balance;
@@ -233,7 +442,7 @@ class WipMonitoringService
             if ($endsWithPk && $procEnd >= 0) {
                 $upstream = $steps[$procEnd]['good_qty'];
                 $pack = max(0.0, $upstream - $finalOut - $steps[$n - 1]['ncr_qty']);
-                if (($finalOut > 0 && $pack <= ProductionWeightTolerance::allowedShortageKg($upstream)) || $finalDone) {
+                if (($finalOut > 0 && $pack <= ProductionWeightTolerance::allowedShortageKg($upstream)) || $finalDone || $steps[$n - 1]['done']) {
                     $pack = 0.0;
                 }
                 $steps[$n - 1]['balance'] = $pack;
@@ -246,6 +455,33 @@ class WipMonitoringService
             $buckets['WAITING_FG'] = max(0.0, $finalOut - $erpReceived);
             // NCR ของ WO ที่ผลิตครบแล้ว = ประวัติ/scrap ไม่ใช่ของค้าง → ไม่นับเป็น Hold
             $buckets['HOLD'] = $finalDone ? 0.0 : array_sum(array_column($steps, 'ncr_qty'));
+
+            // ยอดรวมทุกสถานะต้องไม่เกินน้ำหนัก WO (หรือยอดที่ผลิต/รับเข้าจริง ถ้ามากกว่า)
+            // เกิดได้เมื่อ ERP รับเข้ามากกว่า output ขั้นสุดท้ายใน WMSOne → ตัดส่วนเกินจาก รอเข้าผลิต → กำลังผลิต → รอแพ็ค
+            $cap = max($target, $finalOut, $erpReceived);
+            $excess = $buckets['WAITING_PRODUCTION'] + $buckets['IN_PROCESS'] + $buckets['WAITING_PACKAGING']
+                + $buckets['WAITING_FG'] + $buckets['HOLD'] + $erpReceived - $cap;
+            if ($excess > self::NOISE_KG) {
+                $cut = min($excess, $buckets['WAITING_PRODUCTION']);
+                $buckets['WAITING_PRODUCTION'] -= $cut;
+                $excess -= $cut;
+
+                if ($excess > 0 && $buckets['IN_PROCESS'] > 0) {
+                    $cut = min($excess, $buckets['IN_PROCESS']);
+                    $ratio = ($buckets['IN_PROCESS'] - $cut) / $buckets['IN_PROCESS'];
+                    for ($i = 0; $i <= $procEnd; $i++) {
+                        $steps[$i]['balance'] *= $ratio;
+                    }
+                    $buckets['IN_PROCESS'] -= $cut;
+                    $excess -= $cut;
+                }
+
+                if ($excess > 0 && $buckets['WAITING_PACKAGING'] > 0) {
+                    $cut = min($excess, $buckets['WAITING_PACKAGING']);
+                    $buckets['WAITING_PACKAGING'] -= $cut;
+                    $steps[$n - 1]['balance'] = $buckets['WAITING_PACKAGING'];
+                }
+            }
         } else {
             // ไม่มี routing → ถือว่ายังไม่เริ่ม
             $buckets['WAITING_PRODUCTION'] = max(0.0, $target - $erpReceived);
@@ -341,12 +577,15 @@ class WipMonitoringService
             'last_fg_date' => $erp->last_fg_date ?? null,
             'last_tx' => $this->lastActivity($steps),
             'aging_ref' => $refDate,
+            'aging_source' => 'activity',   // activity = ประมาณจาก transaction ล่าสุด, status = วันที่เข้าสถานะจริง (snapshot)
+            'status_since' => null,
+            'activity_ref' => $refDate,     // ค่าเดิมจาก transaction ใช้เป็นจุดเริ่มต้นตอน sync ครั้งแรก
             'aging_days' => $agingDays,
             'aging_band' => $this->agingBand($agingDays, $currentWc),
         ];
     }
 
-    private function agingBand(int $days, string $wc): string
+    public function agingBand(int $days, string $wc): string
     {
         $t = self::AGING_BY_WC[$wc] ?? self::AGING_DEFAULT;
 
@@ -387,9 +626,56 @@ class WipMonitoringService
 
     private function passes(array $r, array $f): bool
     {
-        if ($f['wc'] !== '' && $r['current_wc'] !== $f['wc']
-            && !collect($r['steps'])->contains(fn($s) => $s['wc_code'] === $f['wc'] && $s['balance'] > 0)) {
+        // ตำแหน่งงาน: ผ่านถ้าขั้นปัจจุบัน หรือมีงานค้างอยู่ที่ขั้นนั้น
+        $at = function (callable $match) use ($r): bool {
+            foreach ($r['steps'] as $s) {
+                if ($match($s) && ($s['balance'] > 0 || $s['wc_code'] === $r['current_wc'])) {
+                    return true;
+                }
+            }
+
             return false;
+        };
+
+        if ($f['wc'] !== '' && $r['current_wc'] !== $f['wc'] && !$at(fn($s) => $s['wc_code'] === $f['wc'])) {
+            return false;
+        }
+        if (($f['dept'] ?? '') !== '' && ($r['current_dept'] ?? '') !== $f['dept'] && !$at(fn($s) => ($s['dept'] ?? '') === $f['dept'])) {
+            return false;
+        }
+        if (($f['machine'] ?? '') !== '' && $r['current_machine'] !== $f['machine'] && !$at(fn($s) => (string) $s['machine'] === $f['machine'])) {
+            return false;
+        }
+        if (($f['product'] ?? '') !== '' && !str_contains(mb_strtoupper($r['part_number'] . ' ' . $r['part_desc']), mb_strtoupper($f['product']))) {
+            return false;
+        }
+        if (($f['customer'] ?? '') !== '' && $r['customer'] !== $f['customer']) {
+            return false;
+        }
+        if (($f['grade'] ?? '') !== '' && $r['grade'] !== $f['grade']) {
+            return false;
+        }
+        if (($f['size'] ?? '') !== '' && $r['size'] !== $f['size']) {
+            return false;
+        }
+        if (!empty($f['date_from']) || !empty($f['date_to'])) {
+            $open = $r['dateopen'] ? Carbon::parse($r['dateopen'])->toDateString() : null;
+            if (!$open || (!empty($f['date_from']) && $open < $f['date_from']) || (!empty($f['date_to']) && $open > $f['date_to'])) {
+                return false;
+            }
+        }
+        if (($f['due'] ?? '') !== '') {
+            $due = $r['reqdate'] ? Carbon::parse($r['reqdate'])->startOfDay() : null;
+            $ok = match ($f['due']) {
+                'overdue' => $due && $due->lt(today()),
+                '7' => $due && $due->betweenIncluded(today(), today()->addDays(7)),
+                '30' => $due && $due->betweenIncluded(today(), today()->addDays(30)),
+                'none' => $due === null,
+                default => true,
+            };
+            if (!$ok) {
+                return false;
+            }
         }
         if ($f['aging'] !== '' && $r['aging_band'] !== $f['aging']) {
             return false;
@@ -434,13 +720,23 @@ class WipMonitoringService
             foreach ($r['steps'] as $i => $s) {
                 $isPack = $r['ends_with_pk'] && $i === count($r['steps']) - 1;
                 $key = $s['wc_code'];
-                $acc[$key] ??= ['wc_code' => $key, 'wc_name' => $s['wc_name'], 'in_process' => 0.0, 'waiting_pack' => 0.0, 'waiting_prod' => 0.0, 'wo' => []];
+                $acc[$key] ??= [
+                    'wc_code' => $key, 'wc_name' => $s['wc_name'], 'dept' => $s['dept'] ?? '-',
+                    'in_process' => 0.0, 'waiting_pack' => 0.0, 'waiting_prod' => 0.0,
+                    'bands' => array_fill_keys(array_keys(self::AGING_BANDS), 0.0), 'wo' => [],
+                ];
+                $kg = 0.0;
                 if ($s['balance'] > 0) {
                     $acc[$key][$isPack ? 'waiting_pack' : 'in_process'] += $s['balance'];
-                    $acc[$key]['wo'][$r['site'] . $r['workorder_id']] = true;
+                    $kg += $s['balance'];
                 }
                 if ($i === 0 && $r['buckets']['WAITING_PRODUCTION'] > 0) {
                     $acc[$key]['waiting_prod'] += $r['buckets']['WAITING_PRODUCTION'];
+                    $kg += $r['buckets']['WAITING_PRODUCTION'];
+                }
+                if ($kg > 0) {
+                    // Heatmap: น้ำหนักที่ค้างอยู่ที่ WC นี้ แยกตามระดับ Aging ของ WO
+                    $acc[$key]['bands'][$r['aging_band']] += $kg;
                     $acc[$key]['wo'][$r['site'] . $r['workorder_id']] = true;
                 }
             }
@@ -454,6 +750,45 @@ class WipMonitoringService
             ->filter(fn($x) => $x['total'] > 0)
             ->sortByDesc('total')
             ->values();
+    }
+
+    /** แถวท้าย heatmap: งานที่ผลิตเสร็จแล้วแต่ยังไม่อยู่ที่ WC (รอรับเข้า FG) และ Hold */
+    private function postProductionBands(Collection $rows): array
+    {
+        $out = [];
+        foreach (['WAITING_FG', 'HOLD'] as $status) {
+            $bands = array_fill_keys(array_keys(self::AGING_BANDS), 0.0);
+            $wo = 0;
+            foreach ($rows as $r) {
+                if (($r['buckets'][$status] ?? 0) > 0) {
+                    $bands[$r['aging_band']] += $r['buckets'][$status];
+                    $wo++;
+                }
+            }
+            $out[$status] = ['bands' => $bands, 'total' => array_sum($bands), 'wo_count' => $wo];
+        }
+
+        return $out;
+    }
+
+    /** แนวโน้ม WIP รายวันจาก wip_daily_snapshots (ใช้ site / route / ช่วงวันเปิด WO แบบเดียวกับหน้าจอ) */
+    private function trend(array $filters): array
+    {
+        $sites = $filters['site'] === 'ALL' ? array_keys(WipRepository::SITES) : [$filters['site']];
+        $points = app(WipSnapshotService::class)->dailyTrend($sites, $filters['scope'] === 'pk', $filters['days'], 90);
+
+        return [
+            'labels' => $points->map(fn($p) => Carbon::parse($p->snapshot_date)->format('d/m'))->values()->all(),
+            'series' => [
+                'WAITING_PRODUCTION' => $points->map(fn($p) => round($p->wp / 1000, 2))->values()->all(),
+                'IN_PROCESS' => $points->map(fn($p) => round($p->ip / 1000, 2))->values()->all(),
+                'WAITING_PACKAGING' => $points->map(fn($p) => round($p->pkg / 1000, 2))->values()->all(),
+                'WAITING_FG' => $points->map(fn($p) => round($p->fg / 1000, 2))->values()->all(),
+                'HOLD' => $points->map(fn($p) => round($p->hd / 1000, 2))->values()->all(),
+            ],
+            'days' => $points->count(),
+            'first' => $points->first()->snapshot_date ?? null,
+        ];
     }
 
     /** งานค้างรายเครื่อง — งานที่ยังไม่มีการรับในขั้นนั้นจะยังไม่รู้เครื่อง จึงแยกยอดไว้ต่างหาก */
