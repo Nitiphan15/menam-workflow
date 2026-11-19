@@ -282,6 +282,12 @@ return [
                 'permission' => 'TDP',
 
             ],
+            [
+                'icon' => 'fa-solid fa-boxes-stacked',
+                'text' => 'WIP Monitoring',
+                'route' => 'wip.index',
+                'permission' => 'TDP',
+            ],
         ],
 
 

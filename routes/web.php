@@ -83,6 +83,7 @@ use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
 use App\Http\Controllers\FormGP\GratingPerformanceController;
 use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
+use App\Http\Controllers\FormWIP\WipMonitoringController;
 use App\Http\Controllers\FormDP\TruckMasterController;
 //Forecast
 use App\Http\Controllers\FormFC\ForecastRmController;
@@ -152,6 +153,16 @@ Route::get('/api/grating-projects/search', [MfgLookupController::class, 'grating
 Route::get('/api/wr/items', [IncomeController::class, 'itemsSuggest'])->name('wr.autocomplete.items');
 Route::get('/api/wr/po',    [IncomeController::class, 'poSuggest'])->name('wr.autocomplete.po');
 
+
+// WIP & Stock Pending Monitoring (Prototype)
+Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
+  Route::get('/wip', [WipMonitoringController::class, 'index'])->name('wip.index');
+  Route::get('/wip/list', [WipMonitoringController::class, 'list'])->name('wip.list');
+  Route::get('/wip/export', [WipMonitoringController::class, 'export'])->name('wip.export');
+  Route::get('/wip/{site}/{workorder}', [WipMonitoringController::class, 'detail'])
+    ->whereNumber('workorder')
+    ->name('wip.detail');
+});
 
 Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::get('/dp/production-status', [ProductionStatusTrackingController::class, 'index'])->name('dp.production-status');

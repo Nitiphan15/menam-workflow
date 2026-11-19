@@ -67,6 +67,14 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Bangkok')
             ->onOneServer()
             ->withoutOverlapping(55);
+
+        // WIP Monitoring: sync สถานะ WO (WMSOne + ERP) ลง wip_* ทุก 15 นาที
+        // ถ้ายังไม่ได้สร้างตาราง (database/sql/create_wip_monitoring_snapshot.sql) command จะข้ามเอง
+        $schedule->command('wip:snapshot')
+            ->everyFifteenMinutes()
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(14);
     }
 
     /**
