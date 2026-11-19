@@ -49,6 +49,7 @@
 @endsection
 
 @push('styles')
+    <link rel="stylesheet" href="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.css') }}">
     <style>
         /* ให้เต็ม card */
         #ps-gantt {
@@ -69,7 +70,7 @@
 @endpush
 
 @push('scripts')
-    <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
+    <script src="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const ganttElem = document.getElementById('ps-gantt');

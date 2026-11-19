@@ -32,8 +32,7 @@
     <link href="{{ asset('vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
     <link href="{{ asset('vendor/flatpickr/flatpickr.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('vendor/tom-select/css/tom-select.bootstrap5.min.css') }}">
-    <link rel="stylesheet" href="{{ asset('vendor/frappe-gantt/frappe-gantt.css') }}">
-    <link rel="stylesheet" href="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.css') }}">
+    {{-- dhtmlxgantt โหลดเฉพาะหน้า formps/gantt; frappe-gantt ไม่มีหน้าไหนใช้แล้ว --}}
     <link rel="stylesheet" href="{{ asset('css/layout-base.css') }}?v={{ filemtime(public_path('css/layout-base.css')) }}">
 
     @yield('styles')
@@ -102,7 +101,9 @@
                         <script>
                             document.addEventListener('DOMContentLoaded', function () {
                                 if (!window.Swal) return;
-                                var Toast = Swal.mixin({
+                                // ถ้า scroll-safe-swal.js โหลดไม่ขึ้น ให้ fallback เป็น Swal ปกติ (toast จะไม่หายเงียบ)
+                                var SwalLib = window.ScrollSafeSwal || window.Swal;
+                                var Toast = SwalLib.mixin({
                                     toast: true,
                                     position: 'top-end',
                                     showConfirmButton: false,
@@ -165,39 +166,11 @@
     <script src="{{ asset('vendor/flatpickr/flatpickr.min.js') }}"></script>
     <script src="{{ asset('vendor/sweetalert2/sweetalert2.all.min.js') }}"></script>
     <script src="{{ asset('vendor/tom-select/js/tom-select.complete.min.js') }}"></script>
-    <script src="{{ asset('vendor/frappe-gantt/frappe-gantt.min.js') }}"></script>
-    <script src="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.js') }}"></script>
     <script src="{{ asset('vendor/chartjs/chart.umd.min.js') }}"></script>
     <script src="{{ asset('vendor/chartjs-plugin-datalabels/chartjs-plugin-datalabels.min.js') }}"></script>
     @stack('scripts')
 </body>
 
 
-@push('scripts')
-    <script>
-        function toggleStatus(id, isActive) {
-
-            let title = isActive ? 'ยืนยันการปิดการใช้งาน?' : 'ยืนยันการเปิดการใช้งาน?';
-            let text = isActive ? 'ฟอร์มนี้จะถูกปิดการใช้งาน' : 'ฟอร์มนี้จะถูกเปิดใช้งาน';
-            let confirmBtn = isActive ? 'ใช่, ปิดการใช้งาน' : 'ใช่, เปิดการใช้งาน';
-            let confirmColor = isActive ? '#d33' : '#28a745';
-
-            Swal.fire({
-                title: title,
-                text: text,
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonText: confirmBtn,
-                cancelButtonText: 'ยกเลิก',
-                confirmButtonColor: confirmColor,
-                cancelButtonColor: '#6c757d',
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    document.getElementById('toggle-form-' + id).submit();
-                }
-            });
-        }
-    </script>
-@endpush
 
 </html>
