@@ -292,6 +292,8 @@ class DeliveryConfirmationResetTest extends TestCase
             "!\$confStatus || \$confStatus === 'CONFIRM' ? 'selected' : ''",
             $trackingView
         );
-        $this->assertStringContainsString('<option value="">รอจัดแผน</option>', $trackingView);
+        // production: "รอจัดแผน" is an explicit WAITING_PLAN status (not counted as active)
+        $this->assertStringContainsString('<option value="WAITING_PLAN"', $trackingView);
+        $this->assertStringContainsString("\$confStatus === 'WAITING_PLAN' ? 'selected' : ''", $trackingView);
     }
 }
