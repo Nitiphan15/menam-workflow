@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Po\RetroactivePoApprovalMailService;
 use Illuminate\Http\Request;
 use RuntimeException;
+use Symfony\Component\Mailer\Exception\ExceptionInterface as MailerException;
 
 class PoRetroactiveMailController extends Controller
 {
@@ -33,22 +34,31 @@ class PoRetroactiveMailController extends Controller
         ]);
 
         try {
-            $result = $service->send($data['ordnumber']);
+            // Manual reminders may be sent repeatedly while the existing approval is still pending.
+            $result = $service->send($data['ordnumber'], allowDuplicate: true);
+        } catch (\PDOException | MailerException $exception) {
+            // Both extend RuntimeException, so they must be caught before the validation messages below.
+            return $this->sendFailed($exception);
         } catch (RuntimeException $exception) {
             return back()->withInput()->withErrors(['ordnumber' => $exception->getMessage()]);
         } catch (\Throwable $exception) {
-            report($exception);
-            return back()->withInput()->withErrors([
-                'ordnumber' => 'ส่งเมลไม่สำเร็จ กรุณาตรวจ log หรือลองใหม่',
-            ]);
+            return $this->sendFailed($exception);
         }
 
-        $message = $result['delivery'] === 'already'
-            ? 'รายการนี้เคยส่งเมลย้อนหลังแล้ว ระบบจึงไม่ส่งซ้ำ'
-            : 'ส่งเมลย้อนหลังให้ Jittinan แล้ว';
+        $recipientNames = $result['sent_to']->map(fn ($approver) => $approver->name ?: $approver->username)->implode(', ');
+        $message = "ส่งเมลให้ {$recipientNames} แล้ว โดยไม่เปลี่ยนสถานะหรือสร้างรายการอนุมัติใหม่";
 
         return redirect()
             ->route('adminweb.po-retroactive-mail.index', ['ordnumber' => $data['ordnumber']])
             ->with('ok', $message);
+    }
+
+    private function sendFailed(\Throwable $exception)
+    {
+        report($exception);
+
+        return back()->withInput()->withErrors([
+            'ordnumber' => 'ส่งเมลไม่สำเร็จ กรุณาตรวจ log หรือลองใหม่',
+        ]);
     }
 }

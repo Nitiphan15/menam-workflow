@@ -62,6 +62,7 @@ class PoApprovalController extends Controller
                     'context' => [
                         'department_id' => $departmentId,
                         'document_department_id' => $departmentId,
+                        'document_department_name' => (string) $po->f1,
                         'submitter_department_id' => $submitterDepartmentId,
                     ],
                     'submit_comment' => $request->input('comment'),
@@ -164,6 +165,7 @@ class PoApprovalController extends Controller
                     'context' => [
                         'department_id' => $departmentId,
                         'document_department_id' => $departmentId,
+                        'document_department_name' => (string) $header->f1,
                         'submitter_department_id' => $submitterDepartmentId,
                     ],
                     'submit_comment' => 'Submitted from PO Online department group',
@@ -350,17 +352,30 @@ class PoApprovalController extends Controller
 
     public function cancel(Request $request, $id)
     {
-        $po = PoHeader::query()->findOrFail($id);
-        abort_if(!$po->workflow_id, 422, 'Workflow not found');
+        return $this->cancelPo($request, $id, false);
+    }
 
-        WorkflowEngine::void((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po');
+    public function cancelByManager(Request $request, $id)
+    {
+        return $this->cancelPo($request, $id, true);
+    }
 
-        $po->status_code = 'CANCELLED';
-        $po->updated_at = now();
-        $po->updated_by = auth()->id();
-        $po->save();
+    private function cancelPo(Request $request, $id, bool $managerOnly)
+    {
+        $request->validate(['comment' => 'required|string|max:1000']);
+        return \App\Support\WorkflowDb::transaction('po', function () use ($request, $id, $managerOnly) {
+            $po = PoHeader::query()->findOrFail($id);
+            abort_if(!$po->workflow_id, 422, 'Workflow not found');
 
-        return redirect()->route('po.show', $po->id)->with('ok', 'ยกเลิก PO เรียบร้อยแล้ว');
+            WorkflowEngine::void((int) $po->workflow_id, (int) auth()->id(), $request->input('comment'), 'po', $managerOnly);
+
+            $po->status_code = 'CANCELLED';
+            $po->updated_at = now();
+            $po->updated_by = auth()->id();
+            $po->save();
+
+            return redirect()->route('po.show', $po->id)->with('ok', 'ยกเลิก PO เรียบร้อยแล้ว');
+        });
     }
 
     private function resolveStatusFromWorkflow(?WfForm $wf): string

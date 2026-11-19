@@ -6,7 +6,7 @@
 @section('content')
 <div class="container py-4" style="max-width: 760px">
     <div class="card shadow-sm">
-        <div class="card-header fw-semibold">ส่งเมลแจ้ง Jittinan สำหรับ Factory PO</div>
+        <div class="card-header fw-semibold">ส่งเมลแจ้งผู้อนุมัติ PO ที่รออยู่ Step 3</div>
         <div class="card-body">
             @if (session('ok'))
                 <div class="alert alert-success">{{ session('ok') }}</div>
@@ -31,24 +31,31 @@
 
             @if ($result)
                 @php($po = $result['po'])
-                @php($approver = $result['approver'])
                 <div class="border rounded p-3 mt-4 bg-light">
                     <div><strong>PO:</strong> {{ $po->ordnumber }}</div>
                     <div><strong>Section:</strong> {{ $po->f1 }}</div>
                     <div><strong>สถานะ:</strong> {{ $po->status_code }} / Step 3</div>
-                    <div><strong>ผู้รับ:</strong> {{ $approver->name }} — {{ $approver->email }}</div>
+                    <div><strong>ผู้รับ:</strong></div>
+                    @foreach ($result['approvers'] as $approver)
+                        <div>{{ $approver->name ?: $approver->username }} — {{ $approver->email }}</div>
+                    @endforeach
                 </div>
 
-                @if ($result['already_dispatched'])
-                    <div class="alert alert-warning mt-3 mb-0">เคยส่งเมลย้อนหลังแล้ว ระบบไม่อนุญาตให้ส่งซ้ำ</div>
-                @else
-                    <form method="POST" action="{{ route('adminweb.po-retroactive-mail.send') }}" class="mt-3"
-                          onsubmit="return confirm('ยืนยันส่งเมลแจ้งอนุมัติ PO {{ $po->ordnumber }} ให้ Jittinan?')">
-                        @csrf
-                        <input type="hidden" name="ordnumber" value="{{ $po->ordnumber }}">
-                        <button class="btn btn-primary">ส่งเมลให้ Jittinan</button>
-                    </form>
+                @if ($result['unreachable_approvers']->isNotEmpty())
+                    <div class="alert alert-warning mt-3 mb-0">
+                        ผู้อนุมัติที่ส่งเมลไม่ได้ (ไม่มีอีเมลหรือบัญชีถูกปิด):
+                        {{ $result['unreachable_approvers']->map(fn ($approver) => $approver->name ?: $approver->username)->implode(', ') }}
+                    </div>
                 @endif
+                @if ($result['already_dispatched'])
+                    <div class="alert alert-info mt-3 mb-0">รายการนี้เคยส่งเมลแล้ว สามารถส่งเมลย้ำได้อีก</div>
+                @endif
+                <form method="POST" action="{{ route('adminweb.po-retroactive-mail.send') }}" class="mt-3"
+                      onsubmit="return confirm('ยืนยันส่งเมลย้ำ PO {{ $po->ordnumber }} ให้ผู้อนุมัติ {{ $result['approvers']->count() }} คน? การส่งนี้ไม่เปลี่ยนสถานะ PO หรือสร้าง approval ใหม่')">
+                    @csrf
+                    <input type="hidden" name="ordnumber" value="{{ $po->ordnumber }}">
+                    <button class="btn btn-primary">ส่งเมลย้ำให้ผู้อนุมัติ</button>
+                </form>
             @endif
         </div>
     </div>
