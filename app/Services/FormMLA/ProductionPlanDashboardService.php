@@ -5,6 +5,7 @@ namespace App\Services\FormMLA;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ProductionPlanDashboardService
 {
@@ -228,6 +229,7 @@ class ProductionPlanDashboardService
                     return $row;
                 });
         } catch (\Throwable $e) {
+            Log::warning('FormMLA: production plan dashboard query failed', ['connection' => $connection, 'error' => $e->getMessage()]);
             return collect();
         }
     }
@@ -256,6 +258,7 @@ class ProductionPlanDashboardService
                     'startdate' => $this->dateString($row->startdate ?? ''),
                 ]);
             } catch (\Throwable $e) {
+                Log::warning('FormMLA: load latest plan options failed', ['site' => $source['site'] ?? null, 'error' => $e->getMessage()]);
                 return collect();
             }
         })->unique(fn($row) => $row['site'] . '|' . $row['transnumber'])->values();
@@ -310,6 +313,7 @@ class ProductionPlanDashboardService
                     ]);
                 }
             } catch (\Throwable $e) {
+                Log::warning('FormMLA: load plan date range failed', ['site' => $source['site'] ?? null, 'error' => $e->getMessage()]);
                 continue;
             }
         }

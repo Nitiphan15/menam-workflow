@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class DivisionGroupController extends Controller
 {
@@ -163,6 +164,7 @@ class DivisionGroupController extends Controller
                         ->get(['accno', 'description'])
                 );
             } catch (QueryException $e) {
+                Log::warning('FormFC: load ERP chart accounts failed', ['connection' => $conn, 'error' => $e->getMessage()]);
                 continue;
             }
         }

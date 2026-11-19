@@ -14,6 +14,7 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Illuminate\Support\Facades\Log;
 
 class VariableCostService
 {
@@ -96,6 +97,7 @@ class VariableCostService
                     ->mapWithKeys(fn($r) => [trim((string) $r->classnumber) => trim((string) $r->description)])
                     ->all();
             } catch (\Throwable $e) {
+                Log::warning('FormVC: load ERP classinfo failed', ['site' => $site, 'error' => $e->getMessage()]);
                 $this->classInfoBySite[$site] = [];
             }
         }
@@ -219,6 +221,7 @@ class VariableCostService
                 ->orderByDesc('id')
                 ->first();
         } catch (\Throwable $e) {
+            Log::warning('FormVC: load latest truck weight log failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
@@ -240,6 +243,7 @@ class VariableCostService
                 ->orderByDesc('id')
                 ->get());
         } catch (\Throwable $e) {
+            Log::warning('FormVC: load truck weight logs failed', ['error' => $e->getMessage()]);
             return collect();
         }
     }
@@ -335,6 +339,7 @@ class VariableCostService
                     $grating['value'] += (float) ($gratingRow->value ?? 0);
                     $salesQty += $this->fetchSalesDeliveryQty($connection, $filters);
                 } catch (\Throwable $e) {
+                    Log::warning('FormVC: production/sales summary query failed', ['connection' => $connection, 'error' => $e->getMessage()]);
                     // เผื่อบาง connection ไม่มีตารางที่ต้องใช้ — ข้ามไป ไม่ให้ทั้งหน้าพัง
                 }
             }
@@ -504,6 +509,7 @@ class VariableCostService
                     ->values()
                     ->all();
             } catch (\Throwable $e) {
+                Log::warning('FormVC: load account display settings failed', ['error' => $e->getMessage()]);
                 return self::DEFAULT_ACCOUNT_OPTION_CODES;
             }
         });
@@ -1598,6 +1604,7 @@ class VariableCostService
                     ->unique()
                     ->values();
             } catch (\Throwable $e) {
+                Log::warning('FormVC: load division group options failed', ['error' => $e->getMessage()]);
                 return collect();
             }
         });
@@ -1628,6 +1635,7 @@ class VariableCostService
                     ->values()
                     ->all();
             } catch (\Throwable $e) {
+                Log::warning('FormVC: load department codes for division groups failed', ['sites' => $sites, 'error' => $e->getMessage()]);
                 return ['__NO_MATCH__'];
             }
         }) ?: ['__NO_MATCH__'];

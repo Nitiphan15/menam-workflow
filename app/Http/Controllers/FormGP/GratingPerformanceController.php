@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Log;
 
 class GratingPerformanceController extends Controller
 {
@@ -2693,6 +2694,7 @@ class GratingPerformanceController extends Controller
             if ($totalKg <= 0) return null;
             return round($totalBath / $totalKg, 2);
         } catch (\Throwable $e) {
+            Log::warning('FormGP: average cost per kg query failed', ['error' => $e->getMessage()]);
             return null;
         }
     }
