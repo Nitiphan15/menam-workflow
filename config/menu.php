@@ -8,7 +8,15 @@ return [
 
     'show_guest_menu_when_auth' => true,
     'hide_guest_menu_routes_when_auth' => ['login', 'stock-withdrawal.part-alert'],
-    'auth_sidebar_public_routes' => ['pkg.packaging.usage'],
+    // เมนูสาธารณะที่ยังแสดงใน sidebar หลัง login (ที่เหลืออยู่ในหน้า "เมนูทั้งหมด" /menus)
+    // ใส่ route ของเมนูเดี่ยว หรือ route ของ child ตัวใดตัวหนึ่งในกลุ่ม → แสดงทั้งกลุ่ม
+    // เลือกจาก user_activity_logs 90 วัน (2026-11-19): ใช้โดย 15–30 จาก 60 คน ที่เหลือ ≤ 8 คน
+    'auth_sidebar_public_routes' => [
+        'dp.inquiry',            // Delivery Plan
+        'deadstock.dashboard',   // Deadstock
+        'wos.sales_unit_summary', // Sales Report
+        'pkg.packaging.usage',   // Packaging
+    ],
 
     'menu' => [
         'guest' => [

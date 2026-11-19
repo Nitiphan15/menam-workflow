@@ -135,9 +135,15 @@
             $guestMenus = array_filter(config('menu.menu.guest', []), function ($item) use ($hiddenGuestRoutes, $publicSidebarRoutes) {
                 $route = $item['route'] ?? null;
 
-                return $route
-                    && !in_array($route, $hiddenGuestRoutes, true)
-                    && in_array($route, $publicSidebarRoutes, true);
+                if ($route) {
+                    return !in_array($route, $hiddenGuestRoutes, true)
+                        && in_array($route, $publicSidebarRoutes, true);
+                }
+
+                // กลุ่มที่มี children: แสดงทั้งกลุ่มถ้ามี child route อยู่ใน whitelist
+                $childRoutes = array_column($item['children'] ?? [], 'route');
+
+                return array_intersect($childRoutes, $publicSidebarRoutes) !== [];
             });
 
             $menus = $appendMenus($menus, array_values($guestMenus));
@@ -308,6 +314,25 @@
         return false;
     };
 
+    // หน้าที่เปิดอยู่เป็นเมนูสาธารณะที่ไม่มีใน sidebar (เช่น DIE Tracking) → highlight "เมนูทั้งหมด" แทน
+    $showAllMenusActive = request()->routeIs('menus.index');
+
+    if (!$showAllMenusActive && auth()->check() && !collect($menus)->contains(fn($item) => $menuItemIsActive($item))) {
+        $showAllMenusActive = collect(config('menu.menu.guest', []))
+            ->flatMap(fn($item) => array_merge([$item['route'] ?? null], array_column($item['children'] ?? [], 'route')))
+            ->filter()
+            ->reject(fn($r) => in_array($r, ['home', 'login'], true))
+            ->contains(fn($r) => request()->routeIs($r, $r . '.*'));
+    }
+
+    $plainItemIsActive = function ($item) use ($showAllMenusActive) {
+        if (($item['route'] ?? null) === 'menus.index') {
+            return $showAllMenusActive;
+        }
+
+        return request()->routeIs($item['route'] . '*');
+    };
+
     $menuGroupIsActive = function (string $group) use ($menus, $menuGroupFor, $menuItemIsActive) {
         return collect($menus)
             ->filter(fn($item) => $menuGroupFor($item) === $group)
@@ -419,7 +444,7 @@
                     </div>
                 @else
                     <a href="{{ route($item['route'], $item['query'] ?? []) }}"
-                        class="nav-link has-tooltip {{ request()->routeIs($item['route'] . '*') ? 'active' : '' }}"
+                        class="nav-link has-tooltip {{ $plainItemIsActive($item) ? 'active' : '' }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
                         <span class="nav-text">{{ $item['text'] }}</span>
@@ -528,7 +553,7 @@
                     </div>
                 @else
                     <a href="{{ route($item['route'], $item['query'] ?? []) }}"
-                        class="nav-link has-tooltip {{ request()->routeIs($item['route'] . '*') ? 'active' : '' }}"
+                        class="nav-link has-tooltip {{ $plainItemIsActive($item) ? 'active' : '' }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
                         <span class="nav-text">{{ $item['text'] }}</span>

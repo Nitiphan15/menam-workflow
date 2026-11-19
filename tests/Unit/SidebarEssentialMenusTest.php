@@ -24,7 +24,35 @@ class SidebarEssentialMenusTest extends TestCase
         $authRoutes = collect($menu['menu']['auth'])->pluck('route')->all();
 
         $this->assertSame(['home', 'menus.index'], $authRoutes);
-        $this->assertSame(['pkg.packaging.usage'], $menu['auth_sidebar_public_routes']);
+        $this->assertSame(
+            ['dp.inquiry', 'deadstock.dashboard', 'wos.sales_unit_summary', 'pkg.packaging.usage'],
+            $menu['auth_sidebar_public_routes'],
+        );
+    }
+
+    public function test_every_whitelisted_route_exists_in_guest_menu(): void
+    {
+        $menu = $this->config();
+
+        $guestRoutes = [];
+        foreach ($menu['menu']['guest'] as $item) {
+            $guestRoutes[] = $item['route'] ?? null;
+            foreach ($item['children'] ?? [] as $child) {
+                $guestRoutes[] = $child['route'] ?? null;
+            }
+        }
+
+        foreach ($menu['auth_sidebar_public_routes'] as $route) {
+            $this->assertContains($route, $guestRoutes, "{$route} ไม่อยู่ใน menu.guest → sidebar จะไม่แสดง");
+        }
+    }
+
+    public function test_sidebar_matches_whitelist_against_child_routes(): void
+    {
+        $sidebar = file_get_contents(dirname(__DIR__, 2) . '/resources/views/layouts/_sidebar.blade.php');
+
+        $this->assertStringContainsString("array_intersect(\$childRoutes, \$publicSidebarRoutes)", $sidebar);
+        $this->assertStringContainsString('$plainItemIsActive($item)', $sidebar);
     }
 
     public function test_menus_route_uses_controller_behind_auth(): void

@@ -1,12 +1,11 @@
 @extends('layouts.layout')
 
+@section('page-title', 'เมนูทั้งหมด')
+
 @section('content')
     <div class="container-fluid py-3 all-menus-page">
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-4">
-            <div>
-                <h1 class="h3 mb-1">เมนูทั้งหมด</h1>
-                <p class="text-muted mb-0">รวมเมนูสาธารณะ เมนูที่ใช้ประจำยังอยู่ในแถบด้านซ้าย</p>
-            </div>
+            <p class="text-muted mb-0">รวมเมนูสาธารณะ เมนูที่ใช้ประจำยังอยู่ในแถบด้านซ้าย</p>
 
             <div class="all-menus-search">
                 <label for="allMenuSearch" class="form-label small text-muted mb-1">ค้นหาเมนู</label>
