@@ -21,6 +21,15 @@ class EventServiceProvider extends ServiceProvider
     ];
 
     /**
+     * Activity log: login / login_failed / logout
+     *
+     * @var array<int, class-string>
+     */
+    protected $subscribe = [
+        \App\Services\Audit\AuthActivitySubscriber::class,
+    ];
+
+    /**
      * Register any events for your application.
      *
      * @return void

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use App\Models\Users\User;
 use App\Models\Users\Department;
+use App\Services\Audit\AuditTrail;
 use App\Services\OrgCore;
 use App\Services\UserSignatureService;
 use App\Support\SqlServerDb;
@@ -174,6 +175,11 @@ class UserAdminController extends Controller
                 }
             }
 
+            AuditTrail::created('user', $user->id, $user->name, AuditTrail::snapshot($user) + [
+                'department_role_id' => $data['department_role_id'] ?? null,
+                'web_roles'          => collect($roleIds)->values()->all(),
+            ]);
+
             return back()->with('ok', 'เพิ่มผู้ใช้เรียบร้อย');
         });
     }
@@ -207,7 +213,9 @@ class UserAdminController extends Controller
             $update['password'] = Hash::make($data['password']);
         }
 
+        $before = AuditTrail::snapshot($user);
         $user->update($update);
+        AuditTrail::updated('user', $user->id, $user->name, $before, AuditTrail::snapshot($user));
 
         return redirect()
             ->route('adminweb.users.register')
@@ -265,6 +273,13 @@ class UserAdminController extends Controller
             }
         }
 
+        $before = AuditTrail::snapshot($user) + [
+            'web_roles' => SqlServerDb::table('user_dept_roles')->where('user_id', $user->id)
+                ->orderBy('department_id')->orderBy('role_id')
+                ->get(['department_id', 'role_id'])
+                ->map(fn ($x) => "dept {$x->department_id} / role {$x->role_id}")->all(),
+        ];
+
         try {
             SqlServerDb::transaction(function () use ($user) {
                 // เคลียร์ข้อมูลผูกที่ลบได้ปลอดภัยก่อน กัน FK violation
@@ -283,6 +298,8 @@ class UserAdminController extends Controller
             report($e);
             return back()->with('error', 'ลบผู้ใช้ไม่สำเร็จ: มีข้อมูลอื่นผูกกับผู้ใช้นี้อยู่ ให้ปิดสถานะใช้งาน (Inactive) แทน');
         }
+
+        AuditTrail::deleted('user', $user->id, $user->name, $before);
 
         // ลบสำเนาในฐาน MySQL (ระบบเดิม) — id สองฐานอาจไม่ตรงกัน จึงจับคู่จาก user_code/email/ชื่อ แล้วค่อยลบตาม id
         $legacyWarning = null;
@@ -308,8 +325,10 @@ class UserAdminController extends Controller
             return back()->with('error', 'ไม่สามารถปิดใช้งานบัญชีของตัวเองได้');
         }
 
+        $before = AuditTrail::snapshot($user);
         $user->is_active = $user->is_active ? 0 : 1;
         $user->save();
+        AuditTrail::updated('user', $user->id, $user->name, $before, AuditTrail::snapshot($user));
 
         // sync สถานะไปยังสำเนาในฐาน MySQL ด้วย (ระบบเมลบางตัวยังอ่าน users จากฝั่ง MySQL)
         $legacyWarning = null;
