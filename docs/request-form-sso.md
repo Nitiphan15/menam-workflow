@@ -51,6 +51,7 @@ MENAM_SSO_AUDIENCE=request-form-system
 MENAM_SSO_ALLOWED_EMAIL_DOMAINS=menamstainless.co.th
 MENAM_SSO_PUBLIC_KEYS_JSON={"menam-2026-1":"E:/keys/menam-sso-public.pem"}
 MENAM_SSO_CLOCK_SKEW_SECONDS=10
+MENAM_SSO_LOGIN_URL=https://<host>/<menam-path>/integrations/request-form/sso
 SESSION_COOKIE=request_form_session
 ```
 
