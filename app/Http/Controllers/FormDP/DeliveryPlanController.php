@@ -5,6 +5,7 @@ namespace App\Http\Controllers\FormDP;
 use App\Http\Controllers\Controller;
 use App\Services\FormDP\DeliveryConfirmationService;
 use App\Services\FormDP\DeliveryPlanActivityLogger;
+use App\Services\FormDP\DeliveryPlanSubmissionLockService;
 use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -45,6 +46,7 @@ class DeliveryPlanController extends Controller
                 c.id,
                 c.customernumber,
                 c.name,
+                c.company,
                 c.saleperson_id as sales_id,
                 e.login as sales_login,
                 e.name  as sales_name
@@ -65,6 +67,8 @@ class DeliveryPlanController extends Controller
             return [
                 'id'         => (int)$r->id,
                 'text'       => trim((string)($r->customernumber ?? '') . ' — ' . (string)($r->name ?? '')),
+                'company'    => strtoupper(trim((string)($r->company ?? 'MSW'))) === 'MSWPLUS' ? 'MSWPLUS' : 'MSW',
+                'company_label' => strtoupper(trim((string)($r->company ?? 'MSW'))) === 'MSWPLUS' ? 'PLUS' : 'WIRE',
                 'sales_id'   => (int)($r->sales_id ?? 0),
                 'sales_text' => $salesText,
             ];
@@ -147,7 +151,9 @@ class DeliveryPlanController extends Controller
         if ($isEdit) {
             $row = $this->conn()
                 ->table('delivery_plan_data as d')
-                ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+                ->leftJoin('customer as c', function ($join) {
+                    $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+                })
                 ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
                 ->leftJoin('parts as p', function ($join) {
                     $join->on(
@@ -186,7 +192,11 @@ class DeliveryPlanController extends Controller
             $winTime  = $row->window_at ? Carbon::parse($row->window_at)->format('H:i') : '08:00';
 
             // งานที่ถูกจัดรถแล้ว → แก้ไขไม่ได้ (กันเข้าหน้าแก้ไขผ่าน URL ตรง ๆ)
-            if ($this->isDispatchAssignedForOrd((string) $row->ord_id)) {
+            // ยกเว้น Logistics กด "ปลดล็อกให้ Sales" ของวันส่งนั้นแล้ว
+            if (
+                $this->isDispatchAssignedForOrd((string) $row->ord_id)
+                && ! app(DeliveryPlanSubmissionLockService::class)->isUnlockedForAssignedEdit($shipDate)
+            ) {
                 $soText = trim((string) ($row->so_number ?? '')) !== '' ? 'SO ' . trim((string) $row->so_number) : 'งานนี้';
                 return redirect()
                     ->route('dp.inquiry')
@@ -273,6 +283,7 @@ class DeliveryPlanController extends Controller
                 'mode'              => (string)($row->delivery_type ?? 'SO'),
                 'so_number'         => (string)($row->so_number ?? ''),
                 'customer_id'       => (string)($row->customer_id ?? ''),
+                'company'           => strtoupper(trim((string)($row->company ?? 'MSW'))) === 'MSWPLUS' ? 'MSWPLUS' : 'MSW',
                 'customer_name'     => trim((string) ($row->customer_name ?? '')) !== ''
                     ? trim((string) $row->customer_name)
                     : trim((string)($row->customernumber ?? '') . ' — ' . (string)($row->cm_name ?? '')),
@@ -295,7 +306,9 @@ class DeliveryPlanController extends Controller
 
         $rows = $this->conn()
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
             ->leftJoin('revision_master as r', 'r.revision_number', '=', 'd.revision_number')
             ->whereDate('d.due_date', '=', $day->toDateString())
@@ -362,6 +375,7 @@ class DeliveryPlanController extends Controller
             // ตัวนี้ถ้าเป็น SO ค่อย required (เช็คใน after)
             'lines.*.sales_id'    => ['nullable'],
             'lines.*.customer_id' => ['nullable'],
+            'lines.*.company'     => ['nullable', 'in:MSW,MSWPLUS'],
             'lines.*.customer_name' => ['nullable', 'string', 'max:255'],
 
             'lines.*.part_no'      => ['nullable', 'string', 'max:60'],
@@ -440,19 +454,29 @@ class DeliveryPlanController extends Controller
         // โหมดที่ไม่ผูก Sales Order (กรอก Part เอง): ACID = ส่งกัดกรด, SPECIAL = งานพิเศษ
         $isNonSoMode = in_array($deliveryMode, ['ACID', 'SPECIAL'], true);
 
-        if (!$isNonSoMode && $mfgNo !== '' && !$isManualMfg) {
-            $mfg = $this->conn()->table('workorder')
-                ->where('workordernumber', $mfgNo)
-                ->first();
+        if (!$isNonSoMode && $mfgNo !== '') {
+            $mfgValidation = $this->resolveMfgValidation($mfgNo, (string) ($firstLine['part_no'] ?? ''));
 
-            if (!$mfg) {
+            if ($mfgValidation['part_mismatches'] !== []) {
                 return back()
                     ->withInput()
-                    ->withErrors(['lines.0.mfg_no' => 'ไม่พบ MFG No']);
+                    ->withErrors([
+                        'lines.0.mfg_no' => 'MFG ไม่ตรงกับ Part: '.implode(', ', $mfgValidation['part_mismatches']),
+                    ]);
             }
 
-            $maxAllowed = (float) ($mfg->qty ?? 0);
-        } elseif (!$isNonSoMode) {
+            if ($mfgValidation['missing'] === []) {
+                $maxAllowed = $mfgValidation['qty'];
+            } elseif (!$isManualMfg) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'lines.0.mfg_no' => 'ไม่พบ MFG No: '.implode(', ', $mfgValidation['missing']),
+                    ]);
+            }
+        }
+
+        if (!$isNonSoMode && $maxAllowed === null) {
             $so = $this->conn()->table('saleorder')
                 ->where('ordnumber', $ordnumber)
                 ->where('parts_id', $partsID)
@@ -516,6 +540,12 @@ class DeliveryPlanController extends Controller
         $erpDue = Carbon::parse($request->input('due_date'))->startOfDay();
 
         $shipPostedDate = Carbon::parse($request->input('ship_posted_date'))->toDateString(); // YYYY-mm-dd
+        $submissionLock = app(DeliveryPlanSubmissionLockService::class);
+        if ($submissionLock->isLocked($shipPostedDate)) {
+            return back()
+                ->withInput()
+                ->withErrors(['ship_posted_date' => $submissionLock->lockedMessage($shipPostedDate)]);
+        }
         $windowTime     = (string)$request->input('window_time'); // HH:ii
 
         // เก็บลงคอลัมน์เดิม (datetime)
@@ -577,6 +607,8 @@ class DeliveryPlanController extends Controller
                 $part     = trim((string)($ln['part_no'] ?? ''));
                 $custId   = trim((string)($ln['customer_id'] ?? ''));
                 $custName = trim((string)($ln['customer_name'] ?? ''));
+                $company = strtoupper(trim((string)($ln['company'] ?? 'MSW')));
+                $company = $company === 'MSWPLUS' ? 'MSWPLUS' : 'MSW';
                 $deliveryType = strtoupper(trim((string)($ln['mode'] ?? 'SO')));
                 $deliveryType = in_array($deliveryType, ['SO', 'ACID', 'SPECIAL'], true) ? $deliveryType : 'SO';
 
@@ -584,10 +616,13 @@ class DeliveryPlanController extends Controller
                 if ($ordId === '' && $qty === '' && $part === '' && $custId === '' && $custName === '') continue;
 
                 if ($custId === '') {
-                    $custId = $this->findCustomerIdByName($custName);
+                    $custId = $this->findCustomerIdByName($custName, $company);
                 }
                 if ($custId === '' && $deliveryType !== 'SPECIAL') {
                     throw new \RuntimeException("ไม่พบ Customer ใน master: {$custName}");
+                }
+                if ($custId !== '' && !$this->conn()->table('customer')->where('id', $custId)->where('company', $company)->exists()) {
+                    throw new \RuntimeException("Customer ที่เลือกไม่ตรงกับบริษัท " . ($company === 'MSWPLUS' ? 'PLUS' : 'WIRE'));
                 }
 
                 $manualCustomerName = $deliveryType === 'SPECIAL' && $custId === ''
@@ -600,7 +635,7 @@ class DeliveryPlanController extends Controller
                 // sales_id: manual ได้ / หรือไม่กรอกให้ดึงจาก customer.saleperson_id
                 $salesIdInput = trim((string)($ln['sales_id'] ?? ''));
                 if ($salesIdInput === '' && $custId !== '') {
-                    $salesIdInput = (string)$this->conn()->table('customer')->where('id', $custId)->value('saleperson_id');
+                    $salesIdInput = (string)$this->conn()->table('customer')->where('id', $custId)->where('company', $company)->value('saleperson_id');
                 }
                 $salesIdInput = trim((string)$salesIdInput);
                 $salesId = $salesIdInput === '' ? null : (int)$salesIdInput;
@@ -666,6 +701,7 @@ class DeliveryPlanController extends Controller
                     'so_number'          => $soNo,
                     'customer_id'        => $custId === '' ? null : $custId,
                     'customer_name'      => $manualCustomerName,
+                    'company'            => $company,
                     'sales_id'           => $salesId,
 
                     'part_number'        => trim((string)($ln['part_no'] ?? '')),
@@ -699,6 +735,7 @@ class DeliveryPlanController extends Controller
                             'so_number',
                             'customer_id',
                             'customer_name',
+                            'company',
                             'sales_id',
                             'part_number',
                             'part_desc',
@@ -716,6 +753,13 @@ class DeliveryPlanController extends Controller
 
                     if (!$row) throw new \RuntimeException("ไม่พบรายการ ord_id={$ordId}");
 
+                    $originalShipDate = !empty($row->ship_posted_at)
+                        ? Carbon::parse($row->ship_posted_at)->toDateString()
+                        : null;
+                    if ($originalShipDate !== null && $submissionLock->isLocked($originalShipDate)) {
+                        throw new \RuntimeException($submissionLock->lockedMessage($originalShipDate));
+                    }
+
                     if ($this->isPostponedPlanStatus($row->status ?? null)) {
                         throw new \RuntimeException(
                             'รายการนี้ถูกเลื่อนแผนแล้ว ไม่สามารถแก้ไขรายการเดิมได้ กรุณาแก้ไขรายการใหม่ที่ระบบสร้างจากการเลื่อนแผน'
@@ -723,11 +767,31 @@ class DeliveryPlanController extends Controller
                     }
 
                     // งานที่ถูกจัดรถแล้ว → ห้ามแก้ไข (กันยอดในแผนกับยอดจัดรถไม่ตรงกัน)
+                    // ยกเว้น Logistics กด "ปลดล็อกให้ Sales" ของวันส่งนั้นแล้ว (มีเงื่อนไขกันยอดเพี้ยนด้านล่าง)
                     if ($this->isDispatchAssignedForOrd($ordId)) {
                         $soText = trim((string) ($row->so_number ?? '')) !== '' ? 'SO ' . trim((string) $row->so_number) : 'งานนี้';
-                        throw new \RuntimeException(
-                            "{$soText} ถูกจัดรถหรือกำหนดเป็นงานพิเศษแล้ว กรุณาติดต่อ Logistics เพื่อยกเลิกการจัดส่งก่อนแก้ไข"
-                        );
+
+                        if ($originalShipDate === null || ! $submissionLock->isUnlockedForAssignedEdit($originalShipDate)) {
+                            throw new \RuntimeException(
+                                "{$soText} ถูกจัดรถหรือกำหนดเป็นงานพิเศษแล้ว กรุณาติดต่อ Logistics เพื่อยกเลิกการจัดส่งก่อนแก้ไข"
+                            );
+                        }
+
+                        // รถผูกกับวันส่งเดิม → ห้ามย้ายวัน
+                        if ($shipPostedAt->toDateString() !== $originalShipDate) {
+                            throw new \RuntimeException(
+                                "{$soText} ถูกจัดรถแล้ว ไม่สามารถเปลี่ยนวันที่ส่งสินค้าได้ กรุณาใช้เลื่อนแผน หรือติดต่อ Logistics ยกเลิกรถก่อน"
+                            );
+                        }
+
+                        // ห้ามลดยอดต่ำกว่ายอดที่จัดรถไว้แล้ว (ขายเป็นชิ้น qty = 0 ไม่เช็ค)
+                        $assignedKg = $this->assignedWeightForOrd($ordId);
+                        if (! $isPieceSale && $assignedKg > 0 && (float) $qtyKg + 0.0001 < $assignedKg) {
+                            throw new \RuntimeException(
+                                "{$soText} จัดรถไว้แล้ว " . number_format($assignedKg, 2) . ' KG ไม่สามารถลดยอดเหลือ '
+                                . number_format((float) $qtyKg, 2) . ' KG ได้ กรุณาให้ Logistics ปรับยอดจัดรถก่อน'
+                            );
+                        }
                     }
 
                     $editRemark = trim((string)($ln['edit_remark'] ?? ''));
@@ -765,6 +829,7 @@ class DeliveryPlanController extends Controller
                     $this->conn()->table('delivery_plan_data')
                         ->where('ord_id', $ordId)
                         ->update($payload);
+
                     $updatedRow = $this->conn()->table('delivery_plan_data')->where('ord_id', $ordId)->first();
                     $activityLogger->record(
                         $this->conn(),
@@ -776,9 +841,7 @@ class DeliveryPlanController extends Controller
                         null,
                         'SALES'
                     );
-                    $originalShipDate = !empty($row->ship_posted_at)
-                        ? Carbon::parse($row->ship_posted_at)->toDateString()
-                        : null;
+
                     if ($originalShipDate !== $newShipDate) {
                         app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(
                             $row->mfg_no ?? null,
@@ -848,7 +911,9 @@ class DeliveryPlanController extends Controller
         }
 
         $q = $this->conn()->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
             ->whereRaw("UPPER(ISNULL(d.status,'')) NOT IN ('VOID','VOIDED','CANCEL','CANCELED','CANCELLED')")
             ->select([
@@ -925,6 +990,8 @@ class DeliveryPlanController extends Controller
                 'customer_id'    => (string)($r->customer_id ?? ''),
                 'customer_name'  => (string)($r->name ?? ''),
                 'customernumber' => (string)($r->customernumber ?? ''),
+                'company'        => str_contains(strtoupper(trim((string)($r->company ?? ''))), 'PLUS') ? 'MSWPLUS' : 'MSW',
+                'company_label'  => str_contains(strtoupper(trim((string)($r->company ?? ''))), 'PLUS') ? 'PLUS' : 'WIRE',
 
                 'sales_id'       => (string)($r->sales_id ?? ''),
                 'sales_code'     => $login,
@@ -961,6 +1028,8 @@ class DeliveryPlanController extends Controller
                 'customer_id'    => (string)($r->customer_id ?? ''),
                 'customer_name'  => (string)($r->name ?? ''),
                 'customernumber' => (string)($r->customernumber ?? ''),
+                'company'        => str_contains(strtoupper(trim((string)($r->company ?? ''))), 'PLUS') ? 'MSWPLUS' : 'MSW',
+                'company_label'  => str_contains(strtoupper(trim((string)($r->company ?? ''))), 'PLUS') ? 'PLUS' : 'WIRE',
 
                 'sales_id'       => (string)($r->sales_id ?? ''),
                 'sales_code'     => $login,
@@ -1018,6 +1087,10 @@ class DeliveryPlanController extends Controller
                 COALESCE(p.totalonhand, 0) AS stock_qty,
 
                 so.customer_id,
+                CASE
+                    WHEN UPPER(so.company COLLATE DATABASE_DEFAULT) LIKE '%PLUS%' THEN 'MSWPLUS'
+                    ELSE 'MSW'
+                END AS company,
                 c.name,
                 c.customernumber,
 
@@ -1026,7 +1099,12 @@ class DeliveryPlanController extends Controller
                 e.name  AS sales_name
             FROM saleorder AS so
             LEFT JOIN parts AS p ON p.id = so.parts_id
-            LEFT JOIN customer AS c ON c.id = so.customer_id
+            LEFT JOIN customer AS c
+                ON c.id = so.customer_id
+                AND c.company COLLATE DATABASE_DEFAULT = CASE
+                    WHEN UPPER(so.company COLLATE DATABASE_DEFAULT) LIKE '%PLUS%' THEN 'MSWPLUS'
+                    ELSE 'MSW'
+                END
             LEFT JOIN employees AS e ON e.id = so.salesperson_id
             WHERE so.ordnumber IN ({$placeholders})
         ", $ordNumbers);
@@ -1215,16 +1293,14 @@ class DeliveryPlanController extends Controller
         }
 
         $mfgNo = trim((string)($line['mfg_no'] ?? ''));
-        if ($mfgNo !== '' && !str_contains($mfgNo, ',')) {
-            $qtyFromMfg = $this->toNumberOrNull(
-                $this->conn()
-                    ->table('workorder')
-                    ->where('workordernumber', $mfgNo)
-                    ->value('qty')
-            );
-
-            if ($qtyFromMfg !== null && $qtyFromMfg > 0) {
-                return $qtyFromMfg;
+        if ($mfgNo !== '') {
+            $mfgValidation = $this->resolveMfgValidation($mfgNo, (string)($line['part_no'] ?? ''));
+            if (
+                $mfgValidation['missing'] === []
+                && $mfgValidation['part_mismatches'] === []
+                && $mfgValidation['qty'] > 0
+            ) {
+                return $mfgValidation['qty'];
             }
         }
 
@@ -1252,6 +1328,59 @@ class DeliveryPlanController extends Controller
         return $this->toNumberOrNull($soQuery->value('so.ordered_qty'));
     }
 
+    /**
+     * Validate one or more MFG values against the correct site master.
+     * A leading + means PLUS; an unprefixed token means WIRE.
+     *
+     * @return array{qty: float, missing: array<int, string>, part_mismatches: array<int, string>}
+     */
+    private function resolveMfgValidation(string $rawMfg, string $expectedPartNo = ''): array
+    {
+        $targets = app(DeliveryConfirmationService::class)->parseMfgTargets($rawMfg);
+        $expectedPartNo = strtoupper(trim($expectedPartNo));
+        $totalQty = 0.0;
+        $missing = [];
+        $partMismatches = [];
+
+        foreach ($targets as $target) {
+            $site = strtoupper((string) ($target['site'] ?? 'WIRE')) === 'PLUS' ? 'PLUS' : 'WIRE';
+            $mfgNo = strtoupper(trim((string) ($target['mfg_no'] ?? '')));
+            if ($mfgNo === '') {
+                continue;
+            }
+
+            $displayMfg = $site === 'PLUS' ? '+'.$mfgNo : $mfgNo;
+            $connection = $site === 'PLUS' ? 'pgsqlmfgp' : 'pgsqlmfgw';
+            $candidates = $site === 'PLUS' ? ['+'.$mfgNo, $mfgNo] : [$mfgNo];
+
+            $workorder = DB::connection($connection)
+                ->table('workorder as wo')
+                ->leftJoin('parts as p', 'p.id', '=', 'wo.parts_id')
+                ->whereIn('wo.workordernumber', $candidates)
+                ->select(['wo.qty', 'p.partnumber'])
+                ->first();
+
+            if (!$workorder) {
+                $missing[] = $displayMfg;
+                continue;
+            }
+
+            $actualPartNo = strtoupper(trim((string) ($workorder->partnumber ?? '')));
+            if ($expectedPartNo !== '' && $actualPartNo !== '' && $actualPartNo !== $expectedPartNo) {
+                $partMismatches[] = $displayMfg;
+                continue;
+            }
+
+            $totalQty += (float) ($workorder->qty ?? 0);
+        }
+
+        return [
+            'qty' => $totalQty,
+            'missing' => array_values(array_unique($missing)),
+            'part_mismatches' => array_values(array_unique($partMismatches)),
+        ];
+    }
+
     private function sentRevisionNumbersForShipDate(?string $shipDate): array
     {
         if (!$shipDate) {
@@ -1275,6 +1404,15 @@ class DeliveryPlanController extends Controller
      * หรือมีช่องทางพิเศษที่ยังเปิดอยู่ใน delivery_plan_special_dispatch
      * เพื่อป้องกันยอดในแผนกับยอดจัดรถไม่ตรงกัน
      */
+    private function assignedWeightForOrd(string $ordId): float
+    {
+        return (float) $this->conn()
+            ->table('delivery_plan_truck_assign')
+            ->where('ord_id', trim($ordId))
+            ->selectRaw('ISNULL(SUM(ISNULL(assigned_weight, 0)), 0) as s')
+            ->value('s');
+    }
+
     private function isDispatchAssignedForOrd(string $ordId): bool
     {
         $ordId = trim($ordId);
@@ -1374,7 +1512,7 @@ class DeliveryPlanController extends Controller
         return is_numeric($s) ? (float)$s : null;
     }
 
-    private function findCustomerIdByName(string $text): string
+    private function findCustomerIdByName(string $text, string $company = 'MSW'): string
     {
         $text = trim($text);
         if ($text === '') return '';
@@ -1385,13 +1523,13 @@ class DeliveryPlanController extends Controller
             $code = $parts[0] ?? '';
             $name = $parts[1] ?? '';
             if ($code !== '') {
-                $id = $this->conn()->table('customer')->where('customernumber', $code)->value('id');
+                $id = $this->conn()->table('customer')->where('customernumber', $code)->where('company', $company)->value('id');
                 if ($id) return (string)$id;
             }
             $text = $name ?: $text;
         }
 
-        $id = $this->conn()->table('customer')->where('name', $text)->value('id');
+        $id = $this->conn()->table('customer')->where('name', $text)->where('company', $company)->value('id');
         return $id ? (string)$id : '';
     }
 

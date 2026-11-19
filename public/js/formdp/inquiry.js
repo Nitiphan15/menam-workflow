@@ -986,7 +986,7 @@
         };
 
         if (window.Swal && typeof window.Swal.fire === "function") {
-            window.Swal.fire({
+            (window.ScrollSafeSwal || window.Swal).fire({
                 icon: "warning",
                 title,
                 text: message,
@@ -3037,7 +3037,7 @@
             "กรุณาติดต่อ <b>Logistics</b> เพื่อยกเลิกการจัดส่งก่อนแก้ไข";
 
         if (window.Swal && typeof window.Swal.fire === "function") {
-            window.Swal.fire({
+            (window.ScrollSafeSwal || window.Swal).fire({
                 icon: "warning",
                 title: "ไม่สามารถแก้ไขได้",
                 html: html,
@@ -3049,6 +3049,25 @@
             alert(html.replace(/<[^>]+>/g, " "));
         }
     });
+})();
+
+(function editPlanNavigationFallback() {
+    // Some reordered table/browser layouts can swallow the anchor's default navigation.
+    // Capture the click first and navigate explicitly.
+    document.addEventListener(
+        "click",
+        (event) => {
+            if (!(event.target instanceof Element)) return;
+
+            const link = event.target.closest("a.jsEditPlanLink");
+            if (!link || !link.href) return;
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            window.location.assign(link.href);
+        },
+        true,
+    );
 })();
 
 (function unassignTruckModal() {

@@ -590,6 +590,10 @@ Route::middleware(['auth'])
         ->name('dashboard.truck-board.trip.close');
       Route::post('/dashboard/truck-board/send-mail', [DeliveryPlanInquiryController::class, 'sendAssignedTruckBoardMail'])
         ->name('dashboard.truck-board.send-mail');
+      Route::post('/inquiry/unlock-sales-submission', [DeliveryPlanInquiryController::class, 'unlockSalesSubmission'])
+        ->name('inquiry.unlock-sales-submission');
+      Route::post('/inquiry/lock-sales-submission', [DeliveryPlanInquiryController::class, 'lockSalesSubmission'])
+        ->name('inquiry.lock-sales-submission');
 
       Route::get('/master/trucks', [TruckMasterController::class, 'trucks'])->name('master.trucks');
       Route::post('/master/trucks', [TruckMasterController::class, 'saveTruck'])->name('master.trucks.store');

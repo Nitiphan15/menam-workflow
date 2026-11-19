@@ -425,6 +425,21 @@
     white-space: nowrap;
 }
 
+/* Keep row actions above reordered/table overlay layers so links stay clickable. */
+#inqTable td.dp-action-cell {
+    position: relative;
+    z-index: 2;
+    pointer-events: auto;
+}
+
+#inqTable td.dp-action-cell .action-compact,
+#inqTable td.dp-action-cell a,
+#inqTable td.dp-action-cell button {
+    position: relative;
+    z-index: 3;
+    pointer-events: auto;
+}
+
 .action-compact .action-icon {
     width: 32px;
     min-width: 32px;
