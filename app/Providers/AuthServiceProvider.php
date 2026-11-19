@@ -87,6 +87,14 @@ class AuthServiceProvider extends ServiceProvider
         // ===== Ability แบบมี context แผนก (ผ่านพารามิเตอร์) =====
         // ใช้: Gate::forUser($u)->check('role-in-dept', ['codes'=>['PR_ADMIN'],'dept_id'=>2])
         Gate::define('role-in-dept', function (User $u, array $args) {
+        // gates that exist on production (synced 2026-11-19)
+        Gate::define('WOS',      fn(User $u) => $u->hasRoleCode(['WOS']));
+        Gate::define('DPMAIL',      fn(User $u) => $u->hasRoleCode(['DPMAIL']));
+        Gate::define('WDV',      fn(User $u) => $u->hasRoleCode(['WDV']));
+        Gate::define('RISK',      fn(User $u) => $u->hasRoleCode(['RISK']));
+        Gate::define('POM',   fn(User $u) => $u->hasRoleCode(['POM']));
+        Gate::define('POV',   fn(User $u) => $u->hasRoleCode(['POV']));
+        Gate::define('LP',      fn(User $u) => $u->hasRoleCode(['LP']));
             $codes  = $args['codes'] ?? [];
             $deptId = $args['dept_id'] ?? null;
             if (!$deptId || empty($codes)) return false;
