@@ -86,10 +86,14 @@
             <b>{{ \Carbon\Carbon::parse($forecastBaseMonth)->format('m/Y') }}</b>
             และเลือกดูหลาย Division พร้อมกันได้
             <span class="float-end d-flex gap-2">
-                <a href="{{ route('fc.division', array_merge(request()->query(), ['view' => null, 'page' => null])) }}"
+                <a href="{{ route('fc.division', array_merge(request()->query(), ['view' => 'planner', 'page' => null])) }}"
                     class="btn btn-sm {{ $viewMode === 'planner' ? 'btn-primary' : 'btn-outline-primary' }}">Planner View</a>
                 <a href="{{ route('fc.division', array_merge(request()->query(), ['view' => 'sales', 'page' => null])) }}"
                     class="btn btn-sm {{ $viewMode === 'sales' ? 'btn-primary' : 'btn-outline-primary' }}">Sales Forecast View</a>
+                @if (!empty($canOpenForecastAction))
+                    <a href="{{ route('fc.division', ['view' => 'action']) }}"
+                        class="btn btn-sm btn-warning">Action Forecast</a>
+                @endif
             </span>
         </div>
 
