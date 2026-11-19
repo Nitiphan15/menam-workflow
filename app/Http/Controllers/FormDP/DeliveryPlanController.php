@@ -438,7 +438,8 @@ class DeliveryPlanController extends Controller
             }
         }
 
-        // ถ้าขายแบบระบุเส้น ให้ใช้ Qty ระบุเส้นไปเทียบกับ SO/MFG qty
+        // D8 / งานขายเป็นชิ้นใช้ Qty ชิ้นจาก SO เป็นเพดานเสมอ เพราะ workorder.qty
+        // เป็นปริมาณฝั่งผลิตคนละหน่วย ส่วนงานขายแบบระบุเส้นทั่วไปยังเทียบ SO/MFG ตามเดิม
         // ถ้าไม่ใช่ระบุเส้น ค่อยใช้ KG
         $qtyInputForMax = $isSellByLine
             ? (float)($lineQtyInput ?? 0)
@@ -465,7 +466,7 @@ class DeliveryPlanController extends Controller
                     ]);
             }
 
-            if ($mfgValidation['missing'] === []) {
+            if ($mfgValidation['missing'] === [] && !$isPieceSale) {
                 $maxAllowed = $mfgValidation['qty'];
             } elseif (!$isManualMfg) {
                 return back()
