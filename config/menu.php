@@ -8,6 +8,15 @@ return [
 
     'show_guest_menu_when_auth' => true,
     'hide_guest_menu_routes_when_auth' => ['login', 'stock-withdrawal.part-alert'],
+    // เมนูสาธารณะที่ยังแสดงใน sidebar หลัง login (ที่เหลืออยู่ในหน้า "เมนูทั้งหมด" /menus)
+    // ใส่ route ของเมนูเดี่ยว หรือ route ของ child ตัวใดตัวหนึ่งในกลุ่ม → แสดงทั้งกลุ่ม
+    // เลือกจาก user_activity_logs 90 วัน (2026-11-19): ใช้โดย 15–30 จาก 60 คน ที่เหลือ ≤ 8 คน
+    'auth_sidebar_public_routes' => [
+        'dp.inquiry',            // Delivery Plan
+        'deadstock.dashboard',   // Deadstock
+        'wos.sales_unit_summary', // Sales Report
+        'pkg.packaging.usage',   // Packaging
+    ],
 
     'menu' => [
         'guest' => [
@@ -99,25 +108,7 @@ return [
 
         'auth' => [
             ['icon' => 'fa fa-home', 'text' => 'หน้าหลัก', 'route' => 'home'],
-            [
-                'icon' => 'fa-boxes-stacked',
-                'text' => 'Deadstock',
-                // ไม่กำหนด permission: เปิดให้ทุกคนที่ login เห็น (ดูได้เหมือน guest, action ค่อยเช็ค auth)
-                'children' => [
-                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Dashboard', 'route' => 'deadstock.dashboard'],
-                    ['icon' => 'fa-clipboard-check', 'text' => 'Deadstock Monthly Review', 'route' => 'deadstock.review'],
-                ],
-            ],
-            [
-                'icon' => 'fa-screwdriver-wrench',
-                'text' => 'DIE Tracking',
-                // ไม่กำหนด permission: เปิดให้ทุกคนที่ login เห็น (route die.* เป็น public อยู่แล้ว)
-                'children' => [
-                    ['icon' => 'fa-gauge-high',  'text' => 'Dashboard',       'route' => 'die.index'],
-                    ['icon' => 'fa-database',    'text' => 'Die Master',      'route' => 'die.master'],
-                    ['icon' => 'fa-file-lines',  'text' => 'WO Detail Sheet', 'route' => 'die.wo-detail'],
-                ],
-            ],
+            ['icon' => 'fa fa-grip', 'text' => 'เมนูทั้งหมด', 'route' => 'menus.index'],
         ],
 
         'wlm' => [
