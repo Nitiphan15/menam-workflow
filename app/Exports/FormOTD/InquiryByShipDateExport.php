@@ -35,7 +35,10 @@ class InquiryByShipDateExport implements WithMultipleSheets
     {
         $q = DB::connection('sqlsrv_menam')
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')
+                    ->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id');
 
