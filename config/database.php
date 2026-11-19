@@ -2,9 +2,42 @@
 
 use Illuminate\Support\Str;
 
+/*
+|--------------------------------------------------------------------------
+| SQL Server DB profile (สลับ dev / prod บนเครื่อง local)
+|--------------------------------------------------------------------------
+|
+| DB_PROFILE=dev|prod  -> ใช้ชื่อ DB จาก DB_PROFILE_{DEV|PROD}_DATABASE
+|                         กับทั้ง sqlsrv และ sqlsrv_menam พร้อมกัน
+| DB_PROFILE ว่าง      -> ใช้ DB_DATABASE / SQLSRV_DATABASE แบบเดิม (prod server ไม่ต้องแก้)
+|
+| ถ้าตั้งโปรไฟล์แต่ไม่ได้ใส่ชื่อ DB ของโปรไฟล์นั้น จะใช้ชื่อ DB ที่ไม่มีอยู่จริง
+| เพื่อให้ต่อไม่ติดชัด ๆ แทนที่จะ fallback ไปเงียบ ๆ (กันหลงต่อ prod)
+*/
+$sqlsrvProfile = strtolower(trim((string) env('DB_PROFILE', '')));
+$sqlsrvProfileDatabase = null;
+
+if ($sqlsrvProfile !== '') {
+    $sqlsrvProfileKey = 'DB_PROFILE_' . strtoupper($sqlsrvProfile) . '_DATABASE';
+    $sqlsrvProfileDatabase = env($sqlsrvProfileKey) ?: "__missing_{$sqlsrvProfileKey}__";
+}
+
+$sqlsrvDatabase = $sqlsrvProfileDatabase ?? env('DB_DATABASE', 'forge');
+$sqlsrvMenamDatabase = $sqlsrvProfileDatabase ?? env('SQLSRV_DATABASE', 'forge');
+$sqlsrvProdDatabase = (string) env('DB_PROFILE_PROD_DATABASE', '');
+
 return [
 
     'workflow_connection' => env('WORKFLOW_DB_CONNECTION', 'sqlsrv_menam'),
+
+    // โปรไฟล์ที่เลือก (null = ไม่ได้ใช้ระบบโปรไฟล์)
+    'profile' => $sqlsrvProfile !== '' ? $sqlsrvProfile : null,
+
+    // true เมื่อ connection SQL Server ตัวใดตัวหนึ่งชี้ไปฐาน prod
+    // (ไม่ว่าจะสลับผ่าน DB_PROFILE หรือแก้ชื่อ DB ตรง ๆ)
+    'targets_prod' => $sqlsrvProfile === 'prod'
+        || ($sqlsrvProdDatabase !== ''
+            && in_array(strtolower($sqlsrvProdDatabase), [strtolower($sqlsrvDatabase), strtolower($sqlsrvMenamDatabase)], true)),
 
     /*
     |--------------------------------------------------------------------------
@@ -155,7 +188,7 @@ return [
             'driver' => 'sqlsrv',
             'host' => env('SQLSRV_HOST', '127.0.0.1'),
             'port' => env('SQLSRV_PORT', '1433'),
-            'database' => env('SQLSRV_DATABASE', 'forge'),
+            'database' => $sqlsrvMenamDatabase,
             'username' => env('SQLSRV_USERNAME', 'forge'),
             'password' => env('SQLSRV_PASSWORD', ''),
             'charset' => 'utf8',
@@ -168,7 +201,7 @@ return [
             'url' => env('DATABASE_URL'),
             'host' => env('DB_HOST', 'localhost'),
             'port' => env('DB_PORT', '1433'),
-            'database' => env('DB_DATABASE', 'forge'),
+            'database' => $sqlsrvDatabase,
             'username' => env('DB_USERNAME', 'forge'),
             'password' => env('DB_PASSWORD', ''),
             'charset' => 'utf8',

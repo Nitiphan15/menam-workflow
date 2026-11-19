@@ -5,7 +5,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Menam Workflow Online')</title>
+    @php
+        // ป้ายบอกฐาน SQL Server ที่ใช้อยู่ (แสดงเฉพาะเครื่องที่ไม่ใช่ production)
+        $dbBadge = null;
+        if (! app()->environment('production')) {
+            if (config('database.targets_prod')) {
+                $dbBadge = ['label' => 'PROD', 'class' => 'bg-danger'];
+            } elseif (config('database.profile')) {
+                $dbBadge = ['label' => strtoupper(config('database.profile')), 'class' => 'bg-success'];
+            } else {
+                $dbBadge = ['label' => config('database.connections.sqlsrv_menam.database'), 'class' => 'bg-secondary'];
+            }
+        }
+    @endphp
+    <title>{{ $dbBadge ? '[' . $dbBadge['label'] . '] ' : '' }}@yield('title', 'Menam Workflow Online')</title>
 
 
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
@@ -28,6 +41,15 @@
 </head>
 
 <body>
+    {{-- เตือนเมื่อเครื่อง local ชี้ฐาน PROD (ดู DB_PROFILE ใน config/database.php) --}}
+    @if (config('database.targets_prod') && ! app()->environment('production'))
+        <div class="position-fixed top-0 start-50 translate-middle-x mt-1 px-3 py-1 rounded-pill bg-danger text-white fw-bold shadow"
+            style="z-index: 2000; pointer-events: none; font-size: .85rem;">
+            <i class="fas fa-triangle-exclamation me-1"></i>
+            LOCAL กำลังใช้ฐาน PROD ({{ config('database.connections.sqlsrv_menam.database') }})
+        </div>
+    @endif
+
     <div class="container-fluid h-100">
         <div class="row h-100">
 
@@ -120,6 +142,10 @@
                     <footer class="mt-auto pt-3 text-muted small">
                         <hr>
                         <p style="font-size: 12px; color: gray;">Version {{ config('app.version') }} |
+                            @if ($dbBadge)
+                                <span class="badge {{ $dbBadge['class'] }} ms-1"
+                                    title="SQL Server: {{ config('database.connections.sqlsrv_menam.database') }}">DB: {{ $dbBadge['label'] }}</span>
+                            @endif
                             ติดต่อผู้ดูแลระบบ:
                             nitiphan@menamstainless.co.th</p>
                     </footer>
