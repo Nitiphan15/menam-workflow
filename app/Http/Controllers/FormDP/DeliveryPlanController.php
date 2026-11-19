@@ -439,7 +439,7 @@ class DeliveryPlanController extends Controller
         }
 
         // D8 / งานขายเป็นชิ้นใช้ Qty ชิ้นจาก SO เป็นเพดานเสมอ เพราะ workorder.qty
-        // เป็นปริมาณฝั่งผลิตคนละหน่วย ส่วนงานขายแบบระบุเส้นทั่วไปยังเทียบ SO/MFG ตามเดิม
+        // เป็น KG ส่วนงานขายแบบระบุเส้นทั่วไปยังเทียบ SO/MFG ตามเดิม
         // ถ้าไม่ใช่ระบุเส้น ค่อยใช้ KG
         $qtyInputForMax = $isSellByLine
             ? (float)($lineQtyInput ?? 0)
@@ -466,14 +466,17 @@ class DeliveryPlanController extends Controller
                     ]);
             }
 
-            if ($mfgValidation['missing'] === [] && !$isPieceSale) {
+            if ($mfgValidation['missing'] !== []) {
+                if (!$isManualMfg) {
+                    return back()
+                        ->withInput()
+                        ->withErrors([
+                            'lines.0.mfg_no' => 'ไม่พบ MFG No: '.implode(', ', $mfgValidation['missing']),
+                        ]);
+                }
+            } elseif (!$isPieceSale) {
+                // D8 / ขายเป็นชิ้น: ไม่ใช้ workorder.qty เป็นเพดาน ให้ไปใช้ ordered_qty ของ SO ด้านล่าง
                 $maxAllowed = $mfgValidation['qty'];
-            } elseif (!$isManualMfg) {
-                return back()
-                    ->withInput()
-                    ->withErrors([
-                        'lines.0.mfg_no' => 'ไม่พบ MFG No: '.implode(', ', $mfgValidation['missing']),
-                    ]);
             }
         }
 

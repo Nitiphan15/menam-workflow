@@ -1596,7 +1596,7 @@
                     const mfgQty = toNum(it.qty ?? 0);
                     if (isPieceSale()) {
                         // D8 / งานขายเป็นชิ้นต้องคง Qty และเพดานจาก SO ไว้
-                        // workorder.qty เป็นปริมาณฝั่งผลิตคนละหน่วย จึงห้ามเขียนทับจำนวนชิ้น
+                        // workorder.qty เป็น KG จึงห้ามเขียนทับจำนวนชิ้น
                         if (qtyKg) qtyKg.value = '0';
                     } else {
                         if (qtyKg && !isSellByLineYes()) {

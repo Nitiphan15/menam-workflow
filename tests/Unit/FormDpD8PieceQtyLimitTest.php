@@ -12,8 +12,9 @@ class FormDpD8PieceQtyLimitTest extends TestCase
         $controller = file_get_contents($root.'/app/Http/Controllers/FormDP/DeliveryPlanController.php');
         $blade = file_get_contents($root.'/resources/views/formdp/index.blade.php');
 
+        $this->assertStringContainsString("elseif (!\$isPieceSale)", $controller);
         $this->assertStringContainsString(
-            "if (\$mfgValidation['missing'] === [] && !\$isPieceSale)",
+            'ไม่ใช้ workorder.qty เป็นเพดาน ให้ไปใช้ ordered_qty ของ SO',
             $controller
         );
         $this->assertStringNotContainsString(

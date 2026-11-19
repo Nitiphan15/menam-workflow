@@ -439,7 +439,7 @@ class DeliveryPlanController extends Controller
         }
 
         // D8 / งานขายเป็นชิ้นใช้ Qty ชิ้นจาก SO เป็นเพดานเสมอ เพราะ workorder.qty
-        // เป็นปริมาณฝั่งผลิตคนละหน่วย ส่วนงานขายแบบระบุเส้นทั่วไปยังเทียบ SO/MFG ตามเดิม
+        // เป็น KG ส่วนงานขายแบบระบุเส้นทั่วไปยังเทียบ SO/MFG ตามเดิม
         // ถ้าไม่ใช่ระบุเส้น ค่อยใช้ KG
         $qtyInputForMax = $isSellByLine
             ? (float)($lineQtyInput ?? 0)
