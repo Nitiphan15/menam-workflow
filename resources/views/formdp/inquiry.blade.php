@@ -2212,7 +2212,7 @@
                     return;
                 }
 
-                ScrollSafeSwal.fire({
+                (window.ScrollSafeSwal || window.Swal).fire({
                     title: 'ดึงข้อมูล ERP?',
                     text: 'ระบบจะดึงข้อมูล Sale Order และ Work Order จาก ERP ตอนนี้',
                     icon: 'question',
@@ -2225,7 +2225,7 @@
                     focusCancel: true
                 }).then(function(result) {
                     if (result.isConfirmed) {
-                        ScrollSafeSwal.fire({
+                        (window.ScrollSafeSwal || window.Swal).fire({
                             title: 'กำลังดึงข้อมูล',
                             text: 'กรุณารอสักครู่',
                             allowOutsideClick: false,
