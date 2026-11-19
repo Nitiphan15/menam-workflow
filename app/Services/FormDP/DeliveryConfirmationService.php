@@ -74,7 +74,11 @@ class DeliveryConfirmationService
         }
 
         $status = strtoupper(trim($status));
-        if (!in_array($status, [DeliveryConfirmation::STATUS_CONFIRM, DeliveryConfirmation::STATUS_POSTPONE], true)) {
+        if (!in_array($status, [
+            DeliveryConfirmation::STATUS_CONFIRM,
+            DeliveryConfirmation::STATUS_POSTPONE,
+            DeliveryConfirmation::STATUS_WAITING_PLAN,
+        ], true)) {
             throw ValidationException::withMessages(['confirmation_status' => 'Invalid status.']);
         }
 
