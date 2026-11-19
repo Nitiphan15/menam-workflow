@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Users\User;
 use App\Models\Users\Department;
 use Illuminate\Http\Request;
+use App\Services\Audit\AuditTrail;
 use App\Support\SqlServerDb;
 
 class UserPermissionController extends Controller
@@ -117,7 +118,15 @@ class UserPermissionController extends Controller
             ->unique()
             ->values();
 
-        SqlServerDb::transaction(function () use ($user, $departmentId, $roleIds) {
+        $beforeCodes = SqlServerDb::table('user_dept_roles as udr')
+            ->join('dept_roles as r', 'r.id', '=', 'udr.role_id')
+            ->where('udr.user_id', $user->id)
+            ->where('udr.department_id', $departmentId)
+            ->pluck('r.code')
+            ->map(fn ($v) => strtoupper((string) $v))
+            ->all();
+
+        SqlServerDb::transaction(function () use ($user, $departmentId, $roleIds, $roles, $beforeCodes) {
             SqlServerDb::table('user_dept_roles')
                 ->where('user_id', $user->id)
                 ->where('department_id', $departmentId)
@@ -132,6 +141,15 @@ class UserPermissionController extends Controller
 
                 SqlServerDb::table('user_dept_roles')->insert($rows);
             }
+
+            AuditTrail::listChanged(
+                'user_permission',
+                $user->id,
+                $user->name,
+                'permission',
+                $beforeCodes,
+                $roles->pluck('code')->map(fn ($v) => strtoupper((string) $v))->all()
+            );
         });
 
         return redirect()
