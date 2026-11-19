@@ -2242,5 +2242,5 @@
         });
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20261119_edit_link_v1"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20261119_v1.10.2"></script>
 @endpush
