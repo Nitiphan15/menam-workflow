@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Facades\Cache;
@@ -313,87 +314,22 @@ class SalesInquiryController extends Controller
         $to   = $request->query('to', Carbon::now()->toDateString());
 
         $monthBlocks = $this->getSummaryData($from, $to);
+        $detailRows = $this->getDetailRows($from, $to);
 
         $spreadsheet = new Spreadsheet();
-        $spreadsheet->removeSheetByIndex(0); // ลบชีตเปล่าเริ่มต้น
+        $spreadsheet->removeSheetByIndex(0);
 
-        foreach ($monthBlocks as $blk) {
-            $mNo = (int)$blk['month_number'];
-            $mName = trim((string)$blk['month_name']);
-            $mTag = sprintf('M%02d', $mNo);
+        $summarySheet = $spreadsheet->createSheet();
+        $summarySheet->setTitle('Summary');
+        $this->writeSummarySheet($summarySheet, $monthBlocks);
 
-            // =======================
-            // 1) SUMMARY SHEET
-            // =======================
-            $shSum = $spreadsheet->createSheet();
-            $shSum->setTitle(substr($mTag . ' Summary', 0, 31));
-
-            $headers = ['ฝ่าย/กลุ่มฝ่ายขาย', 'สัปดาห์ 1', 'สัปดาห์ 2', 'สัปดาห์ 3', 'สัปดาห์ 4', 'สัปดาห์ 5', 'รวมทั้งเดือน', 'หน่วย'];
-            $shSum->fromArray($headers, null, 'A1');
-
-            $r = 2;
-            foreach ($blk['rows'] as $row) {
-                $isBaht = (bool)$row->is_baht;
-
-                // หน้าเว็บ: D8 แสดง *1000 (เพราะ summary query /1000)
-                $mul = $isBaht ? 1000 : 1;
-
-                $shSum->setCellValue("A$r", $row->group_name);
-                $shSum->setCellValue("B$r", (float)$row->qtyw1 * $mul);
-                $shSum->setCellValue("C$r", (float)$row->qtyw2 * $mul);
-                $shSum->setCellValue("D$r", (float)$row->qtyw3 * $mul);
-                $shSum->setCellValue("E$r", (float)$row->qtyw4 * $mul);
-                $shSum->setCellValue("F$r", (float)$row->qtyw5 * $mul);
-                $shSum->setCellValue("G$r", (float)$row->total * $mul);
-                $shSum->setCellValue("H$r", $isBaht ? 'บาท' : 'ตัน');
-                $r++;
-            }
-
-            // =======================
-            // 2) DETAIL SHEET (หลัง Summary)
-            // =======================
-            $detailRows = $this->getDetailRowsByMonth($from, $to, $mNo);
-
-            $shDet = $spreadsheet->createSheet();
-            $shDet->setTitle(substr($mTag . ' Detail', 0, 31));
-
-            $detHeaders = [
-                'ฝ่าย/กลุ่มฝ่ายขาย',        // division
-                'ผู้ขาย',                  // sales_name
-                'วันที่ขาย',
-                'เลขที่ SO',
-                'ลูกค้า',
-                'รหัสสินค้า',
-                'รายละเอียดสินค้า',
-                'ชนิดงาน',
-                'หน่วย',
-                'ปริมาณ',
-                'ราคาขาย',
-                'มูลค่า (บาท)',
-                'กำหนดส่ง',
-                'เลขที่ PO ลูกค้า',
-            ];
-            $shDet->fromArray($detHeaders, null, 'A1');
-
-            $rr = 2;
-            foreach ($detailRows as $it) {
-                $shDet->setCellValue("A$rr", $it->division ?? '');
-                $shDet->setCellValue("B$rr", $it->sales_name ?? '');
-                $shDet->setCellValue("C$rr", $it->transdate ? Carbon::parse($it->transdate)->format('Y-m-d') : '');
-                $shDet->setCellValue("D$rr", $it->ordnumber ?? '');
-                $shDet->setCellValue("E$rr", trim(($it->customer_name ?? '') . ' (' . ($it->customernumber ?? '') . ')'));
-                $shDet->setCellValue("F$rr", $it->partnumber ?? '');
-                $shDet->setCellValue("G$rr", $it->description ?? '');
-                $shDet->setCellValue("H$rr", $it->partstype ?? '');
-                $shDet->setCellValue("I$rr", $it->unit2 ?? '');
-                $shDet->setCellValue("J$rr", (float)($it->qty ?? 0));
-                $shDet->setCellValue("K$rr", (float)($it->sellprice ?? 0));
-                $shDet->setCellValue("L$rr", (float)($it->bath ?? 0));
-                $shDet->setCellValue("M$rr", $it->reqdate ? Carbon::parse($it->reqdate)->format('Y-m-d') : '');
-                $shDet->setCellValue("N$rr", $it->custponumber ?? '');
-                $rr++;
-            }
-        }
+        $detailSheet = $spreadsheet->createSheet();
+        $detailSheet->setTitle('Detail');
+        $this->writeDetailSheet(
+            $detailSheet,
+            $detailRows,
+            'ยอด Sales Order ' . $this->salesOrderReportPeriodLabel($from, $to)
+        );
 
         $spreadsheet->setActiveSheetIndex(0);
 
@@ -408,6 +344,112 @@ class SalesInquiryController extends Controller
             'Cache-Control' => 'max-age=0',
         ]);
     }
+
+    private function writeSummarySheet(Worksheet $sheet, array $monthBlocks): void
+    {
+        $currentRow = 1;
+
+        foreach ($monthBlocks as $block) {
+            $monthDate = Carbon::create((int) $block['year_number'], (int) $block['month_number'], 1);
+            $titleRow = $currentRow;
+            $headerRow = $titleRow + 1;
+            $dataRow = $headerRow + 1;
+
+            $sheet->mergeCells("A$titleRow:H$titleRow");
+            $sheet->setCellValue("A$titleRow", 'Sales Summary ' . $monthDate->format('F Y'));
+            $sheet->getStyle("A$titleRow")->getFont()->setBold(true)->setSize(14);
+            $sheet->fromArray([
+                'ฝ่าย/กลุ่มฝ่ายขาย',
+                'สัปดาห์ 1',
+                'สัปดาห์ 2',
+                'สัปดาห์ 3',
+                'สัปดาห์ 4',
+                'สัปดาห์ 5',
+                'รวมทั้งเดือน',
+                'หน่วย',
+            ], null, "A$headerRow");
+            $sheet->getStyle("A$headerRow:H$headerRow")->getFont()->setBold(true);
+
+            foreach ($block['rows'] as $row) {
+                $multiplier = (bool) $row->is_baht ? 1000 : 1;
+
+                $sheet->setCellValue("A$dataRow", $row->group_name);
+                $sheet->setCellValue("B$dataRow", (float) $row->qtyw1 * $multiplier);
+                $sheet->setCellValue("C$dataRow", (float) $row->qtyw2 * $multiplier);
+                $sheet->setCellValue("D$dataRow", (float) $row->qtyw3 * $multiplier);
+                $sheet->setCellValue("E$dataRow", (float) $row->qtyw4 * $multiplier);
+                $sheet->setCellValue("F$dataRow", (float) $row->qtyw5 * $multiplier);
+                $sheet->setCellValue("G$dataRow", (float) $row->total * $multiplier);
+                $sheet->setCellValue("H$dataRow", (bool) $row->is_baht ? 'บาท' : 'ตัน');
+                $dataRow++;
+            }
+
+            $currentRow = $dataRow + 1;
+        }
+
+        $sheet->freezePane('A3');
+    }
+
+    private function salesOrderReportPeriodLabel(string $from, string $to): string
+    {
+        $fromDate = Carbon::parse($from);
+        $toDate = Carbon::parse($to);
+
+        if ($fromDate->format('Y-m') === $toDate->format('Y-m')) {
+            return $fromDate->format('F Y');
+        }
+
+        return $fromDate->format('F Y') . ' - ' . $toDate->format('F Y');
+    }
+
+    private function writeDetailSheet(Worksheet $sheet, array $detailRows, string $reportTitle): void
+    {
+        $sheet->mergeCells('A1:N1');
+        $sheet->setCellValue('A1', $reportTitle);
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
+
+        $sheet->fromArray([
+            'วันที่ขาย',
+            'เลขที่ SO',
+            'รหัสลูกค้า',
+            'ลูกค้า',
+            'รหัสสินค้า',
+            'รายละเอียดสินค้า',
+            'Product',
+            'หน่วย',
+            'ปริมาณ',
+            'ราคาขาย',
+            'มูลค่า (บาท)',
+            'กำหนดส่ง',
+            'เลขที่ PO ลูกค้า',
+            'Sales Person',
+        ], null, 'A2');
+
+        $sheet->getStyle('A2:N2')->getFont()->setBold(true);
+        $sheet->freezePane('A3');
+
+        $rowNumber = 3;
+        foreach ($detailRows as $item) {
+            $sheet->setCellValue("A$rowNumber", $item->transdate ? Carbon::parse($item->transdate)->format('Y-m-d') : '');
+            $sheet->setCellValue("B$rowNumber", $item->ordnumber ?? '');
+            $sheet->setCellValue("C$rowNumber", $item->customernumber ?? '');
+            $sheet->setCellValue("D$rowNumber", $item->customer_name ?? '');
+            $sheet->setCellValue("E$rowNumber", $item->partnumber ?? '');
+            $sheet->setCellValue("F$rowNumber", $item->description ?? '');
+            $sheet->setCellValue("G$rowNumber", $item->partstype ?? '');
+            $sheet->setCellValue("H$rowNumber", $item->unit2 ?? '');
+            $sheet->setCellValue("I$rowNumber", (float)($item->qty ?? 0));
+            $sheet->setCellValue("J$rowNumber", (float)($item->sellprice ?? 0));
+            $sheet->setCellValue("K$rowNumber", (float)($item->bath ?? 0));
+            $sheet->setCellValue("L$rowNumber", $item->reqdate ? Carbon::parse($item->reqdate)->format('Y-m-d') : '');
+            $sheet->setCellValue("M$rowNumber", $item->custponumber ?? '');
+            $sheet->setCellValue("N$rowNumber", $item->sales_name ?? '');
+            $rowNumber++;
+        }
+
+        $sheet->setAutoFilter('A2:N' . max(2, $rowNumber - 1));
+    }
+
     private function getSummaryData(string $from, string $to): array
     {
         $in = implode(',', array_fill(0, count($this->requesterIds), '?'));
@@ -421,6 +463,7 @@ class SalesInquiryController extends Controller
                 oi.transdate,
                 $qtyExpr AS qty,
                 oi.sellprice * oi.qty AS bath,
+                EXTRACT(YEAR FROM oi.transdate) AS year_number,
                 EXTRACT(MONTH FROM oi.transdate) AS month_number,
                 TO_CHAR(oi.transdate, 'Month') AS month_name,
                 CEIL(EXTRACT(DAY FROM oi.transdate) / 7.0) AS week_of_month
@@ -442,6 +485,7 @@ class SalesInquiryController extends Controller
                 
         )
         SELECT
+            year_number,
             month_number,
             month_name,
             requester_id,
@@ -452,8 +496,8 @@ class SalesInquiryController extends Controller
             ROUND(SUM(CASE WHEN week_of_month = 5 THEN ($metricExpr) END)/1000, 2) AS qtyw5,
             ROUND(SUM(($metricExpr))/1000, 2) AS total
         FROM sale1
-        GROUP BY month_number, month_name, requester_id
-        ORDER BY month_number, requester_id
+        GROUP BY year_number, month_number, month_name, requester_id
+        ORDER BY year_number, month_number, requester_id
         ";
 
         $bindings = array_merge($this->requesterIds, [$from, $to]);
@@ -470,13 +514,16 @@ class SalesInquiryController extends Controller
         }, $rows);
 
         // รวมรายเดือน + รายกลุ่ม
-        $agg = []; // [month][group] => row
+        $agg = []; // [year-month][group] => row
         foreach ($rows as $r) {
+            $y = (int)$r->year_number;
             $m = (int)$r->month_number;
             $g = (string)$r->group_code;
+            $periodKey = sprintf('%04d-%02d', $y, $m);
 
-            if (!isset($agg[$m][$g])) {
-                $agg[$m][$g] = (object)[
+            if (!isset($agg[$periodKey][$g])) {
+                $agg[$periodKey][$g] = (object)[
+                    'year_number' => $y,
                     'month_number' => $m,
                     'month_name'   => $r->month_name,
                     'group_code'   => $g,
@@ -495,11 +542,11 @@ class SalesInquiryController extends Controller
                 ];
             }
 
-            $agg[$m][$g]->requester_ids[] = (int)$r->requester_id;
-            $agg[$m][$g]->requester_ids = array_values(array_unique($agg[$m][$g]->requester_ids));
+            $agg[$periodKey][$g]->requester_ids[] = (int)$r->requester_id;
+            $agg[$periodKey][$g]->requester_ids = array_values(array_unique($agg[$periodKey][$g]->requester_ids));
 
             foreach (['qtyw1', 'qtyw2', 'qtyw3', 'qtyw4', 'qtyw5', 'total'] as $k) {
-                $agg[$m][$g]->{$k} += (float)($r->{$k} ?? 0);
+                $agg[$periodKey][$g]->{$k} += (float)($r->{$k} ?? 0);
             }
         }
 
@@ -507,10 +554,12 @@ class SalesInquiryController extends Controller
         krsort($agg);
         $monthBlocks = [];
 
-        foreach ($agg as $m => $byGroup) {
+        foreach ($agg as $periodKey => $byGroup) {
+            $firstRow = collect($byGroup)->first();
             $totalRow = (object)[
-                'month_number' => $m,
-                'month_name'   => collect($byGroup)->first()->month_name ?? '',
+                'year_number' => $firstRow->year_number ?? 0,
+                'month_number' => $firstRow->month_number ?? 0,
+                'month_name'   => $firstRow->month_name ?? '',
                 'group_code'   => 'TOTAL',
                 'group_name'   => 'TOTAL',
                 'requester_ids' => [],
@@ -543,7 +592,8 @@ class SalesInquiryController extends Controller
             });
 
             $monthBlocks[] = [
-                'month_number' => $m,
+                'year_number' => $totalRow->year_number,
+                'month_number' => $totalRow->month_number,
                 'month_name'   => $totalRow->month_name,
                 'rows'         => $list,
             ];
@@ -1145,7 +1195,7 @@ class SalesInquiryController extends Controller
         return round((($current - $previous) / abs($previous)) * 100, 2);
     }
 
-    private function getDetailRowsByMonth(string $from, string $to, int $month): array
+    private function getDetailRows(string $from, string $to): array
     {
         $in = implode(',', array_fill(0, count($this->requesterIds), '?'));
         $qtyExpr = $this->weightedQtyExpr('oi');
@@ -1182,13 +1232,10 @@ class SalesInquiryController extends Controller
             AND p.partnumber LIKE 'F%'
             AND UPPER(TRIM(oe.custponumber)) NOT IN ('SAMPLE', 'FORECAST')
             AND pt.id <> 56
-            
-            oe.ordnumber IS NOT NULL AND oe.ordnumber LIKE 'SO%' AND requester_id IN (1506,1507,1431,1432,1433,1434,1435,1436,528615586) AND 
-            AND EXTRACT(MONTH FROM oi.transdate) = ?
-        ORDER BY oi.transdate, oe.ordnumber
+        ORDER BY oe.requester_id, oi.transdate, oe.ordnumber
          ";
 
-        $bindings = array_merge($this->requesterIds, [$from, $to, $month]);
+        $bindings = array_merge($this->requesterIds, [$from, $to]);
 
         $rows = DB::connection($this->conn)->select($sql, $bindings);
 
