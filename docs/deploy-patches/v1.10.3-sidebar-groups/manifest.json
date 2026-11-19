@@ -1,0 +1,14 @@
+{
+ "resources/views/layouts/_sidebar.blade.php": {
+  "before_sha256": "4d717456d1f203f14e20be4183df8b367cc52572584d557e9e5ceb9e0d6343a7",
+  "after_sha256": "91a9c33213ebea6f2dbfa97bd65b165e534552dd8db44699574e96214ce7262b"
+ },
+ "config/app.php": {
+  "before_sha256": "f5a8e52db8318325f6763e34f0ebbf1bed948192727aa9f3b673a5ad5675a56f",
+  "after_sha256": "4cfc53ceeb10b0b8fbef7d0c0902ead58ec3d870d2ea329038888b33cc0494e3"
+ },
+ "resources/views/home.blade.php": {
+  "before_sha256": "0310187f35dd343f210279b8f80bd5ddbdba6513841b65c5c1685a97cc68b40e",
+  "after_sha256": "3a92d224316997987892f659369ab6b5679b24ba60357e23e074d075d0dcf71c"
+ }
+}
