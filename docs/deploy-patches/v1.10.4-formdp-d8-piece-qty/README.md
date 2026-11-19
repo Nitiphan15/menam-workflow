@@ -70,4 +70,10 @@ foreach ($file in $files) {
 
 ## Deploy log
 
-- รอ deploy
+- 2026-11-19 17:25 deploy Production ตามคำสั่งผู้ใช้
+- ก่อน deploy ตรวจ `before_sha256` ตรงครบ 4/4 ไฟล์
+- Backup: `M:\htdocs\menam-online\deploy-backups\formdp-d8-piece-qty-v1.10.4-20261119-172545`
+- หลัง deploy ตรวจ `after_sha256` ตรงครบ 4/4 ไฟล์
+- ตั้ง LastWriteTime ของทุกไฟล์เป็น `2026-11-19 17:25:45`
+- `php -l` ผ่านสำหรับ Production Controller และ `config/app.php`
+- ยังไม่ได้แก้ Production `.env`, เคลียร์ cache หรือทดสอบด้วยบัญชี D8 จริง
