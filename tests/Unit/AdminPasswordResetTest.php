@@ -20,7 +20,10 @@ class AdminPasswordResetTest extends TestCase
         $this->assertStringContainsString("'password'      => 'required|string|min:4|confirmed'", $controller);
         $this->assertStringContainsString("Hash::make(\$data['password'])", $controller);
         $this->assertStringContainsString("'activity_menu_name'", $controller);
-        $this->assertStringContainsString("attributes->get('activity_menu_name')", $middleware);
+        // LogUserActivity delegates to ActivityLogger, which honours activity_menu_name
+        $logger = file_get_contents($root . '/app/Services/Audit/ActivityLogger.php');
+        $this->assertStringContainsString('ActivityLogger::record(', $middleware);
+        $this->assertStringContainsString("attributes->get('activity_menu_name')", $logger);
         $this->assertStringContainsString('btn-reset-password', $view);
         $this->assertStringContainsString('name="password_confirmation"', $view);
 
