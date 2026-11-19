@@ -8,6 +8,7 @@ use App\Mail\FcDivisionNeedsApprovalMail;
 use App\Mail\FcDivisionRejectedMail;
 use App\Services\WorkflowEngine;
 use App\Support\WorkflowDb;
+use App\Support\FormFcPeriod;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -17,6 +18,16 @@ use Illuminate\Support\Facades\Mail;
 
 class ForecastRmDivisionController extends Controller
 {
+    /**
+     * Temporary Sales Forecast trial horizon.
+     *
+     * The database columns are still named forecast_6m, division_forecast_6m,
+     * and approval_forecast_6m. During this trial they intentionally store the
+     * 4-month total. Rename/migrate those legacy columns only after the trial
+     * horizon is confirmed.
+     */
+    private const FORECAST_HORIZON_MONTHS = FormFcPeriod::MONTHS;
+
     private string $fcConn = 'sqlsrv_menam';
     private string $divisionSubmissionTable = 'fc_rm_division_forecast_submissions';
     private string $divisionApprovalTable = 'fc_rm_division_forecast_approval';
@@ -897,6 +908,19 @@ class ForecastRmDivisionController extends Controller
         return $this->rowCustomerFgOwnerKey($row);
     }
 
+    private function shouldDisplayManualRow(array $row): bool
+    {
+        if ((float) ($row['avg6'] ?? 0) > 0) {
+            return false;
+        }
+
+        $rmPart = strtoupper(trim((string) ($row['rm_partnumber'] ?? '')));
+        $hasSavedManual = (int) ($row['manual_forecast_saved'] ?? 0) === 1
+            || (float) ($row['manual_forecast_1m'] ?? 0) > 0;
+
+        return $rmPart !== '' || $hasSavedManual;
+    }
+
     private function findOverrideCustomerCodeForName(?string $customerName): ?string
     {
         $customerName = trim((string) $customerName);
@@ -1421,8 +1445,9 @@ class ForecastRmDivisionController extends Controller
         return $rows
             ->groupBy(fn($r) => strtoupper(trim((string) ($r['fg_partnumber'] ?? ''))))
             ->map(function ($group) {
-                $first = collect($group)->first();
-                $productTypeRow = collect($group)->first(
+                $group = collect($group);
+                $first = $group->first();
+                $productTypeRow = $group->first(
                     fn($row) => trim((string) ($row['product_type'] ?? '')) !== ''
                 );
 
@@ -1727,22 +1752,25 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn) use ($q) {
             return DB::connection($conn)
                 ->table('parts')
+                ->leftJoin('partstype', 'parts.partstype_id', '=', 'partstype.id')
                 ->where(function ($w) use ($q) {
-                    $w->whereRaw("UPPER(TRIM(partnumber)) LIKE ?", [strtoupper($q) . '%'])
-                        ->orWhereRaw("UPPER(TRIM(COALESCE(description, ''))) LIKE ?", ['%' . strtoupper($q) . '%']);
+                    $w->whereRaw("UPPER(TRIM(parts.partnumber)) LIKE ?", [strtoupper($q) . '%'])
+                        ->orWhereRaw("UPPER(TRIM(COALESCE(parts.description, ''))) LIKE ?", ['%' . strtoupper($q) . '%']);
                 })
-                ->orderBy('partnumber')
+                ->orderBy('parts.partnumber')
                 ->limit(20)
                 ->get([
-                    DB::raw('UPPER(TRIM(partnumber)) as fg_partnumber'),
-                    'description as fg_description',
-                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(f4, '')))) as rm_partnumber"),
+                    DB::raw('UPPER(TRIM(parts.partnumber)) as fg_partnumber'),
+                    'parts.description as fg_description',
+                    DB::raw("UPPER(LTRIM(RTRIM(COALESCE(parts.f4, '')))) as rm_partnumber"),
+                    DB::raw("COALESCE(partstype.description, '') as product_type"),
                 ])
                 ->map(fn($r) => [
                     'value' => (string) ($r->fg_partnumber ?? ''),
                     'fg_partnumber' => (string) ($r->fg_partnumber ?? ''),
                     'fg_description' => (string) ($r->fg_description ?? ''),
                     'rm_partnumber' => (string) ($r->rm_partnumber ?? ''),
+                    'product_type' => (string) ($r->product_type ?? ''),
                     'text' => trim((string) ($r->fg_partnumber ?? '') . ' - ' . (string) ($r->fg_description ?? '')),
                 ]);
         };
@@ -1842,7 +1870,7 @@ class ForecastRmDivisionController extends Controller
                     'base_month'  => Carbon::parse($r->forecast_base_month)->format('Y-m'),
                     'k_factor'    => (float) ($r->k_factor ?? 0),
                     'forecast_1m' => (float) ($r->forecast_1m ?? 0),
-                    'forecast_6m' => (float) ($r->forecast_6m ?? 0),
+                    'forecast_6m' => round((float) ($r->forecast_1m ?? 0) * self::FORECAST_HORIZON_MONTHS, 2),
                     'saved_at'    => Carbon::parse($r->updated_at ?? $r->created_at)->format('Y-m-d H:i:s'),
                 ]];
             });
@@ -1864,6 +1892,13 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn) use ($fgParts) {
             $ob = DB::connection($conn)->table('orderitems as oi')
                 ->join('oe', 'oi.trans_id', '=', 'oe.id')
+                ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
+                ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
+                ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+                ->leftJoin('dmitems as dmi', function ($join) {
+                    $join->on('dmpredm.dmitems_id', '=', 'dmi.id')
+                        ->on('dmi.parts_id', '=', 'oi.parts_id');
+                })
                 ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
                 ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
                 ->whereNotNull('oe.ordnumber')
@@ -1871,36 +1906,30 @@ class ForecastRmDivisionController extends Controller
                 ->where('oe.cancelled', false)
                 ->where('oe.invoiced', false)
                 ->groupBy([
-                    'oe.id',
                     'oe.ordnumber',
                     'oi.parts_id',
                     'oe.customer_id',
                     'cus.saleperson_id',
                     'oe.shipped_or_received',
                     'oe.invoiced',
+                    'oi.qty',
                     'oe.transdate',
+                    'oi.reqdate',
                     'wo.reqdate'
                 ])
                 ->selectRaw("
                 MAX(oe.custponumber) AS po,
-                oe.id AS order_id,
                 oe.ordnumber AS ordnumber,
                 oi.parts_id AS parts_id,
-                SUM(oi.qty) AS ordered_qty,
+                oi.qty AS ordered_qty,
                 oe.transdate AS order_date,
                 oe.customer_id AS customer_id,
                 cus.saleperson_id AS saleperson_id,
-                MIN(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
+                COALESCE(oi.reqdate, wo.reqdate) AS due_date,
                 oe.shipped_or_received,
-                oe.invoiced
+                oe.invoiced,
+                SUM(dmi.qty) AS shipped_qty
             ");
-
-            $db = DB::connection($conn)->table('oedm')
-                ->join('dm', 'oedm.dm_id', '=', 'dm.id')
-                ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-                ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
-                ->groupBy(['oedm.ord_id', 'dmi.parts_id'])
-                ->selectRaw('oedm.ord_id AS order_id, dmi.parts_id, SUM(dmi.qty) AS shipped_qty');
 
             $sb = DB::connection($conn)->table('invoice as inv')
                 ->join('ar', 'inv.trans_id', '=', 'ar.id')
@@ -1933,10 +1962,6 @@ class ForecastRmDivisionController extends Controller
                         $j->on('sb.ordnumber', '=', 'ob.ordnumber')
                             ->on('sb.parts_id', '=', 'ob.parts_id');
                     })
-                    ->leftJoinSub($db, 'db', function ($j) {
-                        $j->on('db.order_id', '=', 'ob.order_id')
-                            ->on('db.parts_id', '=', 'ob.parts_id');
-                    })
                     ->leftJoinSub($rb, 'rb', function ($j) {
                         $j->on('rb.ordnumber', '=', 'ob.ordnumber')
                             ->on('rb.parts_id', '=', 'ob.parts_id');
@@ -1945,11 +1970,10 @@ class ForecastRmDivisionController extends Controller
                     ->whereIn(DB::raw('UPPER(TRIM(p.partnumber))'), $fgParts)
                     ->where('ob.shipped_or_received', false)
                     ->where('ob.invoiced', false)
-                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
                     ->selectRaw("
                     UPPER(TRIM(p.partnumber)) AS fg_partnumber,
-                    ob.ordnumber AS ordnumber,
-                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
+                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty
                 ")
                     ->get()
             )->map(fn($r) => (array) $r);
@@ -1959,16 +1983,7 @@ class ForecastRmDivisionController extends Controller
 
         return $rows
             ->groupBy(fn($r) => strtoupper(trim((string) ($r['fg_partnumber'] ?? ''))))
-            ->map(fn($g) => [
-                'qty' => round((float) collect($g)->sum('backorder_qty'), 2),
-                'order_numbers' => collect($g)
-                    ->pluck('ordnumber')
-                    ->map(fn($v) => strtoupper(trim((string) $v)))
-                    ->filter()
-                    ->unique()
-                    ->values()
-                    ->implode(' '),
-            ]);
+            ->map(fn($g) => round((float) collect($g)->sum('backorder_qty'), 2));
     }
 
     public function soDetail(Request $request)
@@ -1984,6 +1999,13 @@ class ForecastRmDivisionController extends Controller
         $fetch = function (string $conn, string $companyLabel) use ($fgPart) {
             $ob = DB::connection($conn)->table('orderitems as oi')
                 ->join('oe', 'oi.trans_id', '=', 'oe.id')
+                ->leftJoin('oedm', 'oe.id', '=', 'oedm.ord_id')
+                ->leftJoin('dm', 'oedm.dm_id', '=', 'dm.id')
+                ->leftJoin('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
+                ->leftJoin('dmitems as dmi', function ($join) {
+                    $join->on('dmpredm.dmitems_id', '=', 'dmi.id')
+                        ->on('dmi.parts_id', '=', 'oi.parts_id');
+                })
                 ->join('customer as cus', 'oe.customer_id', '=', 'cus.id')
                 ->leftJoin('workorder as wo', 'oe.ordnumber', '=', 'wo.workordernumber')
                 ->whereNotNull('oe.ordnumber')
@@ -1991,36 +2013,30 @@ class ForecastRmDivisionController extends Controller
                 ->where('oe.cancelled', false)
                 ->where('oe.invoiced', false)
                 ->groupBy([
-                    'oe.id',
                     'oe.ordnumber',
                     'oi.parts_id',
                     'oe.customer_id',
                     'oe.shipped_or_received',
                     'oe.invoiced',
+                    'oi.qty',
                     'oe.transdate',
+                    'oi.reqdate',
                     'wo.reqdate',
                     'cus.name'
                 ])
                 ->selectRaw("
                 MAX(oe.custponumber) AS po,
-                oe.id AS order_id,
                 oe.ordnumber AS ordnumber,
                 oi.parts_id AS parts_id,
-                SUM(oi.qty) AS ordered_qty,
+                oi.qty AS ordered_qty,
                 oe.transdate AS order_date,
                 oe.customer_id AS customer_id,
-                MIN(COALESCE(oi.reqdate, wo.reqdate)) AS due_date,
+                COALESCE(oi.reqdate, wo.reqdate) AS due_date,
                 oe.shipped_or_received,
                 oe.invoiced,
+                SUM(dmi.qty) AS shipped_qty,
                 cus.name AS customer_name
             ");
-
-            $db = DB::connection($conn)->table('oedm')
-                ->join('dm', 'oedm.dm_id', '=', 'dm.id')
-                ->join('dmpredm', 'dm.id', '=', 'dmpredm.dm_id')
-                ->join('dmitems as dmi', 'dmpredm.dmitems_id', '=', 'dmi.id')
-                ->groupBy(['oedm.ord_id', 'dmi.parts_id'])
-                ->selectRaw('oedm.ord_id AS order_id, dmi.parts_id, SUM(dmi.qty) AS shipped_qty');
 
             $sb = DB::connection($conn)->table('invoice as inv')
                 ->join('ar', 'inv.trans_id', '=', 'ar.id')
@@ -2056,15 +2072,11 @@ class ForecastRmDivisionController extends Controller
                         $j->on('rb.ordnumber', '=', 'ob.ordnumber')
                             ->on('rb.parts_id', '=', 'ob.parts_id');
                     })
-                    ->leftJoinSub($db, 'db', function ($j) {
-                        $j->on('db.order_id', '=', 'ob.order_id')
-                            ->on('db.parts_id', '=', 'ob.parts_id');
-                    })
                     ->leftJoin('parts as p', 'p.id', '=', 'ob.parts_id')
                     ->whereRaw('UPPER(TRIM(p.partnumber)) = ?', [$fgPart])
                     ->where('ob.shipped_or_received', false)
                     ->where('ob.invoiced', false)
-                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
+                    ->whereRaw("ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0)) > 0")
                     ->orderBy('ob.order_date')
                     ->selectRaw("
                     UPPER(TRIM(p.partnumber)) AS fg_partnumber,
@@ -2074,7 +2086,7 @@ class ForecastRmDivisionController extends Controller
                     ob.order_date,
                     ob.due_date,
                     ob.customer_name,
-                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,db.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
+                    (ob.ordered_qty - (COALESCE(sb.shipped_qty,ob.shipped_qty,0) - COALESCE(rb.return_qty,0))) AS backorder_qty,
                     ? AS company
                 ", [$companyLabel])
                     ->get()
@@ -2094,7 +2106,12 @@ class ForecastRmDivisionController extends Controller
 
     public function index(Request $request)
     {
-        if ($this->isPlanningDivisionViewer()) {
+        $hasSalesDivision = count($this->availableSalesCodesForUser()) > 0;
+        $requestedActionView = $request->query('view') === 'action';
+
+        // FC_PLN keeps the read-only planner overview as its default. A user who
+        // also owns a sales division may explicitly switch to the editable action page.
+        if ($this->isPlanningDivisionViewer() && (!$requestedActionView || !$hasSalesDivision)) {
             return $this->renderPlanningDivisionOverview($request);
         }
 
@@ -2114,7 +2131,7 @@ class ForecastRmDivisionController extends Controller
         $viewMode = $request->query('view') === 'sales' ? 'sales' : 'planner';
         $selectedDivisions = $this->requestedPlanningDivisions($request);
         $search = trim((string) $request->query('q', ''));
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, self::FORECAST_HORIZON_MONTHS))
             ->map(fn($offset) => (clone $baseMonth)->addMonths($offset));
         $futureYm = $futureMonths->map(fn($month) => $month->format('Y-m'))->all();
         $futureLabels = $futureMonths->map(fn($month) => $month->format('M-y'))->all();
@@ -2180,7 +2197,9 @@ class ForecastRmDivisionController extends Controller
                     'row_remark' => (string) ($first->row_remark ?? ''),
                     'forecast_by_month' => $forecastByMonth,
                     'approval_forecast_1m' => $approval ? (float) $approval->approval_forecast_1m : null,
-                    'approval_forecast_6m' => $approval ? (float) $approval->approval_forecast_6m : null,
+                    'approval_forecast_6m' => $approval
+                        ? round((float) ($approval->approval_forecast_1m ?? 0) * self::FORECAST_HORIZON_MONTHS, 2)
+                        : null,
                     'approval_remark' => $approval ? (string) ($approval->approval_remark ?? '') : '',
                 ];
             })
@@ -2192,6 +2211,60 @@ class ForecastRmDivisionController extends Controller
         $rows = $rows->map(function (array $row) use ($fgDetails) {
             $fg = strtoupper(trim((string) $row['fg_partnumber']));
             $row['product_type'] = (string) (($fgDetails->get($fg, []))['product_type'] ?? '');
+
+            return $row;
+        })->values();
+
+        $historyRows = DB::connection($this->fcConn)
+            ->table('fc_rm_division_forecast_item_history as h')
+            ->join('fc_rm_division_forecast_batch as b', 'b.id', '=', 'h.batch_id')
+            ->leftJoin('users as actor', 'actor.id', '=', 'b.created_by')
+            ->whereDate('h.forecast_base_month', $forecastBaseMonth)
+            ->whereIn('h.sales_code', $selectedDivisions)
+            ->orderByDesc('b.created_at')
+            ->orderByDesc('h.batch_id')
+            ->get([
+                'h.batch_id', 'h.sales_code', 'h.customer_id', 'h.fg_partnumber',
+                'h.forecast_month', 'h.forecast_qty', 'h.k_factor', 'h.source_type',
+                'b.created_at as batch_created_at', 'b.created_by', 'actor.name as actor_name',
+            ]);
+
+        $historyByRow = $historyRows
+            ->groupBy(fn($row) => strtoupper(trim((string) $row->sales_code))
+                . '|' . (int) $row->customer_id
+                . '|' . strtoupper(trim((string) $row->fg_partnumber)))
+            ->map(function ($rowHistory) use ($futureYm) {
+                return $rowHistory
+                    ->groupBy('batch_id')
+                    ->map(function ($batchRows, $batchId) use ($futureYm) {
+                        $first = $batchRows->first();
+                        $byMonth = $batchRows->groupBy(function ($item) {
+                            try {
+                                return Carbon::parse($item->forecast_month)->format('Y-m');
+                            } catch (\Throwable $e) {
+                                return '';
+                            }
+                        })->map(fn($items) => (float) $items->sum('forecast_qty'));
+
+                        return [
+                            'batch_id' => (int) $batchId,
+                            'saved_at' => $first->batch_created_at,
+                            'actor' => (string) ($first->actor_name ?: ('User #' . $first->created_by)),
+                            'sales_code' => strtoupper(trim((string) $first->sales_code)),
+                            'k_factor' => (float) ($first->k_factor ?? 0),
+                            'forecast_1m' => (float) ($byMonth->get($futureYm[0] ?? '', 0)),
+                            'forecast_horizon' => (float) $byMonth->sum(),
+                            'source_type' => (string) ($first->source_type ?? ''),
+                        ];
+                    })
+                    ->sortByDesc('batch_id')
+                    ->values()
+                    ->all();
+            });
+
+        $rows = $rows->map(function (array $row) use ($historyByRow) {
+            $key = $row['sales_code'] . '|' . $row['customer_id'] . '|' . $row['fg_partnumber'];
+            $row['forecast_history'] = $historyByRow->get($key, []);
 
             return $row;
         })->values();
@@ -2261,9 +2334,11 @@ class ForecastRmDivisionController extends Controller
             'forecastBaseMonth' => $forecastBaseMonth,
             'futureYm' => $futureYm,
             'futureLabels' => $futureLabels,
+            'forecastHorizonMonths' => self::FORECAST_HORIZON_MONTHS,
             'search' => $search,
             'kpi' => $kpi,
             'viewMode' => $viewMode,
+            'canOpenForecastAction' => count($this->availableSalesCodesForUser()) > 0,
         ]);
     }
 
@@ -2328,7 +2403,6 @@ class ForecastRmDivisionController extends Controller
             'Cache-Control' => 'max-age=0, no-cache, no-store, must-revalidate',
         ]);
     }
-
 
     private function documentListMonth(Request $request): string
     {
@@ -2440,7 +2514,7 @@ class ForecastRmDivisionController extends Controller
         }
 
         if (!$this->submissionTableAvailable()) {
-            return view('formfc.division_documents', [
+            return view('formfc.division.documents', [
                 'rows' => collect(),
                 'q' => trim((string) $request->query('q', '')),
                 'status' => strtoupper(trim((string) $request->query('status', 'ALL'))),
@@ -2470,7 +2544,7 @@ class ForecastRmDivisionController extends Controller
             return $row;
         });
 
-        return view('formfc.division_documents', [
+        return view('formfc.division.documents', [
             'rows' => $rows,
             'q' => trim((string) $request->query('q', '')),
             'status' => strtoupper(trim((string) $request->query('status', 'ALL'))),
@@ -2564,7 +2638,7 @@ class ForecastRmDivisionController extends Controller
         }
 
         if (!$this->submissionTableAvailable()) {
-            return view('formfc.division_approval_list', [
+            return view('formfc.division.approval_list', [
                 'rows' => collect(),
                 'q' => trim((string) $request->query('q', '')),
                 'status' => trim((string) $request->query('status', '')),
@@ -2631,7 +2705,7 @@ class ForecastRmDivisionController extends Controller
             return $row;
         });
 
-        return view('formfc.division_approval_list', [
+        return view('formfc.division.approval_list', [
             'rows' => $rows,
             'q' => $qText,
             'status' => $status,
@@ -2705,14 +2779,14 @@ class ForecastRmDivisionController extends Controller
         }
         $rowDefaultK = $selectedK > 0 ? $selectedK : $defaultK;
 
-        $historyMonths = collect(range(0, 5))
+        $historyMonths = collect(range(0, FormFcPeriod::MONTHS - 1))
             ->map(fn($i) => (clone $baseMonth)->subMonths($i))
             ->reverse()
             ->values();
 
         $historyYm = $historyMonths->map(fn($d) => $d->format('Y-m'))->all();
         $historyLabels = $historyMonths->map(fn($d) => $d->format('M-y'))->all();
-        $futureMonths = collect(range(1, 6))
+        $futureMonths = collect(range(1, self::FORECAST_HORIZON_MONTHS))
             ->map(fn($i) => (clone $baseMonth)->addMonths($i));
         $futureYm = $futureMonths->map(fn($d) => $d->format('Y-m'))->all();
         $futureLabels = $futureMonths->map(fn($d) => $d->format('M-y'))->all();
@@ -2721,7 +2795,7 @@ class ForecastRmDivisionController extends Controller
             $salesCode,
             $rmKeywords,
             $customerNameKeywords,
-            (clone $baseMonth)->subMonths(5)->startOfMonth(),
+            (clone $baseMonth)->subMonths(FormFcPeriod::MONTHS - 1)->startOfMonth(),
             (clone $baseMonth)->endOfMonth(),
             $companyMode,
             $customerIds
@@ -2901,7 +2975,7 @@ class ForecastRmDivisionController extends Controller
         );
         $manualSeedHistory = $this->fetchHistoryForSavedCustomerFgRows(
             $missingManualSeeds,
-            (clone $baseMonth)->subMonths(5)->startOfMonth(),
+            (clone $baseMonth)->subMonths(FormFcPeriod::MONTHS - 1)->startOfMonth(),
             (clone $baseMonth)->endOfMonth(),
             $historyYm,
             $companyMode
@@ -3048,12 +3122,14 @@ class ForecastRmDivisionController extends Controller
                 : 0.00;
 
             $r['forecast_6m'] = $r['is_selected']
-                ? round((float) $r['forecast_1m'] * 6, 2)
+                ? round((float) $r['forecast_1m'] * self::FORECAST_HORIZON_MONTHS, 2)
                 : 0.00;
 
             $approval = $approvalRows->get($r['row_key']);
             $r['approval_forecast_1m'] = $approval ? round((float) ($approval->approval_forecast_1m ?? 0), 2) : null;
-            $r['approval_forecast_6m'] = $approval ? round((float) ($approval->approval_forecast_6m ?? 0), 2) : null;
+            $r['approval_forecast_6m'] = $approval
+                ? round((float) ($approval->approval_forecast_1m ?? 0) * self::FORECAST_HORIZON_MONTHS, 2)
+                : null;
             $r['approval_k_factor'] = $approval && isset($approval->approval_k_factor)
                 ? round((float) $approval->approval_k_factor, 1)
                 : null;
@@ -3069,12 +3145,12 @@ class ForecastRmDivisionController extends Controller
             ->all();
 
         $soMap = $this->fetchSalesOrderSummaryByFg($fgParts, $companyMode);
+        $fgDetails = $this->fetchFgPartDetails($fgParts, $companyMode);
 
-        $rows = $rows->map(function ($r) use ($soMap) {
+        $rows = $rows->map(function ($r) use ($soMap, $fgDetails) {
             $fg = strtoupper(trim((string) ($r['fg_partnumber'] ?? '')));
-            $so = (array) ($soMap->get($fg, []) ?? []);
-            $r['sales_order_qty'] = (float) ($so['qty'] ?? 0);
-            $r['sales_order_numbers'] = (string) ($so['order_numbers'] ?? '');
+            $r['sales_order_qty'] = (float) ($soMap->get($fg, 0) ?? 0);
+            $r['product_type'] = (string) (($fgDetails->get($fg, []))['product_type'] ?? '');
             return $r;
         })->values();
 
@@ -3084,10 +3160,7 @@ class ForecastRmDivisionController extends Controller
             ->all();
 
         $manualOnlyRows = $rows
-            ->filter(function ($r) {
-                $rmPart = strtoupper(trim((string) ($r['rm_partnumber'] ?? '')));
-                return (float) ($r['avg6'] ?? 0) <= 0 && $rmPart !== '';
-            })
+            ->filter(fn($r) => $this->shouldDisplayManualRow((array) $r))
             ->reject(fn($r) => in_array($this->rowCustomerFgDedupKey((array) $r), $rowsWithHistoryKeys, true))
             ->groupBy(fn($r) => $this->rowCustomerFgDedupKey((array) $r))
             ->map(function ($group) {
@@ -3130,7 +3203,7 @@ class ForecastRmDivisionController extends Controller
             ? WorkflowDb::historyWithActors('fc', (int) $workflow->id)
             : collect();
 
-        return view('formfc.division_forecast', [
+        return view('formfc.division.forecast', [
             'salesCode' => $salesCode,
             'rmLike' => $rmLike,
             'fgLike' => $fgLike,
@@ -3143,11 +3216,13 @@ class ForecastRmDivisionController extends Controller
             'historyLabels' => $historyLabels,
             'futureYm' => $futureYm,
             'futureLabels' => $futureLabels,
+            'forecastHorizonMonths' => self::FORECAST_HORIZON_MONTHS,
             'rows' => $displayRows,
             'manualOnlyRows' => $manualOnlyRows,
             'kpi' => $kpi,
             'suppliers' => $this->fetchSupplierOptions(),
             'allowedDivisions' => $allowedDivisions,
+            'canViewPlannerOverview' => $this->isPlanningDivisionViewer(),
             'showDivisionDropdown' => $showDivisionDropdown,
             'divisionLabels' => $this->divisionLabels,
             'isSubmitted' => $isSubmitted,
@@ -3322,17 +3397,7 @@ class ForecastRmDivisionController extends Controller
 
         foreach ($rowMeta as $rowKey => $metaJson) {
             $meta = json_decode((string) $metaJson, true);
-            $manualRaw = $manualRows[$rowKey] ?? null;
-            $hasPositiveManual = is_numeric($manualRaw) && (float) $manualRaw > 0;
-
-            if (!is_array($meta)) {
-                if ($hasPositiveManual) {
-                    return back()
-                        ->with('error', "ข้อมูล Manual row {$rowKey} ไม่สมบูรณ์ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
-                        ->withInput();
-                }
-                continue;
-            }
+            if (!is_array($meta)) continue;
 
             $custId = (int) ($meta['customer_id'] ?? 0);
             $custName = (string) ($meta['customer_name'] ?? '-');
@@ -3365,15 +3430,7 @@ class ForecastRmDivisionController extends Controller
                 }
             }
 
-            if ($fgPartnumber === '' || ($hasPositiveManual && $custId <= 0)) {
-                if ($hasPositiveManual) {
-                    $label = trim($custName . ' / ' . $fgPartnumber, ' /');
-                    return back()
-                        ->with('error', "ข้อมูล Manual ไม่ครบ ({$label}) กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
-                        ->withInput();
-                }
-                continue;
-            }
+            if ($fgPartnumber === '') continue;
 
             $isSelected = isset($forecastFlag[$rowKey]) && (string) $forecastFlag[$rowKey] === '1';
 
@@ -3394,7 +3451,7 @@ class ForecastRmDivisionController extends Controller
                 ? ($isManual ? $manualInput : $autoForecast1m)
                 : 0.00;
 
-            $forecast6m = $isSelected ? round($forecast1m * 6, 2) : 0;
+            $forecast6m = $isSelected ? round($forecast1m * self::FORECAST_HORIZON_MONTHS, 2) : 0;
 
             $settingRows[] = [
                 'sales_code' => $salesCode,
@@ -3673,27 +3730,9 @@ class ForecastRmDivisionController extends Controller
                 continue;
             }
 
-            if ($qty === '' || $qty === null) {
-                continue;
-            }
-
-            if (!is_numeric($qty)) {
-                return back()->with('error', 'ค่า Manual ต้องเป็นตัวเลข')->withInput();
-            }
-
-            $qty = round((float) $qty, 2);
-            if ($qty < 0) {
-                return back()->with('error', 'ค่า Manual ต้องไม่ติดลบ')->withInput();
-            }
-            if ($qty <= 0) {
-                continue;
-            }
-
             $meta = json_decode((string) ($metaRows[$rowKey] ?? ''), true);
             if (!is_array($meta)) {
-                return back()
-                    ->with('error', "ข้อมูล Manual row {$rowKey} ไม่สมบูรณ์ กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
-                    ->withInput();
+                continue;
             }
 
             $customerId = (int) ($meta['customer_id'] ?? 0);
@@ -3703,13 +3742,23 @@ class ForecastRmDivisionController extends Controller
             $rmPartnumber = strtoupper(trim((string) ($meta['rm_partnumber'] ?? '')));
 
             if ($customerId <= 0 || $fgPartnumber === '') {
-                $label = $customerName !== '' || $fgPartnumber !== ''
-                    ? trim($customerName . ' / ' . $fgPartnumber, ' /')
-                    : $rowKey;
+                continue;
+            }
 
-                return back()
-                    ->with('error', "ข้อมูล Manual ไม่ครบ ({$label}) กรุณาเลือก Customer และ FG Part จากรายการแนะนำ")
-                    ->withInput();
+            if ($qty === '' || $qty === null) {
+                continue;
+            }
+
+            if (!is_numeric($qty)) {
+                return back()->with('error', "ค่า Manual ของ {$fgPartnumber} ต้องเป็นตัวเลข")->withInput();
+            }
+
+            $qty = round((float) $qty, 2);
+            if ($qty < 0) {
+                return back()->with('error', "ค่า Manual ของ {$fgPartnumber} ต้องไม่ติดลบ")->withInput();
+            }
+            if ($qty <= 0) {
+                continue;
             }
 
             $manualKey = $customerId . '|' . $fgPartnumber;
@@ -3755,7 +3804,7 @@ class ForecastRmDivisionController extends Controller
                 'forecast_month' => $baseMonth,
                 'forecast_qty' => $qty,
                 'forecast_1m' => $qty,
-                'forecast_6m' => round($qty * 6, 2),
+                'forecast_6m' => round($qty * self::FORECAST_HORIZON_MONTHS, 2),
                 'source_type' => 'MANUAL',
                 'is_selected' => 1,
                 'created_at' => now(),
@@ -3922,7 +3971,7 @@ class ForecastRmDivisionController extends Controller
                 'division_forecast_1m' => isset($meta['division_forecast_1m']) ? round((float) $meta['division_forecast_1m'], 2) : null,
                 'division_forecast_6m' => isset($meta['division_forecast_6m']) ? round((float) $meta['division_forecast_6m'], 2) : null,
                 'approval_forecast_1m' => $qty,
-                'approval_forecast_6m' => round($qty * 6, 2),
+                'approval_forecast_6m' => round($qty * self::FORECAST_HORIZON_MONTHS, 2),
                 'approval_remark' => trim((string) ($remarks[$rowKey] ?? '')) ?: null,
                 'updated_at' => now(),
                 'updated_by' => $u->id ?? null,
@@ -4061,7 +4110,9 @@ class ForecastRmDivisionController extends Controller
             'fg_description'      => isset($r['fg_description']) ? (string) $r['fg_description'] : null,
             'fg_partnumber'       => isset($r['fg_partnumber']) ? (string) $r['fg_partnumber'] : null,
             'forecast_1m'         => isset($r['forecast_1m']) ? round((float) $r['forecast_1m'], 2) : null,
-            'forecast_6m'         => isset($r['forecast_6m']) ? round((float) $r['forecast_6m'], 2) : null,
+            'forecast_6m'         => isset($r['forecast_1m'])
+                ? round((float) $r['forecast_1m'] * FormFcPeriod::MONTHS, 2)
+                : null,
             'forecast_base_month' => $r['forecast_base_month'] ?? null,
             'forecast_month'      => $r['forecast_month'] ?? null,
             'forecast_qty'        => isset($r['forecast_qty']) ? round((float) $r['forecast_qty'], 2) : null,
