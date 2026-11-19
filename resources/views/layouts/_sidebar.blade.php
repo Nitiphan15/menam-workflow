@@ -250,6 +250,18 @@
             return 'Main';
         }
 
+        if (Str::contains($text, ['DIE Tracking'])) {
+            return 'Die';
+        }
+
+        if (Str::contains($text, ['Grating'])) {
+            return 'Grating';
+        }
+
+        if (Str::contains($text, ['Accounting Reports', 'หน้าซองจดหมาย'])) {
+            return 'Accounting';
+        }
+
         if (
             Str::contains($text, [
                 'Production',
@@ -259,6 +271,7 @@
                 'Risk',
                 'Workload Machine',
                 'Packaging',
+                'Critical Spare',
             ])
         ) {
             return 'Planning';
@@ -291,6 +304,8 @@
         'Sales',
         'Accounting',
         'Planning',
+        'Die',
+        'Grating',
         'Purchasing',
         'QA',
         'Operations',
