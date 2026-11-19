@@ -5,7 +5,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Menam Workflow Online')</title>
+    @php
+        // ป้ายบอกฐาน SQL Server ที่ใช้อยู่ (แสดงเฉพาะเครื่องที่ไม่ใช่ production)
+        $dbBadge = null;
+        if (! app()->environment('production')) {
+            if (config('database.targets_prod')) {
+                $dbBadge = ['label' => 'PROD', 'class' => 'bg-danger'];
+            } elseif (config('database.profile')) {
+                $dbBadge = ['label' => strtoupper(config('database.profile')), 'class' => 'bg-success'];
+            } else {
+                $dbBadge = ['label' => config('database.connections.sqlsrv_menam.database'), 'class' => 'bg-secondary'];
+            }
+        }
+    @endphp
+    <title>{{ $dbBadge ? '[' . $dbBadge['label'] . '] ' : '' }}@yield('title', 'Menam Workflow Online')</title>
 
 
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
@@ -19,8 +32,7 @@
     <link href="{{ asset('vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
     <link href="{{ asset('vendor/flatpickr/flatpickr.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ asset('vendor/tom-select/css/tom-select.bootstrap5.min.css') }}">
-    <link rel="stylesheet" href="{{ asset('vendor/frappe-gantt/frappe-gantt.css') }}">
-    <link rel="stylesheet" href="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.css') }}">
+    {{-- dhtmlxgantt โหลดเฉพาะหน้า formps/gantt; frappe-gantt ไม่มีหน้าไหนใช้แล้ว --}}
     <link rel="stylesheet" href="{{ asset('css/layout-base.css') }}?v={{ filemtime(public_path('css/layout-base.css')) }}">
 
     @yield('styles')
@@ -28,6 +40,15 @@
 </head>
 
 <body>
+    {{-- เตือนเมื่อเครื่อง local ชี้ฐาน PROD (ดู DB_PROFILE ใน config/database.php) --}}
+    @if (config('database.targets_prod') && ! app()->environment('production'))
+        <div class="position-fixed top-0 start-50 translate-middle-x mt-1 px-3 py-1 rounded-pill bg-danger text-white fw-bold shadow"
+            style="z-index: 2000; pointer-events: none; font-size: .85rem;">
+            <i class="fas fa-triangle-exclamation me-1"></i>
+            LOCAL กำลังใช้ฐาน PROD ({{ config('database.connections.sqlsrv_menam.database') }})
+        </div>
+    @endif
+
     <div class="container-fluid h-100">
         <div class="row h-100">
 
@@ -80,7 +101,9 @@
                         <script>
                             document.addEventListener('DOMContentLoaded', function () {
                                 if (!window.Swal) return;
-                                var Toast = Swal.mixin({
+                                // ถ้า scroll-safe-swal.js โหลดไม่ขึ้น ให้ fallback เป็น Swal ปกติ (toast จะไม่หายเงียบ)
+                                var SwalLib = window.ScrollSafeSwal || window.Swal;
+                                var Toast = SwalLib.mixin({
                                     toast: true,
                                     position: 'top-end',
                                     showConfirmButton: false,
@@ -120,6 +143,10 @@
                     <footer class="mt-auto pt-3 text-muted small">
                         <hr>
                         <p style="font-size: 12px; color: gray;">Version {{ config('app.version') }} |
+                            @if ($dbBadge)
+                                <span class="badge {{ $dbBadge['class'] }} ms-1"
+                                    title="SQL Server: {{ config('database.connections.sqlsrv_menam.database') }}">DB: {{ $dbBadge['label'] }}</span>
+                            @endif
                             ติดต่อผู้ดูแลระบบ:
                             nitiphan@menamstainless.co.th</p>
                     </footer>
@@ -139,39 +166,11 @@
     <script src="{{ asset('vendor/flatpickr/flatpickr.min.js') }}"></script>
     <script src="{{ asset('vendor/sweetalert2/sweetalert2.all.min.js') }}"></script>
     <script src="{{ asset('vendor/tom-select/js/tom-select.complete.min.js') }}"></script>
-    <script src="{{ asset('vendor/frappe-gantt/frappe-gantt.min.js') }}"></script>
-    <script src="{{ asset('vendor/dhtmlxgantt/dhtmlxgantt.js') }}"></script>
     <script src="{{ asset('vendor/chartjs/chart.umd.min.js') }}"></script>
     <script src="{{ asset('vendor/chartjs-plugin-datalabels/chartjs-plugin-datalabels.min.js') }}"></script>
     @stack('scripts')
 </body>
 
 
-@push('scripts')
-    <script>
-        function toggleStatus(id, isActive) {
-
-            let title = isActive ? 'ยืนยันการปิดการใช้งาน?' : 'ยืนยันการเปิดการใช้งาน?';
-            let text = isActive ? 'ฟอร์มนี้จะถูกปิดการใช้งาน' : 'ฟอร์มนี้จะถูกเปิดใช้งาน';
-            let confirmBtn = isActive ? 'ใช่, ปิดการใช้งาน' : 'ใช่, เปิดการใช้งาน';
-            let confirmColor = isActive ? '#d33' : '#28a745';
-
-            Swal.fire({
-                title: title,
-                text: text,
-                icon: 'warning',
-                showCancelButton: true,
-                confirmButtonText: confirmBtn,
-                cancelButtonText: 'ยกเลิก',
-                confirmButtonColor: confirmColor,
-                cancelButtonColor: '#6c757d',
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    document.getElementById('toggle-form-' + id).submit();
-                }
-            });
-        }
-    </script>
-@endpush
 
 </html>
