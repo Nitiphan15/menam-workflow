@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Audit\AuditTrail;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 
@@ -57,6 +58,7 @@ class DepartmentRoleAdminController extends Controller
         }
 
         SqlServerDb::table('department_roles')->insert($data + ['created_at' => now(), 'updated_at' => now()]);
+        AuditTrail::created('dept_role', "dept {$data['department_id']} / {$data['code']}", $data['name'], $data);
         return back()->with('ok', 'เพิ่มตำแหน่งของแผนกแล้ว');
     }
 
@@ -108,7 +110,9 @@ class DepartmentRoleAdminController extends Controller
             return back()->withInput()->withErrors(['code' => 'รหัสซ้ำในแผนกนี้']);
         }
 
+        $before = AuditTrail::snapshot(SqlServerDb::table('department_roles')->where('id', $id)->first());
         SqlServerDb::table('department_roles')->where('id', $id)->update($data + ['updated_at' => now()]);
+        AuditTrail::updated('dept_role', $id, $data['name'], $before, array_merge($before, $data));
         return redirect()
             ->route('adminweb.deptroles.index')
             ->with('ok', 'อัปเดตแล้ว');
@@ -126,7 +130,11 @@ class DepartmentRoleAdminController extends Controller
             ]);
         }
 
+        $before = AuditTrail::snapshot(SqlServerDb::table('department_roles')->where('id', $id)->first());
         SqlServerDb::table('department_roles')->where('id', $id)->delete();
+        if ($before) {
+            AuditTrail::deleted('dept_role', $id, $before['name'] ?? null, $before);
+        }
         return back()->with('ok', 'ลบแล้ว');
     }
 }

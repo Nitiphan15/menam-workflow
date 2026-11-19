@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 use App\Http\Controllers\Controller;
+use App\Services\Audit\AuditTrail;
 use App\Support\SqlServerDb;
 
 class RoleAdminController extends Controller
@@ -33,6 +34,7 @@ class RoleAdminController extends Controller
             'name' => 'required|string|max:100',
         ]);
         SqlServerDb::table('dept_roles')->insert($data);
+        AuditTrail::created('role', $data['code'], $data['name'], $data);
         return back()->with('ok', 'เพิ่มตำแหน่งแล้ว');
     }
 
@@ -74,7 +76,9 @@ class RoleAdminController extends Controller
                 ->withErrors(['code' => 'รหัสซ้ำในแผนกนี้']);
         }
 
+        $before = AuditTrail::snapshot(SqlServerDb::table('dept_roles')->where('id', $id)->first());
         SqlServerDb::table('dept_roles')->where('id', $id)->update($data);
+        AuditTrail::updated('role', $id, $data['name'], $before, array_merge($before, $data));
 
         return redirect()
             ->route('adminweb.roles.create')
@@ -83,7 +87,11 @@ class RoleAdminController extends Controller
 
     public function destroy($id)
     {
+        $before = AuditTrail::snapshot(SqlServerDb::table('dept_roles')->where('id', $id)->first());
         SqlServerDb::table('dept_roles')->where('id', $id)->delete();
+        if ($before) {
+            AuditTrail::deleted('role', $id, $before['name'] ?? null, $before);
+        }
 
         return back()->with('ok', 'ลบแล้ว');
     }

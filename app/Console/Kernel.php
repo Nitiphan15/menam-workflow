@@ -17,6 +17,13 @@ class Kernel extends ConsoleKernel
     {
         // $schedule->command('inspire')->hourly();
 
+        // ลบ activity log ที่เก่ากว่า app.activity_log_retention_days (ค่าเริ่มต้น 365 วัน)
+        $schedule->command('activity-log:prune')
+            ->dailyAt('02:30')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(120);
+
         // แจ้งเตือน Planner เรื่องงาน WOCR ที่ยังไม่ได้ดำเนินการ ทุกเช้าวันทำการ 08:00
         $schedule->command('wocr:pending-digest')
             ->weekdays()

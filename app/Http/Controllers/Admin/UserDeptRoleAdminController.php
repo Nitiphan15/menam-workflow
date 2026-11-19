@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Users\Department;
+use App\Services\Audit\AuditTrail;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 
@@ -56,6 +57,13 @@ class UserDeptRoleAdminController extends Controller
             ]);
 
             $this->syncPrimaryRoleUser($data);
+
+            AuditTrail::created(
+                'user_dept_role',
+                "user {$data['user_id']} / role {$data['department_role_id']}",
+                SqlServerDb::table('users')->where('id', $data['user_id'])->value('name'),
+                $data
+            );
         });
 
         return back()->with('ok', 'บันทึกการผูกผู้ใช้กับตำแหน่งแล้ว');
@@ -103,6 +111,13 @@ class UserDeptRoleAdminController extends Controller
         abort_unless($row, 404);
 
         SqlServerDb::table('department_role_users')->where('id', $id)->delete();
+
+        AuditTrail::deleted(
+            'user_dept_role',
+            $id,
+            SqlServerDb::table('users')->where('id', $row->user_id)->value('name'),
+            AuditTrail::snapshot($row)
+        );
 
         return back()->with('ok', 'ลบรายการผูกผู้ใช้กับตำแหน่งแล้ว');
     }

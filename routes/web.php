@@ -1160,6 +1160,7 @@ Route::middleware(['auth', 'can:ADMINWEB'])
 
     // ประวัติการใช้งาน (Activity Log)
     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
+    Route::get('/activity-logs/changes', [ActivityLogController::class, 'changes'])->name('activity-logs.changes');
   });
 
 

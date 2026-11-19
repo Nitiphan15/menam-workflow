@@ -16,6 +16,8 @@ class UserActivityLog extends Model
         'user_id',
         'user_name',
         'is_authenticated',
+        'department_id',
+        'department_name',
         'menu_name',
         'route_name',
         'url_path',

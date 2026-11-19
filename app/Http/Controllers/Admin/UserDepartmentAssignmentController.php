@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Audit\AuditTrail;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -120,7 +121,26 @@ class UserDepartmentAssignmentController extends Controller
         $endDate = Carbon::parse($startDate)->subDay()->toDateString();
         $now = now();
 
-        SqlServerDb::transaction(function () use ($userId, $data, $startDate, $endDate, $now) {
+        $before = [
+            'department_id'           => $user->department_id,
+            'primary_department_role' => SqlServerDb::table('department_role_users')
+                ->where('user_id', $userId)
+                ->where('is_primary', 1)
+                ->where(function ($query) use ($startDate) {
+                    $query->whereNull('end_date')->orWhere('end_date', '>=', $startDate);
+                })
+                ->pluck('department_role_id')
+                ->implode(', ') ?: null,
+        ];
+        $after = [
+            'department_id'           => (int) $data['department_id'],
+            'primary_department_role' => (string) $data['department_role_id'],
+            'start_date'              => $startDate,
+        ];
+
+        SqlServerDb::transaction(function () use ($userId, $data, $startDate, $endDate, $now, $user, $before, $after) {
+            AuditTrail::updated('user_department', $userId, $user->name, $before, $after);
+
             SqlServerDb::table('users')
                 ->where('id', $userId)
                 ->update([

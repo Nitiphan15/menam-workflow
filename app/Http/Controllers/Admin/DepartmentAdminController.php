@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Users\Department;
+use App\Services\Audit\AuditTrail;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class DepartmentAdminController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        AuditTrail::created('department', $data['code'], $data['name'], $data + ['is_active' => 1]);
 
         return back()->with('ok', 'เพิ่มแผนกแล้ว');
     }
@@ -69,7 +71,9 @@ class DepartmentAdminController extends Controller
                 ->withErrors(['code' => 'Department code already exists.']);
         }
 
+        $before = AuditTrail::snapshot(SqlServerDb::table('departments')->where('id', $id)->first());
         SqlServerDb::table('departments')->where('id', $id)->update($data + ['updated_at' => now()]);
+        AuditTrail::updated('department', $id, $data['name'], $before, array_merge($before, $data));
 
         return redirect()
             ->route('adminweb.dept.create')
@@ -93,7 +97,11 @@ class DepartmentAdminController extends Controller
             ]);
         }
 
+        $before = AuditTrail::snapshot(SqlServerDb::table('departments')->where('id', $id)->first());
         SqlServerDb::table('departments')->where('id', $id)->delete();
+        if ($before) {
+            AuditTrail::deleted('department', $id, $before['name'] ?? null, $before);
+        }
 
         return back()->with('ok', 'ลบแผนกแล้ว');
     }
