@@ -16,10 +16,10 @@
                 <div id="gps-source-title" class="gps-source-title">กำลังใช้ตำแหน่งจำลอง</div>
                 <div id="gps-source-note" class="gps-source-note">คิวและรายการส่งมาจาก FormDP จริง · ตำแหน่งรถจำลองในรูปแบบเดียวกับ DTC</div>
                 <div class="gps-source-facts">
-                    <span id="gps-source-freshness"><i class="fas fa-clock"></i> กำลังอ่านเวลาล่าสุด</span>
+                    <span id="gps-source-freshness"><i class="fas fa-clock"></i> ยังไม่มีข้อมูล GPS จริง</span>
                     <span id="gps-last-success"><i class="fas fa-cloud-arrow-down"></i> ยังไม่เคยเชื่อมต่อสำเร็จ</span>
-                    <span id="gps-match-summary"><i class="fas fa-link"></i> จับคู่ {{ $dtcMatchReport['matched_count'] }}/{{ $dtcMatchReport['dtc_count'] }} คัน</span>
-                    <span><i class="fas fa-rotate"></i> Live sync ทุก {{ $dtcSyncMinutes }} นาทีเมื่อเปิดใช้งาน</span>
+                    <span id="gps-match-summary"><i class="fas fa-link"></i> จับคู่รถ: รอข้อมูล DTC</span>
+                    <span><i class="fas fa-hand-pointer"></i> ยังไม่เปิด sync อัตโนมัติ · ดึงตำแหน่งด้วยปุ่มเท่านั้น</span>
                     @isset($dtcUsage)
                         <span id="gps-dtc-usage" class="{{ $dtcUsage['percent'] >= 80 || $dtcUsage['locked_until'] ? 'is-stale' : '' }}" title="งบใช้ได้ {{ number_format($dtcUsage['budget']) }} (สำรอง {{ number_format($dtcUsage['quota'] - $dtcUsage['budget']) }})">
                             <i class="fas fa-gauge-high"></i> DTC เดือนนี้ {{ number_format($dtcUsage['month_total']) }} / {{ number_format($dtcUsage['quota']) }} · วันนี้ {{ number_format($dtcUsage['today']) }}
@@ -42,7 +42,7 @@
             </div>
         </section>
         <section id="gps-mapping-panel" class="gps-mapping-panel" hidden>
-            <header><div><strong>การจับคู่รถ DTC กับคิว FormDP</strong><span>ใช้ทะเบียนจาก Vehicle Master เป็นหลัก และแสดงรถที่ขาดจากทั้งสองฝั่ง</span></div><span id="gps-mapping-count" class="gps-match-pill">{{ $dtcMatchReport['matched_count'] }} จับคู่แล้ว</span></header>
+            <header><div><strong>การจับคู่รถ DTC กับคิว FormDP</strong><span>ใช้ทะเบียนจาก Vehicle Master เป็นหลัก และแสดงรถที่ขาดจากทั้งสองฝั่ง</span></div><span id="gps-mapping-count" class="gps-match-pill">ตัวอย่าง (DEMO)</span></header>
             <div class="table-responsive"><table class="table gps-mapping-table"><thead><tr><th>DTC GPS ID</th><th>ทะเบียน Vehicle Master</th><th>ทะเบียน FormDP</th><th>เที่ยว/คนขับ</th><th>ข้อมูลล่าสุด</th><th>ผล</th></tr></thead><tbody id="gps-mapping-rows"></tbody></table></div>
         </section>
         <section class="gps-demo-toolbar" aria-label="ตัวควบคุม Simulation">
@@ -62,12 +62,13 @@
         @endcan
 
         <nav class="gps-view-tabs" aria-label="มุมมอง GPS Trip Tracking">
-            <button type="button" class="gps-view-tab is-active" data-gps-view="live" aria-selected="true"><i class="fas fa-location-dot"></i><span>ติดตามวันนี้</span></button>
-            <button type="button" class="gps-view-tab" data-gps-view="history" aria-selected="false"><i class="fas fa-clock-rotate-left"></i><span>ย้อนหลัง</span></button>
-            <button type="button" class="gps-view-tab" data-gps-view="reports" aria-selected="false"><i class="fas fa-chart-column"></i><span>รายงาน</span></button>
+            <button type="button" class="gps-view-tab is-active" data-gps-view="live" aria-selected="true"><i class="fas fa-location-dot"></i><span>ติดตาม</span></button>
+            <button type="button" class="gps-view-tab" data-gps-view="history" aria-selected="false"><i class="fas fa-clock-rotate-left"></i><span>ย้อนหลัง</span><small class="gps-tab-demo">DEMO</small></button>
+            <button type="button" class="gps-view-tab" data-gps-view="reports" aria-selected="false"><i class="fas fa-chart-column"></i><span>รายงาน</span><small class="gps-tab-demo">DEMO</small></button>
         </nav>
 
         <div class="gps-view-panel is-active" data-gps-panel="live">
+        <div id="gps-kpi-source" class="gps-kpi-source is-demo"><i class="fas fa-flask"></i> ตัวเลขด้านล่างมาจาก Simulation (DEMO) ไม่ใช่สถานะรถจริง</div>
         <section class="gps-kpis" aria-label="ภาพรวมสถานะรถ">
             <div class="gps-kpi"><div class="gps-kpi-label">กำลังเดินทาง</div><div id="gps-moving-count" class="gps-kpi-value">0</div></div>
             <div class="gps-kpi"><div class="gps-kpi-label">อยู่บริษัท</div><div id="gps-company-count" class="gps-kpi-value">0</div></div>
@@ -83,26 +84,28 @@
             <aside class="gps-vehicle-panel">
                 @php($queuedCount = $queuedVehicleCount ?? count($demoVehicles))
                 <div class="gps-panel-head">
-                    <strong>รถทั้งหมด {{ count($demoVehicles) }} คัน · มีคิว {{ $queuedCount }} คัน</strong>
-                    <form method="get" class="gps-queue-date-form" aria-label="เลือกวันที่คิว">
-                        <label for="gps-queue-date" class="visually-hidden">วันที่คิว FormDP</label>
-                        <input id="gps-queue-date" type="date" name="date" value="{{ $queueDate }}" class="form-control form-control-sm" onchange="this.form.submit()">
-                    </form>
-                    <span>Truck Master + ทะเบียน manual ในคิว · คลิกรถเพื่อดู Timeline · อัปเดต <span id="gps-updated-at">-</span></span>
+                    <div class="gps-panel-head-row">
+                        <strong title="Truck Master (ACTIVE) + ทะเบียน manual ที่มีคิวในวันที่เลือก">รถ {{ count($demoVehicles) }} คัน · มีคิว {{ $queuedCount }}</strong>
+                        <form method="get" class="gps-queue-date-form" aria-label="เลือกวันที่คิว">
+                            <label for="gps-queue-date" class="visually-hidden">วันที่คิว FormDP</label>
+                            <input id="gps-queue-date" type="date" name="date" value="{{ $queueDate }}" class="form-control form-control-sm" onchange="this.form.submit()">
+                        </form>
+                    </div>
+                    <span>คลิกรถเพื่อดู Timeline · อัปเดต <span id="gps-updated-at">-</span></span>
                 </div>
                 <div id="gps-vehicle-list" class="gps-vehicle-list"></div>
             </aside>
         </section>
 
         <section class="gps-events" aria-label="เหตุการณ์ล่าสุด">
-            <div class="gps-events-head"><strong>เหตุการณ์ที่ต้องตรวจสอบ</strong><span>เวลาในตัวอย่างเป็นข้อมูลจำลอง</span></div>
+            <div class="gps-events-head"><strong>เหตุการณ์ที่ต้องตรวจสอบ <span class="gps-demo-label">DEMO</span></strong><span>ตัวอย่างรูปแบบการแสดงผล · ยังไม่มีเหตุการณ์จริงจนกว่าจะเปิด sync และเก็บข้อมูลเที่ยว</span></div>
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
+                <table class="table table-hover align-middle gps-demo-table">
                     <thead class="table-light"><tr><th>เวลา</th><th>รถ</th><th>เที่ยว</th><th>เหตุการณ์</th><th>เทียบแผน</th><th>สถานะ</th></tr></thead>
                     <tbody>
-                        <tr><td>08:47</td><td>2ฒถ-5450</td><td>DP-691113-02</td><td>ออกจากบริษัท</td><td class="text-danger fw-semibold">ช้า 17 นาที</td><td><span class="badge text-bg-danger">ออกช้า</span></td></tr>
-                        <tr><td>10:36</td><td>83-5505</td><td>DP-691113-04</td><td>ออกจากปลายทาง</td><td class="text-warning fw-semibold">ก่อนแผน 24 นาที</td><td><span class="badge text-bg-warning">กลับก่อน</span></td></tr>
-                        <tr><td>10:42</td><td>1ฒณ-1307</td><td>DP-691113-01</td><td>ถึงปลายทาง</td><td class="text-success fw-semibold">ตรงเวลา</td><td><span class="badge text-bg-success">ปกติ</span></td></tr>
+                        <tr><td>08:47</td><td>รถตัวอย่าง A</td><td>DP-DEMO-02</td><td>ออกจากบริษัท</td><td class="text-danger fw-semibold">ช้า 17 นาที</td><td><span class="badge text-bg-danger">ออกช้า</span></td></tr>
+                        <tr><td>10:36</td><td>รถตัวอย่าง B</td><td>DP-DEMO-04</td><td>ออกจากปลายทาง</td><td class="text-warning fw-semibold">ก่อนแผน 24 นาที</td><td><span class="badge text-bg-warning">กลับก่อน</span></td></tr>
+                        <tr><td>10:42</td><td>รถตัวอย่าง C</td><td>DP-DEMO-01</td><td>ถึงปลายทาง</td><td class="text-success fw-semibold">ตรงเวลา</td><td><span class="badge text-bg-success">ปกติ</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -110,6 +113,7 @@
         </div>
 
         <div class="gps-view-panel" data-gps-panel="history" hidden>
+            <div class="gps-kpi-source is-demo"><i class="fas fa-flask"></i> เวลาออก/ถึง/ETA ในหน้านี้เป็นข้อมูลจำลอง (DEMO) · คิวและรายการส่งมาจาก FormDP จริง</div>
             <section class="gps-filter-bar" aria-label="ตัวกรองข้อมูลย้อนหลัง">
                 <div><label for="gps-history-date">วันที่</label><input id="gps-history-date" type="date" class="form-control" value="{{ $queueDate }}"></div>
                 <div><label for="gps-history-vehicle">ทะเบียนรถ</label><select id="gps-history-vehicle" class="form-select"><option value="all">รถทั้งหมด</option>@foreach($demoVehicles as $vehicle)@if($vehicle['has_queue'] ?? true)<option value="{{ $vehicle['gps_id'] }}">{{ $vehicle['plate_no'] }}</option>@endif @endforeach</select></div>
@@ -141,9 +145,9 @@
                     <div class="table-responsive"><table class="table gps-report-table"><thead><tr><th>รถ</th><th>คนขับ</th><th>ออกตามแผน</th><th>ออกจริง</th><th>ผล</th><th>คาดกลับ</th></tr></thead><tbody id="gps-report-rows"></tbody></table></div>
                 </article>
                 <aside class="gps-report-block gps-alert-summary">
-                    <header><div><span class="gps-section-kicker">เรื่องที่ต้องติดตาม</span><h3>Exception summary</h3></div></header>
-                    <div class="gps-alert-line"><span class="gps-alert-dot is-danger"></span><span><strong>ออกช้า 1 เที่ยว</strong><small>2ฒถ5450 · ช้า 17 นาที</small></span></div>
-                    <div class="gps-alert-line"><span class="gps-alert-dot is-warning"></span><span><strong>กลับก่อนแผน 1 เที่ยว</strong><small>83-5505 · ก่อนแผน 24 นาที</small></span></div>
+                    <header><div><span class="gps-section-kicker">เรื่องที่ต้องติดตาม</span><h3>Exception summary</h3></div><span class="gps-demo-label">DEMO DATA</span></header>
+                    <div class="gps-alert-line"><span class="gps-alert-dot is-danger"></span><span><strong>ออกช้า 1 เที่ยว</strong><small>รถตัวอย่าง A · ช้า 17 นาที</small></span></div>
+                    <div class="gps-alert-line"><span class="gps-alert-dot is-warning"></span><span><strong>กลับก่อนแผน 1 เที่ยว</strong><small>รถตัวอย่าง B · ก่อนแผน 24 นาที</small></span></div>
                     <div class="gps-alert-line"><span class="gps-alert-dot"></span><span><strong>หลักฐานไม่ครบ 1 จุด</strong><small>รอ Planner ตรวจเหตุผลจาก Telegram</small></span></div>
                 </aside>
             </section>

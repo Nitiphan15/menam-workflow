@@ -51,6 +51,13 @@ class GpsTripTrackingViewTest extends TestCase
         $this->assertStringContainsString('ตำแหน่งรถบนแผนที่เป็นข้อมูลจำลอง', $html);
         $this->assertStringNotContainsString('LIVE DTC', $html);
         $this->assertStringContainsString('id="gps-dtc-usage"', $html);
+        // Demo events/exception summary must not name real trucks or real-looking DP refs.
+        $this->assertStringContainsString('รถตัวอย่าง A', $html);
+        $this->assertStringNotContainsString('DP-691113', $html);
+        $this->assertStringContainsString('ยังไม่มีข้อมูล GPS จริง', $html);
+        $this->assertStringContainsString('จับคู่รถ: รอข้อมูล DTC', $html);
+        $this->assertStringNotContainsString('Live sync ทุก', $html);
+        $this->assertStringContainsString('id="gps-kpi-source"', $html);
         $this->assertStringContainsString('DTC เดือนนี้ 1,234 / 25,000 · วันนี้ 5', $html);
         $this->assertStringContainsString('gps-simulation-toggle', $html);
         $this->assertStringContainsString('gps-simulation-reset', $html);

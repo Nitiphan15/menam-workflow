@@ -13,7 +13,8 @@
         return {
             ...vehicle,
             has_queue: hasQueue,
-            progress: hasQueue ? DEMO_PROGRESS[index % DEMO_PROGRESS.length] : 0,
+            // Routes repeat every 5 trucks: offset later rounds so two demo markers never sit on the same spot.
+            progress: hasQueue ? Math.min(3.6, DEMO_PROGRESS[index % DEMO_PROGRESS.length] + Math.floor(index / DEMO_PROGRESS.length) * .5) : 0,
             direction: hasQueue ? (index % 5 === 0 || index % 5 === 3 ? -1 : 1) : 0,
         };
     });
@@ -71,6 +72,8 @@
     const toolbarTitle = document.getElementById('gps-toolbar-title');
     const toolbarNote = document.getElementById('gps-toolbar-note');
     const mapTarget = document.getElementById('gps-demo-map');
+    const kpiSource = document.getElementById('gps-kpi-source');
+    const initialMatchReport = matchReport;
     let selectedHistoryId = vehicles[0]?.gps_id || null;
 
     function positionAt(vehicle) {
@@ -250,18 +253,24 @@
         sourceTitle.textContent = state.title;
         sourceNote.textContent = state.note;
         sourceDot.className = `gps-source-dot is-${mode}`;
-        const freshness = freshnessOf(rows);
+        // Freshness is only meaningful for real DTC rows; demo/mock times must not look like live data.
+        const freshness = mode === 'live' ? freshnessOf(rows) : { label: 'ยังไม่มีข้อมูล GPS จริง', stale: false };
         sourceFreshness.classList.toggle('is-stale', freshness.stale);
-        sourceFreshness.innerHTML = `<i class="fas fa-clock"></i> ${escapeHtml(mode === 'offline' ? 'ยังไม่มีข้อมูล Live' : freshness.label)}`;
+        sourceFreshness.innerHTML = `<i class="fas fa-clock"></i> ${escapeHtml(freshness.label)}`;
     }
 
     function renderMapping(report) {
         matchReport = report || matchReport;
         const rows = Array.isArray(matchReport.rows) ? matchReport.rows : [];
         const issueCount = Number(matchReport.missing_in_formdp_count || 0) + Number(matchReport.missing_in_dtc_count || 0);
-        matchSummary.innerHTML = `<i class="fas fa-link"></i> จับคู่ ${matchReport.matched_count || 0}/${matchReport.dtc_count || 0} คัน${issueCount ? ` · ต้องตรวจ ${issueCount}` : ''}`;
-        mappingCount.textContent = `${matchReport.matched_count || 0} จับคู่ · ${issueCount} ต้องตรวจ`;
-        mappingCount.classList.toggle('is-alert', issueCount > 0);
+        if (liveMode) {
+            matchSummary.innerHTML = `<i class="fas fa-link"></i> จับคู่ ${matchReport.matched_count || 0}/${matchReport.dtc_count || 0} คัน${issueCount ? ` · ต้องตรวจ ${issueCount}` : ''}`;
+            mappingCount.textContent = `${matchReport.matched_count || 0} จับคู่ · ${issueCount} ต้องตรวจ`;
+        } else {
+            matchSummary.innerHTML = '<i class="fas fa-link"></i> จับคู่รถ: รอข้อมูล DTC';
+            mappingCount.textContent = 'ตัวอย่าง (DEMO)';
+        }
+        mappingCount.classList.toggle('is-alert', liveMode && issueCount > 0);
         mappingRows.innerHTML = rows.map((row) => {
             const stale = row.issue !== 'missing_dtc' && isStale(row.last_time);
             const result = row.issue === 'missing_dtc'
@@ -290,6 +299,12 @@
                 : 'ตำแหน่งรถบนแผนที่เป็นข้อมูลจำลอง · หยุดหรือเริ่มการเคลื่อนที่ได้ โดยไม่เรียก DTC API';
         }
         mapTarget?.setAttribute('aria-label', live ? 'แผนที่ตำแหน่งรถจาก DTC' : 'แผนที่ตำแหน่งรถจำลอง');
+        if (kpiSource) {
+            kpiSource.classList.toggle('is-demo', !live);
+            kpiSource.innerHTML = live
+                ? '<i class="fas fa-satellite-dish"></i> ตัวเลขจาก DTC ณ เวลาที่ดึง · "ผิดเวลา/อยู่จุดส่ง" ต้องมีข้อมูลเที่ยวจริงก่อน'
+                : '<i class="fas fa-flask"></i> ตัวเลขด้านล่างมาจาก Simulation (DEMO) ไม่ใช่สถานะรถจริง';
+        }
         if (toggleButton) toggleButton.disabled = live;
         if (resetButton) resetButton.disabled = live;
     }
@@ -370,6 +385,7 @@
             }
         });
         setDataBadge('demo');
+        renderMapping(initialMatchReport);
         render();
     }
 
