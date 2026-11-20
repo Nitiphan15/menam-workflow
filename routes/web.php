@@ -86,6 +86,7 @@ use App\Http\Controllers\FormGP\GratingPerformanceController;
 use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
 use App\Http\Controllers\FormWIP\WipMonitoringController;
 use App\Http\Controllers\FormDP\TruckMasterController;
+use App\Http\Controllers\FormDP\GpsTripTrackingController;
 //Forecast
 use App\Http\Controllers\FormFC\ForecastRmController;
 use App\Http\Controllers\FormFC\ForecastRmDivisionController;
@@ -503,6 +504,24 @@ Route::middleware(['auth'])
   ->prefix('dp')
   ->name('dp.')
   ->group(function () {
+
+    Route::middleware(['permission.any:DP,DPA'])->group(function () {
+      Route::get('/gps-trip-tracking', [GpsTripTrackingController::class, 'index'])
+        ->name('gps-trip-tracking.index');
+      Route::get('/gps-trip-tracking/demo-data', [GpsTripTrackingController::class, 'demoData'])
+        ->name('gps-trip-tracking.demo-data');
+      // Lazy sync: DTC is called at most once per sync interval for all viewers (see DtcGpsService::liveSnapshot).
+      Route::get('/gps-trip-tracking/live', [GpsTripTrackingController::class, 'live'])
+        ->middleware('throttle:20,1')
+        ->name('gps-trip-tracking.live');
+      Route::get('/gps-trip-tracking/route/{gpsId}', [GpsTripTrackingController::class, 'route'])
+        ->where('gpsId', '[A-Za-z0-9]{6,30}')
+        ->middleware('throttle:10,1')
+        ->name('gps-trip-tracking.route');
+      Route::post('/gps-trip-tracking/test-dtc', [GpsTripTrackingController::class, 'testDtcConnection'])
+        ->middleware(['can:ADMINWEB', 'throttle:1,1'])
+        ->name('gps-trip-tracking.test-dtc');
+    });
 
     // ใช้ได้เฉพาะ DP
     Route::middleware(['can:DP'])->group(function () {
