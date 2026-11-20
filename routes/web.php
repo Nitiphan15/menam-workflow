@@ -495,6 +495,14 @@ Route::middleware(['auth'])
         ->name('gps-trip-tracking.index');
       Route::get('/gps-trip-tracking/demo-data', [GpsTripTrackingController::class, 'demoData'])
         ->name('gps-trip-tracking.demo-data');
+      // Lazy sync: DTC is called at most once per sync interval for all viewers (see DtcGpsService::liveSnapshot).
+      Route::get('/gps-trip-tracking/live', [GpsTripTrackingController::class, 'live'])
+        ->middleware('throttle:20,1')
+        ->name('gps-trip-tracking.live');
+      Route::get('/gps-trip-tracking/route/{gpsId}', [GpsTripTrackingController::class, 'route'])
+        ->where('gpsId', '[A-Za-z0-9]{6,30}')
+        ->middleware('throttle:10,1')
+        ->name('gps-trip-tracking.route');
       Route::post('/gps-trip-tracking/test-dtc', [GpsTripTrackingController::class, 'testDtcConnection'])
         ->middleware(['can:ADMINWEB', 'throttle:1,1'])
         ->name('gps-trip-tracking.test-dtc');

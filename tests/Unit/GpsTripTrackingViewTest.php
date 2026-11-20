@@ -8,21 +8,20 @@ use Tests\TestCase;
 
 class GpsTripTrackingViewTest extends TestCase
 {
-    public function test_demo_dashboard_renders_required_controls_and_disclosure(): void
+    public function test_real_data_page_renders_controls_without_any_demo_content(): void
     {
         View::share('errors', new ViewErrorBag());
 
         $html = view('formdp.gps-trip-tracking.index', [
-            'demoVehicles' => [[
-                'gps_id' => 'DEMO-GPS-001',
-                'plate_no' => '1ฒณ-1307',
-                'driver_name' => 'Demo Driver',
-                'trip_ref' => 'DP-DEMO-01',
-                'destination' => 'Demo Destination',
-                'planned_departure' => '08:00',
-                'estimated_return' => '12:00',
-                'actual_departure' => '08:05',
-                'stops' => [],
+            'vehicles' => [[
+                'key' => 'TRUCK-1ฒณ1307',
+                'plate_no' => '1ฒณ1307',
+                'truck_id' => 14,
+                'fleet_source' => 'master',
+                'has_queue' => true,
+                'driver_name' => 'Test Driver',
+                'trip_ref' => 'คิว 2026-11-19 · เที่ยว 1',
+                'stops' => ['บริษัทลูกค้าทดสอบ'],
                 'deliveries' => [[
                     'customer' => 'บริษัทลูกค้าทดสอบ',
                     'items' => [[
@@ -34,58 +33,38 @@ class GpsTripTrackingViewTest extends TestCase
                         'unit' => 'ตัน',
                     ]],
                 ]],
-                'route' => [[13.61, 100.74], [13.62, 100.73]],
             ]],
-            'queueDate' => '2026-11-13',
-            'dtcMockSnapshot' => ['data' => []],
-            'dtcMatchReport' => ['matched_count' => 0, 'dtc_count' => 0, 'rows' => []],
-            'lastSuccessfulSync' => null,
+            'queuedVehicleCount' => 1,
+            'liveSnapshot' => ['rows' => [], 'fetched_at' => null, 'age_seconds' => null, 'synced_now' => false, 'requests_used' => 0, 'master_from_cache' => null],
+            'matchReport' => ['matched_count' => 0, 'dtc_count' => 0, 'missing_in_formdp_count' => 0, 'missing_in_dtc_count' => 1, 'rows' => []],
             'dtcUsage' => ['month' => '2026-11', 'month_total' => 1234, 'today' => 5, 'quota' => 25000, 'budget' => 24500, 'remaining' => 23266, 'percent' => 4.9, 'by_endpoint' => [], 'locked_until' => null, 'master_cached_at' => null],
-            'reportDate' => '13 พ.ย. 2026',
-            'refreshSeconds' => 60,
-            'dtcSyncMinutes' => 5,
+            'queueDate' => '2026-11-19',
+            'isToday' => false,
+            'syncIntervalMinutes' => 3,
         ])->render();
 
-        $this->assertStringContainsString('DEMO DATA', $html);
-        $this->assertStringContainsString('id="gps-data-badge-text"', $html);
-        $this->assertStringContainsString('ตำแหน่งรถบนแผนที่เป็นข้อมูลจำลอง', $html);
-        $this->assertStringNotContainsString('LIVE DTC', $html);
-        $this->assertStringContainsString('id="gps-dtc-usage"', $html);
-        // Demo events/exception summary must not name real trucks or real-looking DP refs.
-        $this->assertStringContainsString('รถตัวอย่าง A', $html);
-        $this->assertStringNotContainsString('DP-691113', $html);
-        $this->assertStringContainsString('ยังไม่มีข้อมูล GPS จริง', $html);
-        $this->assertStringContainsString('จับคู่รถ: รอข้อมูล DTC', $html);
-        $this->assertStringNotContainsString('Live sync ทุก', $html);
-        $this->assertStringContainsString('id="gps-kpi-source"', $html);
-        $this->assertStringContainsString('DTC เดือนนี้ 1,234 / 25,000 · วันนี้ 5', $html);
-        $this->assertStringContainsString('gps-simulation-toggle', $html);
-        $this->assertStringContainsString('gps-simulation-reset', $html);
-        $this->assertStringContainsString('gps-view-all', $html);
-        $this->assertStringContainsString('data-gps-view="live"', $html);
-        $this->assertStringContainsString('data-gps-view="history"', $html);
-        $this->assertStringContainsString('data-gps-view="reports"', $html);
-        $this->assertStringContainsString('gps-history-list', $html);
-        $this->assertStringContainsString('gps-report-rows', $html);
-        $this->assertStringContainsString('gps-destination-count', $html);
         $this->assertStringContainsString('gps-source-console', $html);
-        $this->assertStringContainsString('gps-last-success', $html);
-        $this->assertStringContainsString('ทะเบียน Vehicle Master', $html);
+        $this->assertStringContainsString('id="gps-map"', $html);
+        $this->assertStringContainsString('gps-view-all', $html);
+        $this->assertStringContainsString('data-filter="gps"', $html);
         $this->assertStringContainsString('ดูการจับคู่รถ', $html);
-        $this->assertStringContainsString('กำลังใช้ตำแหน่งจำลอง', $html);
-        $this->assertStringNotContainsString('กำลังกลับ', $html);
-        preg_match('/data-vehicles=\'(.*?)\' data-dtc-mock=/s', $html, $matches);
+        $this->assertStringContainsString('id="gps-dtc-usage"', $html);
+        $this->assertStringContainsString('DTC เดือนนี้ 1,234 / 25,000 · วันนี้ 5', $html);
+        $this->assertStringContainsString('อัปเดตอัตโนมัติทุก 3 นาที', $html);
+        $this->assertStringContainsString('/dp/gps-trip-tracking/live', $html);
+        $this->assertStringContainsString('/dp/gps-trip-tracking/route/__GPS__', $html);
+        $this->assertStringContainsString('ตำแหน่งบนแผนที่เป็นปัจจุบัน', $html); // past-date note
+
+        // Real data only: no simulation, demo labels, demo tabs or demo events.
+        foreach (['DEMO', 'Simulation', 'gps-simulation-toggle', 'data-gps-view="history"', 'data-gps-view="reports"', 'รถตัวอย่าง', 'จำลอง', 'กำลังกลับ'] as $forbidden) {
+            $this->assertStringNotContainsString($forbidden, $html, "Found demo content: {$forbidden}");
+        }
+
+        preg_match("/data-vehicles='(.*?)'/s", $html, $matches);
         $vehicles = json_decode(html_entity_decode($matches[1] ?? '', ENT_QUOTES), true);
         $item = $vehicles[0]['deliveries'][0]['items'][0] ?? [];
-        $this->assertSame('บริษัทลูกค้าทดสอบ', $vehicles[0]['deliveries'][0]['customer'] ?? null);
         $this->assertSame('SO-TEST-01', $item['so_number'] ?? null);
-        $this->assertSame('DP#123', $item['dp_ref'] ?? null);
-        $this->assertSame('สินค้าทดสอบ', $item['product'] ?? null);
         $this->assertSame(2.5, $item['quantity'] ?? null);
         $this->assertSame('ตัน', $item['unit'] ?? null);
-        $this->assertStringNotContainsString('gps-driver-demo-open', $html);
-        $this->assertStringNotContainsString('gps-driver-demo-body', $html);
-        $this->assertStringContainsString('DEMO-GPS-001', $html);
-        $this->assertStringContainsString('GPS Trip Tracking', $html);
     }
 }

@@ -6,7 +6,10 @@ return [
     'timeout' => (int) env('DTC_GPS_TIMEOUT', 15),
     'connect_timeout' => (int) env('DTC_GPS_CONNECT_TIMEOUT', 5),
     'retry_times' => (int) env('DTC_GPS_RETRY_TIMES', 1),
-    'sync_interval_minutes' => (int) env('DTC_GPS_SYNC_INTERVAL_MINUTES', 5),
+    // Lazy sync: DTC realtime is called at most once per interval, and only while someone views the page.
+    'sync_interval_minutes' => (int) env('DTC_GPS_SYNC_INTERVAL_MINUTES', 3),
+    // Route (getHistory) points sent to the browser per vehicle/day after downsampling.
+    'route_max_points' => (int) env('DTC_GPS_ROUTE_MAX_POINTS', 800),
 
     // Vehicle Master rarely changes: cache the sanitized list so each sync costs 1 request.
     'master_cache_hours' => (int) env('DTC_GPS_MASTER_CACHE_HOURS', 24),

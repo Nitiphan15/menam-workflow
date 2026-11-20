@@ -1,92 +1,94 @@
 (function () {
     'use strict';
 
+    // GPS Trip Tracking — real DTC data only.
+    // Positions come from the shared server snapshot (lazy sync); routes from DTC getHistory on click.
     const root = document.getElementById('gps-trip-tracking');
     if (!root) return;
 
-    // Trucks without a queue that day have no demo route: they stay off the map until DTC gives a real position.
-    const DEMO_PROGRESS = [1.4, .9, .55, 1.7, .2];
-    let queuedIndex = 0;
-    const vehicles = JSON.parse(root.dataset.vehicles || '[]').map((vehicle) => {
-        const hasQueue = vehicle.has_queue !== false;
-        const index = hasQueue ? queuedIndex++ : -1;
-        return {
-            ...vehicle,
-            has_queue: hasQueue,
-            // Routes repeat every 5 trucks: offset later rounds so two demo markers never sit on the same spot.
-            progress: hasQueue ? Math.min(3.6, DEMO_PROGRESS[index % DEMO_PROGRESS.length] + Math.floor(index / DEMO_PROGRESS.length) * .5) : 0,
-            direction: hasQueue ? (index % 5 === 0 || index % 5 === 3 ? -1 : 1) : 0,
-        };
-    });
-    const queuedVehicles = () => vehicles.filter((vehicle) => vehicle.has_queue);
-    const mockSnapshot = JSON.parse(root.dataset.dtcMock || '{"data":[]}');
-    let matchReport = JSON.parse(root.dataset.dtcMatches || '{"matched_count":0,"dtc_count":0,"rows":[]}');
-    const company = [13.547532, 100.787167];
-    let running = false;
-    let timer = null;
-    let selectedId = null;
-    let expandedLoadId = null;
-    let map = null;
-    let liveMode = false;
-    let dtcOnlyRows = [];
-    const markers = new Map();
-    const paths = new Map();
-    const dtcOnlyMarkers = new Map();
-    const COMPANY_GEOFENCE_METERS = 300;
+    const COMPANY = [13.547532, 100.787167];
+    const COMPANY_NAME = 'บริษัท แม่น้ำ สเตนเลสไวร์';
+    const GEOFENCE_METERS = 300;
     const STALE_MINUTES = 10;
+    const POLL_MS = 60000;
 
-    const list = document.getElementById('gps-vehicle-list');
-    const toggleButton = document.getElementById('gps-simulation-toggle');
-    const resetButton = document.getElementById('gps-simulation-reset');
-    const viewAllButton = document.getElementById('gps-view-all');
-    const dtcTestButton = document.getElementById('gps-dtc-test');
-    const dtcRefreshButton = document.getElementById('gps-dtc-refresh-master');
-    const dtcUsage = document.getElementById('gps-dtc-usage');
-    const dtcTestResult = document.getElementById('gps-dtc-test-result');
-    const sourceDot = document.getElementById('gps-source-dot');
-    const sourceBadge = document.getElementById('gps-source-badge');
-    const sourceTitle = document.getElementById('gps-source-title');
-    const sourceNote = document.getElementById('gps-source-note');
-    const sourceFreshness = document.getElementById('gps-source-freshness');
-    const lastSuccess = document.getElementById('gps-last-success');
-    const matchSummary = document.getElementById('gps-match-summary');
-    const mappingToggle = document.getElementById('gps-mapping-toggle');
-    const mappingPanel = document.getElementById('gps-mapping-panel');
-    const mappingRows = document.getElementById('gps-mapping-rows');
-    const mappingCount = document.getElementById('gps-mapping-count');
-    const updatedAt = document.getElementById('gps-updated-at');
-    const movingCount = document.getElementById('gps-moving-count');
-    const companyCount = document.getElementById('gps-company-count');
-    const delayedCount = document.getElementById('gps-delayed-count');
-    const destinationCount = document.getElementById('gps-destination-count');
-    const viewTabs = root.querySelectorAll('[data-gps-view]');
-    const viewPanels = root.querySelectorAll('[data-gps-panel]');
-    const historyVehicle = document.getElementById('gps-history-vehicle');
-    const historyDate = document.getElementById('gps-history-date');
-    const historyList = document.getElementById('gps-history-list');
-    const historyDetail = document.getElementById('gps-history-detail');
-    const historyResultCount = document.getElementById('gps-history-result-count');
-    const reportRows = document.getElementById('gps-report-rows');
-    const dataBadge = document.getElementById('gps-data-badge');
-    const dataBadgeText = document.getElementById('gps-data-badge-text');
-    const toolbarTitle = document.getElementById('gps-toolbar-title');
-    const toolbarNote = document.getElementById('gps-toolbar-note');
-    const mapTarget = document.getElementById('gps-demo-map');
-    const kpiSource = document.getElementById('gps-kpi-source');
-    const initialMatchReport = matchReport;
-    let selectedHistoryId = vehicles[0]?.gps_id || null;
+    const fleet = JSON.parse(root.dataset.vehicles || '[]');
+    let snapshot = JSON.parse(root.dataset.snapshot || '{"rows":[]}');
+    let matchReport = JSON.parse(root.dataset.matches || '{"rows":[]}');
+    const queueDate = root.dataset.queueDate || '';
+    const isToday = root.dataset.isToday === '1';
+    const syncMinutes = Number(root.dataset.syncMinutes || 3);
+    const liveUrl = root.dataset.liveUrl;
+    const routeUrlTemplate = root.dataset.routeUrl;
 
-    function positionAt(vehicle) {
-        if (Array.isArray(vehicle.live_position)) return vehicle.live_position;
-        const maxIndex = vehicle.route.length - 1;
-        const raw = Math.max(0, Math.min(maxIndex, vehicle.progress));
-        const lower = Math.floor(raw);
-        const upper = Math.min(maxIndex, lower + 1);
-        const ratio = raw - lower;
-        return [
-            vehicle.route[lower][0] + (vehicle.route[upper][0] - vehicle.route[lower][0]) * ratio,
-            vehicle.route[lower][1] + (vehicle.route[upper][1] - vehicle.route[lower][1]) * ratio,
-        ];
+    const el = (id) => document.getElementById(id);
+    const list = el('gps-vehicle-list');
+    const sourceDot = el('gps-source-dot');
+    const sourceBadge = el('gps-source-badge');
+    const sourceTitle = el('gps-source-title');
+    const sourceFreshness = el('gps-source-freshness');
+    const lastSuccess = el('gps-last-success');
+    const matchSummary = el('gps-match-summary');
+    const usageEl = el('gps-dtc-usage');
+    const resultBox = el('gps-dtc-test-result');
+    const mappingToggle = el('gps-mapping-toggle');
+    const mappingPanel = el('gps-mapping-panel');
+    const mappingRows = el('gps-mapping-rows');
+    const mappingCount = el('gps-mapping-count');
+    const syncButton = el('gps-dtc-test');
+    const refreshMasterButton = el('gps-dtc-refresh-master');
+    const viewAllButton = el('gps-view-all');
+
+    let map = null;
+    let companyMarker = null;
+    let routeLayer = null;
+    const markers = new Map();
+    const routes = new Map(); // key -> { status: 'loading'|'ok'|'error', data?, error? }
+    let items = [];
+    let selectedKey = null;
+    let expandedLoadKey = null;
+    let filter = 'all';
+    let showNoGps = false;
+    let syncing = false;
+    let lastError = null;
+    let pollTimer = null;
+
+    // ---------- helpers ----------
+    function escapeHtml(value) {
+        const node = document.createElement('div');
+        node.textContent = value == null ? '' : String(value);
+        return node.innerHTML;
+    }
+
+    const numberFormat = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 1 });
+    const qtyFormat = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 3 });
+
+    function normalizePlate(value) {
+        return String(value || '').toLocaleUpperCase('th-TH').replace(/[^0-9A-Zก-๙]/gu, '');
+    }
+
+    // DTC time is "Y-m-d H:i:s" in GMT+7 without an offset.
+    function parseDtcTime(value) {
+        let text = String(value || '').trim();
+        if (!text) return NaN;
+        text = text.replace(' ', 'T');
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(text)) text += '+07:00';
+        return Date.parse(text);
+    }
+
+    function ageMinutes(value) {
+        const timestamp = parseDtcTime(value);
+        return Number.isFinite(timestamp) ? Math.max(0, Math.round((Date.now() - timestamp) / 60000)) : null;
+    }
+
+    function isStale(value) {
+        const age = ageMinutes(value);
+        return age === null || age > STALE_MINUTES;
+    }
+
+    function hhmm(value) {
+        const match = String(value || '').match(/(\d{2}:\d{2})/);
+        return match ? match[1] : '-';
     }
 
     function distanceMeters(a, b) {
@@ -97,619 +99,515 @@
         return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
     }
 
-    // Live status comes only from DTC fields. Geofence is a position fact ("ในพื้นที่บริษัท"),
-    // never an inferred intent such as "returning".
-    function liveStateOf(vehicle) {
-        if (!Array.isArray(vehicle.live_position)) {
-            return { label: vehicle.live_found ? 'DTC ไม่มีพิกัด' : 'ไม่พบใน DTC', className: 'is-nodata', phase: 'nodata' };
-        }
-        const status = vehicle.live_status || 'ไม่ทราบสถานะ';
-        const className = vehicle.live_stale ? 'is-stale' : '';
-        if (distanceMeters(vehicle.live_position, company) <= COMPANY_GEOFENCE_METERS) {
-            return { label: `ในพื้นที่บริษัท · ${status}`, className, phase: 'company' };
-        }
-        if (Number(vehicle.live_speed) > 0) return { label: status, className, phase: 'moving' };
-        return { label: status, className, phase: 'stopped' };
+    function positionOf(row) {
+        if (!row) return null;
+        const lat = Number(row.lat);
+        const lon = Number(row.lon);
+        if (row.lat === null || row.lon === null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return null;
+        return [lat, lon];
     }
 
-    function stateOf(vehicle) {
-        if (liveMode) return liveStateOf(vehicle);
-        if (!vehicle.has_queue) return { label: 'ไม่มีคิววันนี้', className: 'is-nodata', phase: 'noqueue' };
-        const max = vehicle.route.length - 1;
-        if (vehicle.progress <= .08) return { label: 'อยู่บริษัท', className: '', phase: 'company' };
-        if (vehicle.progress >= max - .08) return { label: 'อยู่จุดส่ง', className: '', phase: 'destination' };
-        return { label: 'กำลังเดินทาง', className: vehicle.gps_id === 'DEMO-GPS-002' ? 'is-delayed' : '', phase: 'moving' };
+    function inCompany(position) {
+        return Array.isArray(position) && distanceMeters(position, COMPANY) <= GEOFENCE_METERS;
     }
 
+    // ---------- model ----------
+    function buildItems() {
+        const rowsByGps = new Map((snapshot.rows || []).map((row) => [String(row.gps_id || ''), row]));
+        const gpsByPlate = new Map();
+        (matchReport.rows || []).forEach((row) => {
+            if (row.matched && row.gps_id) gpsByPlate.set(normalizePlate(row.plate_no), String(row.gps_id));
+        });
+
+        const fleetItems = fleet.map((vehicle) => {
+            const gpsId = gpsByPlate.get(normalizePlate(vehicle.plate_no)) || '';
+            const live = gpsId ? rowsByGps.get(gpsId) || null : null;
+            return { ...vehicle, kind: 'fleet', gps_id: gpsId, live, position: positionOf(live) };
+        });
+
+        const dtcOnly = (matchReport.rows || [])
+            .filter((row) => row.issue === 'missing_formdp' && row.gps_id)
+            .map((row) => {
+                const live = rowsByGps.get(String(row.gps_id)) || null;
+                return {
+                    key: `DTC-${row.gps_id}`,
+                    kind: 'dtc_only',
+                    plate_no: live?.license_plate || row.dtc_name || row.gps_id,
+                    driver_name: '-',
+                    trip_ref: 'มีใน DTC แต่ไม่อยู่ใน Truck Master',
+                    has_queue: false,
+                    stops: [],
+                    deliveries: [],
+                    gps_id: String(row.gps_id),
+                    live,
+                    position: positionOf(live),
+                };
+            });
+
+        items = fleetItems.concat(dtcOnly).map((item) => ({ ...item, state: stateOf(item) }));
+    }
+
+    function stateOf(item) {
+        if (!item.gps_id) return { label: 'ไม่มี GPS DTC', className: 'is-nodata', phase: 'nogps', stale: false };
+        if (!item.position) return { label: 'DTC ไม่มีพิกัด', className: 'is-nodata', phase: 'nofix', stale: true };
+        const stale = isStale(item.live?.time);
+        const status = item.live?.status_name_th || item.live?.status_name_en || 'ไม่ทราบสถานะ';
+        const atCompany = inCompany(item.position);
+        const phase = atCompany ? 'company' : (Number(item.live?.gps_speed) > 0 ? 'moving' : 'stopped');
+        return {
+            label: atCompany ? `ในบริษัท · ${status}` : status,
+            className: stale ? 'is-stale' : (phase === 'moving' ? 'is-moving' : ''),
+            phase,
+            stale,
+        };
+    }
+
+    function needsReview(item) {
+        return item.kind === 'dtc_only'
+            || (item.has_queue && !item.gps_id)
+            || (item.gps_id && (!item.position || item.state.stale));
+    }
+
+    function matchesFilter(item) {
+        if (filter === 'gps') return Boolean(item.gps_id);
+        if (filter === 'queue') return item.has_queue;
+        if (filter === 'issue') return needsReview(item);
+        return true;
+    }
+
+    function sortWeight(item) {
+        if (item.kind === 'dtc_only') return 2;
+        if (item.gps_id && item.has_queue) return 0;
+        if (item.gps_id) return 1;
+        if (item.has_queue) return 3;
+        return 4;
+    }
+
+    // ---------- map ----------
     function initMap() {
-        const target = document.getElementById('gps-demo-map');
+        const target = el('gps-map');
         if (!window.L) {
             target.innerHTML = '<div class="gps-map-fallback"><div><i class="fas fa-map-marked-alt fa-2x mb-3"></i><br>โหลดแผนที่ไม่สำเร็จ<br><small>ตรวจสอบการเชื่อมต่อไปยัง OpenStreetMap แล้วลองใหม่</small></div></div>';
             return;
         }
-
-        map = L.map(target, { zoomControl: true }).setView(company, 11);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors',
-        }).addTo(map);
-
-        L.circle(company, { radius: 300, color: '#172033', weight: 2, fillColor: '#172033', fillOpacity: .08 }).addTo(map);
-        const companyMarker = L.marker(company, {
-            title: 'บริษัท แม่น้ำ สเตนเลสไวร์',
-            alt: 'หมุดบริษัท แม่น้ำ สเตนเลสไวร์',
+        map = L.map(target, { zoomControl: true }).setView(COMPANY, 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+        L.circle(COMPANY, { radius: GEOFENCE_METERS, color: '#172033', weight: 2, fillColor: '#172033', fillOpacity: .08 }).addTo(map);
+        companyMarker = L.marker(COMPANY, {
+            title: COMPANY_NAME,
+            alt: `หมุด${COMPANY_NAME}`,
             keyboard: true,
             riseOnHover: true,
             zIndexOffset: 1000,
-            icon: L.divIcon({ className: '', html: '<div class="gps-company-marker" aria-label="บริษัท แม่น้ำ สเตนเลสไวร์"><i class="fas fa-industry"></i></div>', iconSize: [36, 36], iconAnchor: [18, 18] }),
+            icon: L.divIcon({ className: '', html: `<div class="gps-company-marker" aria-label="${COMPANY_NAME}"><i class="fas fa-industry"></i></div>`, iconSize: [36, 36], iconAnchor: [18, 18] }),
         }).addTo(map)
-            .bindTooltip('บริษัท แม่น้ำ สเตนเลสไวร์', {
-                permanent: true,
-                direction: 'top',
-                className: 'gps-marker-label gps-company-label',
-                offset: [0, -17],
-            })
-            .bindPopup('<strong>บริษัท แม่น้ำ สเตนเลสไวร์</strong><br><small>จุดเริ่มต้น/สิ้นสุดเที่ยว · Geofence 300 เมตร</small>', {
-                closeButton: true,
-                autoPan: true,
-            });
-        companyMarker.on('click keypress', () => companyMarker.openPopup());
+            .bindTooltip(COMPANY_NAME, { permanent: true, direction: 'top', className: 'gps-marker-label gps-company-label', offset: [0, -17] })
+            .bindPopup(companyPopupHtml(), { closeButton: true, autoPan: true });
+        companyMarker.on('click keypress', () => companyMarker.setPopupContent(companyPopupHtml()).openPopup());
 
-        vehicles.forEach((vehicle) => {
-            const status = stateOf(vehicle);
-            const path = L.polyline(vehicle.route, { color: '#7796a1', weight: 3, opacity: .45, dashArray: '7 8' });
-            const marker = L.marker(positionAt(vehicle), {
-                icon: L.divIcon({ className: '', html: markerHtml(vehicle, status), iconSize: [32, 32], iconAnchor: [16, 16] }),
-            }).bindTooltip(vehicle.plate_no, { permanent: true, direction: 'top', className: 'gps-marker-label', offset: [0, -13] });
-            if (vehicle.has_queue) {
-                path.addTo(map);
-                marker.addTo(map);
-            }
-            marker.on('click', () => selectVehicle(vehicle.gps_id));
-            paths.set(vehicle.gps_id, path);
-            markers.set(vehicle.gps_id, marker);
-        });
-
-        map.setView(company, 13);
-
-        const resizeMap = () => map?.invalidateSize({ pan: false });
-        window.requestAnimationFrame(resizeMap);
-        window.setTimeout(resizeMap, 250);
-        if (window.ResizeObserver) {
-            const observer = new ResizeObserver(resizeMap);
-            observer.observe(target);
-        }
+        const resize = () => map?.invalidateSize({ pan: false });
+        window.requestAnimationFrame(resize);
+        window.setTimeout(resize, 250);
+        if (window.ResizeObserver) new ResizeObserver(resize).observe(target);
     }
 
-    function markerHtml(vehicle, status) {
-        const liveClass = liveMode && Array.isArray(vehicle.live_position) && !vehicle.live_stale ? 'is-live' : '';
-        return `<div class="gps-truck-marker ${status.className} ${liveClass}"><i class="fas fa-truck"></i></div>`;
+    function companyPopupHtml() {
+        const inside = items.filter((item) => item.state?.phase === 'company');
+        const lines = inside.length
+            ? inside.map((item) => `<li>${escapeHtml(item.plate_no)} · ${escapeHtml(item.live?.status_name_th || '-')}</li>`).join('')
+            : '<li>ไม่มีรถในพื้นที่บริษัทตอนนี้</li>';
+        return `<strong>${COMPANY_NAME}</strong><br><small>Geofence ${GEOFENCE_METERS} เมตร · รถในพื้นที่ ${inside.length} คัน</small><ul class="gps-popup-list">${lines}</ul>`;
     }
 
-    function escapeHtml(value) {
-        const node = document.createElement('div');
-        node.textContent = value == null ? '' : String(value);
-        return node.innerHTML;
+    function markerHtml(item) {
+        const classes = ['gps-truck-marker'];
+        if (item.kind === 'dtc_only') classes.push('is-unmatched');
+        else if (item.state.stale) classes.push('is-stale');
+        else classes.push('is-live');
+        if (selectedKey === item.key) classes.push('is-selected');
+        const icon = item.kind === 'dtc_only' ? 'fa-question' : 'fa-truck';
+        return `<div class="${classes.join(' ')}"><i class="fas ${icon}"></i></div>`;
     }
 
-    function formatQuantity(value) {
-        return new Intl.NumberFormat('th-TH', { maximumFractionDigits: 3 }).format(Number(value || 0));
-    }
-
-    function normalizePlate(value) {
-        return String(value || '').toLocaleUpperCase('th-TH').replace(/[^0-9A-Zก-๙]/gu, '');
-    }
-
-    // DTC "time" is "Y-m-d H:i:s" in GMT+7 without an offset; pin it to +07:00
-    // so freshness does not depend on the browser's timezone.
-    function ageMinutes(value) {
-        let text = String(value || '').trim();
-        if (!text) return null;
-        text = text.replace(' ', 'T');
-        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(text)) text += '+07:00';
-        const timestamp = Date.parse(text);
-        return Number.isFinite(timestamp) ? Math.max(0, Math.round((Date.now() - timestamp) / 60000)) : null;
-    }
-
-    function isStale(value) {
-        const age = ageMinutes(value);
-        return age === null || age > STALE_MINUTES;
-    }
-
-    function freshnessOf(rows) {
-        const ages = (rows || []).map((row) => ageMinutes(row.time)).filter(Number.isFinite);
-        if (!ages.length) return { label: 'ยังไม่มีเวลาจากอุปกรณ์', stale: true, staleCount: 0 };
-        const newest = Math.min(...ages);
-        const staleCount = ages.filter((minutes) => minutes > STALE_MINUTES).length;
-        return {
-            label: `ล่าสุด ${newest} นาที${staleCount ? ` · ข้อมูลเก่า ${staleCount} คัน` : ''}`,
-            stale: staleCount > 0,
-            staleCount,
-        };
-    }
-
-    function setLastSuccess(value) {
-        if (!lastSuccess) return;
-        const timestamp = Date.parse(String(value || ''));
-        if (!Number.isFinite(timestamp)) {
-            lastSuccess.innerHTML = '<i class="fas fa-cloud-arrow-down"></i> ยังไม่เคยเชื่อมต่อสำเร็จ';
-            return;
-        }
-        const formatted = new Intl.DateTimeFormat('th-TH', {
-            dateStyle: 'short', timeStyle: 'medium', timeZone: 'Asia/Bangkok',
-        }).format(new Date(timestamp));
-        lastSuccess.innerHTML = `<i class="fas fa-cloud-arrow-down"></i> Sync สำเร็จล่าสุด ${escapeHtml(formatted)}`;
-    }
-
-    function setSourceState(mode, rows = []) {
-        const states = {
-            demo: { badge: 'DEMO', title: 'กำลังใช้ตำแหน่งจำลอง', note: 'คิวและรายการส่งมาจาก FormDP จริง · ตำแหน่งรถจำลองในรูปแบบเดียวกับ DTC' },
-            checking: { badge: 'CHECKING', title: 'กำลังตรวจการเชื่อมต่อ DTC', note: 'แผนที่ยังใช้ข้อมูลจำลองระหว่างรอผลจาก API' },
-            live: { badge: 'LIVE DTC', title: 'เชื่อมต่อข้อมูล DTC แล้ว', note: 'ตำแหน่งและสถานะรถมาจาก DTC · คิวและรายการส่งมาจาก FormDP' },
-            offline: { badge: 'DTC OFFLINE', title: 'DTC ยังเชื่อมต่อไม่ได้', note: 'ตำแหน่งรถบนแผนที่ยังเป็นข้อมูลจำลอง (DEMO DATA) ไม่ใช่ตำแหน่งจริง' },
-        };
-        const state = states[mode] || states.demo;
-        sourceBadge.textContent = state.badge;
-        sourceTitle.textContent = state.title;
-        sourceNote.textContent = state.note;
-        sourceDot.className = `gps-source-dot is-${mode}`;
-        // Freshness is only meaningful for real DTC rows; demo/mock times must not look like live data.
-        const freshness = mode === 'live' ? freshnessOf(rows) : { label: 'ยังไม่มีข้อมูล GPS จริง', stale: false };
-        sourceFreshness.classList.toggle('is-stale', freshness.stale);
-        sourceFreshness.innerHTML = `<i class="fas fa-clock"></i> ${escapeHtml(freshness.label)}`;
-    }
-
-    function renderMapping(report) {
-        matchReport = report || matchReport;
-        const rows = Array.isArray(matchReport.rows) ? matchReport.rows : [];
-        const issueCount = Number(matchReport.missing_in_formdp_count || 0) + Number(matchReport.missing_in_dtc_count || 0);
-        if (liveMode) {
-            matchSummary.innerHTML = `<i class="fas fa-link"></i> จับคู่ ${matchReport.matched_count || 0}/${matchReport.dtc_count || 0} คัน${issueCount ? ` · ต้องตรวจ ${issueCount}` : ''}`;
-            mappingCount.textContent = `${matchReport.matched_count || 0} จับคู่ · ${issueCount} ต้องตรวจ`;
-        } else {
-            matchSummary.innerHTML = '<i class="fas fa-link"></i> จับคู่รถ: รอข้อมูล DTC';
-            mappingCount.textContent = 'ตัวอย่าง (DEMO)';
-        }
-        mappingCount.classList.toggle('is-alert', liveMode && issueCount > 0);
-        mappingRows.innerHTML = rows.map((row) => {
-            const stale = row.issue !== 'missing_dtc' && isStale(row.last_time);
-            const result = row.issue === 'missing_dtc'
-                ? 'มีใน FormDP · ไม่พบ DTC'
-                : row.issue === 'missing_formdp' ? 'มีใน DTC · ไม่พบ FormDP' : 'จับคู่แล้ว';
-            return `<tr><td><code>${escapeHtml(row.gps_id || '-')}</code></td><td class="fw-semibold">${escapeHtml(row.dtc_name || '-')}</td><td>${escapeHtml(row.plate_no || '-')}</td><td><span>${escapeHtml(row.trip_ref || '-')}</span><small>${escapeHtml(row.driver_name || '')}</small></td><td><span>${escapeHtml(row.last_time || '-')} ${stale ? '<b class="gps-stale-tag">ข้อมูลเก่า</b>' : ''}</span><small>${escapeHtml(row.status_name || '')}</small></td><td><span class="gps-match-status ${row.matched ? 'is-ok' : 'is-missing'}"><i class="fas fa-${row.matched ? 'check' : 'triangle-exclamation'}"></i> ${escapeHtml(result)}</span></td></tr>`;
-        }).join('');
-    }
-
-    function livePositionOf(row) {
-        const lat = Number(row?.lat);
-        const lon = Number(row?.lon);
-        const valid = row?.lat !== null && row?.lat !== '' && row?.lon !== null && row?.lon !== ''
-            && Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(lat === 0 && lon === 0);
-        return valid ? [lat, lon] : null;
-    }
-
-    function setDataBadge(mode) {
-        const live = mode === 'live';
-        dataBadge?.classList.toggle('is-live', live);
-        if (dataBadgeText) dataBadgeText.textContent = live ? 'LIVE DTC' : 'DEMO DATA';
-        if (toolbarTitle) toolbarTitle.textContent = live ? 'ตำแหน่งรถจาก DTC (ทดสอบ 1 ครั้ง)' : 'Simulation สำหรับทดสอบหน้าจอ';
-        if (toolbarNote) {
-            toolbarNote.textContent = live
-                ? 'ตำแหน่ง/สถานะจาก DTC ณ เวลาที่ทดสอบ ไม่อัปเดตอัตโนมัติ · รถที่ไม่พบใน DTC จะไม่แสดงตำแหน่ง · เวลาออก/ETA ใน Timeline ยังเป็นข้อมูลจำลอง'
-                : 'ตำแหน่งรถบนแผนที่เป็นข้อมูลจำลอง · หยุดหรือเริ่มการเคลื่อนที่ได้ โดยไม่เรียก DTC API';
-        }
-        mapTarget?.setAttribute('aria-label', live ? 'แผนที่ตำแหน่งรถจาก DTC' : 'แผนที่ตำแหน่งรถจำลอง');
-        if (kpiSource) {
-            kpiSource.classList.toggle('is-demo', !live);
-            kpiSource.innerHTML = live
-                ? '<i class="fas fa-satellite-dish"></i> ตัวเลขจาก DTC ณ เวลาที่ดึง · "ผิดเวลา/อยู่จุดส่ง" ต้องมีข้อมูลเที่ยวจริงก่อน'
-                : '<i class="fas fa-flask"></i> ตัวเลขด้านล่างมาจาก Simulation (DEMO) ไม่ใช่สถานะรถจริง';
-        }
-        if (toggleButton) toggleButton.disabled = live;
-        if (resetButton) resetButton.disabled = live;
-    }
-
-    function clearDtcOnlyMarkers() {
-        dtcOnlyMarkers.forEach((marker) => marker.remove());
-        dtcOnlyMarkers.clear();
-    }
-
-    function drawDtcOnlyMarkers() {
-        clearDtcOnlyMarkers();
+    function syncMarkers() {
         if (!map) return;
-        dtcOnlyRows.forEach((row) => {
-            const position = livePositionOf(row);
-            if (!position) return;
-            const name = row.license_plate || row.truck_name || row.vehicle_name || row.gps_id || '-';
-            const stale = isStale(row.time);
-            const marker = L.marker(position, {
-                icon: L.divIcon({ className: '', html: `<div class="gps-truck-marker is-unmatched ${stale ? 'is-stale' : ''}"><i class="fas fa-question"></i></div>`, iconSize: [32, 32], iconAnchor: [16, 16] }),
-            }).addTo(map)
-                .bindTooltip(String(name), { permanent: true, direction: 'top', className: 'gps-marker-label', offset: [0, -13] })
-                .bindPopup(`<strong>${escapeHtml(name)}</strong><br><small>มีใน DTC · ไม่พบในคิว FormDP</small><br><small>${escapeHtml(row.status_name_th || row.status_name_en || '-')} · ${escapeHtml(row.time || '-')}${stale ? ' · <b>ข้อมูลเก่า</b>' : ''}</small>`);
-            dtcOnlyMarkers.set(row.gps_id, marker);
-        });
-    }
-
-    function applyLiveSnapshot(rows, report) {
-        const mappingRowsByGps = new Map((report?.rows || []).filter((row) => row.gps_id).map((row) => [String(row.gps_id), row]));
-        const liveByGps = new Map(rows.map((row) => [String(row.gps_id || ''), row]));
-        const usedGpsIds = new Set();
-
-        setRunning(false);
-        liveMode = true;
-        vehicles.forEach((vehicle) => {
-            // Match by the plate resolved server-side (Vehicle Master license_plate first).
-            const mapping = (report?.rows || []).find((row) => row.matched && normalizePlate(row.plate_no) === normalizePlate(vehicle.plate_no));
-            const live = mapping ? liveByGps.get(String(mapping.gps_id)) : null;
-            vehicle.live_found = Boolean(live);
-            vehicle.live_position = live ? livePositionOf(live) : null;
-            vehicle.live_time = live?.time || '';
-            vehicle.live_status = live ? (live.status_name_th || live.status_name_en || '') : '';
-            vehicle.live_speed = live ? Number(live.gps_speed || 0) : 0;
-            vehicle.live_name = live ? (live.license_plate || live.truck_name || '') : '';
-            vehicle.live_stale = live ? isStale(live.time) : false;
-            if (live) usedGpsIds.add(String(live.gps_id));
-        });
-        dtcOnlyRows = rows.filter((row) => !usedGpsIds.has(String(row.gps_id || ''))
-            && (mappingRowsByGps.get(String(row.gps_id || ''))?.issue || 'missing_formdp') !== 'matched');
-
-        // Demo routes are not real tracks: hide them, and hide markers for vehicles without a DTC position.
-        paths.forEach((path) => path.remove());
-        vehicles.forEach((vehicle) => {
-            const marker = markers.get(vehicle.gps_id);
-            if (!marker || !map) return;
-            if (Array.isArray(vehicle.live_position)) marker.addTo(map);
-            else marker.remove();
-        });
-        drawDtcOnlyMarkers();
-
-        setDataBadge('live');
-        setSourceState('live', rows);
-        renderMapping(report);
-        render();
-        fitAllVehicles();
-    }
-
-    function resetToDemo() {
-        liveMode = false;
-        dtcOnlyRows = [];
-        clearDtcOnlyMarkers();
-        vehicles.forEach((vehicle) => {
-            ['live_found', 'live_position', 'live_time', 'live_status', 'live_speed', 'live_name', 'live_stale'].forEach((key) => delete vehicle[key]);
-            if (map && vehicle.has_queue) {
-                paths.get(vehicle.gps_id)?.addTo(map);
-                markers.get(vehicle.gps_id)?.addTo(map);
+        const keep = new Set();
+        items.forEach((item) => {
+            if (!item.position) return;
+            keep.add(item.key);
+            const icon = L.divIcon({ className: '', html: markerHtml(item), iconSize: [32, 32], iconAnchor: [16, 16] });
+            // Trucks inside the company geofence keep a hover label only, so labels do not pile up there.
+            const permanent = item.state.phase !== 'company' || selectedKey === item.key;
+            let marker = markers.get(item.key);
+            if (!marker) {
+                marker = L.marker(item.position, { icon, title: item.plate_no }).addTo(map);
+                marker.on('click', () => selectItem(item.key));
+                markers.set(item.key, marker);
             } else {
-                markers.get(vehicle.gps_id)?.remove();
+                marker.setLatLng(item.position).setIcon(icon);
+            }
+            if (!marker.getTooltip() || marker.getTooltip().options.permanent !== permanent) {
+                marker.unbindTooltip();
+                marker.bindTooltip(item.plate_no, { permanent, direction: 'top', className: 'gps-marker-label', offset: [0, -13] });
             }
         });
-        setDataBadge('demo');
-        renderMapping(initialMatchReport);
-        render();
+        markers.forEach((marker, key) => {
+            if (!keep.has(key)) {
+                marker.remove();
+                markers.delete(key);
+            }
+        });
+        if (companyMarker) {
+            const count = items.filter((item) => item.state.phase === 'company').length;
+            companyMarker.setTooltipContent(count ? `${COMPANY_NAME} · รถ ${count} คัน` : COMPANY_NAME);
+        }
     }
 
-    function fitAllVehicles() {
+    function fitAll() {
         if (!map) return;
-        const points = [company];
-        vehicles.forEach((vehicle) => {
-            if (liveMode && !Array.isArray(vehicle.live_position)) return;
-            if (!liveMode && !vehicle.has_queue) return;
-            points.push(positionAt(vehicle));
-        });
-        dtcOnlyMarkers.forEach((marker) => {
-            const latLng = marker.getLatLng();
-            points.push([latLng.lat, latLng.lng]);
-        });
+        const points = [COMPANY, ...items.filter((item) => item.position).map((item) => item.position)];
         if (points.length === 1) {
-            map.setView(company, 13);
+            map.setView(COMPANY, 13);
             return;
         }
         map.fitBounds(L.latLngBounds(points), { padding: [44, 44], maxZoom: 15 });
     }
 
-    function deliveryContents(vehicle) {
-        const deliveries = Array.isArray(vehicle.deliveries) ? vehicle.deliveries : [];
-        if (!deliveries.length) return '<span class="gps-load-empty">ยังไม่พบรายละเอียดสินค้าในคิวที่จับคู่ทะเบียน</span>';
+    // ---------- route (DTC getHistory) ----------
+    function routeSummary(route) {
+        const points = route.points || [];
+        if (!points.length) return null;
+        let meters = 0;
+        let maxSpeed = 0;
+        let leftCompany = null;
+        let backAtCompany = null;
+        let wasInside = inCompany([points[0].lat, points[0].lon]);
+        points.forEach((point, index) => {
+            const position = [point.lat, point.lon];
+            if (index > 0) meters += distanceMeters([points[index - 1].lat, points[index - 1].lon], position);
+            maxSpeed = Math.max(maxSpeed, Number(point.speed) || 0);
+            const inside = inCompany(position);
+            if (wasInside && !inside && !leftCompany) leftCompany = point.time;
+            if (!wasInside && inside) backAtCompany = point.time;
+            wasInside = inside;
+        });
+        const first = points[0];
+        const last = points[points.length - 1];
+        const odometer = Number.isFinite(first.distance) && Number.isFinite(last.distance) && last.distance >= first.distance
+            ? last.distance - first.distance
+            : null;
+        return {
+            first: first.time,
+            last: last.time,
+            km: odometer ?? meters / 1000,
+            kmSource: odometer !== null ? 'ระยะสะสมจาก DTC' : 'คำนวณจากพิกัด',
+            maxSpeed,
+            leftCompany,
+            backAtCompany,
+        };
+    }
 
-        return deliveries.map((delivery, stopIndex) => `<span class="gps-load-stop">
-            <span class="gps-load-stop-head"><span class="gps-load-stop-no">${stopIndex + 1}</span><strong>${escapeHtml(delivery.customer || '-')}</strong></span>
-            ${(delivery.items || []).map((item) => `<span class="gps-load-line"><span><b>${escapeHtml(item.product || item.part_number || '-')}</b><small>${escapeHtml(item.so_number || '-')} · ${escapeHtml(item.dp_ref || '-')} ${item.part_number ? `· ${escapeHtml(item.part_number)}` : ''}</small></span><strong>${formatQuantity(item.quantity)} ${escapeHtml(item.unit || '')}</strong></span>`).join('')}
+    function drawRoute(item) {
+        if (routeLayer) {
+            routeLayer.remove();
+            routeLayer = null;
+        }
+        const state = routes.get(item.key);
+        if (!map || state?.status !== 'ok') return;
+        const points = (state.data.points || []).map((point) => [point.lat, point.lon]);
+        if (points.length < 2) return;
+        routeLayer = L.layerGroup([
+            L.polyline(points, { color: '#126a83', weight: 4, opacity: .8 }),
+            L.circleMarker(points[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#126a83', fillOpacity: 1 }).bindTooltip(`เริ่ม ${hhmm(state.data.points[0].time)}`),
+        ]).addTo(map);
+        const bounds = L.latLngBounds(item.position ? [...points, item.position] : points);
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    }
+
+    async function loadRoute(item) {
+        if (!item.gps_id || routes.get(item.key)?.status === 'loading') return;
+        const cached = routes.get(item.key);
+        if (cached?.status === 'ok' && Date.now() - cached.loadedAt < 10 * 60000) {
+            drawRoute(item);
+            return;
+        }
+        routes.set(item.key, { status: 'loading' });
+        renderList();
+        try {
+            const url = new URL(routeUrlTemplate.replace('__GPS__', encodeURIComponent(item.gps_id)), window.location.href);
+            url.searchParams.set('date', queueDate);
+            const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+            const payload = await response.json().catch(() => ({}));
+            if (payload.usage) renderUsage(payload.usage);
+            if (response.ok && payload.ok) {
+                routes.set(item.key, { status: 'ok', data: payload.route, loadedAt: Date.now() });
+            } else {
+                routes.set(item.key, { status: 'error', error: payload.error_info || { title: response.status === 429 ? 'เรียกถี่เกินไป' : 'โหลดเส้นทางไม่สำเร็จ', advice: 'ลองใหม่อีกครั้งภายหลัง' } });
+            }
+        } catch (error) {
+            routes.set(item.key, { status: 'error', error: { title: 'เชื่อมต่อระบบไม่ได้', advice: 'ตรวจเครือข่ายแล้วลองใหม่' } });
+        }
+        if (selectedKey === item.key) drawRoute(item);
+        renderList();
+    }
+
+    function routeHtml(item) {
+        if (!item.gps_id) return '<span class="gps-route-state">รถคันนี้ไม่มี GPS ของ DTC จึงไม่มีเส้นทาง</span>';
+        const state = routes.get(item.key);
+        if (!state || state.status === 'loading') return '<span class="gps-route-state"><i class="fas fa-spinner fa-spin"></i> กำลังโหลดเส้นทางจาก DTC...</span>';
+        if (state.status === 'error') {
+            return `<span class="gps-route-state is-error"><b>${escapeHtml(state.error.title || 'โหลดเส้นทางไม่สำเร็จ')}</b>${escapeHtml(state.error.advice || '')}<button type="button" class="btn btn-link btn-sm p-0" data-route-retry="${escapeHtml(item.key)}">ลองใหม่</button></span>`;
+        }
+        const summary = routeSummary(state.data);
+        if (!summary) return `<span class="gps-route-state">ไม่มีพิกัดจาก DTC ในวันที่ ${escapeHtml(queueDate)}</span>`;
+        const rows = [
+            ['ข้อมูลแรก/ล่าสุด', `${hhmm(summary.first)} – ${hhmm(summary.last)}`],
+            ['ออกจากพื้นที่บริษัท', summary.leftCompany ? hhmm(summary.leftCompany) : '-'],
+            ['กลับเข้าพื้นที่บริษัท', summary.backAtCompany ? hhmm(summary.backAtCompany) : '-'],
+            ['ระยะทาง', `${numberFormat.format(summary.km)} กม. (${summary.kmSource})`],
+            ['ความเร็วสูงสุด', `${numberFormat.format(summary.maxSpeed)} กม./ชม.`],
+        ];
+        return `<span class="gps-route-facts">${rows.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><b>${escapeHtml(value)}</b></span>`).join('')}</span>
+            <small class="gps-route-foot">จาก DTC getHistory · ${escapeHtml(state.data.point_count)} จุด · ${state.data.from_cache ? 'cache' : 'ดึงใหม่'}</small>`;
+    }
+
+    // ---------- list ----------
+    function deliveryHtml(item) {
+        const deliveries = Array.isArray(item.deliveries) ? item.deliveries : [];
+        if (!deliveries.length) return '<span class="gps-load-empty">ไม่มีรายการส่งในคิววันที่เลือก</span>';
+        return deliveries.map((delivery, index) => `<span class="gps-load-stop">
+            <span class="gps-load-stop-head"><span class="gps-load-stop-no">${index + 1}</span><strong>${escapeHtml(delivery.customer || '-')}</strong></span>
+            ${(delivery.items || []).map((line) => `<span class="gps-load-line"><span><b>${escapeHtml(line.product || line.part_number || '-')}</b><small>${escapeHtml(line.so_number || '-')} · ${escapeHtml(line.dp_ref || '-')}${line.part_number ? ` · ${escapeHtml(line.part_number)}` : ''}</small></span><strong>${qtyFormat.format(Number(line.quantity || 0))} ${escapeHtml(line.unit || '')}</strong></span>`).join('')}
         </span>`).join('');
     }
 
-    function routeSummary(vehicle) {
-        const stops = Array.isArray(vehicle.stops) ? vehicle.stops : [];
-        if (!stops.length) return '';
-
-        const rows = [
-            {
-                name: 'บริษัท',
-                time: `ออก ${vehicle.actual_departure || vehicle.planned_departure || '-'}`,
-                metric: 'เริ่มเที่ยวจาก Geofence บริษัท',
-            },
-            ...stops.map((stop, index) => ({
-                name: `${index + 1}. ${stop.name}`,
-                time: `ถึง ${stop.actual_arrival || '-'}`,
-                metric: `${stop.distance_km} กม. · ใช้จริง ${stop.actual_minutes} นาที · ETA จำลอง ${stop.eta_minutes} นาที`,
-            })),
-            {
-                name: 'กลับบริษัท',
-                time: vehicle.actual_return ? `ถึง ${vehicle.actual_return}` : `คาด ${vehicle.estimated_return || '-'}`,
-                metric: `${vehicle.return_distance_km || '-'} กม. จากจุดล่าสุด · ETA จำลอง ${vehicle.return_eta_minutes || '-'} นาที · ${vehicle.estimate_basis || ''}`,
-            },
-        ];
-
-        return `<span class="gps-route-summary">${rows.map((row) => `<span class="gps-route-leg">
-            <span class="gps-route-dot"></span>
-            <span class="gps-route-place" title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>
-            <span class="gps-route-time">${escapeHtml(row.time)}</span>
-            <span class="gps-route-metric">${escapeHtml(row.metric)}</span>
-        </span>`).join('')}</span>`;
+    function itemHtml(item) {
+        const selected = selectedKey === item.key;
+        const loadOpen = expandedLoadKey === item.key;
+        const live = item.live;
+        const lineCount = (item.deliveries || []).reduce((sum, delivery) => sum + (delivery.items?.length || 0), 0);
+        const gpsText = item.gps_id
+            ? (live ? `DTC ${hhmm(live.time)} · ${numberFormat.format(Number(live.gps_speed || 0))} กม./ชม.` : 'ยังไม่มีข้อมูลรอบนี้')
+            : 'ไม่มี GPS DTC';
+        return `<article class="gps-vehicle-item ${selected ? 'is-active' : ''} ${item.kind === 'dtc_only' ? 'is-unmatched' : ''}">
+            <button type="button" class="gps-vehicle-select" data-item="${escapeHtml(item.key)}" aria-expanded="${selected}">
+                <span class="gps-vehicle-top"><span class="gps-plate">${escapeHtml(item.plate_no)}</span><span class="gps-status ${item.state.className}">${escapeHtml(item.state.label)}</span></span>
+                <span class="gps-vehicle-meta ${item.state.stale ? 'is-stale' : ''}">${item.state.stale && item.gps_id ? '<b>ข้อมูลเก่า</b> · ' : ''}${escapeHtml(item.driver_name)} · ${escapeHtml(item.has_queue ? `${item.stops?.length || 0} จุดส่ง` : item.trip_ref)} · ${escapeHtml(gpsText)}</span>
+            </button>
+            ${item.kind === 'fleet' ? `<button type="button" class="gps-load-toggle" data-load="${escapeHtml(item.key)}" aria-expanded="${loadOpen}"><span>ส่งอะไรบ้าง</span><span>${lineCount} รายการ <i class="fas fa-chevron-${loadOpen ? 'up' : 'down'}"></i></span></button>` : ''}
+            ${loadOpen ? `<span class="gps-load-detail">${deliveryHtml(item)}</span>` : ''}
+            ${selected ? `<span class="gps-route-panel"><span class="gps-route-title">เส้นทางจริง ${escapeHtml(queueDate)}</span>${routeHtml(item)}</span>` : ''}
+        </article>`;
     }
 
-    function render() {
+    function renderList() {
         if (!list) return;
-        const vehicleItems = vehicles.map((vehicle) => {
-            const status = stateOf(vehicle);
-            const max = vehicle.route.length - 1;
-            const percent = Math.round((vehicle.progress / max) * 100);
-            const selected = selectedId === vehicle.gps_id;
-            const loadExpanded = expandedLoadId === vehicle.gps_id;
-            const source = liveMode
-                ? (vehicle.live_time ? `DTC ${escapeHtml(vehicle.live_time)} · ${formatQuantity(vehicle.live_speed)} กม./ชม.` : 'ไม่มีตำแหน่งจาก DTC')
-                : (vehicle.has_queue ? 'ตำแหน่งจำลอง' : 'ยังไม่มีตำแหน่ง (รอ DTC)');
-            return `<article class="gps-vehicle-item ${selected ? 'is-active' : ''}">
-                <button type="button" class="gps-vehicle-select" data-gps-id="${escapeHtml(vehicle.gps_id)}" aria-expanded="${selected ? 'true' : 'false'}">
-                    <span class="gps-vehicle-top"><span class="gps-plate">${escapeHtml(vehicle.plate_no)}</span><span class="gps-status ${status.className}">${escapeHtml(status.label)}</span></span>
-                    <span class="gps-vehicle-meta ${vehicle.live_stale ? 'is-stale' : ''}">${vehicle.live_stale ? '<b>ข้อมูลเก่า</b> · ' : ''}${escapeHtml(vehicle.driver_name)} · ${vehicle.stops?.length || 0} จุดส่ง · ${source}</span>
-                    ${liveMode || !vehicle.has_queue ? '' : `<span class="gps-progress"><span style="width:${percent}%"></span></span>`}
-                </button>
-                <button type="button" class="gps-load-toggle" data-load-toggle="${escapeHtml(vehicle.gps_id)}" aria-expanded="${loadExpanded ? 'true' : 'false'}"><span>ส่งอะไรบ้าง</span><span>${(vehicle.deliveries || []).reduce((total, delivery) => total + (delivery.items?.length || 0), 0)} รายการ <i class="fas fa-chevron-${loadExpanded ? 'up' : 'down'}"></i></span></button>
-                ${loadExpanded ? `<span class="gps-load-detail">${deliveryContents(vehicle)}</span>` : ''}
-                ${selected ? `${liveMode ? '<span class="gps-live-note"><i class="fas fa-circle-info"></i> เวลาออก/ถึง/ETA ด้านล่างยังเป็นข้อมูลจำลอง</span>' : ''}${routeSummary(vehicle)}` : ''}
-            </article>`;
-        });
-        const dtcOnlyItems = liveMode ? dtcOnlyRows.map((row) => {
-            const stale = isStale(row.time);
-            const hasPosition = Boolean(livePositionOf(row));
-            const name = row.license_plate || row.truck_name || row.vehicle_name || row.gps_id || '-';
-            return `<article class="gps-vehicle-item is-unmatched">
-                <button type="button" class="gps-vehicle-select" data-dtc-only="${escapeHtml(row.gps_id)}" ${hasPosition ? '' : 'disabled'}>
-                    <span class="gps-vehicle-top"><span class="gps-plate">${escapeHtml(name)}</span><span class="gps-status is-unmatched">ไม่พบในคิว FormDP</span></span>
-                    <span class="gps-vehicle-meta ${stale ? 'is-stale' : ''}">${stale ? '<b>ข้อมูลเก่า</b> · ' : ''}${escapeHtml(row.status_name_th || row.status_name_en || 'ไม่ทราบสถานะ')} · DTC ${escapeHtml(row.time || '-')}${hasPosition ? '' : ' · ไม่มีพิกัด'}</span>
-                </button>
-            </article>`;
-        }) : [];
-        list.innerHTML = vehicleItems.concat(dtcOnlyItems).join('');
-
-        list.querySelectorAll('[data-gps-id]').forEach((button) => button.addEventListener('click', () => selectVehicle(button.dataset.gpsId)));
-        list.querySelectorAll('[data-dtc-only]').forEach((button) => button.addEventListener('click', () => {
-            const marker = dtcOnlyMarkers.get(button.dataset.dtcOnly);
-            if (!marker || !map) return;
-            map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 14), { duration: .45 });
-            marker.openPopup();
-        }));
-        list.querySelectorAll('[data-load-toggle]').forEach((button) => button.addEventListener('click', () => {
-            expandedLoadId = expandedLoadId === button.dataset.loadToggle ? null : button.dataset.loadToggle;
-            render();
-        }));
-
-        vehicles.forEach((vehicle) => {
-            const marker = markers.get(vehicle.gps_id);
-            if (!marker) return;
-            if (liveMode && !Array.isArray(vehicle.live_position)) return;
-            const status = stateOf(vehicle);
-            marker.setLatLng(positionAt(vehicle));
-            marker.setIcon(L.divIcon({ className: '', html: markerHtml(vehicle, status), iconSize: [32, 32], iconAnchor: [16, 16] }));
-        });
-
-        const statuses = vehicles.map(stateOf);
-        if (liveMode) {
-            // Delay and "at destination" need plan/geofence data DTC does not give us yet.
-            const dtcOnlyMoving = dtcOnlyRows.filter((row) => livePositionOf(row) && Number(row.gps_speed) > 0).length;
-            movingCount.textContent = statuses.filter((s) => s.phase === 'moving').length + dtcOnlyMoving;
-            companyCount.textContent = statuses.filter((s) => s.phase === 'company').length;
-            delayedCount.textContent = '-';
-            destinationCount.textContent = '-';
-        } else {
-            movingCount.textContent = statuses.filter((s) => s.phase === 'moving').length;
-            companyCount.textContent = statuses.filter((s) => s.phase === 'company').length;
-            delayedCount.textContent = statuses.filter((s) => s.className === 'is-delayed').length;
-            destinationCount.textContent = statuses.filter((s) => s.phase === 'destination').length;
+        const visible = items.filter(matchesFilter).sort((a, b) => sortWeight(a) - sortWeight(b) || String(a.plate_no).localeCompare(String(b.plate_no), 'th'));
+        // In "all", trucks with neither GPS nor a queue are folded into one group to keep the list short.
+        const folded = filter === 'all' ? visible.filter((item) => !item.gps_id && !item.has_queue && item.kind === 'fleet') : [];
+        const main = visible.filter((item) => !folded.includes(item));
+        let html = main.map(itemHtml).join('');
+        if (folded.length) {
+            html += `<button type="button" class="gps-group-toggle" data-group-toggle aria-expanded="${showNoGps}">
+                <span>รถไม่มี GPS DTC และไม่มีคิว (${folded.length})</span><i class="fas fa-chevron-${showNoGps ? 'up' : 'down'}"></i></button>`;
+            if (showNoGps) html += folded.map(itemHtml).join('');
         }
-        updatedAt.textContent = new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date());
+        list.innerHTML = html || '<div class="gps-list-empty">ไม่มีรถตามตัวกรองนี้</div>';
     }
 
-    function selectVehicle(gpsId) {
-        if (selectedId === gpsId) {
-            selectedId = null;
-            render();
-            return;
-        }
-        selectedId = gpsId;
-        const vehicle = vehicles.find((item) => item.gps_id === gpsId);
-        const hasPosition = vehicle && (liveMode ? Array.isArray(vehicle.live_position) : vehicle.has_queue);
-        if (hasPosition && map) map.flyTo(positionAt(vehicle), Math.max(map.getZoom(), 13), { duration: .45 });
-        render();
+    function renderKpis() {
+        const withGps = items.filter((item) => item.position);
+        const set = (id, value) => { const node = el(id); if (node) node.textContent = value; };
+        const hasData = (snapshot.rows || []).length > 0;
+        set('gps-moving-count', hasData ? withGps.filter((item) => item.state.phase === 'moving').length : '-');
+        set('gps-stopped-count', hasData ? withGps.filter((item) => item.state.phase === 'stopped').length : '-');
+        set('gps-company-count', hasData ? withGps.filter((item) => item.state.phase === 'company').length : '-');
+        set('gps-stale-count', hasData ? items.filter((item) => item.gps_id && item.state.stale).length : '-');
     }
 
-    function tick() {
-        queuedVehicles().forEach((vehicle) => {
-            const max = vehicle.route.length - 1;
-            vehicle.progress += .12 * vehicle.direction;
-            if (vehicle.progress >= max) { vehicle.progress = max; vehicle.direction = -1; }
-            if (vehicle.progress <= 0) { vehicle.progress = 0; vehicle.direction = 1; }
-        });
-        render();
-    }
-
-    function setRunning(next) {
-        running = next;
-        window.clearInterval(timer);
-        timer = running ? window.setInterval(tick, 1800) : null;
-        toggleButton.innerHTML = running ? '<i class="fas fa-pause me-1"></i> หยุด Simulation' : '<i class="fas fa-play me-1"></i> เริ่ม Simulation';
-        toggleButton.classList.toggle('btn-primary', !running);
-        toggleButton.classList.toggle('btn-outline-primary', running);
-        toggleButton.setAttribute('aria-pressed', running ? 'true' : 'false');
-    }
-
-    function minuteValue(time) {
-        const [hour, minute] = String(time || '00:00').split(':').map(Number);
-        return (hour * 60) + minute;
-    }
-
-    function departureVariance(vehicle) {
-        return minuteValue(vehicle.actual_departure) - minuteValue(vehicle.planned_departure);
-    }
-
-    function totalTripMinutes(vehicle) {
-        return (vehicle.stops || []).reduce((total, stop) => total + Number(stop.actual_minutes || 0) + 20, 0) + Number(vehicle.return_eta_minutes || 0);
-    }
-
-    function historyLegs(vehicle) {
-        const legs = [
-            { name: 'ออกจากบริษัท', time: vehicle.actual_departure, detail: `ตามแผน ${vehicle.planned_departure} · ${departureVariance(vehicle) > 10 ? `ช้า ${departureVariance(vehicle)} นาที` : 'ตรงเวลา'}` },
-            ...(vehicle.stops || []).map((stop, index) => ({ name: `${index + 1}. ${stop.name}`, time: stop.actual_arrival, detail: `${stop.distance_km} กม. · ใช้จริง ${stop.actual_minutes} นาที · ETA ${stop.eta_minutes} นาที` })),
-            { name: 'กลับถึงบริษัท', time: vehicle.estimated_return, detail: `${vehicle.return_distance_km} กม. จากจุดล่าสุด · ETA ${vehicle.return_eta_minutes} นาที` },
-        ];
-        return legs.map((leg) => `<div class="gps-history-leg"><strong>${escapeHtml(leg.name)}</strong><time>${escapeHtml(leg.time || '-')}</time><small>${escapeHtml(leg.detail)}</small></div>`).join('');
-    }
-
-    function renderHistory() {
-        if (!historyList || !historyDetail) return;
-        const vehicleFilter = historyVehicle?.value || 'all';
-        const matchesDate = historyDate?.value === root.dataset.queueDate || !root.dataset.queueDate;
-        const filtered = matchesDate ? queuedVehicles().filter((vehicle) => vehicleFilter === 'all' || vehicle.gps_id === vehicleFilter) : [];
-        historyResultCount.textContent = `${filtered.length} เที่ยว`;
-
-        if (!filtered.length) {
-            historyList.innerHTML = '<div class="gps-history-empty"><div><i class="fas fa-route fa-2x mb-2"></i><br>ไม่พบเที่ยวในวันที่เลือก</div></div>';
-            historyDetail.innerHTML = '<div class="gps-history-empty">เลือกวันที่หรือทะเบียนรถใหม่</div>';
-            return;
-        }
-
-        if (!filtered.some((vehicle) => vehicle.gps_id === selectedHistoryId)) selectedHistoryId = filtered[0].gps_id;
-        historyList.innerHTML = filtered.map((vehicle) => {
-            const late = departureVariance(vehicle) > 10;
-            return `<button type="button" class="gps-history-trip ${vehicle.gps_id === selectedHistoryId ? 'is-active' : ''}" data-history-id="${escapeHtml(vehicle.gps_id)}"><span class="gps-history-trip-top"><strong>${escapeHtml(vehicle.plate_no)}</strong><span class="gps-history-chip ${late ? 'is-alert' : ''}">${late ? 'ออกช้า' : 'ตรงเวลา'}</span></span><small>${escapeHtml(vehicle.driver_name)}<br>${vehicle.stops?.length || 0} จุดส่ง · ออก ${escapeHtml(vehicle.actual_departure)} · คาดกลับ ${escapeHtml(vehicle.estimated_return)}</small></button>`;
+    function renderMapping() {
+        const rows = Array.isArray(matchReport.rows) ? matchReport.rows : [];
+        const issues = Number(matchReport.missing_in_formdp_count || 0);
+        const hasData = (snapshot.rows || []).length > 0;
+        matchSummary.innerHTML = hasData
+            ? `<i class="fas fa-link"></i> จับคู่ ${matchReport.matched_count || 0}/${matchReport.dtc_count || 0} คัน${issues ? ` · ไม่อยู่ใน Truck Master ${issues}` : ''}`
+            : '<i class="fas fa-link"></i> จับคู่รถ: รอข้อมูล DTC';
+        mappingCount.textContent = hasData ? `${matchReport.matched_count || 0} จับคู่ · ${issues} ไม่พบใน FormDP` : 'ยังไม่มีข้อมูล';
+        mappingCount.classList.toggle('is-alert', issues > 0);
+        // Show DTC vehicles first (matched / missing), then FormDP trucks without GPS.
+        mappingRows.innerHTML = rows.map((row) => {
+            const stale = row.issue !== 'missing_dtc' && isStale(row.last_time);
+            const result = row.issue === 'missing_dtc' ? 'มีใน FormDP · ไม่มี GPS DTC' : row.issue === 'missing_formdp' ? 'มีใน DTC · ไม่อยู่ใน Truck Master' : 'จับคู่แล้ว';
+            return `<tr><td><code>${escapeHtml(row.gps_id || '-')}</code></td><td class="fw-semibold">${escapeHtml(row.dtc_name || '-')}</td><td>${escapeHtml(row.plate_no || '-')}</td><td><span>${escapeHtml(row.trip_ref || '-')}</span><small>${escapeHtml(row.driver_name || '')}</small></td><td><span>${escapeHtml(row.last_time || '-')} ${stale ? '<b class="gps-stale-tag">ข้อมูลเก่า</b>' : ''}</span><small>${escapeHtml(row.status_name || '')}</small></td><td><span class="gps-match-status ${row.matched ? 'is-ok' : 'is-missing'}"><i class="fas fa-${row.matched ? 'check' : 'triangle-exclamation'}"></i> ${escapeHtml(result)}</span></td></tr>`;
         }).join('');
-        historyList.querySelectorAll('[data-history-id]').forEach((button) => button.addEventListener('click', () => { selectedHistoryId = button.dataset.historyId; renderHistory(); }));
-
-        const vehicle = filtered.find((item) => item.gps_id === selectedHistoryId) || filtered[0];
-        historyDetail.innerHTML = `<div class="gps-history-detail-head"><div><h2>${escapeHtml(vehicle.plate_no)} · ${escapeHtml(vehicle.trip_ref)}</h2><p>${escapeHtml(vehicle.driver_name)} · ${vehicle.stops?.length || 0} จุดส่ง</p></div><div class="gps-history-total"><span>เวลารวมโดยประมาณ</span><strong>${totalTripMinutes(vehicle)} นาที</strong></div></div><div class="gps-history-route">${historyLegs(vehicle)}</div>`;
-    }
-
-    function renderReports() {
-        if (!reportRows) return;
-        reportRows.innerHTML = queuedVehicles().map((vehicle) => {
-            const variance = departureVariance(vehicle);
-            const late = variance > 10;
-            return `<tr><td class="fw-bold">${escapeHtml(vehicle.plate_no)}</td><td>${escapeHtml(vehicle.driver_name)}</td><td>${escapeHtml(vehicle.planned_departure)}</td><td>${escapeHtml(vehicle.actual_departure)}</td><td><span class="gps-report-result ${late ? 'is-alert' : ''}">${late ? `ช้า ${variance} นาที` : 'ตรงเวลา'}</span></td><td>${escapeHtml(vehicle.estimated_return)}</td></tr>`;
-        }).join('');
-    }
-
-    function showView(view) {
-        viewTabs.forEach((tab) => {
-            const active = tab.dataset.gpsView === view;
-            tab.classList.toggle('is-active', active);
-            tab.setAttribute('aria-selected', active ? 'true' : 'false');
-        });
-        viewPanels.forEach((panel) => {
-            const active = panel.dataset.gpsPanel === view;
-            panel.hidden = !active;
-            panel.classList.toggle('is-active', active);
-        });
-        if (view === 'live') window.setTimeout(() => map?.invalidateSize({ pan: false }), 30);
-        if (view === 'history') renderHistory();
-        if (view === 'reports') renderReports();
-    }
-
-    function renderDtcResult(payload, ok) {
-        if (!dtcTestResult) return;
-        const rows = Array.isArray(payload?.snapshot?.data) ? payload.snapshot.data : [];
-        const rawError = payload?.raw_error;
-        const errorInfo = payload?.error_info || {};
-        setLastSuccess(payload?.last_success_at || root.dataset.lastSuccess);
-        dtcTestResult.hidden = false;
-        dtcTestResult.classList.toggle('is-error', !ok);
-        dtcTestResult.innerHTML = `<div class="gps-dtc-result-head"><strong><i class="fas fa-${ok ? 'circle-check' : 'triangle-exclamation'}"></i> ${escapeHtml(ok ? payload?.message : (errorInfo.title || payload?.message) || 'ไม่ทราบผลการทดสอบ')}</strong>${ok ? `<span>${rows.length} คัน · ${escapeHtml(payload.snapshot.duration_ms)} ms · ใช้ ${escapeHtml(payload.snapshot.requests_used ?? 0)} requests · รายชื่อรถ${payload.snapshot.vehicle_master_from_cache ? 'จาก cache' : 'ดึงใหม่'}</span>` : `<span>${errorInfo.http_status ? `HTTP ${escapeHtml(errorInfo.http_status)} · ` : ''}ใช้ ${escapeHtml(payload?.requests_attempted ?? 0)} requests</span>`}</div>${!ok ? `<div class="gps-error-guide"><strong>${escapeHtml(errorInfo.advice || 'ตรวจเครือข่ายและลองใหม่')}</strong><span>${errorInfo.retryable ? 'ลองใหม่ได้เมื่อแก้สาเหตุแล้ว' : 'ต้องแก้การตั้งค่าหรือสิทธิ์ก่อนลองใหม่'}</span></div>` : ''}${ok ? `<div class="gps-dtc-cars">${rows.map((row) => `<div><strong>${escapeHtml(row.license_plate || row.vehicle_name || row.truck_name || row.gps_id || '-')}</strong><span>${escapeHtml(row.status_name_th || row.status_name_en || '-')} · ${formatQuantity(row.gps_speed)} กม./ชม.</span><small>${escapeHtml(row.time || '-')}${isStale(row.time) ? ' <b class="gps-stale-tag">ข้อมูลเก่า</b>' : ''} · ${escapeHtml(row.lat ?? '-')} / ${escapeHtml(row.lon ?? '-')}</small></div>`).join('')}</div>` : ''}${!ok && rawError ? `<details class="gps-dtc-raw"><summary>Raw error สำหรับตรวจสอบ</summary><div><b>${escapeHtml(rawError.type || 'Error')}</b><pre>${escapeHtml(rawError.detail || '-')}</pre></div></details>` : ''}`;
-        if (ok) {
-            applyLiveSnapshot(rows, payload.match_report || matchReport);
-        } else {
-            resetToDemo();
-            setSourceState('offline');
-        }
     }
 
     function renderUsage(usage) {
-        if (!dtcUsage || !usage) return;
-        const number = (value) => new Intl.NumberFormat('th-TH').format(Number(value || 0));
-        dtcUsage.classList.toggle('is-stale', Number(usage.percent) >= 80 || Boolean(usage.locked_until));
-        dtcUsage.title = `งบใช้ได้ ${number(usage.budget)} · เหลือ ${number(usage.remaining)}`;
-        dtcUsage.innerHTML = `<i class="fas fa-gauge-high"></i> DTC เดือนนี้ ${number(usage.month_total)} / ${number(usage.quota)} · วันนี้ ${number(usage.today)}${usage.locked_until ? ' · หยุดเรียกชั่วคราว' : ''}`;
+        if (!usageEl || !usage) return;
+        const n = (value) => new Intl.NumberFormat('th-TH').format(Number(value || 0));
+        usageEl.classList.toggle('is-stale', Number(usage.percent) >= 80 || Boolean(usage.locked_until));
+        usageEl.title = `งบใช้ได้ ${n(usage.budget)} · เหลือ ${n(usage.remaining)}`;
+        usageEl.innerHTML = `<i class="fas fa-gauge-high"></i> DTC เดือนนี้ ${n(usage.month_total)} / ${n(usage.quota)} · วันนี้ ${n(usage.today)}${usage.locked_until ? ' · หยุดเรียกชั่วคราว' : ''}`;
     }
 
-    async function runDtcTest(button) {
-        if (!button?.dataset.url || button.disabled) return;
-        const buttons = [dtcTestButton, dtcRefreshButton].filter(Boolean);
-        const original = button.innerHTML;
-        buttons.forEach((item) => { item.disabled = true; });
-        setSourceState('checking', mockSnapshot.data || []);
-        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> กำลังเรียก DTC...';
+    function formatClock(iso) {
+        const timestamp = Date.parse(String(iso || ''));
+        if (!Number.isFinite(timestamp)) return null;
+        return new Intl.DateTimeFormat('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Bangkok' }).format(new Date(timestamp));
+    }
+
+    function renderStatus() {
+        const hasData = (snapshot.rows || []).length > 0;
+        const fetchedAge = snapshot.fetched_at ? Math.max(0, Math.round((Date.now() - Date.parse(snapshot.fetched_at)) / 60000)) : null;
+        let mode = 'live';
+        let badge = 'LIVE DTC';
+        let title = 'ตำแหน่งรถจาก DTC';
+        if (syncing) { mode = 'checking'; badge = 'กำลังซิงก์'; title = 'กำลังดึงตำแหน่งจาก DTC'; }
+        else if (!hasData && lastError) { mode = 'offline'; badge = 'DTC OFFLINE'; title = `ยังไม่มีข้อมูล: ${lastError.title || 'เชื่อมต่อ DTC ไม่ได้'}`; }
+        else if (!hasData) { mode = 'checking'; badge = 'ยังไม่มีข้อมูล'; title = 'รอการดึงตำแหน่งครั้งแรก'; }
+        else if (lastError) { mode = 'offline'; badge = 'DTC OFFLINE'; title = `แสดงข้อมูลล่าสุดที่มี · ${lastError.title || 'ซิงก์ไม่สำเร็จ'}`; }
+        sourceDot.className = `gps-source-dot is-${mode}`;
+        sourceBadge.textContent = badge;
+        sourceTitle.textContent = title;
+
+        const newest = (snapshot.rows || []).map((row) => ageMinutes(row.time)).filter(Number.isFinite);
+        const staleCount = items.filter((item) => item.gps_id && item.state.stale).length;
+        sourceFreshness.classList.toggle('is-stale', staleCount > 0 || (fetchedAge ?? 0) > syncMinutes * 3);
+        sourceFreshness.innerHTML = `<i class="fas fa-clock"></i> ${hasData ? `GPS ล่าสุด ${newest.length ? Math.min(...newest) : '-'} นาทีที่แล้ว${staleCount ? ` · ข้อมูลเก่า ${staleCount} คัน` : ''}` : 'ยังไม่มีข้อมูล GPS'}`;
+        const clock = formatClock(snapshot.fetched_at);
+        lastSuccess.innerHTML = `<i class="fas fa-cloud-arrow-down"></i> ${clock ? `ซิงก์ล่าสุด ${escapeHtml(clock)}${fetchedAge ? ` (${fetchedAge} นาที)` : ''}` : 'ยังไม่เคยซิงก์สำเร็จ'}`;
+    }
+
+    function renderResult(payload) {
+        if (!resultBox) return;
+        const error = payload?.error_info;
+        if (!error) {
+            resultBox.hidden = true;
+            return;
+        }
+        const raw = payload.raw_error;
+        resultBox.hidden = false;
+        resultBox.classList.add('is-error');
+        resultBox.innerHTML = `<div class="gps-dtc-result-head"><strong><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(error.title || 'ซิงก์ไม่สำเร็จ')}</strong><span>${error.http_status ? `HTTP ${escapeHtml(error.http_status)} · ` : ''}ใช้ ${escapeHtml(payload.requests_attempted ?? 0)} requests</span></div>
+            <div class="gps-error-guide"><strong>${escapeHtml(error.advice || '')}</strong><span>${(snapshot.rows || []).length ? 'ตอนนี้แสดงข้อมูลล่าสุดที่ซิงก์ไว้' : 'ยังไม่มีตำแหน่งให้แสดง'}</span></div>
+            ${raw ? `<details class="gps-dtc-raw"><summary>Raw error สำหรับตรวจสอบ</summary><div><b>${escapeHtml(raw.type || 'Error')}</b><pre>${escapeHtml(raw.detail || '-')}</pre></div></details>` : ''}`;
+    }
+
+    function renderAll() {
+        buildItems();
+        renderStatus();
+        renderKpis();
+        renderMapping();
+        renderList();
+        syncMarkers();
+        if (companyMarker?.isPopupOpen()) companyMarker.setPopupContent(companyPopupHtml());
+    }
+
+    // ---------- sync ----------
+    async function refresh(params = {}) {
+        if (syncing) return;
+        syncing = true;
+        renderStatus();
+        [syncButton, refreshMasterButton].forEach((button) => { if (button) button.disabled = true; });
         try {
-            // Match DTC against the same day's fleet/queue the page is showing.
-            const url = new URL(button.dataset.url, window.location.href);
-            if (root.dataset.queueDate) url.searchParams.set('date', root.dataset.queueDate);
-            const response = await fetch(url.toString(), {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-                },
-            });
-            const payload = await response.json();
+            const url = new URL(params.url || liveUrl, window.location.href);
+            url.searchParams.set('date', queueDate);
+            const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+            const payload = await response.json().catch(() => ({}));
             if (response.status === 429 && !payload.error_info) {
-                payload.error_info = { title: 'กดถี่เกินไป', advice: 'ปุ่มนี้กดได้ 1 ครั้งต่อนาที เพื่อประหยัดโควตา DTC', http_status: 429, retryable: true };
+                payload.error_info = { title: 'เรียกถี่เกินไป', advice: 'รอสักครู่แล้วระบบจะลองใหม่เอง' };
             }
-            renderUsage(payload.usage);
-            renderDtcResult(payload, response.ok && payload.ok);
+            if (payload.snapshot) snapshot = payload.snapshot;
+            if (payload.match_report) matchReport = payload.match_report;
+            if (payload.usage) renderUsage(payload.usage);
+            lastError = payload.error_info || (response.ok ? null : { title: `HTTP ${response.status}` });
+            renderResult(payload);
         } catch (error) {
-            renderDtcResult({ message: 'เรียก DTC ไม่สำเร็จ', error_info: { title: 'เบราว์เซอร์เชื่อมต่อระบบไม่ได้', advice: 'ตรวจเครือข่ายภายในหรือโหลดหน้าใหม่', retryable: true } }, false);
+            lastError = { title: 'เชื่อมต่อระบบไม่ได้', advice: 'ตรวจเครือข่ายภายใน' };
+            renderResult({ error_info: lastError });
         } finally {
-            buttons.forEach((item) => { item.disabled = false; });
-            button.innerHTML = original;
+            syncing = false;
+            [syncButton, refreshMasterButton].forEach((button) => { if (button) button.disabled = false; });
+            renderAll();
+            schedulePoll();
         }
     }
 
-    dtcTestButton?.addEventListener('click', () => runDtcTest(dtcTestButton));
-    dtcRefreshButton?.addEventListener('click', () => runDtcTest(dtcRefreshButton));
+    function schedulePoll() {
+        window.clearTimeout(pollTimer);
+        if (document.visibilityState !== 'visible') return;
+        pollTimer = window.setTimeout(() => refresh(), POLL_MS);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') {
+            window.clearTimeout(pollTimer);
+            return;
+        }
+        const age = snapshot.fetched_at ? (Date.now() - Date.parse(snapshot.fetched_at)) / 1000 : Infinity;
+        if (age > syncMinutes * 60) refresh();
+        else schedulePoll();
+    });
+
+    // ---------- interactions ----------
+    function selectItem(key) {
+        if (selectedKey === key) {
+            selectedKey = null;
+            if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+            renderAll();
+            return;
+        }
+        selectedKey = key;
+        const item = items.find((candidate) => candidate.key === key);
+        if (item && !item.gps_id && !item.has_queue && item.kind === 'fleet') showNoGps = true;
+        renderAll();
+        if (!item) return;
+        if (item.position && map) map.flyTo(item.position, Math.max(map.getZoom(), 14), { duration: .45 });
+        if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+        if (item.gps_id) loadRoute(item);
+    }
+
+    list?.addEventListener('click', (event) => {
+        const select = event.target.closest('[data-item]');
+        if (select) { selectItem(select.dataset.item); return; }
+        const load = event.target.closest('[data-load]');
+        if (load) { expandedLoadKey = expandedLoadKey === load.dataset.load ? null : load.dataset.load; renderList(); return; }
+        const retry = event.target.closest('[data-route-retry]');
+        if (retry) {
+            routes.delete(retry.dataset.routeRetry);
+            const item = items.find((candidate) => candidate.key === retry.dataset.routeRetry);
+            if (item) loadRoute(item);
+            return;
+        }
+        if (event.target.closest('[data-group-toggle]')) { showNoGps = !showNoGps; renderList(); }
+    });
+
+    root.querySelectorAll('[data-filter]').forEach((chip) => chip.addEventListener('click', () => {
+        filter = chip.dataset.filter;
+        root.querySelectorAll('[data-filter]').forEach((other) => other.classList.toggle('is-active', other === chip));
+        renderList();
+    }));
 
     mappingToggle?.addEventListener('click', () => {
-        const expanded = mappingPanel.hidden;
-        mappingPanel.hidden = !expanded;
-        mappingToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        mappingToggle.innerHTML = `<i class="fas fa-${expanded ? 'chevron-up' : 'list-check'} me-1"></i> ${expanded ? 'ซ่อนการจับคู่' : 'ดูการจับคู่รถ'}`;
+        const open = mappingPanel.hidden;
+        mappingPanel.hidden = !open;
+        mappingToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        mappingToggle.innerHTML = `<i class="fas fa-${open ? 'chevron-up' : 'list-check'} me-1"></i> ${open ? 'ซ่อนการจับคู่' : 'ดูการจับคู่รถ'}`;
+    });
+    syncButton?.addEventListener('click', () => refresh({ url: syncButton.dataset.url }));
+    refreshMasterButton?.addEventListener('click', () => refresh({ url: refreshMasterButton.dataset.url }));
+    viewAllButton?.addEventListener('click', () => {
+        if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+        fitAll();
     });
 
-    toggleButton?.addEventListener('click', () => setRunning(!running));
-    resetButton?.addEventListener('click', () => {
-        setRunning(false);
-        queuedVehicles().forEach((vehicle, index) => { vehicle.progress = index * .35; vehicle.direction = 1; });
-        selectedId = null;
-        if (map) map.setView(company, 13);
-        render();
-    });
-    viewAllButton?.addEventListener('click', fitAllVehicles);
-    viewTabs.forEach((tab) => tab.addEventListener('click', () => showView(tab.dataset.gpsView)));
-    historyVehicle?.addEventListener('change', renderHistory);
-    historyDate?.addEventListener('change', renderHistory);
-
-    initMap();
-    setLastSuccess(root.dataset.lastSuccess);
-    setSourceState('demo', mockSnapshot.data || []);
-    renderMapping(matchReport);
-    render();
-    renderHistory();
-    renderReports();
+    // ---------- start ----------
+    initMap(); // starts at the company, zoom 13
+    renderAll();
+    // Positions are always "now"; for a past date only the clicked route uses that date.
+    const initialAge = snapshot.age_seconds ?? Infinity;
+    if (initialAge > syncMinutes * 60) refresh();
+    else schedulePoll();
+    void isToday;
 }());

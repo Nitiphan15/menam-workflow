@@ -6,6 +6,7 @@ use App\Http\Controllers\FormDP\GpsTripTrackingController;
 use App\Services\FormDP\DtcGpsService;
 use App\Services\FormDP\DtcRateLimitException;
 use App\Services\FormDP\GpsTripQueueService;
+use App\Models\Users\User;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -75,25 +76,29 @@ class DtcGpsServiceTest extends TestCase
         $this->assertSame('Master Driver A', $fleet['1ฒณ1307']['driver_name']);
     }
 
-    public function test_index_uses_real_fleet_and_gives_demo_route_only_to_queued_trucks(): void
+    public function test_index_uses_real_fleet_and_never_calls_dtc_or_builds_demo_positions(): void
     {
         $this->fakeFleet();
+        $this->fakeDtc();
         request()->query->set('date', '2026-11-19');
 
         $data = app(GpsTripTrackingController::class)->index()->getData();
-        $vehicles = collect($data['demoVehicles'])->keyBy('plate_no');
+        $vehicles = collect($data['vehicles'])->keyBy('plate_no');
 
         $this->assertSame('2026-11-19', $data['queueDate']);
+        $this->assertFalse($data['isToday']);
         $this->assertSame(4, $vehicles->count());
         $this->assertSame(2, $data['queuedVehicleCount']);
         $this->assertTrue($vehicles['83-5505']['has_queue']);
         $this->assertSame('คิว 2026-11-19 · เที่ยว 1, 2', $vehicles['83-5505']['trip_ref']);
-        $this->assertCount(5, $vehicles['83-5505']['route']);
+        $this->assertSame(['ลูกค้า A', 'ลูกค้า B'], $vehicles['83-5505']['stops']);
+        $this->assertArrayNotHasKey('route', $vehicles['83-5505']);
+        $this->assertArrayNotHasKey('planned_departure', $vehicles['83-5505']);
         $this->assertFalse($vehicles['1ฒณ1307']['has_queue']);
-        $this->assertSame([[13.547532, 100.787167], [13.547532, 100.787167]], $vehicles['1ฒณ1307']['route']);
-        $this->assertSame([], $vehicles['1ฒณ1307']['stops']);
         $this->assertSame('-', $vehicles['71-2519']['driver_name']);
-        $this->assertSame(2, $data['dtcMatchReport']['matched_count']); // mock DTC rows only for queued trucks
+        $this->assertSame([], $data['liveSnapshot']['rows']); // nothing synced yet
+        $this->assertSame(0, $data['matchReport']['matched_count']);
+        Http::assertNothingSent();
     }
 
     public function test_invalid_date_falls_back_to_today(): void
@@ -206,6 +211,129 @@ class DtcGpsServiceTest extends TestCase
         Http::assertSentCount(2); // nothing new was sent
     }
 
+    public function test_live_snapshot_is_shared_and_calls_dtc_once_per_interval(): void
+    {
+        $this->fakeDtc();
+        config()->set('dtc.sync_interval_minutes', 3);
+
+        $first = app(DtcGpsService::class)->liveSnapshot();
+        $second = app(DtcGpsService::class)->liveSnapshot(); // another viewer, same minute
+
+        $this->assertTrue($first['synced_now']);
+        $this->assertSame(2, $first['requests_used']);
+        $this->assertFalse($second['synced_now']);
+        $this->assertSame(0, $second['requests_used']);
+        $this->assertSame($first['fetched_at'], $second['fetched_at']);
+        $this->assertCount(1, $second['rows']);
+        Http::assertSentCount(2);
+
+        $this->travel(181)->seconds();
+        $third = app(DtcGpsService::class)->liveSnapshot();
+        $this->assertTrue($third['synced_now']);
+        $this->assertSame(1, $third['requests_used']); // Vehicle Master still cached
+        Http::assertSentCount(3);
+    }
+
+    public function test_live_snapshot_keeps_last_data_and_reports_error_when_dtc_fails(): void
+    {
+        config()->set('dtc.base_url', 'https://gps.example.test:8099/');
+        config()->set('dtc.api_token', 'test-token');
+        config()->set('dtc.retry_times', 1);
+        Http::fake([
+            'gps.example.test:8099/getVehicleMaster' => Http::response(['error' => false, 'data' => [
+                ['gps_id' => '010399900000001', 'vehicle_name' => '1ฒณ-1307', 'license_plate' => '010399900000001'],
+            ]]),
+            'gps.example.test:8099/getRealtimeData' => Http::sequence()
+                ->push(['error' => false, 'data' => [$this->liveRealtimeRow()]])
+                ->push(['error' => true, 'message' => 'server down'], 500),
+        ]);
+        app(DtcGpsService::class)->liveSnapshot();
+        $this->travel(181)->seconds();
+
+        $snapshot = app(DtcGpsService::class)->liveSnapshot();
+
+        $this->assertFalse($snapshot['synced_now']);
+        $this->assertSame('dtc_server', $snapshot['error']['code']);
+        $this->assertCount(1, $snapshot['rows']); // last good data is still shown
+        $this->assertGreaterThanOrEqual(181, $snapshot['age_seconds']);
+        $this->assertStringNotContainsString('test-token', json_encode($snapshot));
+    }
+
+    public function test_only_admin_can_force_a_sync_through_live_endpoint(): void
+    {
+        $this->fakeFleet();
+        $this->fakeDtc();
+        app(DtcGpsService::class)->liveSnapshot();
+        Http::assertSentCount(2);
+
+        request()->query->set('force', '1');
+        $guest = app(GpsTripTrackingController::class)->live()->getData(true);
+        $this->assertFalse($guest['snapshot']['synced_now']);
+        Http::assertSentCount(2);
+
+        // Unsaved user (no DB): the app's Gate::before lets superadmins through every ability.
+        $admin = (new User())->forceFill(['id' => 99, 'is_superadmin' => true]);
+        $this->be($admin);
+        $admin = app(GpsTripTrackingController::class)->live()->getData(true);
+        $this->assertTrue($admin['snapshot']['synced_now']);
+        $this->assertTrue($admin['ok']);
+        Http::assertSentCount(3);
+    }
+
+    public function test_route_endpoint_returns_sanitized_downsampled_history_and_caches_it(): void
+    {
+        $this->fakeFleet();
+        config()->set('dtc.base_url', 'https://gps.example.test:8099/');
+        config()->set('dtc.api_token', 'test-token');
+        config()->set('dtc.route_max_points', 100);
+        $points = [];
+        for ($i = 0; $i < 1000; $i++) {
+            $points[] = [
+                'time' => now('Asia/Bangkok')->startOfDay()->addSeconds(30 * $i)->format('Y-m-d H:i:s'),
+                'gps_speed' => $i % 60, 'status_code' => 30, 'status_name_th' => 'รถวิ่ง', 'status_name_en' => 'running',
+                'lat' => 13.5 + $i / 10000, 'lon' => 100.7 + $i / 10000, 'sum_distance' => 1000 + $i / 10, 'heading' => 90,
+                'driver_card_id' => 'CARD', 'driver_full_name' => 'SECRET NAME', 'driver_personalcard' => 'ID123',
+            ];
+        }
+        $points[] = ['time' => '2026-01-01 00:00:00', 'lat' => 0, 'lon' => 0]; // no-fix point must be dropped
+        Http::fake([
+            'gps.example.test:8099/getVehicleMaster' => Http::response(['error' => false, 'data' => [
+                ['gps_id' => '010399900000001', 'vehicle_name' => '1ฒณ-1307', 'license_plate' => '010399900000001'],
+            ]]),
+            'gps.example.test:8099/getHistory' => Http::response(['error' => false, 'gps_id' => '010399900000001', 'truck_name' => '1ฒณ-1307', 'data' => $points]),
+        ]);
+        app(DtcGpsService::class)->getVehicleMasterCached();
+
+        $first = app(GpsTripTrackingController::class)->route('010399900000001')->getData(true);
+        $second = app(GpsTripTrackingController::class)->route('010399900000001')->getData(true);
+
+        $this->assertTrue($first['ok']);
+        $route = $first['route'];
+        $this->assertSame(1000, $route['point_count']);
+        $this->assertLessThanOrEqual(101, count($route['points']));
+        $this->assertSame($points[0]['time'], $route['points'][0]['time']);
+        $this->assertSame($points[999]['time'], end($route['points'])['time']);
+        $this->assertSame(['time', 'lat', 'lon', 'speed', 'status', 'distance'], array_keys($route['points'][0]));
+        $this->assertStringNotContainsString('SECRET NAME', json_encode($first, JSON_UNESCAPED_UNICODE));
+        $this->assertTrue($second['route']['from_cache']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/getHistory')
+            && $request['gps_id'] === '010399900000001'
+            && str_ends_with($request['start_period'], '00:00:00'));
+        Http::assertSentCount(2); // master + one history call
+    }
+
+    public function test_route_endpoint_rejects_gps_ids_not_in_vehicle_master(): void
+    {
+        $this->fakeFleet();
+        $this->fakeDtc();
+
+        $response = app(GpsTripTrackingController::class)->route('999999999999');
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('unknown_vehicle', $response->getData(true)['error_info']['code']);
+        Http::assertNothingSent();
+    }
+
     public function test_vehicle_master_is_cached_so_next_sync_costs_one_request(): void
     {
         $this->fakeDtc();
@@ -301,9 +429,9 @@ class DtcGpsServiceTest extends TestCase
         $second = app(GpsTripTrackingController::class)->testDtcConnection()->getData(true);
 
         $this->assertSame(2, $first['snapshot']['requests_used']);
-        $this->assertFalse($first['snapshot']['vehicle_master_from_cache']);
+        $this->assertFalse($first['snapshot']['master_from_cache']);
         $this->assertSame(1, $second['snapshot']['requests_used']);
-        $this->assertTrue($second['snapshot']['vehicle_master_from_cache']);
+        $this->assertTrue($second['snapshot']['master_from_cache']);
         $this->assertSame(3, $second['usage']['month_total']);
         Http::assertSentCount(3);
     }
@@ -380,27 +508,6 @@ class DtcGpsServiceTest extends TestCase
         $this->assertSame(RuntimeException::class, $safe['type']);
         $this->assertStringContainsString('[REDACTED]', $safe['detail']);
         $this->assertStringNotContainsString('super-secret-token', $safe['detail']);
-    }
-
-    public function test_mock_response_uses_realtime_contract_and_matches_formdp_plate(): void
-    {
-        $vehicles = [[
-            'plate_no' => '1ฒณ-1307',
-            'trip_ref' => 'คิว 2026-11-13 · เที่ยว 1',
-            'driver_name' => 'Driver One',
-            'route' => [[13.61, 100.74], [13.62, 100.75]],
-        ]];
-        $service = app(DtcGpsService::class);
-        $mock = $service->mockRealtimeResponse($vehicles);
-        $master = $service->sanitizeVehicleMaster($service->mockVehicleMaster($vehicles));
-        $rows = $service->enrichRealtimeWithMaster($mock['data'], $master['data']);
-        $report = $service->matchVehicles($rows, $vehicles);
-
-        $this->assertSame('DTC-MOCK-001', $mock['data'][0]['gps_id']);
-        $this->assertSame('1ฒณ-1307', $mock['data'][0]['truck_name']);
-        $this->assertSame(1, $report['matched_count']);
-        $this->assertTrue($report['rows'][0]['matched']);
-        $this->assertSame('1ฒณ-1307', $report['rows'][0]['plate_no']);
     }
 
     public function test_vehicle_master_sanitizer_removes_sim_and_enriches_realtime_plate(): void
@@ -667,17 +774,18 @@ class DtcGpsServiceTest extends TestCase
 
         $this->assertTrue($payload['ok']);
         $this->assertSame(2, $payload['snapshot']['requests_used']);
-        $this->assertSame('1ฒณ-1307', $payload['snapshot']['data'][0]['license_plate']);
+        $this->assertSame('1ฒณ-1307', $payload['snapshot']['rows'][0]['license_plate']);
         $this->assertSame(1, $payload['match_report']['matched_count']);
         Http::assertSentCount(2);
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/getRealtimeData')
             && $request['gps_list'] === ['144180125834']);
 
-        $saved = collect(Storage::disk('local')->files('dtc-tests'))->map(fn ($path) => Storage::disk('local')->get($path))->implode('');
-        $this->assertStringNotContainsString('test-token', $saved);
-        $this->assertStringNotContainsString('0934234232', $saved);
-        $this->assertStringNotContainsString('MR.TEST DRIVER', $saved);
-        $this->assertStringNotContainsString('3410300252456', $saved);
+        // Shared snapshot in cache must not hold secrets or driver identity.
+        $cached = json_encode(Cache::get('dtc_gps.live_snapshot.v1'), JSON_UNESCAPED_UNICODE) . json_encode($payload, JSON_UNESCAPED_UNICODE);
+        $this->assertStringNotContainsString('test-token', $cached);
+        $this->assertStringNotContainsString('0934234232', $cached);
+        $this->assertStringNotContainsString('MR.TEST DRIVER', $cached);
+        $this->assertStringNotContainsString('3410300252456', $cached);
     }
 
     public function test_test_endpoint_reports_attempted_requests_on_failure(): void
@@ -686,6 +794,7 @@ class DtcGpsServiceTest extends TestCase
         config()->set('dtc.api_token', 'test-token');
         config()->set('dtc.retry_times', 1);
         Storage::fake('local');
+        $this->fakeFleet();
         Http::preventStrayRequests();
         Http::fake(['gps.example.test:8099/getVehicleMaster' => Http::response(['error' => true, 'message' => 'bad'], 429)]);
 

@@ -51,6 +51,7 @@ class DtcGpsService
     private const MASTER_CACHE_KEY = 'dtc_gps.vehicle_master.v1';
     private const USAGE_DIR = 'dtc-usage';
     private const RECENT_REQUESTS_KEY = 'dtc_gps.recent_requests';
+    private const LIVE_SNAPSHOT_KEY = 'dtc_gps.live_snapshot.v1';
     private const WINDOW_SECONDS = 60;
     public const BUDGET_EXHAUSTED_MESSAGE = 'DTC monthly request budget reached.';
     public const LOCKED_MESSAGE = 'DTC API is locked locally after HTTP 423.';
@@ -483,48 +484,166 @@ class DtcGpsService
         return ['code' => 'api_rejected', 'title' => 'DTC ปฏิเสธคำขอ', 'advice' => 'ตรวจ Token, สิทธิ์ API และ Raw error', 'http_status' => $status, 'retryable' => false];
     }
 
-    public function mockRealtimeResponse(array $vehicles): array
+    /**
+     * Shared live snapshot ("lazy sync"): every viewer reads the same cached result and DTC is
+     * called at most once per sync interval, only while someone has the page open.
+     * Never throws: on failure it returns the last good snapshot plus the error.
+     *
+     * @return array{rows: array, fetched_at: ?string, age_seconds: ?int, synced_now: bool, requests_used: int, master_from_cache: ?bool, error: ?array}
+     */
+    public function liveSnapshot(bool $force = false, bool $refreshMaster = false): array
     {
-        $now = now('Asia/Bangkok');
+        $intervalSeconds = max(60, (int) config('dtc.sync_interval_minutes', 3) * 60);
+        $cached = Cache::get(self::LIVE_SNAPSHOT_KEY);
 
-        return [
-            'error' => false,
-            'status' => '200',
-            'message' => 'mock-ok',
-            'count' => count($vehicles),
-            'data' => array_values(array_map(function (array $vehicle, int $index) use ($now) {
-                $route = $vehicle['route'] ?? [];
-                $point = $route[min($index + 1, max(0, count($route) - 1))] ?? [null, null];
+        if (!$force && $this->snapshotAge($cached) !== null && $this->snapshotAge($cached) < $intervalSeconds) {
+            return $this->presentSnapshot($cached, false, null);
+        }
+
+        try {
+            return Cache::lock('dtc_gps.sync_lock', 30)->block(20, function () use ($force, $refreshMaster, $intervalSeconds) {
+                // Another viewer may have synced while we waited for the lock.
+                $cached = Cache::get(self::LIVE_SNAPSHOT_KEY);
+                if (!$force && $this->snapshotAge($cached) !== null && $this->snapshotAge($cached) < $intervalSeconds) {
+                    return $this->presentSnapshot($cached, false, null);
+                }
+
+                $needed = ($refreshMaster || !$this->isVehicleMasterCached()) ? 2 : 1;
+                $this->assertRequestSlots($needed);
+                $master = $this->getVehicleMasterCached($refreshMaster);
+                $realtime = $this->sanitizeRealtimeResponse($this->getRealtimeData($this->gpsIdsFromMaster($master['data'])));
+                $snapshot = [
+                    'rows' => $this->enrichRealtimeWithMaster($realtime['data'], $master['data']),
+                    'fetched_at' => now('Asia/Bangkok')->toIso8601String(),
+                    'master_from_cache' => $master['from_cache'],
+                ];
+                Cache::put(self::LIVE_SNAPSHOT_KEY, $snapshot, now()->addDay());
+
+                return $this->presentSnapshot($snapshot, true, null);
+            });
+        } catch (Throwable $e) {
+            if (!$e instanceof DtcRateLimitException) {
+                report($e);
+            }
+
+            return $this->presentSnapshot(Cache::get(self::LIVE_SNAPSHOT_KEY), false, [
+                ...$this->describeException($e),
+                'raw' => $this->sanitizeException($e),
+            ]);
+        }
+    }
+
+    /** Last snapshot without ever calling DTC (used for the first page render). */
+    public function cachedLiveSnapshot(): array
+    {
+        return $this->presentSnapshot(Cache::get(self::LIVE_SNAPSHOT_KEY), false, null);
+    }
+
+    /**
+     * Real route for one vehicle and day from getHistory, cached 10 minutes (finished days: 12 hours).
+     * Only the gps_id values present in the cached Vehicle Master are accepted.
+     */
+    public function vehicleRoute(string $gpsId, string $date): array
+    {
+        $master = Cache::get(self::MASTER_CACHE_KEY);
+        $snapshot = Cache::get(self::LIVE_SNAPSHOT_KEY);
+        $knownIds = $this->gpsIdsFromMaster([
+            ...(is_array($master) ? ($master['data'] ?? []) : []),
+            ...(is_array($snapshot) ? ($snapshot['rows'] ?? []) : []),
+        ]);
+        if (!in_array($gpsId, $knownIds, true)) {
+            throw new RuntimeException('Unknown GPS id.');
+        }
+
+        $day = \Carbon\Carbon::createFromFormat('Y-m-d', $date, 'Asia/Bangkok')->startOfDay();
+        $now = now('Asia/Bangkok');
+        $isToday = $day->isSameDay($now);
+        $end = $isToday ? $now : $day->copy()->endOfDay();
+        $cacheKey = 'dtc_gps.route.' . md5($gpsId . '|' . $day->toDateString());
+
+        $route = Cache::get($cacheKey);
+        if (is_array($route)) {
+            return [...$route, 'from_cache' => true];
+        }
+
+        $route = $this->sanitizeHistoryResponse(
+            $this->getHistory($gpsId, $day->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s'))
+        );
+        $route['gps_id'] = $gpsId;
+        $route['date'] = $day->toDateString();
+        $route['fetched_at'] = $now->toIso8601String();
+        Cache::put($cacheKey, $route, $isToday ? now()->addMinutes(10) : now()->addHours(12));
+
+        return [...$route, 'from_cache' => false];
+    }
+
+    /**
+     * Keep only time/position/speed/status per point (no driver identity) and downsample
+     * to at most dtc.route_max_points while always keeping the first and last point.
+     */
+    public function sanitizeHistoryResponse(array $response): array
+    {
+        $points = collect(is_array($response['data'] ?? null) ? $response['data'] : [])
+            ->filter(fn ($point) => is_array($point))
+            ->map(function (array $point) {
+                $point = $this->trimKeys($point);
+                $lat = is_numeric($point['lat'] ?? null) ? (float) $point['lat'] : null;
+                $lon = is_numeric($point['lon'] ?? null) ? (float) $point['lon'] : null;
 
                 return [
-                    'gps_id' => 'DTC-MOCK-' . str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT),
-                    'truck_name' => (string) ($vehicle['plate_no'] ?? ''),
-                    'time' => $now->copy()->subMinutes($index === 4 ? 18 : ($index + 1) * 2)->format('Y-m-d H:i:s'),
-                    'gps_speed' => [46, 32, 0, 58, 21][$index] ?? 0,
-                    'status_code' => $index === 2 ? 10 : 30,
-                    'status_name_th' => $index === 2 ? 'จอดรถ' : 'รถวิ่ง',
-                    'status_name_en' => $index === 2 ? 'parking' : 'running',
-                    'lat' => $point[0],
-                    'lon' => $point[1],
-                    'heading' => 85 + ($index * 24),
+                    'time' => (string) ($point['time'] ?? ''),
+                    'lat' => $lat,
+                    'lon' => $lon,
+                    'speed' => is_numeric($point['gps_speed'] ?? null) ? $point['gps_speed'] + 0 : null,
+                    'status' => $this->firstFilled($point, ['status_name_th', 'status_name_en']),
+                    'distance' => is_numeric($point['sum_distance'] ?? null) ? (float) $point['sum_distance'] : null,
                 ];
-            }, $vehicles, array_keys($vehicles))),
+            })
+            ->filter(fn (array $point) => $point['lat'] !== null && $point['lon'] !== null
+                && abs($point['lat']) <= 90 && abs($point['lon']) <= 180 && !($point['lat'] == 0.0 && $point['lon'] == 0.0))
+            ->sortBy('time')
+            ->values();
+
+        $total = $points->count();
+        $max = max(50, (int) config('dtc.route_max_points', 800));
+        if ($total > $max) {
+            $step = (int) ceil($total / $max);
+            $last = $points->last();
+            $points = $points->filter(fn ($point, int $index) => $index % $step === 0)->push($last)->values();
+        }
+
+        return [
+            'truck_name' => trim((string) ($response['truck_name'] ?? '')),
+            'point_count' => $total,
+            'points' => $points->all(),
         ];
     }
 
-    public function mockVehicleMaster(array $vehicles): array
+    private function snapshotAge($snapshot): ?int
     {
+        if (!is_array($snapshot) || empty($snapshot['fetched_at'])) {
+            return null;
+        }
+
+        try {
+            return max(0, now()->getTimestamp() - \Carbon\Carbon::parse($snapshot['fetched_at'])->getTimestamp());
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function presentSnapshot($snapshot, bool $syncedNow, ?array $error): array
+    {
+        $snapshot = is_array($snapshot) ? $snapshot : [];
+
         return [
-            'error' => false,
-            'status' => '200',
-            'message' => 'mock-ok',
-            'count' => count($vehicles),
-            'data' => array_values(array_map(fn (array $vehicle, int $index) => [
-                'gps_id' => 'DTC-MOCK-' . str_pad((string) ($index + 1), 3, '0', STR_PAD_LEFT),
-                'vehicle_name' => (string) ($vehicle['plate_no'] ?? ''),
-                'license_plate' => (string) ($vehicle['plate_no'] ?? ''),
-                'sim_no' => 'REDACTED-MOCK',
-            ], $vehicles, array_keys($vehicles))),
+            'rows' => array_values($snapshot['rows'] ?? []),
+            'fetched_at' => $snapshot['fetched_at'] ?? null,
+            'age_seconds' => $this->snapshotAge($snapshot),
+            'synced_now' => $syncedNow,
+            'requests_used' => $this->requestsSent,
+            'master_from_cache' => $snapshot['master_from_cache'] ?? null,
+            'error' => $error,
         ];
     }
 
