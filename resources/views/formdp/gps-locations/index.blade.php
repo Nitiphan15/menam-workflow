@@ -20,7 +20,10 @@
          data-store-url="{{ route('dp.gps-locations.store') }}"
          data-deactivate-url="{{ route('dp.gps-locations.deactivate', ['id' => '__ID__']) }}"
          data-import-url="{{ route('dp.gps-locations.import-poi') }}"
-         data-schema-url="{{ route('dp.gps-locations.refresh-schema') }}">
+         data-schema-url="{{ route('dp.gps-locations.refresh-schema') }}"
+         data-bulk-candidates-url="{{ route('dp.gps-locations.bulk-candidates') }}"
+         data-bulk-confirm-url="{{ route('dp.gps-locations.bulk-confirm') }}"
+         data-stop-url="{{ route('dp.gps-locations.stop-suggestions', ['company' => '__COMPANY__', 'customerId' => '__CUSTOMER__']) }}">
 
         @unless ($tablesReady)
             <section class="gloc-setup" role="alert">
@@ -43,6 +46,9 @@
                 <small>{{ $poiStats['synced_at'] ? 'นำเข้าล่าสุด ' . substr((string) $poiStats['synced_at'], 0, 16) : 'ยังไม่เคยนำเข้า' }}</small>
                 @if ($canEdit && $tablesReady)
                     <button type="button" class="btn btn-outline-success btn-sm" id="gloc-import" title="ดึงจุดที่บันทึกไว้ในระบบ DTC (1 request)"><i class="fas fa-cloud-arrow-down me-1"></i> นำเข้าจาก DTC</button>
+                    @if ($poiStats['count'] > 0)
+                        <button type="button" class="btn btn-success btn-sm" id="gloc-bulk-open" title="เลือกจุด DTC ที่ชื่อตรงกับลูกค้าแล้วบันทึกทีเดียว (ไม่ใช้ request)"><i class="fas fa-list-check me-1"></i> ยืนยันหลายราย</button>
+                    @endif
                 @endif
             </div>
         </section>
@@ -78,6 +84,15 @@
 
                     @if ($canEdit)
                         <section class="gloc-block">
+                            <h3>จุดที่รถจอดจริง</h3>
+                            <div class="gloc-muted mb-2">ดูจากเส้นทาง GPS ของรถที่ไปส่งลูกค้ารายนี้ล่าสุดไม่เกิน 3 เที่ยว · จุดที่จอดซ้ำหลายเที่ยวน่าจะเป็นลูกค้า · ใช้ DTC ไม่เกิน 3 request (เส้นทางที่เคยดึงแล้วไม่นับ)</div>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="gloc-stops-find"><i class="fas fa-route me-1"></i> ค้นหาจากเส้นทางรถ</button>
+                            <div id="gloc-stops" class="gloc-suggestions mt-2"></div>
+                        </section>
+                    @endif
+
+                    @if ($canEdit)
+                        <section class="gloc-block">
                             <h3>ปักพิกัด</h3>
                             <form id="gloc-form" class="gloc-form" novalidate>
                                 <label class="gloc-span2">ที่อยู่
@@ -105,6 +120,37 @@
                 </div>
             </article>
         </section>
+
+        @if ($canEdit && $tablesReady)
+            <div class="modal fade" id="gloc-bulk-modal" tabindex="-1" aria-labelledby="gloc-bulk-title" aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="gloc-bulk-title">ยืนยันพิกัดจากจุด DTC หลายราย</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="gloc-bulk-tools">
+                                <label>ความคล้ายขั้นต่ำ
+                                    <select id="gloc-bulk-min" class="form-select form-select-sm">
+                                        <option value="85">85%</option>
+                                        <option value="90">90%</option>
+                                        <option value="95">95%</option>
+                                    </select>
+                                </label>
+                                <span class="gloc-muted">ติ๊กให้อัตโนมัติเฉพาะที่คล้าย 95% ขึ้นไปและจุดไม่ซ้ำกับลูกค้ารายอื่น · ลูกค้าที่มีพิกัดอยู่แล้วจะไม่ถูกเขียนทับ</span>
+                            </div>
+                            <div id="gloc-bulk-body" class="gloc-bulk-body"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <span id="gloc-bulk-count" class="me-auto gloc-muted"></span>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                            <button type="button" class="btn btn-success btn-sm" id="gloc-bulk-save" disabled><i class="fas fa-floppy-disk me-1"></i> บันทึกที่เลือก</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
     </div>
 @endsection
 

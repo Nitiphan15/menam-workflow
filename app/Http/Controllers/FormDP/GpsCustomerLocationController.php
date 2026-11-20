@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\FormDP\DtcGpsService;
 use App\Services\FormDP\DtcRateLimitException;
 use App\Services\FormDP\GpsCustomerLocationService;
+use App\Services\FormDP\GpsStopSuggestionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -79,6 +80,53 @@ class GpsCustomerLocationController extends Controller
         $done = $this->locations->deactivateLocation($id, auth()->id());
 
         return response()->json(['ok' => $done, 'message' => $done ? 'ยกเลิกพิกัดแล้ว' : 'ไม่พบพิกัดนี้'], $done ? 200 : 404);
+    }
+
+    /** Candidates for "confirm many DTC POIs at once" (no DTC request). */
+    public function bulkCandidates(Request $request): JsonResponse
+    {
+        $minScore = in_array((int) $request->query('min', 85), [85, 90, 95], true) ? (int) $request->query('min', 85) : 85;
+
+        return response()->json(['ok' => true, 'min_score' => $minScore, 'candidates' => $this->locations->bulkCandidates($minScore)]);
+    }
+
+    public function bulkConfirm(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:300'],
+            'items.*.company' => ['required', 'string', 'max:10', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'items.*.customer_id' => ['required', 'integer', 'min:1'],
+            'items.*.poi_id' => ['required', 'string', 'max:20'],
+        ]);
+
+        try {
+            $result = $this->locations->bulkConfirm($data['items'], auth()->id());
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json(['ok' => false, 'message' => 'บันทึกไม่สำเร็จ'], 500);
+        }
+
+        $message = 'บันทึกพิกัด ' . number_format($result['saved']) . ' ราย'
+            . ($result['skipped'] ? ' · ข้าม ' . count($result['skipped']) . ' ราย' : '');
+
+        return response()->json(['ok' => true, 'message' => $message, 'result' => $result]);
+    }
+
+    /** Where trucks really parked on recent trips to this customer (up to 3 getHistory, cached routes free). */
+    public function stopSuggestions(string $company, int $customerId): JsonResponse
+    {
+        $company = $this->validCompany($company);
+
+        try {
+            $result = app(GpsStopSuggestionService::class)->suggest($company, $customerId);
+        } catch (Throwable $e) {
+            report($e);
+
+            return response()->json(['ok' => false, 'message' => 'ค้นหาจุดจอดไม่สำเร็จ', 'usage' => $this->dtc->usageSummary()], 500);
+        }
+
+        return response()->json(['ok' => true, 'result' => $result, 'usage' => $this->dtc->usageSummary()]);
     }
 
     /** 1 DTC request (getPOI), protected by the same per-minute / monthly guards. */

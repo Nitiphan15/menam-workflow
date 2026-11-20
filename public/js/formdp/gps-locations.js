@@ -205,6 +205,9 @@
             sourceEl.textContent = 'ที่มา: ปักเอง';
         }
         clearEditMarker();
+        stopLayer?.clearLayers();
+        stopCandidates = [];
+        if (el('gloc-stops')) el('gloc-stops').innerHTML = '';
 
         // Saved locations
         savedLayer.clearLayers();
@@ -323,6 +326,127 @@
             flash(`นำเข้าไม่สำเร็จ: ${error.message}`, false);
             button.disabled = false;
         }
+    });
+
+    // ---------- bulk confirm DTC POIs ----------
+    let bulkRows = [];
+
+    function bulkSelected() {
+        return [...document.querySelectorAll('#gloc-bulk-body input[data-bulk]:checked')].map((box) => bulkRows[Number(box.dataset.bulk)]).filter(Boolean);
+    }
+
+    function updateBulkCount() {
+        const count = bulkSelected().length;
+        el('gloc-bulk-count').textContent = `เลือก ${count} จาก ${bulkRows.length} ราย`;
+        el('gloc-bulk-save').disabled = count === 0;
+    }
+
+    async function loadBulk() {
+        const body = el('gloc-bulk-body');
+        body.innerHTML = '<div class="gloc-muted"><i class="fas fa-spinner fa-spin me-1"></i> กำลังเทียบชื่อลูกค้ากับจุด DTC...</div>';
+        el('gloc-bulk-save').disabled = true;
+        try {
+            const url = new URL(root.dataset.bulkCandidatesUrl, window.location.href);
+            url.searchParams.set('min', el('gloc-bulk-min').value);
+            const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+            bulkRows = payload.candidates || [];
+        } catch (error) {
+            body.innerHTML = `<div class="gloc-flash is-error">โหลดรายการไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;
+            return;
+        }
+        body.innerHTML = bulkRows.length ? `<table class="table table-sm align-middle gloc-bulk-table">
+            <thead><tr><th style="width:2.2rem"><input type="checkbox" id="gloc-bulk-all" aria-label="เลือกทั้งหมด"></th><th>ลูกค้า</th><th>จุด DTC</th><th class="text-end">คล้าย</th></tr></thead>
+            <tbody>${bulkRows.map((row, index) => `<tr class="${row.shared ? 'is-shared' : ''}">
+                <td><input type="checkbox" data-bulk="${index}" ${row.score >= 95 && !row.shared ? 'checked' : ''} aria-label="เลือก ${escapeHtml(row.name)}"></td>
+                <td><b>${escapeHtml(row.name)}</b><small>${escapeHtml(row.company)} · #${row.customer_id} · ${row.line_count} รายการ</small></td>
+                <td><b>${escapeHtml(row.poi_name)}</b><small>${escapeHtml(row.location_info || '')}${row.shared ? ' · <span class="gloc-shared">จุดนี้ตรงกับลูกค้าหลายราย</span>' : ''} · <a href="https://www.google.com/maps?q=${row.lat},${row.lon}" target="_blank" rel="noopener">ดูแผนที่</a></small></td>
+                <td class="text-end"><span class="gloc-score ${row.score >= 95 ? 'is-high' : ''}">${row.score}%</span></td>
+            </tr>`).join('')}</tbody></table>`
+            : '<div class="gloc-muted">ไม่มีลูกค้าที่ยังไม่มีพิกัดและมีจุด DTC คล้ายตามเกณฑ์</div>';
+        updateBulkCount();
+    }
+
+    el('gloc-bulk-open')?.addEventListener('click', () => {
+        const modal = window.bootstrap?.Modal.getOrCreateInstance(el('gloc-bulk-modal'));
+        modal?.show();
+        loadBulk();
+    });
+    el('gloc-bulk-min')?.addEventListener('change', loadBulk);
+    el('gloc-bulk-body')?.addEventListener('change', (event) => {
+        if (event.target.id === 'gloc-bulk-all') {
+            document.querySelectorAll('#gloc-bulk-body input[data-bulk]').forEach((box) => { box.checked = event.target.checked; });
+        }
+        updateBulkCount();
+    });
+    el('gloc-bulk-save')?.addEventListener('click', async (event) => {
+        const rows = bulkSelected();
+        if (!rows.length || !window.confirm(`บันทึกพิกัดจากจุด DTC ให้ลูกค้า ${rows.length} ราย?`)) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+            const payload = await postJson(root.dataset.bulkConfirmUrl, {
+                items: rows.map((row) => ({ company: row.company, customer_id: row.customer_id, poi_id: row.poi_id })),
+            });
+            flash(`${payload.message} · กำลังโหลดหน้าใหม่`);
+            window.setTimeout(() => window.location.reload(), 1200);
+        } catch (error) {
+            flash(`บันทึกไม่สำเร็จ: ${error.message}`, false);
+            button.disabled = false;
+        }
+    });
+
+    // ---------- pin suggestions from real truck stops ----------
+    let stopLayer = null;
+    let stopCandidates = [];
+
+    function renderStops(result) {
+        stopLayer?.clearLayers();
+        stopCandidates = result.candidates || [];
+        const notes = [`พบ ${result.trips_found} เที่ยวใน 90 วัน · มี GPS ${result.trips_with_gps} · ตรวจแล้ว ${result.trips_checked}`];
+        (result.errors || []).forEach((error) => notes.push(`${error.date} ${error.plate_no}: ${error.title}`));
+        const rows = stopCandidates.map((stop, index) => {
+            const times = stop.visits.slice(0, 3).map((visit) => `${visit.date.slice(5)} ${visit.arrived_at.slice(11, 16)}–${visit.left_at.slice(11, 16)} (${visit.minutes} นาที)`).join(' · ');
+            return `<div class="gloc-suggestion">
+                <span><b>จุดที่ ${index + 1} · จอด ${stop.trips} เที่ยว${stop.trips > 1 ? ' ✔' : ''}</b><small>${escapeHtml(times)}</small></span>
+                <button type="button" class="btn btn-outline-primary btn-sm" data-stop="${index}">ใช้จุดนี้</button>
+            </div>`;
+        }).join('');
+        el('gloc-stops').innerHTML = `<div class="gloc-muted">${notes.map(escapeHtml).join('<br>')}</div>${rows || '<div class="gloc-muted">ไม่พบจุดที่รถจอดนานเกิน 10 นาที (นอกบริษัทและนอกพิกัดลูกค้ารายอื่น)</div>'}`;
+        if (!map) return;
+        if (!stopLayer) stopLayer = L.layerGroup().addTo(map);
+        stopCandidates.forEach((stop, index) => {
+            L.circleMarker([stop.lat, stop.lon], { radius: 9, color: '#fff', weight: 2, fillColor: '#6d28d9', fillOpacity: .9 })
+                .addTo(stopLayer).bindTooltip(`จุดจอดที่ ${index + 1} · ${stop.trips} เที่ยว`);
+        });
+        if (stopCandidates.length) map.fitBounds(L.latLngBounds(stopCandidates.map((stop) => [stop.lat, stop.lon])), { padding: [40, 40], maxZoom: 16 });
+    }
+
+    el('gloc-stops-find')?.addEventListener('click', async (event) => {
+        if (!current) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        el('gloc-stops').innerHTML = '<div class="gloc-muted"><i class="fas fa-spinner fa-spin me-1"></i> กำลังดึงเส้นทางรถจาก DTC...</div>';
+        try {
+            const url = root.dataset.stopUrl.replace('__COMPANY__', encodeURIComponent(current.company)).replace('__CUSTOMER__', String(current.customer_id));
+            const response = await fetch(url, { headers: { Accept: 'application/json' } });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload.ok) throw new Error(payload.message || (response.status === 429 ? 'เรียกถี่เกินไป ลองใหม่ในอีก 1 นาที' : `HTTP ${response.status}`));
+            renderStops(payload.result);
+        } catch (error) {
+            el('gloc-stops').innerHTML = `<div class="gloc-flash is-error">${escapeHtml(error.message)}</div>`;
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    el('gloc-stops')?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-stop]');
+        const stop = button ? stopCandidates[Number(button.dataset.stop)] : null;
+        if (!stop) return;
+        if (labelEl && !labelEl.value) labelEl.value = `จุดจอดจริง (${stop.trips} เที่ยว)`;
+        setPoint(stop.lat, stop.lon, { type: 'manual', poiId: null }, defaultRadius);
     });
 
     el('gloc-schema-check')?.addEventListener('click', async () => {

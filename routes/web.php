@@ -537,6 +537,16 @@ Route::middleware(['auth'])
           ->name('gps-locations.import-poi');
         Route::post('/gps-locations/refresh-schema', [GpsCustomerLocationController::class, 'refreshSchema'])
           ->name('gps-locations.refresh-schema');
+        Route::get('/gps-locations/bulk-candidates', [GpsCustomerLocationController::class, 'bulkCandidates'])
+          ->middleware('throttle:10,1')
+          ->name('gps-locations.bulk-candidates');
+        Route::post('/gps-locations/bulk-confirm', [GpsCustomerLocationController::class, 'bulkConfirm'])
+          ->name('gps-locations.bulk-confirm');
+        // Uses up to 3 DTC getHistory requests (cached routes are free).
+        Route::get('/gps-locations/customer/{company}/{customerId}/stop-suggestions', [GpsCustomerLocationController::class, 'stopSuggestions'])
+          ->where(['company' => '[A-Za-z0-9_-]{1,10}', 'customerId' => '[0-9]+'])
+          ->middleware('throttle:4,1')
+          ->name('gps-locations.stop-suggestions');
       });
       Route::post('/gps-trip-tracking/test-dtc', [GpsTripTrackingController::class, 'testDtcConnection'])
         ->middleware(['can:ADMINWEB', 'throttle:1,1'])

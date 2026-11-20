@@ -181,6 +181,98 @@ class GpsCustomerLocationService
             ->all();
     }
 
+    /**
+     * Customers without a default pin whose best DTC POI scores at least $minScore.
+     * "shared" = the same POI is the best match of several customers (needs a human look).
+     */
+    public function bulkCandidates(int $minScore = 85): array
+    {
+        if (!$this->tablesReady()) {
+            return [];
+        }
+        $defaults = $this->defaultPinKeys();
+        $rows = [];
+        foreach ($this->customerList() as $customer) {
+            if (isset($defaults[$customer['company'] . '|' . $customer['customer_id']])) {
+                continue;
+            }
+            $best = $this->suggestPois($customer['name'], 1)[0] ?? null;
+            if ($best === null || $best['score'] < $minScore) {
+                continue;
+            }
+            $rows[] = [
+                'company' => $customer['company'],
+                'customer_id' => $customer['customer_id'],
+                'name' => $customer['name'],
+                'line_count' => $customer['line_count'],
+                'poi_id' => $best['poi_id'],
+                'poi_name' => $best['poi_name'],
+                'location_info' => $best['location_info'],
+                'lat' => $best['lat'],
+                'lon' => $best['lon'],
+                'score' => $best['score'],
+            ];
+        }
+        $poiUse = array_count_values(array_column($rows, 'poi_id'));
+
+        return array_map(fn (array $row) => [...$row, 'shared' => ($poiUse[$row['poi_id']] ?? 0) > 1], $rows);
+    }
+
+    /**
+     * Save several "customer default = DTC POI" pins. Never overwrites an existing default pin.
+     *
+     * @param array<int, array{company:string, customer_id:int, poi_id:string}> $items
+     */
+    public function bulkConfirm(array $items, ?int $userId): array
+    {
+        if (!$this->tablesReady()) {
+            throw new RuntimeException('GPS location tables are not created yet.');
+        }
+        $pois = collect($this->poiRows())->keyBy('poi_id');
+        $defaults = $this->defaultPinKeys();
+        $saved = 0;
+        $skipped = [];
+        foreach ($items as $item) {
+            $key = $item['company'] . '|' . (int) $item['customer_id'];
+            $poi = $pois->get((string) $item['poi_id']);
+            if (isset($defaults[$key])) {
+                $skipped[] = ['key' => $key, 'reason' => 'มีพิกัดอยู่แล้ว'];
+                continue;
+            }
+            if ($poi === null) {
+                $skipped[] = ['key' => $key, 'reason' => 'ไม่พบจุด DTC'];
+                continue;
+            }
+            $this->saveLocation([
+                'company' => $item['company'],
+                'customer_id' => (int) $item['customer_id'],
+                'address' => null,
+                'label' => $poi['poi_name'],
+                'lat' => $poi['lat'],
+                'lon' => $poi['lon'],
+                // DTC areas are often tiny (30 m): never below the standard arrival radius.
+                'radius_m' => min(2000, max(self::DEFAULT_RADIUS_M, (int) ($poi['area_m'] ?? 0))),
+                'source' => 'dtc_poi',
+                'dtc_poi_id' => $poi['poi_id'],
+            ], $userId);
+            $defaults[$key] = true;
+            $saved++;
+        }
+
+        return ['saved' => $saved, 'skipped' => $skipped];
+    }
+
+    /** "company|customer_id" => true for customers that already have an active default pin. */
+    private function defaultPinKeys(): array
+    {
+        return $this->db()->table('gps_customer_locations')
+            ->where('is_active', 1)
+            ->where('address_key', '')
+            ->get(['company', 'customer_id'])
+            ->mapWithKeys(fn ($row) => [$row->company . '|' . (int) $row->customer_id => true])
+            ->all();
+    }
+
     /** Pull DTC POIs (1 request) into gps_dtc_pois. Existing rows are updated, nothing is deleted. */
     public function importPois(DtcGpsService $dtc): array
     {
