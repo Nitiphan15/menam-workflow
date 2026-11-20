@@ -50,6 +50,8 @@ class DtcGpsService
 
     private const MASTER_CACHE_KEY = 'dtc_gps.vehicle_master.v1';
     private const USAGE_DIR = 'dtc-usage';
+    private const RECENT_REQUESTS_KEY = 'dtc_gps.recent_requests';
+    private const WINDOW_SECONDS = 60;
     public const BUDGET_EXHAUSTED_MESSAGE = 'DTC monthly request budget reached.';
     public const LOCKED_MESSAGE = 'DTC API is locked locally after HTTP 423.';
 
@@ -81,6 +83,13 @@ class DtcGpsService
         return [...$entry, 'from_cache' => false];
     }
 
+    public function isVehicleMasterCached(): bool
+    {
+        $cached = Cache::get(self::MASTER_CACHE_KEY);
+
+        return is_array($cached) && isset($cached['data']);
+    }
+
     public function requestsSent(): int
     {
         return $this->requestsSent;
@@ -110,6 +119,8 @@ class DtcGpsService
             'by_endpoint' => $usage['endpoints'],
             'locked_until' => $lockedUntil && now('Asia/Bangkok')->lt($lockedUntil) ? $lockedUntil : null,
             'master_cached_at' => Cache::get(self::MASTER_CACHE_KEY)['fetched_at'] ?? null,
+            'per_minute_limit' => $this->perMinuteLimit(),
+            'minute_used' => $this->minuteWindow()['used'],
         ];
     }
 
@@ -174,6 +185,78 @@ class DtcGpsService
 
             return $usage;
         });
+    }
+
+    /**
+     * DTC manual: HTTP 429 when the same client IP sends more than 3 requests in 1 minute.
+     * Every caller (all users, buttons, future scheduler) shares this sliding window,
+     * so the server never sends the request that would trigger 429.
+     */
+    public function perMinuteLimit(): int
+    {
+        return max(1, (int) config('dtc.per_minute_limit', 3));
+    }
+
+    /** @return array{used: int, available: int, retry_after: int} */
+    public function minuteWindow(): array
+    {
+        $recent = $this->recentRequests();
+        $limit = $this->perMinuteLimit();
+        $oldest = $recent[0] ?? null;
+
+        return [
+            'used' => count($recent),
+            'available' => max(0, $limit - count($recent)),
+            'retry_after' => $oldest === null ? 0 : max(1, (int) ceil($oldest + self::WINDOW_SECONDS - $this->nowSeconds())),
+        ];
+    }
+
+    /**
+     * Call before a flow that needs several requests (e.g. Master + Realtime = 2),
+     * so it does not stop halfway with only part of the data.
+     */
+    public function assertRequestSlots(int $needed): void
+    {
+        $window = $this->minuteWindow();
+        if ($window['available'] < $needed) {
+            throw new DtcRateLimitException($window['retry_after'] ?: self::WINDOW_SECONDS);
+        }
+    }
+
+    private function nowSeconds(): float
+    {
+        return now()->getPreciseTimestamp(3) / 1000;
+    }
+
+    private function recentRequests(): array
+    {
+        $cutoff = $this->nowSeconds() - self::WINDOW_SECONDS;
+        $recent = array_values(array_filter(
+            (array) Cache::get(self::RECENT_REQUESTS_KEY, []),
+            fn ($timestamp) => is_numeric($timestamp) && (float) $timestamp > $cutoff
+        ));
+        sort($recent);
+
+        return $recent;
+    }
+
+    private function reserveMinuteSlot(): void
+    {
+        Cache::lock('dtc_gps.minute_lock', 5)->block(3, function () {
+            $recent = $this->recentRequests();
+            if (count($recent) >= $this->perMinuteLimit()) {
+                throw new DtcRateLimitException((int) ceil($recent[0] + self::WINDOW_SECONDS - $this->nowSeconds()));
+            }
+            $recent[] = $this->nowSeconds();
+            Cache::put(self::RECENT_REQUESTS_KEY, $recent, self::WINDOW_SECONDS * 2);
+        });
+    }
+
+    /** After a real 429 from DTC, treat the whole window as used so nobody retries for 60 seconds. */
+    private function fillMinuteWindow(): void
+    {
+        $now = $this->nowSeconds();
+        Cache::put(self::RECENT_REQUESTS_KEY, array_fill(0, $this->perMinuteLimit(), $now), self::WINDOW_SECONDS * 2);
     }
 
     private function assertWithinBudget(): void
@@ -384,6 +467,9 @@ class DtcGpsService
         if ($status !== null && $status >= 500) {
             return ['code' => 'dtc_server', 'title' => 'ระบบ DTC ขัดข้อง', 'advice' => 'รอสักครู่แล้วลองใหม่ หรือติดต่อ DTC หากยังเกิดซ้ำ', 'http_status' => $status, 'retryable' => true];
         }
+        if ($exception instanceof DtcRateLimitException) {
+            return ['code' => 'rate_limited_local', 'title' => 'เรียก DTC ครบ ' . $this->perMinuteLimit() . ' ครั้งในนาทีนี้แล้ว', 'advice' => 'DTC จะตอบ 429 ถ้าเกิน 3 ครั้ง/นาที/IP · รออีกประมาณ ' . $exception->retryAfterSeconds . ' วินาทีแล้วลองใหม่', 'http_status' => null, 'retryable' => true, 'retry_after' => $exception->retryAfterSeconds];
+        }
         if ($exception->getMessage() === self::BUDGET_EXHAUSTED_MESSAGE) {
             return ['code' => 'budget_exhausted', 'title' => 'ใช้ request DTC ครบงบประจำเดือนแล้ว', 'advice' => 'ระบบหยุดเรียกเองเพื่อไม่ให้เกินโควตา · ปรับ DTC_GPS_MONTHLY_QUOTA หากได้โควตาเพิ่ม', 'http_status' => null, 'retryable' => false];
         }
@@ -525,6 +611,7 @@ class DtcGpsService
         }
 
         $this->assertWithinBudget();
+        $this->reserveMinuteSlot();
 
         // beforeSending fires once per HTTP attempt (including retries), so the counter
         // matches what DTC bills. Connection failures are counted too (conservative).
@@ -537,6 +624,9 @@ class DtcGpsService
 
         if ($response->status() === 423) {
             $this->lockAfterQuotaResponse();
+        }
+        if ($response->status() === 429) {
+            $this->fillMinuteWindow();
         }
 
         $response->throw();

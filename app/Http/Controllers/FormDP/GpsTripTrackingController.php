@@ -4,6 +4,7 @@ namespace App\Http\Controllers\FormDP;
 
 use App\Http\Controllers\Controller;
 use App\Services\FormDP\DtcGpsService;
+use App\Services\FormDP\DtcRateLimitException;
 use App\Services\FormDP\GpsTripQueueService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -72,7 +73,10 @@ class GpsTripTrackingController extends Controller
         try {
             // Master (plate list) comes from a 24h cache unless Admin asks to refresh:
             // a normal test costs 1 realtime request, a refresh costs 2.
-            $master = $this->dtcGpsService->getVehicleMasterCached($refreshMaster);
+            // Check the per-minute window first so the flow never stops after Master only.
+            $needed = ($refreshMaster || !$this->dtcGpsService->isVehicleMasterCached()) ? 2 : 1;
+            $this->dtcGpsService->assertRequestSlots($needed);
+            $master =$this->dtcGpsService->getVehicleMasterCached($refreshMaster);
             $snapshot = $this->dtcGpsService->sanitizeRealtimeResponse(
                 $this->dtcGpsService->getRealtimeData($this->dtcGpsService->gpsIdsFromMaster($master['data']))
             );
@@ -105,12 +109,14 @@ class GpsTripTrackingController extends Controller
                 'last_success_at' => $snapshot['tested_at'],
             ]);
         } catch (Throwable $e) {
-            report($e);
+            if (!$e instanceof DtcRateLimitException) {
+                report($e); // a local per-minute stop is expected behaviour, not an error
+            }
             $rawError = $this->dtcGpsService->sanitizeException($e);
             $errorInfo = $this->dtcGpsService->describeException($e);
             $responseStatus = match ($errorInfo['code']) {
                 'quota_locked' => 423,
-                'rate_limited', 'budget_exhausted' => 429,
+                'rate_limited', 'rate_limited_local', 'budget_exhausted' => 429,
                 'configuration', 'bad_request', 'api_rejected' => 422,
                 default => 502,
             };

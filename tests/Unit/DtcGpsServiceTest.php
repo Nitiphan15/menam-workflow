@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Http\Controllers\FormDP\GpsTripTrackingController;
 use App\Services\FormDP\DtcGpsService;
+use App\Services\FormDP\DtcRateLimitException;
 use App\Services\FormDP\GpsTripQueueService;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
@@ -126,6 +127,83 @@ class DtcGpsServiceTest extends TestCase
         $this->assertSame('missing_formdp', $rows['7กก-312']['issue']); // in DTC, not in Truck Master
         $this->assertSame('missing_dtc', $rows['70-7494']['issue']);   // manual queue plate without GPS
         $this->assertSame(1, $payload['match_report']['matched_count']);
+    }
+
+    public function test_fourth_request_within_a_minute_is_blocked_locally_without_http(): void
+    {
+        $this->fakeDtc();
+        $service = app(DtcGpsService::class);
+
+        $service->getRealtimeData([]);
+        $service->getRealtimeData([]);
+        $service->getRealtimeData([]);
+
+        try {
+            $service->getRealtimeData([]);
+            $this->fail('Expected local per-minute limit.');
+        } catch (DtcRateLimitException $exception) {
+            $info = $service->describeException($exception);
+            $this->assertSame('rate_limited_local', $info['code']);
+            $this->assertTrue($info['retryable']);
+            $this->assertGreaterThanOrEqual(1, $exception->retryAfterSeconds);
+            $this->assertLessThanOrEqual(60, $exception->retryAfterSeconds);
+        }
+        Http::assertSentCount(3);
+        $this->assertSame(3, $service->usageSummary()['month_total']);
+
+        $this->travel(61)->seconds();
+        $service->getRealtimeData([]);
+        Http::assertSentCount(4);
+    }
+
+    public function test_window_is_shared_between_service_instances(): void
+    {
+        $this->fakeDtc();
+        app(DtcGpsService::class)->getRealtimeData([]);
+        app(DtcGpsService::class)->getRealtimeData([]);
+        app(DtcGpsService::class)->getRealtimeData([]);
+
+        $this->expectException(DtcRateLimitException::class);
+        app(DtcGpsService::class)->getVehicleMaster();
+    }
+
+    public function test_real_http_429_blocks_further_requests_for_a_minute(): void
+    {
+        config()->set('dtc.base_url', 'https://gps.example.test:8099/');
+        config()->set('dtc.api_token', 'test-token');
+        config()->set('dtc.retry_times', 1);
+        Http::fake(['gps.example.test:8099/*' => Http::response(['error' => true, 'message' => 'too many'], 429)]);
+        $service = app(DtcGpsService::class);
+
+        try {
+            $service->getRealtimeData([]);
+        } catch (RequestException) {
+        }
+
+        $this->assertSame(0, $service->minuteWindow()['available']);
+        try {
+            $service->getRealtimeData([]);
+            $this->fail('Expected local block after real 429.');
+        } catch (DtcRateLimitException) {
+        }
+        Http::assertSentCount(1);
+    }
+
+    public function test_test_endpoint_checks_slots_before_starting_two_request_flow(): void
+    {
+        $this->fakeFleet();
+        $this->fakeDtc();
+        $service = app(DtcGpsService::class);
+        $service->getRealtimeData([]);
+        $service->getRealtimeData([]); // 1 slot left, but Master is not cached -> needs 2
+
+        $response = app(GpsTripTrackingController::class)->testDtcConnection();
+        $payload = $response->getData(true);
+
+        $this->assertSame(429, $response->getStatusCode());
+        $this->assertSame('rate_limited_local', $payload['error_info']['code']);
+        $this->assertSame(0, $payload['requests_attempted']);
+        Http::assertSentCount(2); // nothing new was sent
     }
 
     public function test_vehicle_master_is_cached_so_next_sync_costs_one_request(): void

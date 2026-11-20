@@ -11,6 +11,10 @@ return [
     // Vehicle Master rarely changes: cache the sanitized list so each sync costs 1 request.
     'master_cache_hours' => (int) env('DTC_GPS_MASTER_CACHE_HOURS', 24),
 
+    // DTC manual: HTTP 429 when one client IP sends more than 3 requests per minute.
+    // All callers share this sliding window, so keep it at 3 or lower.
+    'per_minute_limit' => (int) env('DTC_GPS_PER_MINUTE_LIMIT', 3),
+
     // Monthly request quota from DTC (unconfirmed: ~25,000). Calls stop locally at quota - reserve.
     'monthly_quota' => (int) env('DTC_GPS_MONTHLY_QUOTA', 25000),
     'monthly_reserve' => (int) env('DTC_GPS_MONTHLY_RESERVE', 500),
