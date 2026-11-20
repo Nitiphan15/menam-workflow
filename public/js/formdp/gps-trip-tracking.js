@@ -342,15 +342,46 @@
             const payload = await response.json().catch(() => ({}));
             if (payload.usage) renderUsage(payload.usage);
             if (response.ok && payload.ok) {
-                routes.set(item.key, { status: 'ok', data: payload.route, loadedAt: Date.now() });
+                routes.set(item.key, { status: 'ok', data: payload.route, visits: Array.isArray(payload.stop_visits) ? payload.stop_visits : [], loadedAt: Date.now() });
             } else {
                 routes.set(item.key, { status: 'error', error: payload.error_info || { title: response.status === 429 ? 'เรียกถี่เกินไป' : 'โหลดเส้นทางไม่สำเร็จ', advice: 'ลองใหม่อีกครั้งภายหลัง' } });
             }
         } catch (error) {
             routes.set(item.key, { status: 'error', error: { title: 'เชื่อมต่อระบบไม่ได้', advice: 'ตรวจเครือข่ายแล้วลองใหม่' } });
         }
-        if (selectedKey === item.key) drawRoute(item);
+        if (selectedKey === item.key) { drawRoute(item); drawStops(item); }
         renderList();
+    }
+
+    // Arrival / leave per stop (server-side from the real route; see GpsStopVisitService).
+    const VISIT_TEXT = {
+        visited: { label: 'เข้าจุดแล้ว', className: 'is-ok' },
+        at_stop: { label: 'อยู่ที่จุดนี้', className: 'is-ok' },
+        passed: { label: 'ผ่านแต่ไม่จอด', className: 'is-warn' },
+        not_visited: { label: 'ไม่พบว่าเข้าจุด', className: 'is-bad' },
+        no_location: { label: 'ไม่มีพิกัดลูกค้า', className: '' },
+        no_route: { label: 'ไม่มีเส้นทาง', className: '' },
+    };
+
+    function visitDetail(visit) {
+        if (!visit) return '';
+        if (visit.status === 'visited') return `ถึง ${hhmm(visit.arrived_at)} · ออก ${hhmm(visit.left_at)} · จอด ${visit.dwell_minutes} นาที${visit.visits > 1 ? ` · เข้า ${visit.visits} ครั้ง` : ''}`;
+        if (visit.status === 'at_stop') return `ถึง ${hhmm(visit.arrived_at)} · ยังอยู่ (${visit.dwell_minutes} นาที)`;
+        if (visit.status === 'passed') return `ผ่านช่วง ${hhmm(visit.arrived_at)} จอดไม่ถึง 3 นาที`;
+        if (visit.status === 'not_visited' && visit.nearest_m !== null) return `ใกล้สุด ${numberFormat.format(visit.nearest_m / 1000)} กม.`;
+        return '';
+    }
+
+    function stopVisitsHtml(item, state) {
+        const deliveries = item.deliveries || [];
+        if (!deliveries.length) return '';
+        const visits = state.visits || [];
+        const rows = deliveries.map((delivery, index) => {
+            const visit = visits[index];
+            const text = VISIT_TEXT[visit?.status] || VISIT_TEXT.no_location;
+            return `<li><span class="gps-visit-no">${index + 1}</span><span class="gps-visit-body"><b>${escapeHtml(delivery.customer || '-')}</b><small>${escapeHtml(visitDetail(visit))}</small></span><span class="gps-visit-tag ${text.className}">${escapeHtml(text.label)}</span></li>`;
+        }).join('');
+        return `<span class="gps-route-title mt-2">จุดส่งจากเส้นทางจริง</span><ol class="gps-visit-list">${rows}</ol>`;
     }
 
     function routeHtml(item) {
@@ -370,6 +401,7 @@
             ['ความเร็วสูงสุด', `${numberFormat.format(summary.maxSpeed)} กม./ชม.`],
         ];
         return `<span class="gps-route-facts">${rows.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><b>${escapeHtml(value)}</b></span>`).join('')}</span>
+            ${stopVisitsHtml(item, state)}
             <small class="gps-route-foot">จาก DTC getHistory · ${escapeHtml(state.data.point_count)} จุด · ${state.data.from_cache ? 'cache' : 'ดึงใหม่'}</small>`;
     }
 
@@ -561,13 +593,18 @@
         if (stopsLayer) { stopsLayer.remove(); stopsLayer = null; }
         if (!map || !item) return;
         const layers = [];
+        const routeState = routes.get(item.key);
+        const visits = routeState?.status === 'ok' ? (routeState.visits || []) : [];
         (item.deliveries || []).forEach((delivery, index) => {
             if (!delivery.location) return;
             const point = [delivery.location.lat, delivery.location.lon];
+            const visit = visits[index];
+            const visitClass = visit ? (VISIT_TEXT[visit.status]?.className || '') : '';
+            const detail = visitDetail(visit);
             layers.push(L.circle(point, { radius: delivery.location.radius_m || 150, color: '#16856f', weight: 2, fillOpacity: .12 }));
             layers.push(L.marker(point, {
-                icon: L.divIcon({ className: '', html: `<div class="gps-stop-pin">${index + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
-            }).bindTooltip(`${index + 1}. ${delivery.customer || ''}`));
+                icon: L.divIcon({ className: '', html: `<div class="gps-stop-pin ${visitClass}">${index + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
+            }).bindTooltip(`${index + 1}. ${escapeHtml(delivery.customer || '')}${detail ? `<br>${escapeHtml(detail)}` : ''}`));
         });
         if (layers.length) stopsLayer = L.layerGroup(layers).addTo(map);
     }

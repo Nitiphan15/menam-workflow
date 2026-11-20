@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\FormDP\DtcGpsService;
 use App\Services\FormDP\DtcRateLimitException;
 use App\Services\FormDP\GpsCustomerLocationService;
+use App\Services\FormDP\GpsStopVisitService;
 use App\Services\FormDP\GpsTripQueueService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +24,8 @@ class GpsTripTrackingController extends Controller
     public function __construct(
         private GpsTripQueueService $queueService,
         private DtcGpsService $dtcGpsService,
-        private GpsCustomerLocationService $locationService
+        private GpsCustomerLocationService $locationService,
+        private GpsStopVisitService $stopVisitService
     )
     {
     }
@@ -75,10 +77,13 @@ class GpsTripTrackingController extends Controller
 
         try {
             $route = $this->dtcGpsService->vehicleRoute($gpsId, $date);
+            // Arrival / leave per stop from the same points (no extra DTC request).
+            $deliveries = $this->deliveriesForGps($gpsId, $date);
 
             return response()->json([
                 'ok' => true,
                 'route' => $route,
+                'stop_visits' => $this->stopVisitService->detect($route['points'] ?? [], $deliveries),
                 'requests_used' => $this->dtcGpsService->requestsSent(),
                 'usage' => $this->dtcGpsService->usageSummary(),
             ]);
@@ -146,6 +151,24 @@ class GpsTripTrackingController extends Controller
             'configuration', 'bad_request', 'api_rejected', 'unknown_vehicle' => 422,
             default => 502,
         };
+    }
+
+    /**
+     * Deliveries of the FormDP truck behind $gpsId on $date (same order as the page list).
+     * Linked GPS id first, then the plate match from the last shared snapshot; never calls DTC.
+     */
+    private function deliveriesForGps(string $gpsId, string $date): array
+    {
+        $vehicles = $this->fleetVehicles($date);
+        $vehicle = collect($vehicles)->first(fn (array $candidate) => $candidate['dtc_gps_id'] === $gpsId);
+        if ($vehicle === null) {
+            $snapshot = $this->dtcGpsService->cachedLiveSnapshot();
+            $plate = collect($this->dtcGpsService->matchVehicles($snapshot['rows'], $vehicles)['rows'])
+                ->first(fn (array $row) => ($row['gps_id'] ?? null) === $gpsId && !empty($row['matched']))['plate_no'] ?? null;
+            $vehicle = $plate === null ? null : collect($vehicles)->firstWhere('plate_no', $plate);
+        }
+
+        return $vehicle['deliveries'] ?? [];
     }
 
     private function resolveQueueDate(): string
