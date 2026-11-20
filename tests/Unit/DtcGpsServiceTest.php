@@ -22,6 +22,9 @@ class DtcGpsServiceTest extends TestCase
         // Usage counter + saved snapshots must never touch real storage/app during tests.
         Storage::fake('local');
         Cache::flush();
+        // Pretend the Phase 1 SQL has not been run, so no test ever asks the real DB for its schema.
+        Cache::put('dtc_gps.schema.location_tables', false, now()->addHour());
+        Cache::put('dtc_gps.schema.truck_gps_column', false, now()->addHour());
         Http::preventStrayRequests();
         config()->set('dtc.monthly_quota', 25000);
         config()->set('dtc.monthly_reserve', 500);

@@ -87,6 +87,7 @@ use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
 use App\Http\Controllers\FormWIP\WipMonitoringController;
 use App\Http\Controllers\FormDP\TruckMasterController;
 use App\Http\Controllers\FormDP\GpsTripTrackingController;
+use App\Http\Controllers\FormDP\GpsCustomerLocationController;
 //Forecast
 use App\Http\Controllers\FormFC\ForecastRmController;
 use App\Http\Controllers\FormFC\ForecastRmDivisionController;
@@ -518,6 +519,35 @@ Route::middleware(['auth'])
         ->where('gpsId', '[A-Za-z0-9]{6,30}')
         ->middleware('throttle:10,1')
         ->name('gps-trip-tracking.route');
+
+      // GPS Phase 1: customer locations (view DP/DPA, edit DPA only)
+      Route::get('/gps-locations', [GpsCustomerLocationController::class, 'index'])
+        ->name('gps-locations.index');
+      Route::get('/gps-locations/customer/{company}/{customerId}', [GpsCustomerLocationController::class, 'show'])
+        ->where(['company' => '[A-Za-z0-9_-]{1,10}', 'customerId' => '[0-9]+'])
+        ->name('gps-locations.show');
+      Route::middleware(['can:DPA'])->group(function () {
+        Route::post('/gps-locations', [GpsCustomerLocationController::class, 'store'])
+          ->name('gps-locations.store');
+        Route::post('/gps-locations/{id}/deactivate', [GpsCustomerLocationController::class, 'deactivate'])
+          ->whereNumber('id')
+          ->name('gps-locations.deactivate');
+        Route::post('/gps-locations/import-poi', [GpsCustomerLocationController::class, 'importPois'])
+          ->middleware('throttle:2,1')
+          ->name('gps-locations.import-poi');
+        Route::post('/gps-locations/refresh-schema', [GpsCustomerLocationController::class, 'refreshSchema'])
+          ->name('gps-locations.refresh-schema');
+        Route::get('/gps-locations/bulk-candidates', [GpsCustomerLocationController::class, 'bulkCandidates'])
+          ->middleware('throttle:10,1')
+          ->name('gps-locations.bulk-candidates');
+        Route::post('/gps-locations/bulk-confirm', [GpsCustomerLocationController::class, 'bulkConfirm'])
+          ->name('gps-locations.bulk-confirm');
+        // Uses up to 3 DTC getHistory requests (cached routes are free).
+        Route::get('/gps-locations/customer/{company}/{customerId}/stop-suggestions', [GpsCustomerLocationController::class, 'stopSuggestions'])
+          ->where(['company' => '[A-Za-z0-9_-]{1,10}', 'customerId' => '[0-9]+'])
+          ->middleware('throttle:4,1')
+          ->name('gps-locations.stop-suggestions');
+      });
       Route::post('/gps-trip-tracking/test-dtc', [GpsTripTrackingController::class, 'testDtcConnection'])
         ->middleware(['can:ADMINWEB', 'throttle:1,1'])
         ->name('gps-trip-tracking.test-dtc');

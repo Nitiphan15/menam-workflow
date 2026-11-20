@@ -42,6 +42,7 @@
     let map = null;
     let companyMarker = null;
     let routeLayer = null;
+    let stopsLayer = null;
     const markers = new Map();
     const routes = new Map(); // key -> { status: 'loading'|'ok'|'error', data?, error? }
     let items = [];
@@ -321,7 +322,7 @@
             L.polyline(points, { color: '#126a83', weight: 4, opacity: .8 }),
             L.circleMarker(points[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#126a83', fillOpacity: 1 }).bindTooltip(`เริ่ม ${hhmm(state.data.points[0].time)}`),
         ]).addTo(map);
-        const bounds = L.latLngBounds(item.position ? [...points, item.position] : points);
+        const bounds = L.latLngBounds([...points, ...(item.position ? [item.position] : []), ...stopPoints(item)]);
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
 
@@ -341,15 +342,46 @@
             const payload = await response.json().catch(() => ({}));
             if (payload.usage) renderUsage(payload.usage);
             if (response.ok && payload.ok) {
-                routes.set(item.key, { status: 'ok', data: payload.route, loadedAt: Date.now() });
+                routes.set(item.key, { status: 'ok', data: payload.route, visits: Array.isArray(payload.stop_visits) ? payload.stop_visits : [], loadedAt: Date.now() });
             } else {
                 routes.set(item.key, { status: 'error', error: payload.error_info || { title: response.status === 429 ? 'เรียกถี่เกินไป' : 'โหลดเส้นทางไม่สำเร็จ', advice: 'ลองใหม่อีกครั้งภายหลัง' } });
             }
         } catch (error) {
             routes.set(item.key, { status: 'error', error: { title: 'เชื่อมต่อระบบไม่ได้', advice: 'ตรวจเครือข่ายแล้วลองใหม่' } });
         }
-        if (selectedKey === item.key) drawRoute(item);
+        if (selectedKey === item.key) { drawRoute(item); drawStops(item); }
         renderList();
+    }
+
+    // Arrival / leave per stop (server-side from the real route; see GpsStopVisitService).
+    const VISIT_TEXT = {
+        visited: { label: 'เข้าจุดแล้ว', className: 'is-ok' },
+        at_stop: { label: 'อยู่ที่จุดนี้', className: 'is-ok' },
+        passed: { label: 'ผ่านแต่ไม่จอด', className: 'is-warn' },
+        not_visited: { label: 'ไม่พบว่าเข้าจุด', className: 'is-bad' },
+        no_location: { label: 'ไม่มีพิกัดลูกค้า', className: '' },
+        no_route: { label: 'ไม่มีเส้นทาง', className: '' },
+    };
+
+    function visitDetail(visit) {
+        if (!visit) return '';
+        if (visit.status === 'visited') return `ถึง ${hhmm(visit.arrived_at)} · ออก ${hhmm(visit.left_at)} · จอด ${visit.dwell_minutes} นาที${visit.visits > 1 ? ` · เข้า ${visit.visits} ครั้ง` : ''}`;
+        if (visit.status === 'at_stop') return `ถึง ${hhmm(visit.arrived_at)} · ยังอยู่ (${visit.dwell_minutes} นาที)`;
+        if (visit.status === 'passed') return `ผ่านช่วง ${hhmm(visit.arrived_at)} จอดไม่ถึง 3 นาที`;
+        if (visit.status === 'not_visited' && visit.nearest_m !== null) return `ใกล้สุด ${numberFormat.format(visit.nearest_m / 1000)} กม.`;
+        return '';
+    }
+
+    function stopVisitsHtml(item, state) {
+        const deliveries = item.deliveries || [];
+        if (!deliveries.length) return '';
+        const visits = state.visits || [];
+        const rows = deliveries.map((delivery, index) => {
+            const visit = visits[index];
+            const text = VISIT_TEXT[visit?.status] || VISIT_TEXT.no_location;
+            return `<li><span class="gps-visit-no">${index + 1}</span><span class="gps-visit-body"><b>${escapeHtml(delivery.customer || '-')}</b><small>${escapeHtml(visitDetail(visit))}</small></span><span class="gps-visit-tag ${text.className}">${escapeHtml(text.label)}</span></li>`;
+        }).join('');
+        return `<span class="gps-route-title mt-2">จุดส่งจากเส้นทางจริง</span><ol class="gps-visit-list">${rows}</ol>`;
     }
 
     function routeHtml(item) {
@@ -369,6 +401,7 @@
             ['ความเร็วสูงสุด', `${numberFormat.format(summary.maxSpeed)} กม./ชม.`],
         ];
         return `<span class="gps-route-facts">${rows.map(([label, value]) => `<span><small>${escapeHtml(label)}</small><b>${escapeHtml(value)}</b></span>`).join('')}</span>
+            ${stopVisitsHtml(item, state)}
             <small class="gps-route-foot">จาก DTC getHistory · ${escapeHtml(state.data.point_count)} จุด · ${state.data.from_cache ? 'cache' : 'ดึงใหม่'}</small>`;
     }
 
@@ -377,7 +410,7 @@
         const deliveries = Array.isArray(item.deliveries) ? item.deliveries : [];
         if (!deliveries.length) return '<span class="gps-load-empty">ไม่มีรายการส่งในคิววันที่เลือก</span>';
         return deliveries.map((delivery, index) => `<span class="gps-load-stop">
-            <span class="gps-load-stop-head"><span class="gps-load-stop-no">${index + 1}</span><strong>${escapeHtml(delivery.customer || '-')}</strong></span>
+            <span class="gps-load-stop-head"><span class="gps-load-stop-no">${index + 1}</span><strong>${escapeHtml(delivery.customer || '-')}</strong>${delivery.location ? '<span class="gps-pin-tag is-ok" title="มีพิกัดลูกค้า"><i class="fas fa-location-dot"></i> พิกัด</span>' : '<span class="gps-pin-tag" title="ยังไม่ได้ปักพิกัดลูกค้า (เมนู พิกัดลูกค้า GPS)">ไม่มีพิกัด</span>'}</span>
             ${(delivery.items || []).map((line) => `<span class="gps-load-line"><span><b>${escapeHtml(line.product || line.part_number || '-')}</b><small>${escapeHtml(line.so_number || '-')} · ${escapeHtml(line.dp_ref || '-')}${line.part_number ? ` · ${escapeHtml(line.part_number)}` : ''}</small></span><strong>${qtyFormat.format(Number(line.quantity || 0))} ${escapeHtml(line.unit || '')}</strong></span>`).join('')}
         </span>`).join('');
     }
@@ -551,10 +584,36 @@
     });
 
     // ---------- interactions ----------
+    // Customer pins of the selected truck's deliveries (from "พิกัดลูกค้า (GPS)").
+    function stopPoints(item) {
+        return (item?.deliveries || []).filter((delivery) => delivery.location).map((delivery) => [delivery.location.lat, delivery.location.lon]);
+    }
+
+    function drawStops(item) {
+        if (stopsLayer) { stopsLayer.remove(); stopsLayer = null; }
+        if (!map || !item) return;
+        const layers = [];
+        const routeState = routes.get(item.key);
+        const visits = routeState?.status === 'ok' ? (routeState.visits || []) : [];
+        (item.deliveries || []).forEach((delivery, index) => {
+            if (!delivery.location) return;
+            const point = [delivery.location.lat, delivery.location.lon];
+            const visit = visits[index];
+            const visitClass = visit ? (VISIT_TEXT[visit.status]?.className || '') : '';
+            const detail = visitDetail(visit);
+            layers.push(L.circle(point, { radius: delivery.location.radius_m || 150, color: '#16856f', weight: 2, fillOpacity: .12 }));
+            layers.push(L.marker(point, {
+                icon: L.divIcon({ className: '', html: `<div class="gps-stop-pin ${visitClass}">${index + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
+            }).bindTooltip(`${index + 1}. ${escapeHtml(delivery.customer || '')}${detail ? `<br>${escapeHtml(detail)}` : ''}`));
+        });
+        if (layers.length) stopsLayer = L.layerGroup(layers).addTo(map);
+    }
+
     function selectItem(key) {
         if (selectedKey === key) {
             selectedKey = null;
             if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+            drawStops(null);
             renderAll();
             return;
         }
@@ -563,8 +622,11 @@
         if (item && !item.gps_id && !item.has_queue && item.kind === 'fleet') showNoGps = true;
         renderAll();
         if (!item) return;
-        if (item.position && map) map.flyTo(item.position, Math.max(map.getZoom(), 14), { duration: .45 });
         if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+        drawStops(item);
+        const focus = [...(item.position ? [item.position] : []), ...stopPoints(item)];
+        if (map && focus.length > 1) map.fitBounds(L.latLngBounds(focus), { padding: [40, 40], maxZoom: 15 });
+        else if (map && focus.length === 1) map.flyTo(focus[0], Math.max(map.getZoom(), 14), { duration: .45 });
         if (item.gps_id) loadRoute(item);
     }
 

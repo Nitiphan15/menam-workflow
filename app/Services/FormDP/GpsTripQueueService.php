@@ -4,7 +4,9 @@ namespace App\Services\FormDP;
 
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class GpsTripQueueService
@@ -50,6 +52,8 @@ class GpsTripQueueService
                     'dp.sell_by_line',
                     'dp.address',
                     'dp.customer_name',
+                    'dp.customer_id',
+                    'dp.company',
                     'c.name as master_customer_name',
                 ])
                 ->whereRaw('CAST(dp.ship_posted_at AS date) = ?', [$date])
@@ -85,8 +89,14 @@ class GpsTripQueueService
                         'deliveries' => $items
                             ->groupBy('customer_display')
                             ->map(function (Collection $customerItems, string $customer) {
+                                $firstItem = $customerItems->first();
+
                                 return [
                                     'customer' => $customer,
+                                    // Keys for gps_customer_locations (company + customer_id + address)
+                                    'company' => $this->customerCompany($firstItem->company ?? null),
+                                    'customer_id' => $firstItem->customer_id !== null ? (int) $firstItem->customer_id : null,
+                                    'address' => trim((string) ($firstItem->address ?? '')),
                                     'items' => $customerItems->map(function ($item) {
                                         $pieceQuantity = (int) ($item->sell_by_line ?? 0) === 1
                                             && (float) ($item->qty ?? 0) === 0.0;
@@ -123,9 +133,11 @@ class GpsTripQueueService
     public function activeTrucks(): Collection
     {
         try {
+            $hasGpsColumn = $this->truckHasDtcGpsColumn();
+
             return DB::connection('sqlsrv_menam')
                 ->table('delivery_plan_truck_master')
-                ->select(['id', 'plate_no', 'driver_name'])
+                ->select($hasGpsColumn ? ['id', 'plate_no', 'driver_name', 'dtc_gps_id'] : ['id', 'plate_no', 'driver_name'])
                 ->where('status', 'ACTIVE')
                 ->orderBy('plate_no')
                 ->get()
@@ -134,6 +146,7 @@ class GpsTripQueueService
                     'plate_no' => trim((string) $truck->plate_no),
                     'plate_key' => $this->normalizePlate($truck->plate_no),
                     'driver_name' => trim((string) ($truck->driver_name ?? '')),
+                    'dtc_gps_id' => trim((string) ($truck->dtc_gps_id ?? '')),
                 ])
                 ->filter(fn (array $truck) => $truck['plate_key'] !== '')
                 ->values();
@@ -162,6 +175,7 @@ class GpsTripQueueService
                 'plate_key' => $truck['plate_key'],
                 'plate_no' => $truck['plate_no'],
                 'truck_id' => $truck['truck_id'],
+                'dtc_gps_id' => (string) ($truck['dtc_gps_id'] ?? ''),
                 'source' => 'master',
                 'driver_name' => $truck['driver_name'],
                 'trip_nos' => [],
@@ -176,6 +190,7 @@ class GpsTripQueueService
                 'plate_key' => $key,
                 'plate_no' => $trip['plate_no'],
                 'truck_id' => $trip['truck_id'],
+                'dtc_gps_id' => '',
                 'source' => 'manual',
                 'driver_name' => '',
                 'trip_nos' => [],
@@ -192,6 +207,26 @@ class GpsTripQueueService
         return collect(array_values($fleet))
             ->sortBy(fn (array $truck) => ($truck['trip_nos'] === [] ? '1' : '0') . $truck['plate_key'])
             ->values();
+    }
+
+    /** Same rule as the customer join: empty company means MSW. */
+    public function customerCompany(?string $company): string
+    {
+        $company = trim((string) $company);
+
+        return $company !== '' ? $company : 'MSW';
+    }
+
+    /** True once database/sql/formdp_gps_phase1_locations.sql has been run (cached 10 min). */
+    public function truckHasDtcGpsColumn(): bool
+    {
+        return (bool) Cache::remember('dtc_gps.schema.truck_gps_column', now()->addMinutes(10), function () {
+            try {
+                return Schema::connection('sqlsrv_menam')->hasColumn('delivery_plan_truck_master', 'dtc_gps_id');
+            } catch (Throwable) {
+                return false;
+            }
+        });
     }
 
     public function normalizePlate(?string $plate): string
