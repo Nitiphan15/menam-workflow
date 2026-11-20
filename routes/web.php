@@ -88,6 +88,7 @@ use App\Http\Controllers\FormWIP\WipMonitoringController;
 use App\Http\Controllers\FormDP\TruckMasterController;
 use App\Http\Controllers\FormDP\GpsTripTrackingController;
 use App\Http\Controllers\FormDP\GpsCustomerLocationController;
+use App\Http\Controllers\FormDP\GpsDashboardController;
 //Forecast
 use App\Http\Controllers\FormFC\ForecastRmController;
 use App\Http\Controllers\FormFC\ForecastRmDivisionController;
@@ -519,6 +520,13 @@ Route::middleware(['auth'])
         ->where('gpsId', '[A-Za-z0-9]{6,30}')
         ->middleware('throttle:10,1')
         ->name('gps-trip-tracking.route');
+
+      // GPS planner dashboard (late arrival / late return / trends)
+      Route::get('/gps-dashboard', [GpsDashboardController::class, 'index'])
+        ->name('gps-dashboard.index');
+      Route::post('/gps-dashboard/refresh', [GpsDashboardController::class, 'refresh'])
+        ->middleware(['can:DPA', 'throttle:3,1'])
+        ->name('gps-dashboard.refresh');
 
       // GPS Phase 1: customer locations (view DP/DPA, edit DPA only)
       Route::get('/gps-locations', [GpsCustomerLocationController::class, 'index'])
