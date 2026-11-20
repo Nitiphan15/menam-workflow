@@ -4,11 +4,20 @@
     const root = document.getElementById('gps-trip-tracking');
     if (!root) return;
 
-    const vehicles = JSON.parse(root.dataset.vehicles || '[]').map((vehicle, index) => ({
-        ...vehicle,
-        progress: index === 0 ? 1.4 : index === 1 ? .9 : index === 2 ? .55 : index === 3 ? 1.7 : .2,
-        direction: index === 0 || index === 3 ? -1 : 1,
-    }));
+    // Trucks without a queue that day have no demo route: they stay off the map until DTC gives a real position.
+    const DEMO_PROGRESS = [1.4, .9, .55, 1.7, .2];
+    let queuedIndex = 0;
+    const vehicles = JSON.parse(root.dataset.vehicles || '[]').map((vehicle) => {
+        const hasQueue = vehicle.has_queue !== false;
+        const index = hasQueue ? queuedIndex++ : -1;
+        return {
+            ...vehicle,
+            has_queue: hasQueue,
+            progress: hasQueue ? DEMO_PROGRESS[index % DEMO_PROGRESS.length] : 0,
+            direction: hasQueue ? (index % 5 === 0 || index % 5 === 3 ? -1 : 1) : 0,
+        };
+    });
+    const queuedVehicles = () => vehicles.filter((vehicle) => vehicle.has_queue);
     const mockSnapshot = JSON.parse(root.dataset.dtcMock || '{"data":[]}');
     let matchReport = JSON.parse(root.dataset.dtcMatches || '{"matched_count":0,"dtc_count":0,"rows":[]}');
     const company = [13.547532, 100.787167];
@@ -102,6 +111,7 @@
 
     function stateOf(vehicle) {
         if (liveMode) return liveStateOf(vehicle);
+        if (!vehicle.has_queue) return { label: 'ไม่มีคิววันนี้', className: 'is-nodata', phase: 'noqueue' };
         const max = vehicle.route.length - 1;
         if (vehicle.progress <= .08) return { label: 'อยู่บริษัท', className: '', phase: 'company' };
         if (vehicle.progress >= max - .08) return { label: 'อยู่จุดส่ง', className: '', phase: 'destination' };
@@ -144,10 +154,14 @@
 
         vehicles.forEach((vehicle) => {
             const status = stateOf(vehicle);
-            const path = L.polyline(vehicle.route, { color: '#7796a1', weight: 3, opacity: .45, dashArray: '7 8' }).addTo(map);
+            const path = L.polyline(vehicle.route, { color: '#7796a1', weight: 3, opacity: .45, dashArray: '7 8' });
             const marker = L.marker(positionAt(vehicle), {
                 icon: L.divIcon({ className: '', html: markerHtml(vehicle, status), iconSize: [32, 32], iconAnchor: [16, 16] }),
-            }).addTo(map).bindTooltip(vehicle.plate_no, { permanent: true, direction: 'top', className: 'gps-marker-label', offset: [0, -13] });
+            }).bindTooltip(vehicle.plate_no, { permanent: true, direction: 'top', className: 'gps-marker-label', offset: [0, -13] });
+            if (vehicle.has_queue) {
+                path.addTo(map);
+                marker.addTo(map);
+            }
             marker.on('click', () => selectVehicle(vehicle.gps_id));
             paths.set(vehicle.gps_id, path);
             markers.set(vehicle.gps_id, marker);
@@ -348,9 +362,11 @@
         clearDtcOnlyMarkers();
         vehicles.forEach((vehicle) => {
             ['live_found', 'live_position', 'live_time', 'live_status', 'live_speed', 'live_name', 'live_stale'].forEach((key) => delete vehicle[key]);
-            if (map) {
+            if (map && vehicle.has_queue) {
                 paths.get(vehicle.gps_id)?.addTo(map);
                 markers.get(vehicle.gps_id)?.addTo(map);
+            } else {
+                markers.get(vehicle.gps_id)?.remove();
             }
         });
         setDataBadge('demo');
@@ -362,6 +378,7 @@
         const points = [company];
         vehicles.forEach((vehicle) => {
             if (liveMode && !Array.isArray(vehicle.live_position)) return;
+            if (!liveMode && !vehicle.has_queue) return;
             points.push(positionAt(vehicle));
         });
         dtcOnlyMarkers.forEach((marker) => {
@@ -425,12 +442,12 @@
             const loadExpanded = expandedLoadId === vehicle.gps_id;
             const source = liveMode
                 ? (vehicle.live_time ? `DTC ${escapeHtml(vehicle.live_time)} · ${formatQuantity(vehicle.live_speed)} กม./ชม.` : 'ไม่มีตำแหน่งจาก DTC')
-                : 'ตำแหน่งจำลอง';
+                : (vehicle.has_queue ? 'ตำแหน่งจำลอง' : 'ยังไม่มีตำแหน่ง (รอ DTC)');
             return `<article class="gps-vehicle-item ${selected ? 'is-active' : ''}">
                 <button type="button" class="gps-vehicle-select" data-gps-id="${escapeHtml(vehicle.gps_id)}" aria-expanded="${selected ? 'true' : 'false'}">
                     <span class="gps-vehicle-top"><span class="gps-plate">${escapeHtml(vehicle.plate_no)}</span><span class="gps-status ${status.className}">${escapeHtml(status.label)}</span></span>
                     <span class="gps-vehicle-meta ${vehicle.live_stale ? 'is-stale' : ''}">${vehicle.live_stale ? '<b>ข้อมูลเก่า</b> · ' : ''}${escapeHtml(vehicle.driver_name)} · ${vehicle.stops?.length || 0} จุดส่ง · ${source}</span>
-                    ${liveMode ? '' : `<span class="gps-progress"><span style="width:${percent}%"></span></span>`}
+                    ${liveMode || !vehicle.has_queue ? '' : `<span class="gps-progress"><span style="width:${percent}%"></span></span>`}
                 </button>
                 <button type="button" class="gps-load-toggle" data-load-toggle="${escapeHtml(vehicle.gps_id)}" aria-expanded="${loadExpanded ? 'true' : 'false'}"><span>ส่งอะไรบ้าง</span><span>${(vehicle.deliveries || []).reduce((total, delivery) => total + (delivery.items?.length || 0), 0)} รายการ <i class="fas fa-chevron-${loadExpanded ? 'up' : 'down'}"></i></span></button>
                 ${loadExpanded ? `<span class="gps-load-detail">${deliveryContents(vehicle)}</span>` : ''}
@@ -496,13 +513,13 @@
         }
         selectedId = gpsId;
         const vehicle = vehicles.find((item) => item.gps_id === gpsId);
-        const hasPosition = vehicle && (!liveMode || Array.isArray(vehicle.live_position));
+        const hasPosition = vehicle && (liveMode ? Array.isArray(vehicle.live_position) : vehicle.has_queue);
         if (hasPosition && map) map.flyTo(positionAt(vehicle), Math.max(map.getZoom(), 13), { duration: .45 });
         render();
     }
 
     function tick() {
-        vehicles.forEach((vehicle) => {
+        queuedVehicles().forEach((vehicle) => {
             const max = vehicle.route.length - 1;
             vehicle.progress += .12 * vehicle.direction;
             if (vehicle.progress >= max) { vehicle.progress = max; vehicle.direction = -1; }
@@ -547,7 +564,7 @@
         if (!historyList || !historyDetail) return;
         const vehicleFilter = historyVehicle?.value || 'all';
         const matchesDate = historyDate?.value === root.dataset.queueDate || !root.dataset.queueDate;
-        const filtered = matchesDate ? vehicles.filter((vehicle) => vehicleFilter === 'all' || vehicle.gps_id === vehicleFilter) : [];
+        const filtered = matchesDate ? queuedVehicles().filter((vehicle) => vehicleFilter === 'all' || vehicle.gps_id === vehicleFilter) : [];
         historyResultCount.textContent = `${filtered.length} เที่ยว`;
 
         if (!filtered.length) {
@@ -569,7 +586,7 @@
 
     function renderReports() {
         if (!reportRows) return;
-        reportRows.innerHTML = vehicles.map((vehicle) => {
+        reportRows.innerHTML = queuedVehicles().map((vehicle) => {
             const variance = departureVariance(vehicle);
             const late = variance > 10;
             return `<tr><td class="fw-bold">${escapeHtml(vehicle.plate_no)}</td><td>${escapeHtml(vehicle.driver_name)}</td><td>${escapeHtml(vehicle.planned_departure)}</td><td>${escapeHtml(vehicle.actual_departure)}</td><td><span class="gps-report-result ${late ? 'is-alert' : ''}">${late ? `ช้า ${variance} นาที` : 'ตรงเวลา'}</span></td><td>${escapeHtml(vehicle.estimated_return)}</td></tr>`;
@@ -625,7 +642,10 @@
         setSourceState('checking', mockSnapshot.data || []);
         button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> กำลังเรียก DTC...';
         try {
-            const response = await fetch(button.dataset.url, {
+            // Match DTC against the same day's fleet/queue the page is showing.
+            const url = new URL(button.dataset.url, window.location.href);
+            if (root.dataset.queueDate) url.searchParams.set('date', root.dataset.queueDate);
+            const response = await fetch(url.toString(), {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -659,7 +679,7 @@
     toggleButton?.addEventListener('click', () => setRunning(!running));
     resetButton?.addEventListener('click', () => {
         setRunning(false);
-        vehicles.forEach((vehicle, index) => { vehicle.progress = index * .35; vehicle.direction = 1; });
+        queuedVehicles().forEach((vehicle, index) => { vehicle.progress = index * .35; vehicle.direction = 1; });
         selectedId = null;
         if (map) map.setView(company, 13);
         render();

@@ -40,6 +40,94 @@ class DtcGpsServiceTest extends TestCase
         ]);
     }
 
+    private function fakeFleet(): void
+    {
+        $this->partialMock(GpsTripQueueService::class, function ($mock) {
+            $mock->shouldReceive('activeTrucks')->andReturn(collect([
+                ['truck_id' => 14, 'plate_no' => '1ฒณ1307', 'plate_key' => '1ฒณ1307', 'driver_name' => 'Master Driver A'],
+                ['truck_id' => 12, 'plate_no' => '83-5505', 'plate_key' => '835505', 'driver_name' => 'Master Driver B'],
+                ['truck_id' => 1, 'plate_no' => '71-2519', 'plate_key' => '712519', 'driver_name' => ''],
+            ]));
+            $mock->shouldReceive('forDate')->andReturn(collect([
+                ['plate_key' => '835505', 'plate_no' => '83-5505', 'trip_no' => 2, 'truck_id' => 12, 'driver_name' => 'Queue Driver', 'stops' => ['ลูกค้า B'], 'deliveries' => [['customer' => 'ลูกค้า B', 'items' => [['dp_ref' => 'DP#2', 'so_number' => 'SO2', 'product' => 'P2', 'part_number' => '', 'quantity' => 2, 'unit' => 'ตัน']]]]],
+                ['plate_key' => '835505', 'plate_no' => '83-5505', 'trip_no' => 1, 'truck_id' => 12, 'driver_name' => '', 'stops' => ['ลูกค้า A'], 'deliveries' => [['customer' => 'ลูกค้า A', 'items' => [['dp_ref' => 'DP#1', 'so_number' => 'SO1', 'product' => 'P1', 'part_number' => '', 'quantity' => 1, 'unit' => 'ตัน']]]]],
+                ['plate_key' => '707494', 'plate_no' => '70-7494', 'trip_no' => 1, 'truck_id' => null, 'driver_name' => 'Manual Driver', 'stops' => ['ลูกค้า C'], 'deliveries' => []],
+            ]));
+        });
+    }
+
+    public function test_fleet_merges_truck_master_with_manual_queue_plates_and_trips(): void
+    {
+        $this->fakeFleet();
+        $list = app(GpsTripQueueService::class)->fleetForDate('2026-11-19');
+        $fleet = $list->keyBy('plate_key');
+
+        // Queued trucks first, then the rest of Truck Master.
+        $this->assertSame(['707494', '835505', '1ฒณ1307', '712519'], $list->pluck('plate_key')->all());
+        $this->assertSame([1, 2], $fleet['835505']['trip_nos']);
+        $this->assertSame(['ลูกค้า A', 'ลูกค้า B'], $fleet['835505']['stops']);
+        $this->assertCount(2, $fleet['835505']['deliveries']);
+        $this->assertSame('Queue Driver', $fleet['835505']['driver_name']);
+        $this->assertSame('manual', $fleet['707494']['source']);
+        $this->assertSame('master', $fleet['1ฒณ1307']['source']);
+        $this->assertSame([], $fleet['1ฒณ1307']['trip_nos']);
+        $this->assertSame('Master Driver A', $fleet['1ฒณ1307']['driver_name']);
+    }
+
+    public function test_index_uses_real_fleet_and_gives_demo_route_only_to_queued_trucks(): void
+    {
+        $this->fakeFleet();
+        request()->query->set('date', '2026-11-19');
+
+        $data = app(GpsTripTrackingController::class)->index()->getData();
+        $vehicles = collect($data['demoVehicles'])->keyBy('plate_no');
+
+        $this->assertSame('2026-11-19', $data['queueDate']);
+        $this->assertSame(4, $vehicles->count());
+        $this->assertSame(2, $data['queuedVehicleCount']);
+        $this->assertTrue($vehicles['83-5505']['has_queue']);
+        $this->assertSame('คิว 2026-11-19 · เที่ยว 1, 2', $vehicles['83-5505']['trip_ref']);
+        $this->assertCount(5, $vehicles['83-5505']['route']);
+        $this->assertFalse($vehicles['1ฒณ1307']['has_queue']);
+        $this->assertSame([[13.547532, 100.787167], [13.547532, 100.787167]], $vehicles['1ฒณ1307']['route']);
+        $this->assertSame([], $vehicles['1ฒณ1307']['stops']);
+        $this->assertSame('-', $vehicles['71-2519']['driver_name']);
+        $this->assertSame(2, $data['dtcMatchReport']['matched_count']); // mock DTC rows only for queued trucks
+    }
+
+    public function test_invalid_date_falls_back_to_today(): void
+    {
+        $this->fakeFleet();
+        request()->query->set('date', '2026-02-31');
+
+        $data = app(GpsTripTrackingController::class)->index()->getData();
+
+        $this->assertSame(now('Asia/Bangkok')->toDateString(), $data['queueDate']);
+    }
+
+    public function test_dtc_test_matches_whole_fleet_including_trucks_without_queue(): void
+    {
+        $this->fakeFleet();
+        $this->fakeDtc(
+            [
+                ['gps_id' => '010399900000001', 'vehicle_name' => '1ฒณ-1307', 'license_plate' => '010399900000001'],
+                ['gps_id' => '010399900000005', 'vehicle_name' => '7กก-312', 'license_plate' => '010399900000005'],
+            ],
+            [
+                $this->liveRealtimeRow(['gps_id' => '010399900000001', 'truck_name' => '1ฒณ-1307']),
+                $this->liveRealtimeRow(['gps_id' => '010399900000005', 'truck_name' => '7กก-312']),
+            ]
+        );
+
+        $payload = app(GpsTripTrackingController::class)->testDtcConnection()->getData(true);
+        $rows = collect($payload['match_report']['rows'])->keyBy(fn ($row) => $row['dtc_name'] ?: $row['plate_no']);
+
+        $this->assertTrue($rows['1ฒณ-1307']['matched']);           // in Truck Master, no queue that day
+        $this->assertSame('missing_formdp', $rows['7กก-312']['issue']); // in DTC, not in Truck Master
+        $this->assertSame('missing_dtc', $rows['70-7494']['issue']);   // manual queue plate without GPS
+        $this->assertSame(1, $payload['match_report']['matched_count']);
+    }
+
     public function test_vehicle_master_is_cached_so_next_sync_costs_one_request(): void
     {
         $this->fakeDtc();
@@ -129,7 +217,7 @@ class DtcGpsServiceTest extends TestCase
     public function test_test_endpoint_uses_cached_master_on_second_call(): void
     {
         $this->fakeDtc();
-        $this->partialMock(GpsTripQueueService::class, fn ($mock) => $mock->shouldReceive('forDate')->andReturn(collect()));
+        $this->fakeFleet();
 
         $first = app(GpsTripTrackingController::class)->testDtcConnection()->getData(true);
         $second = app(GpsTripTrackingController::class)->testDtcConnection()->getData(true);
@@ -485,7 +573,7 @@ class DtcGpsServiceTest extends TestCase
         config()->set('dtc.base_url', 'https://gps.example.test:8099/');
         config()->set('dtc.api_token', 'test-token');
         Storage::fake('local');
-        $this->partialMock(GpsTripQueueService::class, fn ($mock) => $mock->shouldReceive('forDate')->andReturn(collect()));
+        $this->fakeFleet();
         Http::preventStrayRequests();
         Http::fake([
             'gps.example.test:8099/getVehicleMaster' => Http::response(['error' => false, 'status' => '200', 'data' => [

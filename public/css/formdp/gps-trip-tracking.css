@@ -215,6 +215,7 @@
 .gps-status.is-stale { background: #fff0ed; color: var(--gps-red); }
 .gps-status.is-nodata, .gps-status.is-unmatched { background: #fff4df; color: #8a4b08; }
 .gps-vehicle-item.is-unmatched { border-style: dashed; }
+.gps-queue-date-form { margin: .35rem 0; max-width: 11rem; }
 .gps-live-note { display: block; margin: .35rem 0 .1rem; color: #8a4b08; font-size: .72rem; }
 .gps-company-marker { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: .5rem; background: #172033; color: #fff; border: 2px solid #fff; box-shadow: 0 5px 15px rgba(23,32,51,.25); }
 .gps-marker-label { white-space: nowrap; font-weight: 800; }

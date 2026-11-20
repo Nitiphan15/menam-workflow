@@ -81,9 +81,14 @@
                 <button type="button" id="gps-view-all" class="gps-map-action"><i class="fas fa-expand me-1"></i> ดูรถทั้งหมด</button>
             </div>
             <aside class="gps-vehicle-panel">
+                @php($queuedCount = $queuedVehicleCount ?? count($demoVehicles))
                 <div class="gps-panel-head">
-                    <strong>รถในเที่ยววันนี้</strong>
-                    <span>คลิกรถเพื่อดู Timeline · อัปเดต <span id="gps-updated-at">-</span></span>
+                    <strong>รถทั้งหมด {{ count($demoVehicles) }} คัน · มีคิว {{ $queuedCount }} คัน</strong>
+                    <form method="get" class="gps-queue-date-form" aria-label="เลือกวันที่คิว">
+                        <label for="gps-queue-date" class="visually-hidden">วันที่คิว FormDP</label>
+                        <input id="gps-queue-date" type="date" name="date" value="{{ $queueDate }}" class="form-control form-control-sm" onchange="this.form.submit()">
+                    </form>
+                    <span>Truck Master + ทะเบียน manual ในคิว · คลิกรถเพื่อดู Timeline · อัปเดต <span id="gps-updated-at">-</span></span>
                 </div>
                 <div id="gps-vehicle-list" class="gps-vehicle-list"></div>
             </aside>
@@ -107,8 +112,8 @@
         <div class="gps-view-panel" data-gps-panel="history" hidden>
             <section class="gps-filter-bar" aria-label="ตัวกรองข้อมูลย้อนหลัง">
                 <div><label for="gps-history-date">วันที่</label><input id="gps-history-date" type="date" class="form-control" value="{{ $queueDate }}"></div>
-                <div><label for="gps-history-vehicle">ทะเบียนรถ</label><select id="gps-history-vehicle" class="form-select"><option value="all">รถทั้งหมด</option>@foreach($demoVehicles as $vehicle)<option value="{{ $vehicle['gps_id'] }}">{{ $vehicle['plate_no'] }}</option>@endforeach</select></div>
-                <div class="gps-filter-summary"><span>ข้อมูลที่แสดง</span><strong id="gps-history-result-count">{{ count($demoVehicles) }} เที่ยว</strong></div>
+                <div><label for="gps-history-vehicle">ทะเบียนรถ</label><select id="gps-history-vehicle" class="form-select"><option value="all">รถทั้งหมด</option>@foreach($demoVehicles as $vehicle)@if($vehicle['has_queue'] ?? true)<option value="{{ $vehicle['gps_id'] }}">{{ $vehicle['plate_no'] }}</option>@endif @endforeach</select></div>
+                <div class="gps-filter-summary"><span>ข้อมูลที่แสดง</span><strong id="gps-history-result-count">{{ $queuedCount }} เที่ยว</strong></div>
             </section>
 
             <section class="gps-history-layout">
@@ -124,8 +129,8 @@
             </section>
 
             <section class="gps-report-kpis" aria-label="ตัวชี้วัดการจัดส่ง">
-                <div><span>เที่ยวทั้งหมด</span><strong>{{ count($demoVehicles) }}</strong><small>จากคิวที่จับคู่ทะเบียนได้</small></div>
-                <div><span>ออกตรงเวลา</span><strong>{{ max(count($demoVehicles) - 1, 0) }}</strong><small>คลาดเคลื่อนไม่เกิน 10 นาที</small></div>
+                <div><span>รถที่มีคิว</span><strong>{{ $queuedCount }}</strong><small>จากคิว FormDP วันที่เลือก</small></div>
+                <div><span>ออกตรงเวลา</span><strong>{{ max($queuedCount - 1, 0) }}</strong><small>DEMO · คลาดเคลื่อนไม่เกิน 10 นาที</small></div>
                 <div><span>ออกช้า</span><strong class="is-danger">1</strong><small>ต้องตรวจสอบสาเหตุ</small></div>
                 <div><span>หลักฐานไม่ครบ</span><strong class="is-warning">1</strong><small>รอ Planner ตรวจย้อนหลัง</small></div>
             </section>

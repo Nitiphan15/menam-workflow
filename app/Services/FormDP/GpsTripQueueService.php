@@ -117,6 +117,83 @@ class GpsTripQueueService
         }
     }
 
+    /**
+     * ACTIVE trucks from Truck Master (read-only). Phone numbers are not selected.
+     */
+    public function activeTrucks(): Collection
+    {
+        try {
+            return DB::connection('sqlsrv_menam')
+                ->table('delivery_plan_truck_master')
+                ->select(['id', 'plate_no', 'driver_name'])
+                ->where('status', 'ACTIVE')
+                ->orderBy('plate_no')
+                ->get()
+                ->map(fn ($truck) => [
+                    'truck_id' => (int) $truck->id,
+                    'plate_no' => trim((string) $truck->plate_no),
+                    'plate_key' => $this->normalizePlate($truck->plate_no),
+                    'driver_name' => trim((string) ($truck->driver_name ?? '')),
+                ])
+                ->filter(fn (array $truck) => $truck['plate_key'] !== '')
+                ->values();
+        } catch (Throwable $e) {
+            report($e);
+
+            return collect();
+        }
+    }
+
+    /**
+     * One row per plate: ACTIVE Truck Master + manual plates that have a queue on $shipDate.
+     * Several trips of the same plate are merged (trip_nos lists them).
+     */
+    public function fleetForDate(string $shipDate): Collection
+    {
+        return $this->mergeFleet($this->activeTrucks(), $this->forDate($shipDate));
+    }
+
+    public function mergeFleet(Collection $masterTrucks, Collection $queueTrips): Collection
+    {
+        $fleet = [];
+
+        foreach ($masterTrucks as $truck) {
+            $fleet[$truck['plate_key']] = [
+                'plate_key' => $truck['plate_key'],
+                'plate_no' => $truck['plate_no'],
+                'truck_id' => $truck['truck_id'],
+                'source' => 'master',
+                'driver_name' => $truck['driver_name'],
+                'trip_nos' => [],
+                'stops' => [],
+                'deliveries' => [],
+            ];
+        }
+
+        foreach ($queueTrips->sortBy('trip_no') as $trip) {
+            $key = $trip['plate_key'];
+            $fleet[$key] ??= [
+                'plate_key' => $key,
+                'plate_no' => $trip['plate_no'],
+                'truck_id' => $trip['truck_id'],
+                'source' => 'manual',
+                'driver_name' => '',
+                'trip_nos' => [],
+                'stops' => [],
+                'deliveries' => [],
+            ];
+            $fleet[$key]['trip_nos'][] = (int) $trip['trip_no'];
+            $fleet[$key]['driver_name'] = $trip['driver_name'] ?: $fleet[$key]['driver_name'];
+            $fleet[$key]['stops'] = array_values(array_unique([...$fleet[$key]['stops'], ...($trip['stops'] ?? [])]));
+            $fleet[$key]['deliveries'] = [...$fleet[$key]['deliveries'], ...($trip['deliveries'] ?? [])];
+        }
+
+        // Trucks with a queue first, then the rest of the master list.
+        return collect(array_values($fleet))
+            ->sortBy(fn (array $truck) => ($truck['trip_nos'] === [] ? '1' : '0') . $truck['plate_key'])
+            ->values();
+    }
+
     public function normalizePlate(?string $plate): string
     {
         return mb_strtoupper((string) preg_replace('/[^0-9A-Zก-๙]/u', '', trim((string) $plate)));
