@@ -273,6 +273,7 @@ return [
 
                     ['icon' => 'fa-solid fa-truck-loading', 'text' => 'จัดรถส่งสินค้า', 'route' => 'dp.dashboard.logistics-summary', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-truck', 'text' => 'ตารางรถขนส่ง', 'route' => 'dp.dashboard.truck-board', 'permission' => ['DPA']],
+                    ['icon' => 'fa-solid fa-location-dot', 'text' => 'GPS Trip Tracking', 'route' => 'dp.gps-trip-tracking.index', 'permission' => ['DP', 'DPA']],
                     ['icon' => 'fa-solid fa-truck-moving', 'text' => 'Master รถ', 'route' => 'dp.master.trucks', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-id-card', 'text' => 'Master พนักงานขับรถ', 'route' => 'dp.master.drivers', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-people-carry-box', 'text' => 'Master เด็กรถ', 'route' => 'dp.master.helpers', 'permission' => ['DPA']],
