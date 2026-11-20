@@ -88,7 +88,7 @@ class GpsDailySummaryService
                 continue;
             }
             if ($this->dtc->requestsSent() - $requestsAtStart >= $maxRequests) {
-                $result['pending'] = count($trucks) - $index - $result['skipped'];
+                $result['pending'] = $this->pendingTruckCount($trucks, $index, $done);
                 $result['status'] = 'partial';
                 break;
             }
@@ -96,7 +96,7 @@ class GpsDailySummaryService
             try {
                 $route = $this->dtc->vehicleRoute($truck['gps_id'], $date);
             } catch (DtcRateLimitException $e) {
-                $result['pending'] = count($trucks) - $index - $result['skipped'];
+                $result['pending'] = $this->pendingTruckCount($trucks, $index, $done);
                 $result['status'] = 'rate_limited';
                 $result['retry_after'] = $e->retryAfterSeconds;
                 $log("rate limited, retry after {$e->retryAfterSeconds}s");
@@ -106,7 +106,7 @@ class GpsDailySummaryService
                 $result['errors'][] = ['plate_no' => $truck['plate_no'], 'title' => $error['title']];
                 if (in_array($error['code'], ['quota_locked', 'budget_exhausted', 'configuration'], true)) {
                     $result['status'] = 'stopped';
-                    $result['pending'] = count($trucks) - $index - $result['skipped'];
+                    $result['pending'] = $this->pendingTruckCount($trucks, $index, $done);
                     break;
                 }
                 $this->store($date, $truck, null, mb_substr($error['title'], 0, 255));
@@ -120,6 +120,15 @@ class GpsDailySummaryService
         }
 
         return $result;
+    }
+
+    /** Count unsummarized trucks from the current loop position onward. */
+    private function pendingTruckCount(array $trucks, int $index, array $done): int
+    {
+        return count(array_filter(
+            array_slice($trucks, $index),
+            fn (array $truck) => !isset($done[$truck['plate_key']])
+        ));
     }
 
     /**

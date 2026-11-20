@@ -3,7 +3,7 @@
    Database: menam_workflow (sqlsrv_menam). Run on DEV first, then PROD.
    Needs: formdp_gps_phase1_locations.sql already run.
    Safe to re-run: every step is guarded. No DROP / DELETE / TRUNCATE.
-   Filled by: php artisan gps:summarize-day (nightly 23:30) — rows are upserted, never deleted.
+   Filled by: php artisan gps:summarize-day (nightly 00:30) — rows are upserted, never deleted.
    ============================================================ */
 
 SET XACT_ABORT ON;

@@ -117,6 +117,37 @@ class GpsDashboardTest extends TestCase
             'location' => $pin ? ['lat' => $pin[0], 'lon' => $pin[1], 'radius_m' => 150, 'label' => null] : null];
     }
 
+    private function fakeSummarizeFleet(): GpsDailySummaryService
+    {
+        config()->set('dtc.base_url', 'https://gps.example.test:8099/');
+        config()->set('dtc.api_token', 'test-token');
+        $company = GpsDailySummaryService::COMPANY;
+        Http::fake([
+            'gps.example.test:8099/getVehicleMaster' => Http::response(['error' => false, 'data' => [
+                ['gps_id' => '010399900000001', 'vehicle_name' => '83-5505', 'license_plate' => '010399900000001'],
+                ['gps_id' => '010399900000002', 'vehicle_name' => '84-0953', 'license_plate' => '010399900000002'],
+            ]]),
+            'gps.example.test:8099/getHistory' => Http::response(['error' => false, 'data' => array_map(
+                fn ($p) => ['time' => $p['time'], 'lat' => $p['lat'], 'lon' => $p['lon'], 'gps_speed' => 0],
+                $this->route([[$company[0], $company[1], 10], [13.7, 100.9, 30], [$company[0], $company[1], 10]])
+            )]),
+        ]);
+        app(DtcGpsService::class)->getVehicleMasterCached();
+        $this->partialMock(GpsTripQueueService::class, function ($mock) {
+            $mock->shouldReceive('fleetForDate')->andReturn(collect([
+                ['plate_key' => '835505', 'plate_no' => '83-5505', 'truck_id' => 12, 'dtc_gps_id' => '', 'driver_name' => 'A', 'trip_nos' => [1], 'deliveries' => [
+                    ['customer' => 'X', 'company' => 'MSW', 'customer_id' => 5, 'address' => '', 'window_time' => '17:00', 'items' => []],
+                ]],
+                ['plate_key' => '840953', 'plate_no' => '84-0953', 'truck_id' => 13, 'dtc_gps_id' => '010399900000002', 'driver_name' => 'B', 'trip_nos' => [1], 'deliveries' => []],
+                ['plate_key' => '712519', 'plate_no' => '71-2519', 'truck_id' => 1, 'dtc_gps_id' => '', 'driver_name' => 'C', 'trip_nos' => [1], 'deliveries' => []], // no GPS
+                ['plate_key' => '700000', 'plate_no' => '70-0000', 'truck_id' => 2, 'dtc_gps_id' => '', 'driver_name' => '', 'trip_nos' => [], 'deliveries' => []], // no queue
+            ]));
+        });
+        $this->partialMock(GpsCustomerLocationService::class, fn ($mock) => $mock->shouldReceive('locationsForDeliveries')->andReturn([]));
+
+        return app(GpsDailySummaryService::class);
+    }
+
     // ---------- rules ----------
 
     public function test_window_time_uses_only_the_time_of_day(): void
@@ -222,38 +253,13 @@ class GpsDashboardTest extends TestCase
     public function test_summarize_day_fetches_each_gps_truck_once_and_respects_the_request_cap(): void
     {
         $this->createTables();
-        config()->set('dtc.base_url', 'https://gps.example.test:8099/');
-        config()->set('dtc.api_token', 'test-token');
-        $company = GpsDailySummaryService::COMPANY;
-        Http::fake([
-            'gps.example.test:8099/getVehicleMaster' => Http::response(['error' => false, 'data' => [
-                ['gps_id' => '010399900000001', 'vehicle_name' => '83-5505', 'license_plate' => '010399900000001'],
-                ['gps_id' => '010399900000002', 'vehicle_name' => '84-0953', 'license_plate' => '010399900000002'],
-            ]]),
-            'gps.example.test:8099/getHistory' => Http::response(['error' => false, 'data' => array_map(
-                fn ($p) => ['time' => $p['time'], 'lat' => $p['lat'], 'lon' => $p['lon'], 'gps_speed' => 0],
-                $this->route([[$company[0], $company[1], 10], [13.7, 100.9, 30], [$company[0], $company[1], 10]])
-            )]),
-        ]);
-        app(DtcGpsService::class)->getVehicleMasterCached();
-        $this->partialMock(GpsTripQueueService::class, function ($mock) {
-            $mock->shouldReceive('fleetForDate')->andReturn(collect([
-                ['plate_key' => '835505', 'plate_no' => '83-5505', 'truck_id' => 12, 'dtc_gps_id' => '', 'driver_name' => 'A', 'trip_nos' => [1], 'deliveries' => [
-                    ['customer' => 'X', 'company' => 'MSW', 'customer_id' => 5, 'address' => '', 'window_time' => '17:00', 'items' => []],
-                ]],
-                ['plate_key' => '840953', 'plate_no' => '84-0953', 'truck_id' => 13, 'dtc_gps_id' => '010399900000002', 'driver_name' => 'B', 'trip_nos' => [1], 'deliveries' => []],
-                ['plate_key' => '712519', 'plate_no' => '71-2519', 'truck_id' => 1, 'dtc_gps_id' => '', 'driver_name' => 'C', 'trip_nos' => [1], 'deliveries' => []], // no GPS
-                ['plate_key' => '700000', 'plate_no' => '70-0000', 'truck_id' => 2, 'dtc_gps_id' => '', 'driver_name' => '', 'trip_nos' => [], 'deliveries' => []], // no queue
-            ]));
-        });
-        $this->partialMock(GpsCustomerLocationService::class, fn ($mock) => $mock->shouldReceive('locationsForDeliveries')->andReturn([]));
-
-        $service = app(GpsDailySummaryService::class);
+        $service = $this->fakeSummarizeFleet();
         $first = $service->summarizeDay(self::DATE, false, 1);
 
         $this->assertSame(3, $first['trucks']);                 // trucks without a queue are ignored
         $this->assertSame('partial', $first['status']);
         $this->assertSame(1, $first['summarized']);
+        $this->assertSame(2, $first['pending']);
         Http::assertSentCount(2);                                // master + 1 history (cap 1)
 
         $second = $service->summarizeDay(self::DATE);
@@ -265,6 +271,39 @@ class GpsDashboardTest extends TestCase
         $this->assertSame(3, $db->table('gps_trip_daily')->count());
         $this->assertSame('ไม่มี GPS DTC', $db->table('gps_trip_daily')->where('plate_key', '712519')->value('note'));
         $this->assertSame('010399900000001', $db->table('gps_trip_daily')->where('plate_key', '835505')->value('dtc_gps_id')); // plate match
+    }
+
+    public function test_pending_count_does_not_double_subtract_already_skipped_trucks(): void
+    {
+        $this->createTables();
+        $service = $this->fakeSummarizeFleet();
+        $service->summarizeDay(self::DATE, false, 1); // first truck completed
+
+        $result = $service->summarizeDay(self::DATE, false, 0);
+
+        $this->assertSame('partial', $result['status']);
+        $this->assertSame(1, $result['skipped']);
+        $this->assertSame(2, $result['pending']);
+        Http::assertSentCount(2); // vehicle master + first history; capped call sends nothing
+    }
+
+    public function test_pending_count_excludes_completed_trucks_later_in_queue(): void
+    {
+        $this->createTables();
+        $service = $this->fakeSummarizeFleet();
+        DB::connection('sqlsrv_menam')->table('gps_trip_daily')->insert([
+            'ship_date' => self::DATE,
+            'plate_key' => '712519',
+            'plate_no' => '71-2519',
+            'has_route' => 1,
+        ]);
+
+        $result = $service->summarizeDay(self::DATE, false, 0);
+
+        $this->assertSame('partial', $result['status']);
+        $this->assertSame(0, $result['skipped']);
+        $this->assertSame(2, $result['pending']);
+        Http::assertSentCount(1); // vehicle master only
     }
 
     public function test_trends_group_by_week_truck_and_customer(): void
