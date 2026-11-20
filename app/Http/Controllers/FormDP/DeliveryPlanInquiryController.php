@@ -274,7 +274,7 @@ class DeliveryPlanInquiryController extends Controller
     {
         $user = $request->user();
         if ($user === null || !method_exists($user, 'isPlannerDepartment') || !$user->isPlannerDepartment()) {
-            abort(403, 'Export เธเธตเนเธชเธณเธซเธฃเธฑเธเนเธเธเธ Planner เน€เธ—เนเธฒเธเธฑเนเธ');
+            abort(403, 'Export นี้สำหรับแผนก Planner เท่านั้น');
         }
 
         $filters = $request->all();
