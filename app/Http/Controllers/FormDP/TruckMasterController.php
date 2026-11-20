@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\FormDP;
 
 use App\Http\Controllers\Controller;
+use App\Services\FormDP\DtcGpsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -22,8 +23,12 @@ class TruckMasterController extends Controller
 
         $drivers = $this->driverOptions();
         $driverMap = $this->truckDriverMap();
+        // GPS link appears only after database/sql/formdp_gps_phase1_locations.sql has been run.
+        $hasDtcGpsColumn = $this->hasColumn('delivery_plan_truck_master', 'dtc_gps_id');
+        // From cache only: opening this page never calls DTC.
+        $dtcVehicles = $hasDtcGpsColumn ? app(DtcGpsService::class)->cachedVehicleOptions() : [];
 
-        return view('formdp.masters.trucks', compact('rows', 'drivers', 'driverMap'));
+        return view('formdp.masters.trucks', compact('rows', 'drivers', 'driverMap', 'hasDtcGpsColumn', 'dtcVehicles'));
     }
 
     public function saveTruck(Request $request, ?int $id = null)
@@ -37,7 +42,21 @@ class TruckMasterController extends Controller
             'car_length' => ['nullable', 'numeric', 'min:0'],
             'remark' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'in:ACTIVE,INACTIVE'],
+            'dtc_gps_id' => ['nullable', 'string', 'max:30', 'regex:/^[A-Za-z0-9]+$/'],
         ]);
+
+        $updateGpsLink = $request->has('dtc_gps_id') && $this->hasColumn('delivery_plan_truck_master', 'dtc_gps_id');
+        $dtcGpsId = trim((string) ($data['dtc_gps_id'] ?? ''));
+        if ($updateGpsLink && $dtcGpsId !== '') {
+            $usedBy = $this->conn()
+                ->table('delivery_plan_truck_master')
+                ->where('dtc_gps_id', $dtcGpsId)
+                ->when($id, fn ($query) => $query->where('id', '<>', $id))
+                ->value('plate_no');
+            if ($usedBy !== null) {
+                return back()->withInput()->withErrors(['dtc_gps_id' => "GPS DTC นี้ผูกกับรถ {$usedBy} อยู่แล้ว"]);
+            }
+        }
 
         $driverStaffId = (int) ($data['driver_staff_id'] ?? 0);
         $driver = $driverStaffId > 0
@@ -57,6 +76,9 @@ class TruckMasterController extends Controller
             'remark' => trim((string) ($data['remark'] ?? '')),
             'status' => $data['status'] ?? 'ACTIVE',
         ];
+        if ($updateGpsLink) {
+            $payload['dtc_gps_id'] = $dtcGpsId !== '' ? $dtcGpsId : null;
+        }
 
         $truckId = $this->saveRow('delivery_plan_truck_master', $payload, $id);
         $this->syncTruckDriverMap($truckId, $driverStaffId);
@@ -235,6 +257,18 @@ class TruckMasterController extends Controller
         if (!empty($payload)) {
             $this->conn()->table($table)->where('id', $id)->update($payload);
         }
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        return $this->conn()
+            ->table('sys.columns as c')
+            ->join('sys.objects as o', 'o.object_id', '=', 'c.object_id')
+            ->join('sys.schemas as s', 's.schema_id', '=', 'o.schema_id')
+            ->where('s.name', 'dbo')
+            ->where('o.name', $table)
+            ->where('c.name', $column)
+            ->exists();
     }
 
     private function onlyExistingColumns(string $table, array $payload): array

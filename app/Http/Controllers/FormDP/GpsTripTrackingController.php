@@ -5,6 +5,7 @@ namespace App\Http\Controllers\FormDP;
 use App\Http\Controllers\Controller;
 use App\Services\FormDP\DtcGpsService;
 use App\Services\FormDP\DtcRateLimitException;
+use App\Services\FormDP\GpsCustomerLocationService;
 use App\Services\FormDP\GpsTripQueueService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +22,8 @@ class GpsTripTrackingController extends Controller
 {
     public function __construct(
         private GpsTripQueueService $queueService,
-        private DtcGpsService $dtcGpsService
+        private DtcGpsService $dtcGpsService,
+        private GpsCustomerLocationService $locationService
     )
     {
     }
@@ -169,13 +171,29 @@ class GpsTripTrackingController extends Controller
      */
     private function fleetVehicles(string $queueDate): array
     {
-        return $this->queueService->fleetForDate($queueDate)->map(function (array $truck) use ($queueDate) {
+        $fleet = $this->queueService->fleetForDate($queueDate);
+        // Customer pins (GPS Phase 1): address-specific location first, then the customer default.
+        $locations = $this->locationService->locationsForDeliveries(
+            $fleet->flatMap(fn (array $truck) => $truck['deliveries'])->all()
+        );
+        $withLocation = function (array $delivery) use ($locations): array {
+            $byAddress = $locations[$this->queueService->customerCompany($delivery['company'] ?? null) . '|' . (int) ($delivery['customer_id'] ?? 0)] ?? [];
+            $location = $byAddress[$this->locationService->addressKey($delivery['address'] ?? '')] ?? $byAddress[''] ?? null;
+
+            return [...$delivery, 'location' => $location
+                ? ['lat' => $location['lat'], 'lon' => $location['lon'], 'radius_m' => $location['radius_m'], 'label' => $location['label']]
+                : null];
+        };
+
+        return $fleet->map(function (array $truck) use ($queueDate, $withLocation) {
+            $truck['deliveries'] = array_map($withLocation, $truck['deliveries']);
             $hasQueue = $truck['trip_nos'] !== [];
 
             return [
                 'key' => 'TRUCK-' . $truck['plate_key'],
                 'plate_no' => $truck['plate_no'],
                 'truck_id' => $truck['truck_id'],
+                'dtc_gps_id' => (string) ($truck['dtc_gps_id'] ?? ''),
                 'fleet_source' => $truck['source'],
                 'has_queue' => $hasQueue,
                 'driver_name' => $truck['driver_name'] !== '' ? $truck['driver_name'] : '-',

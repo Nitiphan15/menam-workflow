@@ -42,6 +42,7 @@
     let map = null;
     let companyMarker = null;
     let routeLayer = null;
+    let stopsLayer = null;
     const markers = new Map();
     const routes = new Map(); // key -> { status: 'loading'|'ok'|'error', data?, error? }
     let items = [];
@@ -321,7 +322,7 @@
             L.polyline(points, { color: '#126a83', weight: 4, opacity: .8 }),
             L.circleMarker(points[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#126a83', fillOpacity: 1 }).bindTooltip(`เริ่ม ${hhmm(state.data.points[0].time)}`),
         ]).addTo(map);
-        const bounds = L.latLngBounds(item.position ? [...points, item.position] : points);
+        const bounds = L.latLngBounds([...points, ...(item.position ? [item.position] : []), ...stopPoints(item)]);
         map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
 
@@ -377,7 +378,7 @@
         const deliveries = Array.isArray(item.deliveries) ? item.deliveries : [];
         if (!deliveries.length) return '<span class="gps-load-empty">ไม่มีรายการส่งในคิววันที่เลือก</span>';
         return deliveries.map((delivery, index) => `<span class="gps-load-stop">
-            <span class="gps-load-stop-head"><span class="gps-load-stop-no">${index + 1}</span><strong>${escapeHtml(delivery.customer || '-')}</strong></span>
+            <span class="gps-load-stop-head"><span class="gps-load-stop-no">${index + 1}</span><strong>${escapeHtml(delivery.customer || '-')}</strong>${delivery.location ? '<span class="gps-pin-tag is-ok" title="มีพิกัดลูกค้า"><i class="fas fa-location-dot"></i> พิกัด</span>' : '<span class="gps-pin-tag" title="ยังไม่ได้ปักพิกัดลูกค้า (เมนู พิกัดลูกค้า GPS)">ไม่มีพิกัด</span>'}</span>
             ${(delivery.items || []).map((line) => `<span class="gps-load-line"><span><b>${escapeHtml(line.product || line.part_number || '-')}</b><small>${escapeHtml(line.so_number || '-')} · ${escapeHtml(line.dp_ref || '-')}${line.part_number ? ` · ${escapeHtml(line.part_number)}` : ''}</small></span><strong>${qtyFormat.format(Number(line.quantity || 0))} ${escapeHtml(line.unit || '')}</strong></span>`).join('')}
         </span>`).join('');
     }
@@ -551,10 +552,31 @@
     });
 
     // ---------- interactions ----------
+    // Customer pins of the selected truck's deliveries (from "พิกัดลูกค้า (GPS)").
+    function stopPoints(item) {
+        return (item?.deliveries || []).filter((delivery) => delivery.location).map((delivery) => [delivery.location.lat, delivery.location.lon]);
+    }
+
+    function drawStops(item) {
+        if (stopsLayer) { stopsLayer.remove(); stopsLayer = null; }
+        if (!map || !item) return;
+        const layers = [];
+        (item.deliveries || []).forEach((delivery, index) => {
+            if (!delivery.location) return;
+            const point = [delivery.location.lat, delivery.location.lon];
+            layers.push(L.circle(point, { radius: delivery.location.radius_m || 150, color: '#16856f', weight: 2, fillOpacity: .12 }));
+            layers.push(L.marker(point, {
+                icon: L.divIcon({ className: '', html: `<div class="gps-stop-pin">${index + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }),
+            }).bindTooltip(`${index + 1}. ${delivery.customer || ''}`));
+        });
+        if (layers.length) stopsLayer = L.layerGroup(layers).addTo(map);
+    }
+
     function selectItem(key) {
         if (selectedKey === key) {
             selectedKey = null;
             if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+            drawStops(null);
             renderAll();
             return;
         }
@@ -563,8 +585,11 @@
         if (item && !item.gps_id && !item.has_queue && item.kind === 'fleet') showNoGps = true;
         renderAll();
         if (!item) return;
-        if (item.position && map) map.flyTo(item.position, Math.max(map.getZoom(), 14), { duration: .45 });
         if (routeLayer) { routeLayer.remove(); routeLayer = null; }
+        drawStops(item);
+        const focus = [...(item.position ? [item.position] : []), ...stopPoints(item)];
+        if (map && focus.length > 1) map.fitBounds(L.latLngBounds(focus), { padding: [40, 40], maxZoom: 15 });
+        else if (map && focus.length === 1) map.flyTo(focus[0], Math.max(map.getZoom(), 14), { duration: .45 });
         if (item.gps_id) loadRoute(item);
     }
 

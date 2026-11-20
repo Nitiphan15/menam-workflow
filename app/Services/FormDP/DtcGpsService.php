@@ -84,6 +84,37 @@ class DtcGpsService
         return [...$entry, 'from_cache' => false];
     }
 
+    /**
+     * gps_id => plate shown by DTC, from the cached Vehicle Master / live snapshot only (never calls DTC).
+     *
+     * @return array<string, string>
+     */
+    public function cachedVehicleOptions(): array
+    {
+        $master = Cache::get(self::MASTER_CACHE_KEY);
+        $snapshot = Cache::get(self::LIVE_SNAPSHOT_KEY);
+        $rows = [
+            ...(is_array($master) ? ($master['data'] ?? []) : []),
+            ...(is_array($snapshot) ? ($snapshot['rows'] ?? []) : []),
+        ];
+
+        $options = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $gpsId = trim((string) ($row['gps_id'] ?? ''));
+            if ($gpsId === '' || isset($options[$gpsId])) {
+                continue;
+            }
+            [$plate] = $this->resolvePlate($row);
+            $options[$gpsId] = $plate !== '' ? $plate : $gpsId;
+        }
+        asort($options);
+
+        return $options;
+    }
+
     public function isVehicleMasterCached(): bool
     {
         $cached = Cache::get(self::MASTER_CACHE_KEY);
@@ -275,6 +306,40 @@ class DtcGpsService
     public function getRealtimeData(array $gpsIds = []): array
     {
         return $this->post('getRealtimeData', ['gps_list' => array_values(array_map('strval', $gpsIds))]);
+    }
+
+    /**
+     * DTC points of interest saved in the DTC web monitor (manual section 3.5). 1 request.
+     * Returns only what the location page needs; polygons and remarks are dropped.
+     *
+     * @return array<int, array{poi_id: string, poi_name: string, location_info: string, poi_type: string, lat: float, lon: float, area_m: ?int}>
+     */
+    public function getPoiList(): array
+    {
+        return $this->sanitizePoiResponse($this->post('getPOI'));
+    }
+
+    public function sanitizePoiResponse(array $response): array
+    {
+        return collect(is_array($response['data'] ?? null) ? $response['data'] : [])
+            ->filter(fn ($row) => is_array($row))
+            ->map(fn (array $row) => $this->trimKeys($row))
+            ->filter(fn (array $row) => trim((string) ($row['poi_id'] ?? '')) !== ''
+                && is_numeric($row['lat'] ?? null) && is_numeric($row['lon'] ?? null)
+                && abs((float) $row['lat']) <= 90 && abs((float) $row['lon']) <= 180
+                && !((float) $row['lat'] == 0.0 && (float) $row['lon'] == 0.0))
+            ->map(fn (array $row) => [
+                'poi_id' => mb_substr(trim((string) $row['poi_id']), 0, 20),
+                'poi_name' => mb_substr(trim((string) ($row['poi_name'] ?? '')), 0, 250),
+                'location_info' => mb_substr(trim((string) ($row['location_info'] ?? '')), 0, 500),
+                'poi_type' => mb_substr(trim((string) ($row['poi_type'] ?? '')), 0, 5),
+                'lat' => round((float) $row['lat'], 6),
+                'lon' => round((float) $row['lon'], 6),
+                'area_m' => is_numeric($row['area_m'] ?? null) ? (int) $row['area_m'] : null,
+            ])
+            ->unique('poi_id')
+            ->values()
+            ->all();
     }
 
     /**
@@ -649,25 +714,37 @@ class DtcGpsService
 
     public function matchVehicles(array $dtcRows, array $formDpVehicles): array
     {
-        $formDpByPlate = collect($formDpVehicles)->keyBy(
-            fn (array $vehicle) => $this->normalizePlate($vehicle['plate_no'] ?? '')
-        );
+        // 1) Trucks linked in Truck Master (dtc_gps_id) match only by that id.
+        // 2) Trucks without a link fall back to plate matching (Vehicle Master plate / truck_name).
+        $formDpByGps = collect($formDpVehicles)
+            ->filter(fn (array $vehicle) => trim((string) ($vehicle['dtc_gps_id'] ?? '')) !== '')
+            ->keyBy(fn (array $vehicle) => trim((string) $vehicle['dtc_gps_id']));
+        $formDpByPlate = collect($formDpVehicles)
+            ->filter(fn (array $vehicle) => trim((string) ($vehicle['dtc_gps_id'] ?? '')) === '')
+            ->keyBy(fn (array $vehicle) => $this->normalizePlate($vehicle['plate_no'] ?? ''));
 
         $matchedFormDpKeys = collect();
-        $rows = collect($dtcRows)->map(function ($dtcRow) use ($formDpByPlate, $matchedFormDpKeys) {
+        $rows = collect($dtcRows)->map(function ($dtcRow) use ($formDpByGps, $formDpByPlate, $matchedFormDpKeys) {
             $dtcRow = is_array($dtcRow) ? $dtcRow : [];
             // Vehicle Master plate first (when it is a real plate), then vehicle_name / truck_name.
             [$dtcName] = $this->resolvePlate($dtcRow);
-            $plateKey = $this->normalizePlate($dtcName);
-            $match = $plateKey !== '' ? $formDpByPlate->get($plateKey) : null;
+            $gpsId = trim((string) ($dtcRow['gps_id'] ?? ''));
+            $match = $gpsId !== '' ? $formDpByGps->get($gpsId) : null;
+            $matchBy = $match !== null ? 'gps_id' : null;
+            if ($match === null) {
+                $plateKey = $this->normalizePlate($dtcName);
+                $match = $plateKey !== '' ? $formDpByPlate->get($plateKey) : null;
+                $matchBy = $match !== null ? 'plate' : null;
+            }
             if ($match !== null) {
-                $matchedFormDpKeys->push($plateKey);
+                $matchedFormDpKeys->push($this->normalizePlate($match['plate_no'] ?? ''));
             }
 
             return [
                 'gps_id' => (string) ($dtcRow['gps_id'] ?? ''),
                 'dtc_name' => $dtcName,
                 'matched' => $match !== null,
+                'match_by' => $matchBy,
                 'plate_no' => (string) ($match['plate_no'] ?? ''),
                 'trip_ref' => (string) ($match['trip_ref'] ?? ''),
                 'driver_name' => (string) ($match['driver_name'] ?? ''),
@@ -684,6 +761,7 @@ class DtcGpsService
                 'gps_id' => '',
                 'dtc_name' => '',
                 'matched' => false,
+                'match_by' => null,
                 'plate_no' => (string) ($vehicle['plate_no'] ?? ''),
                 'trip_ref' => (string) ($vehicle['trip_ref'] ?? ''),
                 'driver_name' => (string) ($vehicle['driver_name'] ?? ''),

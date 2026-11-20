@@ -242,6 +242,9 @@
 .gps-route-facts small { color: var(--gps-muted); font-size: .68rem; }
 .gps-route-facts b { font-size: .8rem; }
 .gps-route-foot { display: block; margin-top: .4rem; color: var(--gps-muted); font-size: .66rem; }
+.gps-stop-pin { display: grid; place-items: center; width: 1.5rem; height: 1.5rem; border: 2px solid #fff; border-radius: 50%; background: #16856f; color: #fff; font-size: .72rem; font-weight: 800; box-shadow: 0 3px 8px rgba(23,32,51,.25); }
+.gps-pin-tag { margin-left: auto; padding: .05rem .35rem; border-radius: 999px; background: #fff0ed; color: #b42318; font-size: .62rem; font-weight: 700; white-space: nowrap; }
+.gps-pin-tag.is-ok { background: #e9f7f3; color: #08735d; }
 .gps-popup-list { margin: .35rem 0 0; padding-left: 1rem; font-size: .76rem; }
 .gps-queue-date-form { flex: 0 0 8.6rem; margin: 0; }
 .gps-queue-date-form .form-control { padding: .2rem .4rem; font-size: .78rem; }
