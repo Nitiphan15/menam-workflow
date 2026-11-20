@@ -54,6 +54,7 @@ class GpsTripQueueService
                     'dp.customer_name',
                     'dp.customer_id',
                     'dp.company',
+                    'dp.window_at',
                     'c.name as master_customer_name',
                 ])
                 ->whereRaw('CAST(dp.ship_posted_at AS date) = ?', [$date])
@@ -97,6 +98,12 @@ class GpsTripQueueService
                                     'company' => $this->customerCompany($firstItem->company ?? null),
                                     'customer_id' => $firstItem->customer_id !== null ? (int) $firstItem->customer_id : null,
                                     'address' => trim((string) ($firstItem->address ?? '')),
+                                    // "ช่วงเวลารับส่ง": only the time of day matters; earliest line wins.
+                                    'window_time' => $customerItems
+                                        ->map(fn ($item) => $this->windowTime($item->window_at ?? null))
+                                        ->filter()
+                                        ->sort()
+                                        ->first(),
                                     'items' => $customerItems->map(function ($item) {
                                         $pieceQuantity = (int) ($item->sell_by_line ?? 0) === 1
                                             && (float) ($item->qty ?? 0) === 0.0;
@@ -207,6 +214,16 @@ class GpsTripQueueService
         return collect(array_values($fleet))
             ->sortBy(fn (array $truck) => ($truck['trip_nos'] === [] ? '1' : '0') . $truck['plate_key'])
             ->values();
+    }
+
+    /** "HH:MM" from delivery_plan_data.window_at (the date part is not the delivery date). */
+    public function windowTime($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return preg_match('/(\d{2}):(\d{2})/', (string) $value, $match) ? $match[1] . ':' . $match[2] : null;
     }
 
     /** Same rule as the customer join: empty company means MSW. */

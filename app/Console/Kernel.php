@@ -75,6 +75,14 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Bangkok')
             ->onOneServer()
             ->withoutOverlapping(14);
+
+        // GPS planner dashboard: summarize yesterday's DTC routes (≈1 request per GPS truck)
+        // ถ้ายังไม่ได้รัน database/sql/formdp_gps_dashboard.sql command จะข้ามเอง
+        $schedule->command('gps:summarize-day --yesterday')
+            ->dailyAt('00:30')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(60);
     }
 
     /**

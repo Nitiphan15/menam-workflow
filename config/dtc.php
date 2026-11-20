@@ -21,4 +21,9 @@ return [
     // Monthly request quota from DTC (unconfirmed: ~25,000). Calls stop locally at quota - reserve.
     'monthly_quota' => (int) env('DTC_GPS_MONTHLY_QUOTA', 25000),
     'monthly_reserve' => (int) env('DTC_GPS_MONTHLY_RESERVE', 500),
+
+    // Planner dashboard (gps:summarize-day). A truck that re-enters the company area after this
+    // time is "กลับช้า". Arrival later than the DP window_at time (+ grace) is "ถึงช้า".
+    'late_return_time' => env('DTC_GPS_LATE_RETURN_TIME', '18:00'),
+    'late_arrival_grace_minutes' => (int) env('DTC_GPS_LATE_ARRIVAL_GRACE_MINUTES', 0),
 ];
