@@ -1595,13 +1595,16 @@
 
                     const mfgQty = toNum(it.qty ?? 0);
                     if (isPieceSale()) {
-                        if (sellByLineQtyInput && mfgQty > 0) sellByLineQtyInput.value = String(Math.round(mfgQty));
+                        // D8 / งานขายเป็นชิ้นต้องคง Qty และเพดานจาก SO ไว้
+                        // workorder.qty เป็น KG จึงห้ามเขียนทับจำนวนชิ้น
                         if (qtyKg) qtyKg.value = '0';
-                    } else if (qtyKg && !isSellByLineYes()) {
-                        qtyKg.value = String(mfgQty);
+                    } else {
+                        if (qtyKg && !isSellByLineYes()) {
+                            qtyKg.value = String(mfgQty);
+                        }
+                        setQtyLimit(mfgQty, 'MFG');
                     }
 
-                    setQtyLimit(mfgQty, 'MFG');
                     closeDd();
                 }
 
