@@ -42,6 +42,7 @@ class GpsDashboardController extends Controller
             'weekOptions' => self::WEEK_OPTIONS,
             'board' => $ready ? $this->summary->dayBoard($date) : null,
             'trends' => $ready ? $this->summary->trends($from, $to) : null,
+            'travelTimes' => $ready ? $this->summary->travelTimes($from, $to) : [],
             'canRefresh' => Gate::allows('DPA'),
             'dtcUsage' => $this->dtc->usageSummary(),
             'lateReturnTime' => (string) config('dtc.late_return_time', '18:00'),

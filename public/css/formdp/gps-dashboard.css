@@ -20,6 +20,7 @@
 .gdash-cards .is-miss { border-top-color: var(--gd-miss); } .gdash-cards .is-miss strong { color: var(--gd-miss); }
 .gdash-cards .is-caution { border-top-color: #d97706; background: #fffbeb; } .gdash-cards .is-caution strong { color: #8a5200; }
 .gdash-cards.is-compact strong { font-size: 1.4rem; }
+.gdash-cards .is-unplanned { border-top-color: #64748b; } .gdash-cards .is-unplanned strong { color: #334155; }
 
 .gdash-quality { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .7rem .9rem; border-radius: .65rem; background: var(--gd-ok-bg); color: var(--gd-ok); }
 .gdash-quality > div { display: flex; flex-wrap: wrap; gap: .35rem .75rem; align-items: baseline; }
@@ -41,6 +42,13 @@
 .gdash-stop.is-ok { background: var(--gd-ok-bg); color: var(--gd-ok); }
 .gdash-stop.is-late { background: var(--gd-late-bg); color: var(--gd-late); }
 .gdash-stop.is-miss { background: var(--gd-miss-bg); color: var(--gd-miss); }
+.gdash-unplanned { margin-top: .35rem; }
+.gdash-stop.is-unplanned { background: #f1f3f6; color: #334155; border: 1px dashed #94a3b8; text-decoration: none; }
+.gdash-stop.is-unplanned:hover { background: #e8ecf1; }
+.gdash-stop.is-unknown { background: #fff; color: #64748b; border: 1px dotted #cbd5e1; text-decoration: none; }
+.gdash-stop.is-unplanned i { font-size: .65rem; color: #64748b; }
+.gdash-muted { color: var(--gd-muted); font-size: .74rem; }
+.gdash-travel td small { display: block; color: var(--gd-muted); font-size: .7rem; }
 .gdash-legend { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; }
 .gdash-legend .gdash-stop { flex-direction: row; }
 .gdash-board-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem 1rem; margin-bottom: .75rem; }
