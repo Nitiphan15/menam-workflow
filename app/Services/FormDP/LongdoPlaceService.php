@@ -72,6 +72,69 @@ class LongdoPlaceService
     }
 
     /** Usage of the current Longdo cycle (calendar month, Asia/Bangkok). */
+    /**
+     * Places whose name matches $keyword (company search for suggested customer pins), cached 30 days.
+     * GET https://search.longdo.com/mapsearch/json/search?keyword&limit&locale&key — 1 request.
+     *
+     * @return array<int, array{name:string, lat:float, lon:float, address:?string}>|null  null = not available
+     */
+    public function searchByName(string $keyword, int $limit = 5): ?array
+    {
+        $keyword = trim($keyword);
+        if (!$this->enabled() || mb_strlen($keyword) < 2) {
+            return null;
+        }
+        $cacheKey = 'longdo.search.v1.' . sha1(mb_strtolower($keyword));
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+        if (!$this->reserve(1)) {
+            return null;
+        }
+
+        try {
+            $response = $this->client()->get('https://search.longdo.com/mapsearch/json/search', [
+                'keyword' => $keyword,
+                'limit' => max(1, min(10, $limit)),
+                'locale' => 'th',
+                'key' => (string) config('dtc.longdo_key'),
+            ])->throw()->json();
+        } catch (Throwable $e) {
+            Log::warning('Longdo name search failed', ['message' => mb_substr($e->getMessage(), 0, 200)]);
+
+            return null;
+        }
+
+        $places = [];
+        foreach ((array) ($response['data'] ?? []) as $place) {
+            if (!is_array($place) || !empty($place['obsoleted']) || !is_numeric($place['lat'] ?? null) || !is_numeric($place['lon'] ?? null)) {
+                continue;
+            }
+            $name = trim((string) ($place['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+            $places[] = [
+                'name' => mb_substr($name, 0, 200),
+                'lat' => round((float) $place['lat'], 6),
+                'lon' => round((float) $place['lon'], 6),
+                'address' => isset($place['address']) && trim((string) $place['address']) !== '' ? mb_substr(trim((string) $place['address']), 0, 200) : null,
+            ];
+        }
+        Cache::put($cacheKey, $places, now()->addDays(30));
+
+        return $places;
+    }
+
+    /** Cached name-search result only (never sends a request); null = not searched yet. */
+    public function cachedSearchByName(string $keyword): ?array
+    {
+        $cached = Cache::get('longdo.search.v1.' . sha1(mb_strtolower(trim($keyword))));
+
+        return is_array($cached) ? $cached : null;
+    }
+
     public function usageSummary(): array
     {
         $now = now('Asia/Bangkok');

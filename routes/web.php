@@ -558,6 +558,15 @@ Route::middleware(['auth'])
           ->where(['company' => '[A-Za-z0-9_-]{1,10}', 'customerId' => '[0-9]+'])
           ->middleware('throttle:4,1')
           ->name('gps-locations.stop-suggestions');
+        // Suggested pins for customers without one (no request; Longdo search 1 request per customer, cached)
+        Route::get('/gps-locations/pin-suggestions', [GpsCustomerLocationController::class, 'pinSuggestions'])
+          ->middleware('throttle:10,1')
+          ->name('gps-locations.pin-suggestions');
+        Route::post('/gps-locations/pin-suggestions/longdo', [GpsCustomerLocationController::class, 'pinSuggestionsLongdo'])
+          ->middleware('throttle:20,1')
+          ->name('gps-locations.pin-suggestions.longdo');
+        Route::post('/gps-locations/pin-suggestions/save', [GpsCustomerLocationController::class, 'savePinSuggestions'])
+          ->name('gps-locations.pin-suggestions.save');
       });
       Route::post('/gps-trip-tracking/test-dtc', [GpsTripTrackingController::class, 'testDtcConnection'])
         ->middleware(['can:ADMINWEB', 'throttle:1,1'])

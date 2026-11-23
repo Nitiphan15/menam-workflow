@@ -263,6 +263,46 @@ class GpsCustomerLocationService
         return ['saved' => $saved, 'skipped' => $skipped];
     }
 
+    /**
+     * Save confirmed suggested pins as the customer default. Never overwrites an existing default pin.
+     * source: dtc_poi (kept as dtc_poi) | longdo | stops (stored as manual, origin written in the label).
+     *
+     * @param array<int, array{company:string, customer_id:int, lat:float, lon:float, label:?string, source:string, dtc_poi_id:?string, radius_m:?int}> $items
+     */
+    public function saveSuggestedPins(array $items, ?int $userId): array
+    {
+        if (!$this->tablesReady()) {
+            throw new RuntimeException('GPS location tables are not created yet.');
+        }
+        $defaults = $this->defaultPinKeys();
+        $saved = 0;
+        $skipped = [];
+        foreach ($items as $item) {
+            $key = $item['company'] . '|' . (int) $item['customer_id'];
+            if (isset($defaults[$key])) {
+                $skipped[] = ['key' => $key, 'reason' => 'มีพิกัดอยู่แล้ว'];
+                continue;
+            }
+            $isPoi = $item['source'] === 'dtc_poi' && !empty($item['dtc_poi_id']);
+            $prefix = ['longdo' => 'Longdo: ', 'stops' => 'จุดจอดรถ: '][$item['source']] ?? '';
+            $this->saveLocation([
+                'company' => $item['company'],
+                'customer_id' => (int) $item['customer_id'],
+                'address' => null,
+                'label' => mb_substr($prefix . trim((string) ($item['label'] ?? '')), 0, 255),
+                'lat' => (float) $item['lat'],
+                'lon' => (float) $item['lon'],
+                'radius_m' => min(2000, max(self::DEFAULT_RADIUS_M, (int) ($item['radius_m'] ?? self::DEFAULT_RADIUS_M))),
+                'source' => $isPoi ? 'dtc_poi' : 'manual',
+                'dtc_poi_id' => $isPoi ? $item['dtc_poi_id'] : null,
+            ], $userId);
+            $defaults[$key] = true;
+            $saved++;
+        }
+
+        return ['saved' => $saved, 'skipped' => $skipped];
+    }
+
     /** "company|customer_id" => true for customers that already have an active default pin. */
     private function defaultPinKeys(): array
     {

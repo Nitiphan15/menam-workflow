@@ -23,7 +23,10 @@
          data-schema-url="{{ route('dp.gps-locations.refresh-schema') }}"
          data-bulk-candidates-url="{{ route('dp.gps-locations.bulk-candidates') }}"
          data-bulk-confirm-url="{{ route('dp.gps-locations.bulk-confirm') }}"
-         data-stop-url="{{ route('dp.gps-locations.stop-suggestions', ['company' => '__COMPANY__', 'customerId' => '__CUSTOMER__']) }}">
+         data-stop-url="{{ route('dp.gps-locations.stop-suggestions', ['company' => '__COMPANY__', 'customerId' => '__CUSTOMER__']) }}"
+         data-pin-suggestions-url="{{ route('dp.gps-locations.pin-suggestions') }}"
+         data-pin-longdo-url="{{ route('dp.gps-locations.pin-suggestions.longdo') }}"
+         data-pin-save-url="{{ route('dp.gps-locations.pin-suggestions.save') }}">
 
         @unless ($tablesReady)
             <section class="gloc-setup" role="alert">
@@ -49,6 +52,7 @@
                     @if ($poiStats['count'] > 0)
                         <button type="button" class="btn btn-success btn-sm" id="gloc-bulk-open" title="เลือกจุด DTC ที่ชื่อตรงกับลูกค้าแล้วบันทึกทีเดียว (ไม่ใช้ request)"><i class="fas fa-list-check me-1"></i> ยืนยันหลายราย</button>
                     @endif
+                    <button type="button" class="btn btn-primary btn-sm" id="gloc-suggest-open" title="หาพิกัดให้ลูกค้าที่ยังไม่มีหมุด จากจุด DTC / Longdo / จุดที่รถจอดจริง"><i class="fas fa-wand-magic-sparkles me-1"></i> พิกัดแนะนำอัตโนมัติ</button>
                 @endif
             </div>
         </section>
@@ -146,6 +150,40 @@
                             <span id="gloc-bulk-count" class="me-auto gloc-muted"></span>
                             <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
                             <button type="button" class="btn btn-success btn-sm" id="gloc-bulk-save" disabled><i class="fas fa-floppy-disk me-1"></i> บันทึกที่เลือก</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        @if ($canEdit && $tablesReady)
+            <div class="modal fade" id="gloc-suggest-modal" tabindex="-1" aria-labelledby="gloc-suggest-title" aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="gloc-suggest-title">พิกัดแนะนำอัตโนมัติ (ลูกค้าที่ยังไม่มีหมุด)</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="ปิด"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="gloc-bulk-tools">
+                                <label>แสดง
+                                    <select id="gloc-suggest-level" class="form-select form-select-sm">
+                                        <option value="high">มั่นใจสูงเท่านั้น</option>
+                                        <option value="medium" selected>สูง + กลาง</option>
+                                        <option value="all">ทั้งหมด</option>
+                                    </select>
+                                </label>
+                                <label>ค้นหา<input type="search" id="gloc-suggest-search" class="form-control form-control-sm" placeholder="ชื่อลูกค้า"></label>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="gloc-suggest-longdo" title="ค้นชื่อลูกค้าใน Longdo ทีละ 10 ราย (1 request ต่อราย, จำผล 30 วัน)"><i class="fas fa-magnifying-glass-location me-1"></i> ค้นหาใน Longdo (10 รายถัดไป)</button>
+                                <span class="gloc-muted" id="gloc-suggest-usage"></span>
+                            </div>
+                            <div class="gloc-muted mb-2">มั่นใจสูง = ชื่อตรงกับลูกค้า <b>และ</b> รถเราเคยจอดใกล้จุดนั้น (≤ 300 ม.) ในวันที่ลูกค้าอยู่ในคิว · ติ๊กให้อัตโนมัติเฉพาะมั่นใจสูง · ไม่เขียนทับหมุดที่มีอยู่</div>
+                            <div id="gloc-suggest-body" class="gloc-bulk-body"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <span id="gloc-suggest-count" class="me-auto gloc-muted"></span>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                            <button type="button" class="btn btn-primary btn-sm" id="gloc-suggest-save" disabled><i class="fas fa-floppy-disk me-1"></i> บันทึกที่เลือก</button>
                         </div>
                     </div>
                 </div>
