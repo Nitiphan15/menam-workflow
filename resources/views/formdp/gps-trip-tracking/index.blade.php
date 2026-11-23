@@ -32,6 +32,11 @@
                             <i class="fas fa-gauge-high"></i> DTC เดือนนี้ {{ number_format($dtcUsage['month_total']) }} / {{ number_format($dtcUsage['quota']) }} · วันนี้ {{ number_format($dtcUsage['today']) }}
                         </span>
                     @endisset
+                    @if (!empty($longdoUsage['enabled']))
+                        <span id="gps-longdo-usage" class="{{ $longdoUsage['month_total'] >= $longdoUsage['monthly_limit'] * 0.8 ? 'is-stale' : '' }}" title="Longdo Map: รอบโควตา {{ $longdoUsage['cycle_start'] }} ถึง {{ $longdoUsage['cycle_end'] }} (รีเซ็ตทุกต้นเดือน) · เพดานต่อวัน {{ number_format($longdoUsage['daily_limit']) }}">
+                            <i class="fas fa-map-location-dot"></i> Longdo รอบนี้ {{ number_format($longdoUsage['month_total']) }} / {{ number_format($longdoUsage['monthly_limit']) }} · วันนี้ {{ number_format($longdoUsage['today']) }}
+                        </span>
+                    @endif
                 </div>
             </div>
             <div class="gps-toolbar-actions">

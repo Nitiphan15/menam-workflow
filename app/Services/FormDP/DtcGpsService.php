@@ -27,6 +27,11 @@ class DtcGpsService
         'gps_mileage',
         'license_plate',
         'vehicle_name',
+        // Place reported by DTC (no personal data): station = DTC POI the truck is in.
+        'station_name',
+        'sub_district_th',
+        'district_th',
+        'province_th',
     ];
 
     private const MASTER_SAFE_FIELDS = [

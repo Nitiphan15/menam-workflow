@@ -26,4 +26,13 @@ return [
     // time is "กลับช้า". Arrival later than the DP window_at time (+ grace) is "ถึงช้า".
     'late_return_time' => env('DTC_GPS_LATE_RETURN_TIME', '18:00'),
     'late_arrival_grace_minutes' => (int) env('DTC_GPS_LATE_ARRIVAL_GRACE_MINUTES', 0),
+
+    // Place names for STOPPED trucks from Longdo Map (sends the truck coordinate to Longdo).
+    // Empty key = feature off, no request. Each ~11 m spot is cached 30 days; each new spot costs 2 requests.
+    // Longdo quota is per CALENDAR MONTH (Active Cycle 1st–last day): free ~100,000 service requests/month,
+    // 60/min, ~5,000/day. We stop locally at these caps and fall back to our own place data.
+    'longdo_key' => env('LONGDO_MAP_API_KEY', ''),
+    'longdo_monthly_limit' => (int) env('LONGDO_MAP_MONTHLY_LIMIT', 90000),
+    'longdo_daily_limit' => (int) env('LONGDO_MAP_DAILY_LIMIT', 1000),
+    'longdo_nearby_span_m' => (int) env('LONGDO_MAP_NEARBY_SPAN_M', 500),
 ];

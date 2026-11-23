@@ -149,6 +149,36 @@
         items = fleetItems.concat(dtcOnly).map((item) => ({ ...item, state: stateOf(item) }));
     }
 
+    // Where a stopped truck is (server-side GpsPlaceResolver: company / customer pin / DTC station / POI / area).
+    const PLACE_PREFIX = { customer: 'ที่ลูกค้า', station: 'ที่จุด DTC', poi: 'ใกล้', road: 'ริม', area: 'แถว', company: '' };
+
+    function distanceText(meters) {
+        const value = Number(meters);
+        if (!Number.isFinite(value)) return '';
+        return value < 1000 ? `${Math.round(value / 10) * 10} ม.` : `${numberFormat.format(Math.round(value / 100) / 10)} กม.`;
+    }
+
+    function placeText(place) {
+        if (!place || !place.label) return '';
+        if (place.kind === 'near') return `ห่าง ${distanceText(place.distance_m)} จาก ${place.label}`;
+        const prefix = PLACE_PREFIX[place.kind] ?? '';
+        return `${prefix ? `${prefix} ` : ''}${place.label}`;
+    }
+
+    function mapsLink(item) {
+        if (!Array.isArray(item.position)) return '';
+        const [lat, lon] = item.position;
+        // Opens Google Maps only when clicked (nothing is sent automatically).
+        return `<a class="gps-place-map" href="https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lon.toFixed(6)}" target="_blank" rel="noopener noreferrer" title="เปิดตำแหน่งนี้ใน Google Maps"><i class="fas fa-up-right-from-square"></i> Google Maps</a>`;
+    }
+
+    function placeHtml(item) {
+        if (item.state?.phase !== 'stopped') return '';
+        const place = item.live?.place;
+        if (!place?.label) return '<span class="gps-place is-unknown"><i class="fas fa-location-dot"></i><span class="gps-place-text">จอดอยู่ · ไม่ทราบชื่อสถานที่</span>' + mapsLink(item) + '</span>';
+        return `<span class="gps-place is-${escapeHtml(place.kind)}" title="${escapeHtml(placeText(place))}${place.detail ? ` · ${escapeHtml(place.detail)}` : ''}"><i class="fas fa-location-dot"></i><span class="gps-place-text">จอด${escapeHtml(placeText(place))}${place.detail ? `<small>${escapeHtml(place.detail)}</small>` : ''}</span>${mapsLink(item)}</span>`;
+    }
+
     function stateOf(item) {
         if (!item.gps_id) return { label: 'ไม่มี GPS DTC', className: 'is-nodata', phase: 'nogps', stale: false };
         if (!item.position) return { label: 'DTC ไม่มีพิกัด', className: 'is-nodata', phase: 'nofix', stale: true };
@@ -428,6 +458,7 @@
                 <span class="gps-vehicle-top"><span class="gps-plate">${escapeHtml(item.plate_no)}</span><span class="gps-status ${item.state.className}">${escapeHtml(item.state.label)}</span></span>
                 <span class="gps-vehicle-meta ${item.state.stale ? 'is-stale' : ''}">${item.state.stale && item.gps_id ? '<b>ข้อมูลเก่า</b> · ' : ''}${escapeHtml(item.driver_name)} · ${escapeHtml(item.has_queue ? `${item.stops?.length || 0} จุดส่ง` : item.trip_ref)} · ${escapeHtml(gpsText)}</span>
             </button>
+            ${placeHtml(item)}
             ${item.kind === 'fleet' ? `<button type="button" class="gps-load-toggle" data-load="${escapeHtml(item.key)}" aria-expanded="${loadOpen}"><span>ส่งอะไรบ้าง</span><span>${lineCount} รายการ <i class="fas fa-chevron-${loadOpen ? 'up' : 'down'}"></i></span></button>` : ''}
             ${loadOpen ? `<span class="gps-load-detail">${deliveryHtml(item)}</span>` : ''}
             ${selected ? `<span class="gps-route-panel"><span class="gps-route-title">เส้นทางจริง ${escapeHtml(queueDate)}</span>${routeHtml(item)}</span>` : ''}
