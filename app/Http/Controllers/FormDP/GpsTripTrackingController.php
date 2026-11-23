@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\FormDP\DtcGpsService;
 use App\Services\FormDP\DtcRateLimitException;
 use App\Services\FormDP\GpsCustomerLocationService;
+use App\Services\FormDP\GpsPlaceResolver;
 use App\Services\FormDP\GpsStopVisitService;
 use App\Services\FormDP\GpsTripQueueService;
 use Carbon\Carbon;
@@ -25,7 +26,8 @@ class GpsTripTrackingController extends Controller
         private GpsTripQueueService $queueService,
         private DtcGpsService $dtcGpsService,
         private GpsCustomerLocationService $locationService,
-        private GpsStopVisitService $stopVisitService
+        private GpsStopVisitService $stopVisitService,
+        private GpsPlaceResolver $placeResolver
     )
     {
     }
@@ -36,6 +38,7 @@ class GpsTripTrackingController extends Controller
         $vehicles = $this->fleetVehicles($queueDate);
         // First render never calls DTC: show the last shared snapshot, the page then polls live().
         $snapshot = $this->dtcGpsService->cachedLiveSnapshot();
+        $snapshot['rows'] = $this->placeResolver->withPlaces($snapshot['rows']);
 
         return view('formdp.gps-trip-tracking.index', [
             'vehicles' => $vehicles,
@@ -43,6 +46,7 @@ class GpsTripTrackingController extends Controller
             'liveSnapshot' => $snapshot,
             'matchReport' => $this->dtcGpsService->matchVehicles($snapshot['rows'], $vehicles),
             'dtcUsage' => $this->dtcGpsService->usageSummary(),
+            'longdoUsage' => app(\App\Services\FormDP\LongdoPlaceService::class)->usageSummary(),
             'queueDate' => $queueDate,
             'isToday' => $queueDate === now('Asia/Bangkok')->toDateString(),
             'syncIntervalMinutes' => max(1, (int) config('dtc.sync_interval_minutes', 3)),
@@ -121,6 +125,7 @@ class GpsTripTrackingController extends Controller
     {
         $startedAt = microtime(true);
         $snapshot = $this->dtcGpsService->liveSnapshot($force, $refreshMaster);
+        $snapshot['rows'] = $this->placeResolver->withPlaces($snapshot['rows'] ?? []);
         $vehicles = $this->fleetVehicles($this->resolveQueueDate());
         $error = $snapshot['error'];
         unset($snapshot['error']);

@@ -18,6 +18,7 @@ class GpsCustomerLocationService
 {
     public const DEFAULT_RADIUS_M = 150;
     private const POI_CACHE_KEY = 'dtc_gps.poi_rows.v1';
+    private const PINS_CACHE_KEY = 'dtc_gps.active_pins.v1';
 
     public function __construct(private GpsTripQueueService $queueService)
     {
@@ -358,6 +359,8 @@ class GpsCustomerLocationService
             ]);
         });
 
+        Cache::forget(self::PINS_CACHE_KEY);
+
         return $this->presentLocation($this->db()->table('gps_customer_locations')->where('id', $id)->first());
     }
 
@@ -367,6 +370,8 @@ class GpsCustomerLocationService
         if (!$this->tablesReady()) {
             return false;
         }
+
+        Cache::forget(self::PINS_CACHE_KEY);
 
         return $this->db()->table('gps_customer_locations')
             ->where('id', $id)
@@ -440,7 +445,34 @@ class GpsCustomerLocationService
         ];
     }
 
-    private function poiRows(): array
+    /**
+     * All active customer pins with a display name (pin label, else customer name), cached 10 min.
+     * Used to say where a stopped truck is.
+     */
+    public function activePins(): array
+    {
+        if (!$this->tablesReady()) {
+            return [];
+        }
+
+        return Cache::remember(self::PINS_CACHE_KEY, now()->addMinutes(10), fn () => collect($this->db()->select(
+            "SELECT l.company, l.customer_id, l.label, l.lat, l.lon, l.radius_m,
+                    c.name AS customer_name
+             FROM gps_customer_locations l
+             LEFT JOIN customer c
+               ON c.id = l.customer_id
+              AND c.company COLLATE DATABASE_DEFAULT = l.company COLLATE DATABASE_DEFAULT
+             WHERE l.is_active = 1"
+        ))->map(fn ($row) => [
+            'name' => trim((string) ($row->customer_name ?: $row->label ?: ('ลูกค้า #' . (int) $row->customer_id))),
+            'label' => $row->label !== null ? trim((string) $row->label) : null,
+            'lat' => (float) $row->lat,
+            'lon' => (float) $row->lon,
+            'radius_m' => (int) $row->radius_m,
+        ])->all());
+    }
+
+    public function poiRows(): array
     {
         return Cache::remember(self::POI_CACHE_KEY, now()->addMinutes(10), fn () => $this->db()->table('gps_dtc_pois')
             ->select(['poi_id', 'poi_name', 'location_info', 'lat', 'lon', 'area_m'])

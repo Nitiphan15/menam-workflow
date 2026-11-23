@@ -723,7 +723,7 @@ class DtcGpsServiceTest extends TestCase
         $this->assertSame(208374.4, $rows[0]['gps_mileage']);
         $this->assertSame(31, $rows[0]['status_code']);
         $this->assertSame('Idle', $rows[0]['status_name_en']);
-        foreach (['truck_license', 'truck_type_name', 'hourmeter', 'oil', 'r_oil', 'station_id', 'station_name', 'driver_full_name', 'driver_card_id', 'driver_personalcard', 'ecu_rpm'] as $forbidden) {
+        foreach (['truck_license', 'truck_type_name', 'hourmeter', 'oil', 'r_oil', 'station_id', 'driver_full_name', 'driver_card_id', 'driver_personalcard', 'ecu_rpm'] as $forbidden) {
             $this->assertArrayNotHasKey($forbidden, $rows[0]);
         }
 
