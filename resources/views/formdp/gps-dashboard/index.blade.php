@@ -20,6 +20,7 @@
         return in_array($stop['status'], ['not_visited', 'passed'], true) ? 'is-miss' : 'is-none';
     };
     $fmtPercent = fn ($value) => $value === null ? '-' : number_format($value, 1) . '%';
+    $fmtMinutes = fn ($value) => $value === null ? '-' : ($value >= 60 ? intdiv((int) $value, 60) . ' ชม. ' . ((int) $value % 60) . ' นาที' : $value . ' นาที');
 @endphp
 
 @section('content')
@@ -75,6 +76,9 @@
                 <div class="is-miss"><span>ไม่ได้เข้าจุด</span><strong>{{ $s['stops_not_visited'] }}</strong><small>มีหมุดแต่ GPS ไม่เข้า</small></div>
                 <div class="is-late"><span>กลับช้า</span><strong>{{ $s['late_returns'] }}</strong><small>คัน</small></div>
                 <div><span>จุดที่มีหมุด</span><strong>{{ $s['stops_with_pin'] }}/{{ $s['stops_planned'] }}</strong><small>จุดไม่มีหมุดไม่นับช้า</small></div>
+                @if (!empty($s['timeline_ready']))
+                    <div class="is-unplanned"><span>จอดนอกแผน</span><strong>{{ $s['unplanned_count'] }}</strong><small>รวม {{ number_format($s['unplanned_minutes']) }} นาที (จอด 10 นาทีขึ้นไป){{ $s['unknown_count'] ? ' · ยังระบุไม่ได้ ' . $s['unknown_count'] . ' จุด (ลูกค้ายังไม่มีหมุด)' : '' }}</small></div>
+                @endif
             </section>
 
             <section class="gdash-board">
@@ -87,6 +91,7 @@
                             <button type="button" data-gdash-filter="late" aria-pressed="false">ช้า</button>
                             <button type="button" data-gdash-filter="no-pin" aria-pressed="false">ไม่มีหมุด</button>
                             <button type="button" data-gdash-filter="no-return" aria-pressed="false">ไม่กลับ</button>
+                            <button type="button" data-gdash-filter="unplanned" aria-pressed="false">จอดนอกแผน</button>
                         </div>
                         <label><input type="checkbox" id="gdash-hide-normal"> ซ่อนรถปกติ</label>
                         <small id="gdash-filter-count">แสดง {{ count($board['trucks']) }} คัน</small>
@@ -101,8 +106,9 @@
                                     $hasLate = $truck['late_return'] || collect($truck['stops'])->contains('is_late', true);
                                     $hasNoPin = collect($truck['stops'])->contains('status', 'no_location');
                                     $hasNoReturn = $truck['late_return'] && !$truck['returned_at'];
+                                    $hasUnplanned = collect($truck['unplanned'])->contains('kind', 'unplanned');
                                 @endphp
-                                <tr class="{{ $hasLate ? 'has-issue' : '' }}" data-late="{{ $hasLate ? 1 : 0 }}" data-no-pin="{{ $hasNoPin ? 1 : 0 }}" data-no-return="{{ $hasNoReturn ? 1 : 0 }}" data-issue="{{ ($hasLate || $hasNoPin || $hasNoReturn) ? 1 : 0 }}">
+                                <tr class="{{ $hasLate ? 'has-issue' : '' }}" data-late="{{ $hasLate ? 1 : 0 }}" data-no-pin="{{ $hasNoPin ? 1 : 0 }}" data-no-return="{{ $hasNoReturn ? 1 : 0 }}" data-unplanned="{{ $hasUnplanned ? 1 : 0 }}" data-issue="{{ ($hasLate || $hasNoPin || $hasNoReturn || $hasUnplanned) ? 1 : 0 }}">
                                     <td><b>{{ $truck['plate_no'] }}</b><small>{{ $truck['driver_name'] ?: '-' }} · เที่ยว {{ $truck['trip_nos'] }}</small>
                                         @if ($truck['note'])<small class="gdash-note">{{ $truck['note'] }}</small>@endif</td>
                                     <td>{{ $truck['left_company_at'] ?? '-' }}</td>
@@ -119,6 +125,16 @@
                                                 </span>
                                             @endforeach
                                         </div>
+                                        @if (!empty($truck['unplanned']))
+                                            <div class="gdash-stops gdash-unplanned" aria-label="จอดนอกแผน">
+                                                @foreach ($truck['unplanned'] as $stay)
+                                                    <a class="gdash-stop {{ $stay['kind'] === 'unknown' ? 'is-unknown' : 'is-unplanned' }}" href="https://www.google.com/maps/search/?api=1&query={{ number_format($stay['lat'], 6, '.', '') }},{{ number_format($stay['lon'], 6, '.', '') }}" target="_blank" rel="noopener noreferrer" title="เปิดใน Google Maps{{ $stay['place_detail'] ? ' · ' . $stay['place_detail'] : '' }}">
+                                                        <b><i class="fas fa-circle-pause"></i> {{ $stay['arrived_at'] }}–{{ $stay['left_at'] }} · {{ $stay['minutes'] }} นาที</b>
+                                                        <small>{{ $stay['kind'] === 'unknown' ? 'ยังระบุไม่ได้ · ' : '' }}{{ \Illuminate\Support\Str::limit($stay['place_label'] ?: 'ไม่ทราบชื่อสถานที่', 34) }}</small>
+                                                    </a>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     </td>
                                     <td class="{{ $truck['late_return'] ? 'gdash-late' : '' }}">{{ $truck['returned_at'] ?? '-' }}@if ($truck['late_return'])<small>กลับช้า</small>@endif</td>
                                     <td class="text-end">{{ $truck['km'] !== null ? number_format($truck['km'], 1) : '-' }}</td>
@@ -127,7 +143,7 @@
                         </tbody>
                     </table>
                     <div class="gdash-empty" id="gdash-filter-empty" hidden>ไม่พบรถตามตัวกรองนี้</div>
-                    <div class="gdash-legend"><span class="gdash-stop is-ok">ตรงเวลา</span><span class="gdash-stop is-late">ถึงช้า</span><span class="gdash-stop is-miss">ไม่ได้เข้า / ผ่านไม่จอด</span><span class="gdash-stop is-none">ไม่มีหมุด / ไม่มีเส้นทาง</span></div>
+                    <div class="gdash-legend"><span class="gdash-stop is-ok">ตรงเวลา</span><span class="gdash-stop is-late">ถึงช้า</span><span class="gdash-stop is-miss">ไม่ได้เข้า / ผ่านไม่จอด</span><span class="gdash-stop is-none">ไม่มีหมุด / ไม่มีเส้นทาง</span><span class="gdash-stop is-unplanned">จอดนอกแผน (กดเปิดแผนที่)</span><span class="gdash-stop is-unknown">จอดที่ยังระบุไม่ได้ (ลูกค้ายังไม่มีหมุด)</span></div>
                 @endif
             </section>
 
@@ -151,6 +167,9 @@
                     <div class="is-late"><span>ถึงช้า</span><strong>{{ $t['late_arrivals'] }}</strong></div>
                     <div class="is-late"><span>กลับช้า</span><strong>{{ $t['late_returns'] }}</strong></div>
                     <div class="is-miss"><span>ไม่ได้เข้าจุด</span><strong>{{ $t['not_visited'] }}</strong></div>
+                    @isset($t['unplanned_minutes'])
+                        <div class="is-unplanned"><span>จอดนอกแผน</span><strong>{{ number_format($t['unplanned_minutes']) }}</strong><small>นาที · {{ $t['unplanned_stops'] }} ครั้ง</small></div>
+                    @endisset
                 </div>
                 @if ($trends['weeks'] === [])
                     <div class="gdash-empty">ยังไม่มีข้อมูลในช่วงนี้</div>
@@ -172,6 +191,47 @@
                             </tbody>
                         </table>
                     @endif
+
+                    @php $unplannedTrucks = collect($trends['by_truck'])->filter(fn ($row) => ($row['unplanned_stops'] ?? 0) > 0)->sortByDesc('unplanned_minutes')->values(); @endphp
+                    @if ($unplannedTrucks->isNotEmpty())
+                        <h3 class="gdash-sub">จอดนอกแผนแยกตามรถ</h3>
+                        <table class="table table-sm gdash-table">
+                            <thead><tr><th>รถ</th><th class="text-end">วัน</th><th class="text-end">ครั้ง</th><th class="text-end">รวม (นาที)</th><th class="text-end">เฉลี่ยต่อวัน (นาที)</th></tr></thead>
+                            <tbody>
+                                @foreach ($unplannedTrucks as $row)
+                                    <tr><td>{{ $row['plate_no'] }}</td><td class="text-end">{{ $row['days'] }}</td><td class="text-end">{{ $row['unplanned_stops'] }}</td><td class="text-end">{{ number_format($row['unplanned_minutes']) }}</td><td class="text-end">{{ $row['days'] ? number_format($row['unplanned_minutes'] / $row['days']) : '-' }}</td></tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    @endif
+                @endif
+            </section>
+
+            {{-- ---------- Real travel time company -> customer ---------- --}}
+            <section class="gdash-trends">
+                <div class="gdash-trends-head">
+                    <h2>เวลาเดินทางจริง (บริษัท → ลูกค้า)</h2>
+                    <small class="gdash-muted">ช่วง {{ $weeks }} สัปดาห์ · ค่ากลาง (median) จากเที่ยวจริง · เวลาวิ่งสุทธิ = หักเวลาที่จอดที่อื่นระหว่างทาง (นอกแผน / ยังระบุไม่ได้)</small>
+                </div>
+                @if ($travelTimes === [])
+                    <div class="gdash-empty">{{ !empty($s['timeline_ready']) ? 'ยังไม่มีข้อมูล — ต้องมีหมุดลูกค้าและสรุปเส้นทางย้อนหลังก่อน' : 'ยังไม่ได้สร้างตาราง — รัน database/sql/formdp_gps_stops_legs.sql' }}</div>
+                @else
+                    <table class="table table-sm gdash-table gdash-travel">
+                        <thead><tr><th>ลูกค้า</th><th class="text-end">เที่ยว</th><th class="text-end">ใช้เวลา</th><th class="text-end">วิ่งสุทธิ</th><th class="text-end">ระยะทาง</th><th class="text-end">มักถึงราว</th><th class="text-end">จอดลงของ</th></tr></thead>
+                        <tbody>
+                            @foreach ($travelTimes as $row)
+                                <tr>
+                                    <td>{{ $row['customer_name'] }}@if ($row['with_unplanned'])<small>{{ $row['with_unplanned'] }} เที่ยวแวะจอดที่อื่นก่อนถึง</small>@endif</td>
+                                    <td class="text-end">{{ $row['trips'] }}</td>
+                                    <td class="text-end">{{ $fmtMinutes($row['median_minutes']) }}</td>
+                                    <td class="text-end"><b>{{ $fmtMinutes($row['median_drive_minutes']) }}</b></td>
+                                    <td class="text-end">{{ $row['median_km'] !== null ? number_format($row['median_km'], 1) . ' กม.' : '-' }}</td>
+                                    <td class="text-end">{{ $row['typical_arrival'] ?? '-' }}</td>
+                                    <td class="text-end">{{ $row['avg_dwell'] !== null ? $row['avg_dwell'] . ' นาที' : '-' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
                 @endif
             </section>
         @endunless

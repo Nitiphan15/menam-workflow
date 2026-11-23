@@ -36,7 +36,8 @@
             const matchesFilter = activeFilter === 'all'
                 || (activeFilter === 'late' && row.dataset.late === '1')
                 || (activeFilter === 'no-pin' && row.dataset.noPin === '1')
-                || (activeFilter === 'no-return' && row.dataset.noReturn === '1');
+                || (activeFilter === 'no-return' && row.dataset.noReturn === '1')
+                || (activeFilter === 'unplanned' && row.dataset.unplanned === '1');
             const matchesNormal = !hideNormal?.checked || row.dataset.issue === '1';
             row.hidden = !(matchesFilter && matchesNormal);
             if (!row.hidden) visible += 1;

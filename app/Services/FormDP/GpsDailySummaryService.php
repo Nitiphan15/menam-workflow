@@ -28,7 +28,8 @@ class GpsDailySummaryService
         private GpsTripQueueService $queueService,
         private GpsCustomerLocationService $locationService,
         private GpsStopVisitService $stopVisitService,
-        private DtcGpsService $dtc
+        private DtcGpsService $dtc,
+        private GpsTripTimelineService $timeline
     ) {
     }
 
@@ -53,6 +54,49 @@ class GpsDailySummaryService
     public function forgetSchemaCache(): void
     {
         Cache::forget('dtc_gps.schema.dashboard_tables');
+        Cache::forget('dtc_gps.schema.timeline_tables');
+    }
+
+    /** gps_trip_stop + gps_trip_leg (database/sql/formdp_gps_stops_legs.sql). Optional: summary works without them. */
+    public function timelineTablesReady(): bool
+    {
+        return (bool) Cache::remember('dtc_gps.schema.timeline_tables', now()->addMinutes(10), function () {
+            try {
+                $schema = Schema::connection('sqlsrv_menam');
+
+                return $schema->hasTable('gps_trip_stop') && $schema->hasTable('gps_trip_leg');
+            } catch (Throwable) {
+                return false;
+            }
+        });
+    }
+
+    /** Merge deliveries that share a stop_key (same customer/address on several trips); earliest window wins. */
+    private function uniqueDeliveries(array $deliveries): array
+    {
+        $unique = [];
+        foreach (array_values($deliveries) as $delivery) {
+            $key = $this->stopKey($delivery);
+            if (!isset($unique[$key])) {
+                $unique[$key] = $delivery;
+                continue;
+            }
+            $windows = array_filter([$unique[$key]['window_time'] ?? null, $delivery['window_time'] ?? null]);
+            $unique[$key]['window_time'] = $windows === [] ? null : min($windows);
+            $unique[$key]['items'] = [...($unique[$key]['items'] ?? []), ...($delivery['items'] ?? [])];
+            $unique[$key]['location'] ??= $delivery['location'] ?? null;
+        }
+
+        return array_values($unique);
+    }
+
+    /** Same key for a delivery stop in gps_stop_visit, gps_trip_stop and gps_trip_leg. */
+    public function stopKey(array $delivery): string
+    {
+        $company = $this->queueService->customerCompany($delivery['company'] ?? null);
+        $customerId = isset($delivery['customer_id']) ? (int) $delivery['customer_id'] : null;
+
+        return sha1($company . '|' . ($customerId ?? '') . '|' . $this->locationService->addressKey($delivery['address'] ?? '') . '|' . ($delivery['customer'] ?? ''));
     }
 
     /**
@@ -245,6 +289,8 @@ class GpsDailySummaryService
     /** Upsert the truck/day row and its stop rows. $points = null means "no route" (note says why). */
     public function store(string $date, array $truck, ?array $points, ?string $note): void
     {
+        // Several trips of the same truck to the same customer/address are one stop (one stop_key).
+        $truck['deliveries'] = $this->uniqueDeliveries($truck['deliveries']);
         $now = now('Asia/Bangkok')->format('Y-m-d H:i:s');
         $hasRoute = $points !== null && $points !== [];
         $metrics = $this->tripMetrics($points ?? []);
@@ -279,7 +325,7 @@ class GpsDailySummaryService
             $stopRows[] = [
                 'ship_date' => $date,
                 'plate_key' => $truck['plate_key'],
-                'stop_key' => sha1($company . '|' . ($customerId ?? '') . '|' . $this->locationService->addressKey($delivery['address'] ?? '') . '|' . ($delivery['customer'] ?? '')),
+                'stop_key' => $this->stopKey($delivery),
                 'stop_no' => $index + 1,
                 'company' => $company,
                 'customer_id' => $customerId,
@@ -328,7 +374,19 @@ class GpsDailySummaryService
             'computed_at' => $now,
         ];
 
-        $this->db()->transaction(function () use ($date, $truck, $tripRow, $stopRows, $now) {
+        // Stops (incl. unplanned) and travel legs, only when their tables exist.
+        $timelineRows = null;
+        if ($this->timelineTablesReady()) {
+            $deliveries = array_map(fn (array $delivery) => [
+                ...$delivery,
+                'company' => $this->queueService->customerCompany($delivery['company'] ?? null),
+                'stop_key' => $this->stopKey($delivery),
+            ], array_values($truck['deliveries']));
+            $timeline = $hasRoute ? $this->timeline->build($points, $deliveries, $metrics) : ['stops' => [], 'legs' => []];
+            $timelineRows = $this->timelineRows($date, $truck['plate_key'], $timeline, $now);
+        }
+
+        $this->db()->transaction(function () use ($date, $truck, $tripRow, $stopRows, $now, $timelineRows) {
             $this->db()->table('gps_trip_daily')->upsert([$tripRow], ['ship_date', 'plate_key'], array_keys(array_diff_key($tripRow, ['ship_date' => 1, 'plate_key' => 1])));
             if ($stopRows !== []) {
                 $this->db()->table('gps_stop_visit')->upsert($stopRows, ['ship_date', 'plate_key', 'stop_key'], array_keys(array_diff_key($stopRows[0], ['ship_date' => 1, 'plate_key' => 1, 'stop_key' => 1])));
@@ -339,7 +397,82 @@ class GpsDailySummaryService
                 ->where('plate_key', $truck['plate_key'])
                 ->whereNotIn('stop_key', array_column($stopRows, 'stop_key') ?: ['-'])
                 ->update(['status' => 'removed', 'is_late' => 0, 'computed_at' => $now]);
+
+            if ($timelineRows !== null) {
+                foreach (['gps_trip_stop' => ['kind' => 'removed'], 'gps_trip_leg' => ['to_kind' => 'removed']] as $table => $removed) {
+                    $rows = $timelineRows[$table];
+                    if ($rows !== []) {
+                        $this->db()->table($table)->upsert($rows, ['ship_date', 'plate_key', 'seq'], array_keys(array_diff_key($rows[0], ['ship_date' => 1, 'plate_key' => 1, 'seq' => 1])));
+                    }
+                    // Fewer stops/legs than last time: keep the old rows, mark them removed.
+                    $this->db()->table($table)
+                        ->where('ship_date', $date)
+                        ->where('plate_key', $truck['plate_key'])
+                        ->where('seq', '>', count($rows))
+                        ->update([...$removed, 'computed_at' => $now]);
+                }
+            }
         });
+    }
+
+    private function timelineRows(string $date, string $plateKey, array $timeline, string $now): array
+    {
+        $stops = [];
+        foreach ($timeline['stops'] as $index => $stop) {
+            $place = $stop['place'] ?? null;
+            $detail = trim(implode(' · ', array_filter([
+                isset($place['distance_m']) ? 'ห่าง ' . $this->distanceText((int) $place['distance_m']) : null,
+                $place['detail'] ?? null,
+            ])));
+            $stops[] = [
+                'ship_date' => $date,
+                'plate_key' => $plateKey,
+                'seq' => $index + 1,
+                'kind' => $stop['kind'],
+                'stop_key' => $stop['stop_key'],
+                'customer_name' => $stop['customer_name'] !== null ? mb_substr((string) $stop['customer_name'], 0, 255) : null,
+                'arrived_at' => $stop['arrived_at'],
+                'left_at' => $stop['left_at'],
+                'minutes' => (int) $stop['minutes'],
+                'lat' => round((float) $stop['lat'], 6),
+                'lon' => round((float) $stop['lon'], 6),
+                'place_kind' => $place['kind'] ?? null,
+                'place_label' => isset($place['label']) ? mb_substr((string) $place['label'], 0, 255) : null,
+                'place_detail' => $detail !== '' ? mb_substr($detail, 0, 255) : null,
+                'computed_at' => $now,
+            ];
+        }
+
+        $legs = [];
+        foreach ($timeline['legs'] as $index => $leg) {
+            $legs[] = [
+                'ship_date' => $date,
+                'plate_key' => $plateKey,
+                'seq' => $index + 1,
+                'from_kind' => $leg['from_kind'],
+                'from_key' => $leg['from_key'],
+                'from_name' => $leg['from_name'] !== null ? mb_substr((string) $leg['from_name'], 0, 255) : null,
+                'to_kind' => $leg['to_kind'],
+                'to_key' => $leg['to_key'],
+                'to_name' => $leg['to_name'] !== null ? mb_substr((string) $leg['to_name'], 0, 255) : null,
+                'company' => $leg['company'],
+                'customer_id' => $leg['customer_id'],
+                'depart_at' => $leg['depart_at'],
+                'arrive_at' => $leg['arrive_at'],
+                'minutes' => (int) $leg['minutes'],
+                'unplanned_minutes' => (int) $leg['unplanned_minutes'],
+                'drive_minutes' => (int) $leg['drive_minutes'],
+                'km' => $leg['km'],
+                'computed_at' => $now,
+            ];
+        }
+
+        return ['gps_trip_stop' => $stops, 'gps_trip_leg' => $legs];
+    }
+
+    private function distanceText(int $meters): string
+    {
+        return $meters < 1000 ? (round($meters / 10) * 10) . ' ม.' : number_format($meters / 1000, 1) . ' กม.';
     }
 
     // ---------- read side (dashboard) ----------
@@ -349,6 +482,10 @@ class GpsDailySummaryService
         $trips = $this->db()->table('gps_trip_daily')->where('ship_date', $date)->orderBy('plate_no')->get();
         $stops = $this->db()->table('gps_stop_visit')->where('ship_date', $date)->where('status', '<>', 'removed')
             ->orderBy('plate_key')->orderBy('stop_no')->get()->groupBy('plate_key');
+        $unplanned = $this->timelineTablesReady()
+            ? $this->db()->table('gps_trip_stop')->where('ship_date', $date)->whereIn('kind', ['unplanned', 'unknown'])
+                ->orderBy('plate_key')->orderBy('seq')->get()->groupBy('plate_key')
+            : collect();
 
         $rows = $trips->map(fn ($trip) => [
             'plate_no' => $trip->plate_no,
@@ -373,7 +510,19 @@ class GpsDailySummaryService
                 'late_minutes' => $stop->late_minutes !== null ? (int) $stop->late_minutes : null,
                 'is_late' => (bool) $stop->is_late,
             ])->values()->all(),
+            'unplanned' => ($unplanned->get($trip->plate_key) ?? collect())->map(fn ($stop) => [
+                'kind' => $stop->kind,
+                'arrived_at' => $this->hhmm($stop->arrived_at),
+                'left_at' => $this->hhmm($stop->left_at),
+                'minutes' => (int) $stop->minutes,
+                'place_kind' => $stop->place_kind,
+                'place_label' => $stop->place_label,
+                'place_detail' => $stop->place_detail,
+                'lat' => (float) $stop->lat,
+                'lon' => (float) $stop->lon,
+            ])->values()->all(),
         ])->values();
+        $unplannedAll = $unplanned->flatten(1);
 
         $onTime = (int) $trips->sum('stops_on_time');
         $late = (int) $trips->sum('stops_late');
@@ -390,6 +539,10 @@ class GpsDailySummaryService
                 'stops_not_visited' => (int) $trips->sum('stops_not_visited'),
                 'late_returns' => $trips->where('late_return', 1)->count(),
                 'on_time_percent' => ($onTime + $late) > 0 ? round($onTime * 100 / ($onTime + $late), 1) : null,
+                'unplanned_count' => $unplannedAll->where('kind', 'unplanned')->count(),
+                'unplanned_minutes' => (int) $unplannedAll->where('kind', 'unplanned')->sum('minutes'),
+                'unknown_count' => $unplannedAll->where('kind', 'unknown')->count(),
+                'timeline_ready' => $this->timelineTablesReady(),
             ],
             'trucks' => $rows->all(),
         ];
@@ -419,12 +572,18 @@ class GpsDailySummaryService
             ];
         })->values()->all();
 
+        $unplannedByPlate = $this->timelineTablesReady()
+            ? $this->db()->table('gps_trip_stop')->whereBetween('ship_date', [$from, $to])->where('kind', 'unplanned')
+                ->selectRaw('plate_key, COUNT(*) AS stops, SUM(minutes) AS minutes')->groupBy('plate_key')->get()->keyBy('plate_key')
+            : collect();
         $byTruck = $trips->groupBy('plate_no')->map(fn ($items, string $plate) => [
             'plate_no' => $plate,
             'days' => $items->count(),
             'late_arrivals' => (int) $items->sum('stops_late'),
             'late_returns' => $items->where('late_return', 1)->count(),
             'on_time' => (int) $items->sum('stops_on_time'),
+            'unplanned_stops' => (int) ($unplannedByPlate->get($items->first()->plate_key)->stops ?? 0),
+            'unplanned_minutes' => (int) ($unplannedByPlate->get($items->first()->plate_key)->minutes ?? 0),
         ])->sortByDesc(fn ($row) => $row['late_arrivals'] + $row['late_returns'])->values()->all();
 
         $customers = $this->db()->table('gps_stop_visit')
@@ -455,11 +614,77 @@ class GpsDailySummaryService
                 'late_arrivals' => $late,
                 'late_returns' => $trips->where('late_return', 1)->count(),
                 'not_visited' => (int) $trips->sum('stops_not_visited'),
+                'unplanned_stops' => (int) $unplannedByPlate->sum('stops'),
+                'unplanned_minutes' => (int) $unplannedByPlate->sum('minutes'),
             ],
             'weeks' => $weeks,
             'by_truck' => $byTruck,
             'late_customers' => $customers,
         ];
+    }
+
+    /**
+     * Real travel time from the company to each customer (median, so one bad day does not skew it),
+     * drive time without unplanned stops, distance, typical arrival time and unloading (dwell) time.
+     */
+    public function travelTimes(string $from, string $to, int $limit = 30): array
+    {
+        if (!$this->timelineTablesReady()) {
+            return [];
+        }
+        $legs = $this->db()->table('gps_trip_leg')
+            ->whereBetween('ship_date', [$from, $to])
+            ->where('from_kind', 'company')
+            ->where('to_kind', 'customer')
+            ->whereNotNull('customer_id')
+            ->get(['company', 'customer_id', 'to_name', 'minutes', 'drive_minutes', 'unplanned_minutes', 'km', 'arrive_at']);
+        // Unloading time = real stays matched to the customer (pin or place name), via the shared stop_key.
+        $dwell = $this->db()->table('gps_trip_stop as ts')
+            ->join('gps_stop_visit as sv', function ($join) {
+                $join->on('sv.ship_date', '=', 'ts.ship_date')->on('sv.plate_key', '=', 'ts.plate_key')->on('sv.stop_key', '=', 'ts.stop_key');
+            })
+            ->whereBetween('ts.ship_date', [$from, $to])
+            ->where('ts.kind', 'customer')
+            ->selectRaw('sv.company, sv.customer_id, AVG(CAST(ts.minutes AS FLOAT)) AS avg_dwell')
+            ->groupBy('sv.company', 'sv.customer_id')
+            ->get()
+            ->keyBy(fn ($row) => $row->company . '|' . (int) $row->customer_id);
+
+        return $legs->groupBy(fn ($leg) => $leg->company . '|' . (int) $leg->customer_id)
+            ->map(function ($items, string $key) use ($dwell) {
+                $arrivals = $items->map(function ($leg) {
+                    return preg_match('/(\d{2}):(\d{2})/', (string) $leg->arrive_at, $m) ? (int) $m[1] * 60 + (int) $m[2] : null;
+                })->filter(fn ($value) => $value !== null)->values()->all();
+                $arrival = $this->median($arrivals);
+
+                return [
+                    'customer_name' => (string) ($items->pluck('to_name')->filter()->last() ?? '-'),
+                    'trips' => $items->count(),
+                    'median_minutes' => $this->median($items->pluck('minutes')->map(fn ($v) => (int) $v)->all()),
+                    'median_drive_minutes' => $this->median($items->pluck('drive_minutes')->map(fn ($v) => (int) $v)->all()),
+                    'with_unplanned' => $items->filter(fn ($leg) => (int) $leg->unplanned_minutes > 0)->count(),
+                    'median_km' => $this->median($items->pluck('km')->filter(fn ($v) => $v !== null)->map(fn ($v) => (float) $v)->all(), 1),
+                    'typical_arrival' => $arrival === null ? null : sprintf('%02d:%02d', intdiv((int) $arrival, 60), (int) $arrival % 60),
+                    'avg_dwell' => isset($dwell[$key]) && $dwell[$key]->avg_dwell !== null ? (int) round((float) $dwell[$key]->avg_dwell) : null,
+                ];
+            })
+            ->sortByDesc('trips')
+            ->take($limit)
+            ->values()
+            ->all();
+    }
+
+    private function median(array $values, int $precision = 0): int|float|null
+    {
+        if ($values === []) {
+            return null;
+        }
+        sort($values);
+        $count = count($values);
+        $middle = intdiv($count, 2);
+        $median = $count % 2 ? $values[$middle] : ($values[$middle - 1] + $values[$middle]) / 2;
+
+        return $precision > 0 ? round((float) $median, $precision) : (int) round($median);
     }
 
     private function hhmm($value): ?string
