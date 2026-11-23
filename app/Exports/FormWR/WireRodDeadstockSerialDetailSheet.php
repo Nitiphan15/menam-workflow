@@ -4,6 +4,7 @@ namespace App\Exports\FormWR;
 
 use App\Services\FormWR\WireRodDeadstockQuery;
 use App\Support\FormWR\CsvExportCell;
+use App\Support\FormWR\WireRodDeadstockRule;
 use Illuminate\Database\Query\Builder;
 use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
@@ -44,7 +45,7 @@ class WireRodDeadstockSerialDetailSheet implements FromQuery, WithHeadings, With
         $jsonList = static fn ($json) => collect(json_decode($json ?: '[]', true))->filter()->unique()->implode(' | ');
         return CsvExportCell::row([
             $row->site_code, $row->material_group, $row->part_number, $row->part_description, $row->serial_number,
-            $row->cycle_no, $row->purchase_date, $row->stock_age_days, $row->stock_status, $row->current_qty,
+            $row->cycle_no, $row->purchase_date, $row->stock_age_days, WireRodDeadstockRule::stockStatusLabel($row->stock_status), $row->current_qty,
             $row->display_unit, $row->unitcost_thb, $row->current_value_thb, $jsonList($row->customer_json) ?: 'Stock',
             $row->additional_customers, $jsonList($row->sales_json), $row->effective_division_code, $row->trace_status,
             $row->mapping_source, $row->review_status ?: 'open', $row->next_follow_up_date, $row->review_detail,

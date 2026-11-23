@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Jobs\GenerateWireRodDeadstockExport;
 use App\Services\FormWR\WireRodDeadstockService;
 use App\Services\FormWR\WireRodDeadstockQuery;
+use App\Services\FormWR\WireRodDeadstockSummary;
+use App\Services\FormWR\WireRodDeadstockReviewImporter;
 use App\Support\FormWR\CsvExportCell;
+use App\Support\FormWR\WireRodDeadstockRule;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,6 +22,10 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
@@ -31,7 +38,7 @@ class WireRodDeadstockController extends Controller
         $this->connection = config('database.workflow_connection', 'sqlsrv_menam');
     }
 
-    public function dashboard(Request $request): View
+    public function dashboard(Request $request, WireRodDeadstockSummary $summary): View
     {
         $query = $this->filteredQuery($request);
         $rows = (clone $query)->get();
@@ -75,6 +82,8 @@ class WireRodDeadstockController extends Controller
                 'became_dead_lots' => $rows->where('became_dead_stock', 1)->count(),
             ],
             'byGroup' => $byGroup,
+            'byDivision' => $summary->byDivision($rows),
+            'byAging' => $summary->byAging($rows),
             'filters' => $this->filterOptions(),
             'selected' => $request->query(),
             'latestRun' => $latestRun,
@@ -152,7 +161,7 @@ class WireRodDeadstockController extends Controller
     {
         $type = (string) $request->query('type');
         $term = trim((string) $request->query('q'));
-        if (mb_strlen($term) < 2 || mb_strlen($term) > 100 || ! in_array($type, ['item', 'serial', 'customer'], true)) {
+        if (mb_strlen($term) < 2 || mb_strlen($term) > 100 || ! in_array($type, ['item', 'part_number', 'serial', 'customer'], true)) {
             return response()->json([]);
         }
 
@@ -169,6 +178,10 @@ class WireRodDeadstockController extends Controller
                     ->orWhereRaw('UPPER(c.part_description) LIKE ?', [$like]);
             })->select('c.part_number', 'c.part_description')->distinct()->orderBy('c.part_number')->limit(30)->get()
                 ->map(fn ($row) => ['value' => $row->part_number, 'text' => $row->part_number.' · '.($row->part_description ?: '-')]);
+        } elseif ($type === 'part_number') {
+            $items = $current()->whereRaw('UPPER(c.part_number) LIKE ?', [$like])
+                ->select('c.part_number')->distinct()->orderBy('c.part_number')->limit(30)->get()
+                ->map(fn ($row) => ['value' => $row->part_number, 'text' => $row->part_number]);
         } elseif ($type === 'serial') {
             $items = $current()->whereRaw('UPPER(c.serial_number) LIKE ?', [$like])
                 ->select('c.serial_number')->distinct()->orderBy('c.serial_number')->limit(30)->get()
@@ -415,7 +428,7 @@ class WireRodDeadstockController extends Controller
                     fputcsv($out, CsvExportCell::row([
                         $r->site_code, $r->lifecycle_id, $r->cycle_no, $r->part_number, $r->part_description,
                         $r->grade, $r->diameter_size, $r->serial_number, $r->heat_number, $r->purchase_date,
-                        $r->stock_age_days, $r->stock_status, $r->became_dead_stock ? 'Yes' : 'No',
+                        $r->stock_age_days, WireRodDeadstockRule::stockStatusLabel($r->stock_status), $r->became_dead_stock ? 'Yes' : 'No',
                         $r->material_group, $r->current_qty, $r->display_unit, $r->unitcost_thb,
                         $r->current_value_thb, $r->po_number, $r->po_date, $r->purchase_qty, $r->used_qty,
                         $mfgValues($r->mfg_json), $jsonValues($r->sales_order_json), $jsonValues($r->customer_json),
@@ -440,6 +453,81 @@ class WireRodDeadstockController extends Controller
             'Cache-Control' => 'no-store, no-cache, must-revalidate',
             'X-Accel-Buffering' => 'no',
         ]);
+    }
+
+    public function downloadReviewImportTemplate(): BinaryFileResponse
+    {
+        $headers = WireRodDeadstockReviewImporter::templateHeaders();
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Review Import');
+        $sheet->fromArray($headers, null, 'A1');
+        $last = Coordinate::stringFromColumnIndex(count($headers));
+        $sheet->getStyle("A1:{$last}1")->getFont()->setBold(true);
+        $sheet->getStyle('A:C')->getNumberFormat()->setFormatCode('@');
+        $sheet->freezePane('A2');
+        foreach (range(1, count($headers)) as $column) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($column))->setAutoSize(true);
+        }
+        $help = $spreadsheet->createSheet();
+        $help->setTitle('วิธีกรอก');
+        $help->fromArray([
+            ['คอลัมน์', 'คำอธิบาย'],
+            ['Site', 'WIRE หรือ PLUS (ไม่บังคับ แต่ช่วยแยก Serial ซ้ำ)'],
+            ['Part Number', 'ไม่บังคับ แต่ช่วยแยก Serial ซ้ำ'],
+            ['Serial / Heat', 'บังคับ ต้องตรงกับ Serial ในหน้า Review'],
+            ['Review Status', 'open / waiting_follow_up / in_progress หรือ ยังไม่ได้ติดตาม / กำลังติดตาม รอคำตอบ / มีกำหนดส่งมอบแล้ว'],
+            ['Next Follow-up', 'วันที่ เช่น 2026-12-31 หรือ 31/12/2026'],
+            ['ช่องที่เว้นว่าง', 'ไม่แก้ค่าเดิม'],
+            ['ไฟล์ Export', 'นำไฟล์จากปุ่ม Export Excel (Sheet Serial Detail) มาแก้แล้ว Import กลับได้'],
+        ]);
+        $help->getStyle('A1:B1')->getFont()->setBold(true);
+        $help->getColumnDimension('A')->setAutoSize(true);
+        $help->getColumnDimension('B')->setAutoSize(true);
+        $spreadsheet->setActiveSheetIndex(0);
+
+        $path = tempnam(sys_get_temp_dir(), 'wr_ds_import_template_');
+        (new Xlsx($spreadsheet))->save($path);
+        $spreadsheet->disconnectWorksheets();
+
+        return response()->download($path, 'wire-rod-deadstock-review-import-template.xlsx')->deleteFileAfterSend(true);
+    }
+
+    public function importReviews(Request $request, WireRodDeadstockReviewImporter $importer): RedirectResponse
+    {
+        $validated = $request->validate([
+            'review_file' => ['required', 'file', 'mimes:xlsx,xls', 'max:10240'],
+            'dry_run' => ['nullable', 'boolean'],
+        ]);
+        $dryRun = $request->boolean('dry_run');
+        $context = $this->reviewAccessContext($request);
+        $user = $request->user();
+
+        try {
+            $result = $importer->import(
+                $validated['review_file']->getRealPath(),
+                fn (object $item) => $this->canEditFromContext($item, $context),
+                (int) $user->id,
+                (string) $user->name,
+                $dryRun
+            );
+        } catch (Throwable $e) {
+            Log::warning('FormWR deadstock review import failed', ['error' => $e->getMessage()]);
+
+            return back()->with('error', 'อ่านไฟล์ Excel ไม่ได้ กรุณาตรวจรูปแบบไฟล์');
+        }
+
+        $s = $result['stats'];
+        $message = ($dryRun ? 'ทดลอง Import (ยังไม่บันทึก): ถ้ารันจริงจะบันทึก ' : 'Import สำเร็จ: บันทึก ')
+            ."{$s['saved']} Lot (ใหม่ {$s['created']}, แก้ไข {$s['updated']}) จาก {$s['read']} แถว"
+            ." · ไม่เปลี่ยน {$s['unchanged']} · ว่าง {$s['empty']} · ไม่พบ {$s['unmatched']} · ซ้ำ/กำกวม ".($s['duplicate'] + $s['ambiguous'])
+            ." · ไม่มีสิทธิ์ {$s['unauthorized']} · error {$s['error']}";
+        if ($result['errors'] !== []) {
+            $message .= ' | '.implode(' ; ', array_slice($result['errors'], 0, 10))
+                .(count($result['errors']) > 10 ? ' ; ... อีก '.(count($result['errors']) - 10).' รายการ' : '');
+        }
+
+        return back()->with($dryRun || $s['saved'] > 0 ? 'success' : 'error', $message);
     }
 
     private function startExportAudit(Request $request, string $filename): ?int
@@ -580,7 +668,7 @@ class WireRodDeadstockController extends Controller
     public function queueExport(Request $request): RedirectResponse
     {
         $allowed = ['site', 'material_group', 'stock_status', 'action_status', 'follow_up', 'division', 'trace_status', 'unit',
-            'item', 'part_number_exact', 'serial', 'customer', 'purchase_from', 'purchase_to', 'became_dead'];
+            'item', 'part_number_exact', 'serial', 'customer', 'purchase_from', 'purchase_to', 'became_dead', 'aging'];
         $filters = collect($request->only($allowed))->filter(fn ($value) => filled($value))->all();
         $db = DB::connection($this->connection);
         $token = (string) Str::uuid();
@@ -709,6 +797,7 @@ class WireRodDeadstockController extends Controller
         if ($request->filled('purchase_from')) $q->whereDate('s.purchase_date', '>=', $request->input('purchase_from'));
         if ($request->filled('purchase_to')) $q->whereDate('s.purchase_date', '<=', $request->input('purchase_to'));
         if ($request->boolean('became_dead')) $q->where('s.became_dead_stock', 1);
+        WireRodDeadstockQuery::applyAging($q, 's.stock_age_days', $request->input('aging'));
         return $q;
     }
 

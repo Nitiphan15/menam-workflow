@@ -1001,6 +1001,10 @@ Route::middleware(['auth', 'can:WR'])
       ->middleware(['permission.any:WR_DS_EXPORT,WR_DS_MANAGE_ALL,WR_DS_ADMIN', 'throttle:5,1'])->name('deadstock.exports.store');
     Route::get('/deadstock/exports/{token}/download', [WireRodDeadstockController::class, 'downloadExport'])
       ->middleware('permission.any:WR_DS_EXPORT,WR_DS_MANAGE_ALL,WR_DS_ADMIN')->name('deadstock.exports.download');
+    Route::get('/deadstock/review-import/template', [WireRodDeadstockController::class, 'downloadReviewImportTemplate'])
+      ->middleware('permission.any:WR_DS_EDIT_OWN,WR_DS_MANAGE_ALL,WR_DS_ADMIN')->name('deadstock.review.import-template');
+    Route::post('/deadstock/review-import', [WireRodDeadstockController::class, 'importReviews'])
+      ->middleware(['permission.any:WR_DS_EDIT_OWN,WR_DS_MANAGE_ALL,WR_DS_ADMIN', 'throttle:10,1'])->name('deadstock.review.import');
     Route::post('/deadstock/review/{lifecycle}', [WireRodDeadstockController::class, 'saveReview'])
       ->middleware('permission.any:WR_DS_EDIT_OWN,WR_DS_MANAGE_ALL,WR_DS_ADMIN')
       ->whereNumber('lifecycle')->name('deadstock.review.save');
