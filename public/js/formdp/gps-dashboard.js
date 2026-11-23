@@ -23,6 +23,39 @@
         return `${d}/${m}`;
     }
 
+    const filterButtons = [...document.querySelectorAll('[data-gdash-filter]')];
+    const truckRows = [...document.querySelectorAll('.gdash-board tbody tr[data-issue]')];
+    const hideNormal = document.getElementById('gdash-hide-normal');
+    const filterCount = document.getElementById('gdash-filter-count');
+    const filterEmpty = document.getElementById('gdash-filter-empty');
+    let activeFilter = 'all';
+
+    function applyTruckFilter() {
+        let visible = 0;
+        truckRows.forEach((row) => {
+            const matchesFilter = activeFilter === 'all'
+                || (activeFilter === 'late' && row.dataset.late === '1')
+                || (activeFilter === 'no-pin' && row.dataset.noPin === '1')
+                || (activeFilter === 'no-return' && row.dataset.noReturn === '1');
+            const matchesNormal = !hideNormal?.checked || row.dataset.issue === '1';
+            row.hidden = !(matchesFilter && matchesNormal);
+            if (!row.hidden) visible += 1;
+        });
+        if (filterCount) filterCount.textContent = `แสดง ${visible} จาก ${truckRows.length} คัน`;
+        if (filterEmpty) filterEmpty.hidden = visible !== 0;
+    }
+
+    filterButtons.forEach((button) => button.addEventListener('click', () => {
+        activeFilter = button.dataset.gdashFilter;
+        filterButtons.forEach((item) => {
+            const active = item === button;
+            item.classList.toggle('is-active', active);
+            item.setAttribute('aria-pressed', String(active));
+        });
+        applyTruckFilter();
+    }));
+    hideNormal?.addEventListener('change', applyTruckFilter);
+
     if (window.Chart && weeks.length) {
         const weekCanvas = document.getElementById('gdash-week-chart');
         if (weekCanvas) {
