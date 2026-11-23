@@ -336,6 +336,7 @@ return [
                     ['icon' => 'fa fa-tasks', 'text' => 'เอกสารที่รอดำเนินการ', 'route' => 'pp.pending', 'permission' => 'PP'],
                     ['icon' => 'fa fa-user', 'text' => 'เอกสารของฉัน', 'route' => 'pp.mine', 'permission' => 'PP'],
                     ['icon' => 'fa fa-folder-open', 'text' => 'เอกสารทั้งหมด', 'route' => 'pp.all', 'permission' => 'PP'],
+                    ['icon' => 'fa fa-chart-line', 'text' => 'รายงาน Production Order ขาด-เกิน', 'route' => 'pp.production-balance.index', 'permission' => 'PP'],
                 ],
             ],
         ],
