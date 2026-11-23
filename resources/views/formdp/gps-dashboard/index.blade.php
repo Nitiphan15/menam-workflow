@@ -47,15 +47,30 @@
                     <span><b>กลับช้า</b> = กลับเข้าบริษัทหลัง {{ $lateReturnTime }} หรือไม่กลับภายในวัน</span>
                 </div>
                 @if ($canRefresh)
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="gdash-refresh" title="สรุปวันที่เลือกใหม่จาก GPS (ใช้ DTC สูงสุด 3 request ต่อครั้ง)"><i class="fas fa-rotate me-1"></i> สรุปวันที่นี้ใหม่</button>
+                    <div class="gdash-refresh-group">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="gdash-refresh" title="สรุปวันที่เลือกใหม่จาก GPS (ใช้ DTC สูงสุด 3 request ต่อครั้ง)"><i class="fas fa-rotate me-1"></i> สรุปวันที่นี้ใหม่</button>
+                        <small>DTC เดือนนี้ {{ number_format($dtcUsage['month_total']) }}/{{ number_format($dtcUsage['quota']) }} · นาทีนี้ {{ $dtcUsage['minute_used'] }}/{{ $dtcUsage['per_minute_limit'] }}</small>
+                    </div>
                 @endif
             </section>
             <div id="gdash-flash" class="gdash-flash" hidden aria-live="polite"></div>
 
-            @php $s = $board['summary']; @endphp
+            @php
+                $s = $board['summary'];
+                $evaluatedStops = $s['stops_on_time'] + $s['stops_late'];
+                $coveragePercent = $s['stops_planned'] > 0 ? round($s['stops_with_pin'] * 100 / $s['stops_planned']) : null;
+                $coverageLow = $coveragePercent !== null && $coveragePercent < 80;
+                $latestComputedAt = collect($board['trucks'])->pluck('computed_at')->filter()->max();
+                $latestLabel = $latestComputedAt ? \Carbon\Carbon::parse($latestComputedAt, 'Asia/Bangkok')->format('d/m/Y H:i') : '-';
+            @endphp
+            <section class="gdash-quality {{ $coverageLow ? 'is-low' : 'is-ready' }}" role="status">
+                <div><strong>คุณภาพข้อมูล: ประเมินได้ {{ $coveragePercent === null ? '-' : number_format($coveragePercent, 0) . '%' }}</strong>
+                    <span>{{ $s['stops_with_pin'] }}/{{ $s['stops_planned'] }} จุดมีพิกัด{{ $coverageLow ? ' — ยังไม่ควรใช้ตัดสินผลงาน' : ' — พร้อมใช้ประกอบการติดตาม' }}</span></div>
+                <small><i class="far fa-clock me-1"></i>สรุปล่าสุด {{ $latestLabel }}</small>
+            </section>
             <section class="gdash-cards" aria-label="สรุปวันที่ {{ $date }}">
                 <div><span>รถออกส่ง</span><strong>{{ $s['trucks'] }}</strong><small>มีเส้นทาง GPS {{ $s['trucks_with_route'] }} คัน</small></div>
-                <div class="is-ok"><span>ถึงตรงเวลา</span><strong>{{ $fmtPercent($s['on_time_percent']) }}</strong><small>{{ $s['stops_on_time'] }} จุด</small></div>
+                <div class="{{ $coverageLow ? 'is-caution' : 'is-ok' }}"><span>ถึงตรงเวลา</span><strong>{{ $fmtPercent($s['on_time_percent']) }}</strong><small>จาก {{ $evaluatedStops }} จุดที่ประเมินได้</small></div>
                 <div class="is-late"><span>ถึงช้า</span><strong>{{ $s['stops_late'] }}</strong><small>จุดส่ง</small></div>
                 <div class="is-miss"><span>ไม่ได้เข้าจุด</span><strong>{{ $s['stops_not_visited'] }}</strong><small>มีหมุดแต่ GPS ไม่เข้า</small></div>
                 <div class="is-late"><span>กลับช้า</span><strong>{{ $s['late_returns'] }}</strong><small>คัน</small></div>
@@ -66,13 +81,28 @@
                 @if ($board['trucks'] === [])
                     <div class="gdash-empty">ยังไม่มีข้อมูลสรุปของวันที่ {{ $date }} — ระบบสรุปทุกคืนเวลา 00:30{{ $canRefresh ? ' หรือกด "สรุปวันที่นี้ใหม่"' : '' }}</div>
                 @else
+                    <div class="gdash-board-tools" aria-label="กรองรายการรถ">
+                        <div class="gdash-filter-chips" role="group" aria-label="สถานะรถ">
+                            <button type="button" class="is-active" data-gdash-filter="all" aria-pressed="true">ทั้งหมด</button>
+                            <button type="button" data-gdash-filter="late" aria-pressed="false">ช้า</button>
+                            <button type="button" data-gdash-filter="no-pin" aria-pressed="false">ไม่มีหมุด</button>
+                            <button type="button" data-gdash-filter="no-return" aria-pressed="false">ไม่กลับ</button>
+                        </div>
+                        <label><input type="checkbox" id="gdash-hide-normal"> ซ่อนรถปกติ</label>
+                        <small id="gdash-filter-count">แสดง {{ count($board['trucks']) }} คัน</small>
+                    </div>
                     <table class="table table-sm align-middle gdash-table">
                         <thead>
                             <tr><th>รถ / คนขับ</th><th>ออก</th><th>จุดส่ง (เวลาถึง · ช่วงเวลารับส่ง)</th><th>กลับ</th><th class="text-end">กม.</th></tr>
                         </thead>
                         <tbody>
                             @foreach ($board['trucks'] as $truck)
-                                <tr class="{{ $truck['late_return'] || collect($truck['stops'])->contains('is_late', true) ? 'has-issue' : '' }}">
+                                @php
+                                    $hasLate = $truck['late_return'] || collect($truck['stops'])->contains('is_late', true);
+                                    $hasNoPin = collect($truck['stops'])->contains('status', 'no_location');
+                                    $hasNoReturn = $truck['late_return'] && !$truck['returned_at'];
+                                @endphp
+                                <tr class="{{ $hasLate ? 'has-issue' : '' }}" data-late="{{ $hasLate ? 1 : 0 }}" data-no-pin="{{ $hasNoPin ? 1 : 0 }}" data-no-return="{{ $hasNoReturn ? 1 : 0 }}" data-issue="{{ ($hasLate || $hasNoPin || $hasNoReturn) ? 1 : 0 }}">
                                     <td><b>{{ $truck['plate_no'] }}</b><small>{{ $truck['driver_name'] ?: '-' }} · เที่ยว {{ $truck['trip_nos'] }}</small>
                                         @if ($truck['note'])<small class="gdash-note">{{ $truck['note'] }}</small>@endif</td>
                                     <td>{{ $truck['left_company_at'] ?? '-' }}</td>
@@ -96,6 +126,7 @@
                             @endforeach
                         </tbody>
                     </table>
+                    <div class="gdash-empty" id="gdash-filter-empty" hidden>ไม่พบรถตามตัวกรองนี้</div>
                     <div class="gdash-legend"><span class="gdash-stop is-ok">ตรงเวลา</span><span class="gdash-stop is-late">ถึงช้า</span><span class="gdash-stop is-miss">ไม่ได้เข้า / ผ่านไม่จอด</span><span class="gdash-stop is-none">ไม่มีหมุด / ไม่มีเส้นทาง</span></div>
                 @endif
             </section>

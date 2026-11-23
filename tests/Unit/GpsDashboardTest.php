@@ -271,6 +271,12 @@ class GpsDashboardTest extends TestCase
         $this->assertSame(3, $db->table('gps_trip_daily')->count());
         $this->assertSame('ไม่มี GPS DTC', $db->table('gps_trip_daily')->where('plate_key', '712519')->value('note'));
         $this->assertSame('010399900000001', $db->table('gps_trip_daily')->where('plate_key', '835505')->value('dtc_gps_id')); // plate match
+
+        $response = app(GpsDashboardController::class)->refresh(Request::create('/dp/gps-dashboard/refresh', 'POST', ['date' => self::DATE]));
+        $payload = $response->getData(true);
+        $this->assertTrue($payload['ok']);
+        $this->assertSame(0, $payload['requests_used']);
+        $this->assertStringContainsString('สรุป 3/3 คัน · ใช้ DTC 0 request (ข้อมูลเส้นทางจาก cache)', $payload['message']);
     }
 
     public function test_pending_count_does_not_double_subtract_already_skipped_trucks(): void
@@ -341,16 +347,33 @@ class GpsDashboardTest extends TestCase
     {
         View::share('errors', new ViewErrorBag());
         Cache::put('dtc_gps.schema.dashboard_tables', false, now()->addHour());
-        $html = app(GpsDashboardController::class)->index(Request::create('/dp/gps-dashboard', 'GET', ['date' => self::DATE]))->render();
+        $html = app(GpsDashboardController::class)
+            ->index(Request::create('/dp/gps-dashboard', 'GET', ['date' => self::DATE]))
+            ->with('canRefresh', true)
+            ->render();
         $this->assertStringContainsString('formdp_gps_dashboard.sql', $html);
 
         $this->createTables();
-        app(GpsDailySummaryService::class)->store(self::DATE, $this->truck([$this->delivery('A', 1, '10:00', self::CUSTOMER_A)]),
+        app(GpsDailySummaryService::class)->store(self::DATE, $this->truck([
+            $this->delivery('A', 1, '10:00', self::CUSTOMER_A),
+            $this->delivery('B', 2, '17:00', null),
+        ]),
             $this->route([[self::CUSTOMER_A[0], self::CUSTOMER_A[1], 30]], '10:30:00'), null);
-        $html = app(GpsDashboardController::class)->index(Request::create('/dp/gps-dashboard', 'GET', ['date' => self::DATE]))->render();
+        $html = app(GpsDashboardController::class)
+            ->index(Request::create('/dp/gps-dashboard', 'GET', ['date' => self::DATE]))
+            ->with('canRefresh', true)
+            ->render();
 
         $this->assertStringContainsString('83-5505', $html);
         $this->assertStringContainsString('ช้า 30 นาที', $html);
+        $this->assertStringContainsString('จาก 1 จุดที่ประเมินได้', $html);
+        $this->assertStringContainsString('คุณภาพข้อมูล: ประเมินได้ 50%', $html);
+        $this->assertStringContainsString('ยังไม่ควรใช้ตัดสินผลงาน', $html);
+        $this->assertStringContainsString('data-gdash-filter="late"', $html);
+        $this->assertStringContainsString('data-gdash-filter="no-pin"', $html);
+        $this->assertStringContainsString('data-gdash-filter="no-return"', $html);
+        $this->assertStringContainsString('id="gdash-hide-normal"', $html);
+        $this->assertStringContainsString('DTC เดือนนี้', $html);
         $this->assertStringContainsString('gdash-week-chart', $html);
         Http::assertNothingSent();
     }
