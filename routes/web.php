@@ -11,6 +11,7 @@ use App\Http\Controllers\FormPP\PlannerController;
 use App\Http\Controllers\FormPP\ReviseController;
 use App\Http\Controllers\FormPP\ViewController;
 use App\Http\Controllers\FormPP\PpDocboxController;
+use App\Http\Controllers\FormPP\ProductionBalanceController;
 //PA
 use App\Http\Controllers\FormPA\PaMasterController;
 use App\Http\Controllers\FormPA\PaEvaluationController;
@@ -914,6 +915,7 @@ Route::middleware(['auth', 'can:PP'])
     Route::get('/mine',    [PpDocboxController::class, 'mine'])->name('mine');
     Route::get('/all',     [PpDocboxController::class, 'all'])->name('all');
     Route::get('/export',  [PpDocboxController::class, 'export'])->name('export');
+    Route::get('/production-balance', [ProductionBalanceController::class, 'index'])->name('production-balance.index');
   });
 
 Route::middleware(['auth', 'can:PAADMIN'])

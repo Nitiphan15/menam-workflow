@@ -116,6 +116,12 @@ return [
         'cc'  => array_values(array_filter(array_map('trim', explode(',', env('ASSIGN_MAIL_CC', ''))))),
         'bcc' => array_values(array_filter(array_map('trim', explode(',', env('ASSIGN_MAIL_BCC', ''))))),
     ],
+    'pp_balance_alert' => [
+        'enabled' => filter_var(env('PP_BALANCE_ALERT_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'to' => array_values(array_filter(array_map('trim', explode(',', env('PP_BALANCE_ALERT_TO', ''))))),
+        'cc' => array_values(array_filter(array_map('trim', explode(',', env('PP_BALANCE_ALERT_CC', ''))))),
+        'retention_days' => (int) env('PP_BALANCE_LOG_RETENTION_DAYS', 180),
+    ],
     /*
     |--------------------------------------------------------------------------
     | Markdown Mail Settings

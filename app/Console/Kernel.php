@@ -46,6 +46,14 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->withoutOverlapping();
 
+        $schedule->command('pp:production-balance-alert')
+            ->weekdays()
+            ->dailyAt('08:15')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(55)
+            ->when(fn () => (bool) config('mail.pp_balance_alert.enabled', false));
+
         // Deadstock schedules are owned by mail-daily/routes/deadstock-schedule.php.
         // Keep the commands here: they use this application's review services/database.
 
