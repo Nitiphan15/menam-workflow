@@ -54,8 +54,8 @@ class DtcGpsServiceTest extends TestCase
                 ['truck_id' => 1, 'plate_no' => '71-2519', 'plate_key' => '712519', 'driver_name' => ''],
             ]));
             $mock->shouldReceive('forDate')->andReturn(collect([
-                ['plate_key' => '835505', 'plate_no' => '83-5505', 'trip_no' => 2, 'truck_id' => 12, 'driver_name' => 'Queue Driver', 'stops' => ['ลูกค้า B'], 'deliveries' => [['customer' => 'ลูกค้า B', 'items' => [['dp_ref' => 'DP#2', 'so_number' => 'SO2', 'product' => 'P2', 'part_number' => '', 'quantity' => 2, 'unit' => 'ตัน']]]]],
-                ['plate_key' => '835505', 'plate_no' => '83-5505', 'trip_no' => 1, 'truck_id' => 12, 'driver_name' => '', 'stops' => ['ลูกค้า A'], 'deliveries' => [['customer' => 'ลูกค้า A', 'items' => [['dp_ref' => 'DP#1', 'so_number' => 'SO1', 'product' => 'P1', 'part_number' => '', 'quantity' => 1, 'unit' => 'ตัน']]]]],
+                ['plate_key' => '835505', 'plate_no' => '83-5505', 'trip_no' => 2, 'truck_id' => 12, 'driver_name' => 'Queue Driver', 'stops' => ['ลูกค้า B'], 'deliveries' => [['customer' => 'ลูกค้า B', 'items' => [['dp_ref' => 'DP#2', 'so_number' => 'SO2', 'product' => 'P2', 'part_number' => '', 'quantity' => 2, 'unit' => 'kg']]]]],
+                ['plate_key' => '835505', 'plate_no' => '83-5505', 'trip_no' => 1, 'truck_id' => 12, 'driver_name' => '', 'stops' => ['ลูกค้า A'], 'deliveries' => [['customer' => 'ลูกค้า A', 'items' => [['dp_ref' => 'DP#1', 'so_number' => 'SO1', 'product' => 'P1', 'part_number' => '', 'quantity' => 1, 'unit' => 'kg']]]]],
                 ['plate_key' => '707494', 'plate_no' => '70-7494', 'trip_no' => 1, 'truck_id' => null, 'driver_name' => 'Manual Driver', 'stops' => ['ลูกค้า C'], 'deliveries' => []],
             ]));
         });

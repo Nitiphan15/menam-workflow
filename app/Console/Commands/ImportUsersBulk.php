@@ -35,6 +35,7 @@ class ImportUsersBulk extends Command
                 $delimiter
             );
         } catch (Throwable $e) {
+            report($e);
             $this->error($e->getMessage());
             return self::FAILURE;
         }

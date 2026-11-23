@@ -91,6 +91,26 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Bangkok')
             ->onOneServer()
             ->withoutOverlapping(60);
+
+        $this->alertOnFailure($schedule);
+    }
+
+    /**
+     * ทุก scheduled task: ถ้าจบด้วย exit code ไม่ใช่ 0 ให้แจ้งเตือน (ต้องเปิด ERROR_ALERT_ENABLED)
+     * ส่วน exception ที่เกิดใน command จะถูก report ผ่าน Exception Handler อยู่แล้ว
+     */
+    protected function alertOnFailure(Schedule $schedule): void
+    {
+        foreach ($schedule->events() as $event) {
+            $event->onFailure(function () use ($event) {
+                $command = (string) ($event->description ?: $event->command);
+                // ตัด path ของ php / artisan ออก ให้เหลือแค่ชื่อคำสั่ง
+                $command = trim(preg_replace('/^.*?[\'"]?artisan[\'"]?\s+/', '', $command) ?? $command);
+
+                app(\App\Services\OpsMonitoring\ErrorAlertService::class)
+                    ->notifyScheduleFailure($command, $event->exitCode);
+            });
+        }
     }
 
     /**

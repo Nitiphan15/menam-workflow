@@ -43,6 +43,7 @@ class GpsDashboardController extends Controller
             'board' => $ready ? $this->summary->dayBoard($date) : null,
             'trends' => $ready ? $this->summary->trends($from, $to) : null,
             'canRefresh' => Gate::allows('DPA'),
+            'dtcUsage' => $this->dtc->usageSummary(),
             'lateReturnTime' => (string) config('dtc.late_return_time', '18:00'),
             'graceMinutes' => (int) config('dtc.late_arrival_grace_minutes', 0),
         ]);
@@ -56,6 +57,7 @@ class GpsDashboardController extends Controller
             return response()->json(['ok' => false, 'message' => 'สรุปวันในอนาคตไม่ได้'], 422);
         }
 
+        $usageBefore = $this->dtc->usageSummary();
         try {
             $result = $this->summary->summarizeDay($date, true, 3);
         } catch (Throwable $e) {
@@ -64,7 +66,10 @@ class GpsDashboardController extends Controller
             return response()->json(['ok' => false, 'message' => 'สรุปข้อมูลไม่สำเร็จ', 'usage' => $this->dtc->usageSummary()], 500);
         }
 
-        $message = "สรุปแล้ว {$result['summarized']} จาก {$result['trucks']} คัน";
+        $usageAfter = $this->dtc->usageSummary();
+        $requestsUsed = max(0, (int) $usageAfter['month_total'] - (int) $usageBefore['month_total']);
+        $requestLabel = $requestsUsed === 0 ? 'ใช้ DTC 0 request (ข้อมูลเส้นทางจาก cache)' : "ใช้ DTC {$requestsUsed} request";
+        $message = "สรุป {$result['summarized']}/{$result['trucks']} คัน · {$requestLabel}";
         if ($result['pending'] > 0) {
             $message .= " · เหลือ {$result['pending']} คัน กดอัปเดตอีกครั้งในอีก 1 นาที (DTC จำกัด 3 ครั้ง/นาที)";
         }
@@ -73,7 +78,8 @@ class GpsDashboardController extends Controller
             'ok' => true,
             'message' => $message,
             'result' => $result,
-            'usage' => $this->dtc->usageSummary(),
+            'requests_used' => $requestsUsed,
+            'usage' => $usageAfter,
         ]);
     }
 
