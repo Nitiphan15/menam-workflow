@@ -171,6 +171,8 @@
     <script src="{{ asset('vendor/jquery/jquery-3.6.0.min.js') }}"></script>
     <script src="{{ asset('vendor/flatpickr/flatpickr.min.js') }}"></script>
     <script src="{{ asset('vendor/sweetalert2/sweetalert2.all.min.js') }}"></script>
+    @php($scrollSafeSwalVersion = file_exists(public_path('js/scroll-safe-swal.js')) ? filemtime(public_path('js/scroll-safe-swal.js')) : config('app.version'))
+    <script src="{{ asset('js/scroll-safe-swal.js') }}?v={{ $scrollSafeSwalVersion }}"></script>
     <script src="{{ asset('vendor/tom-select/js/tom-select.complete.min.js') }}"></script>
     <script src="{{ asset('vendor/chartjs/chart.umd.min.js') }}"></script>
     <script src="{{ asset('vendor/chartjs-plugin-datalabels/chartjs-plugin-datalabels.min.js') }}"></script>
