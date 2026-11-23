@@ -28,6 +28,7 @@ class LogUserActivity
         'livewire',
         'debugbar',
         'telescope',
+        'client-errors', // JS error reporter — เก็บใน client-errors log แยกแล้ว
     ];
 
     /** route ที่ auth events บันทึกให้แล้ว */

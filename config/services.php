@@ -46,6 +46,19 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // แจ้งเตือน error ร้ายแรง (500 / scheduler ล้ม) ผ่าน Telegram — ค่าจาก .env เท่านั้น ห้าม log token
+    'error_alert' => [
+        'enabled'          => env('ERROR_ALERT_ENABLED', false),
+        'bot_token'        => env('ERROR_ALERT_TELEGRAM_BOT_TOKEN'),
+        'chat_id'          => env('ERROR_ALERT_TELEGRAM_CHAT_ID'),
+        'api_base'         => env('TELEGRAM_API_BASE', 'https://api.telegram.org'),
+        'timeout'          => env('ERROR_ALERT_TIMEOUT', 3),
+        // error เดิม (class + file + line เดียวกัน) แจ้งซ้ำได้ไม่เกิน 1 ครั้งต่อกี่นาที
+        'throttle_minutes' => env('ERROR_ALERT_THROTTLE_MINUTES', 10),
+        // เพดานรวมต่อ 10 นาที กันแชทท่วมตอน DB ล่มทั้งระบบ
+        'max_per_window'   => env('ERROR_ALERT_MAX_PER_10_MIN', 20),
+    ],
+
     'erp' => [
         'base_url'        => env('ERP_BASE_URL', 'http://192.168.1.40/cpa/rp-forms.php'),
         'login_url'       => env('ERP_LOGIN_URL', 'http://192.168.1.40/cpa/login.php'),

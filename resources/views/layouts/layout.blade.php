@@ -19,6 +19,12 @@
         }
     @endphp
     <title>{{ $dbBadge ? '[' . $dbBadge['label'] . '] ' : '' }}@yield('title', 'Menam Workflow Online')</title>
+    @auth
+        {{-- เก็บ JavaScript error ส่งไป server (ต้องโหลดก่อน script อื่นเพื่อจับ error ได้ครบ) --}}
+        @php($clientErrorReporterVersion = file_exists(public_path('js/client-error-reporter.js')) ? filemtime(public_path('js/client-error-reporter.js')) : config('app.version'))
+        <script src="{{ asset('js/client-error-reporter.js') }}?v={{ $clientErrorReporterVersion }}"
+            data-endpoint="{{ route('client-errors.store') }}"></script>
+    @endauth
 
 
     <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">

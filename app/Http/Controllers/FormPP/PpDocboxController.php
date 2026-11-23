@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\Log;
 
 class PpDocboxController extends Controller
 {
@@ -241,6 +242,7 @@ class PpDocboxController extends Controller
                             ->implode(', ');
                     });
             } catch (\Throwable $e) {
+                Log::warning('FormPP: load work order customers failed', ['error' => $e->getMessage()]);
                 continue;
             }
         }

@@ -23,6 +23,8 @@ class SendStockWithdrawalDailyAlert extends Command
 
             return self::SUCCESS;
         } catch (Throwable $error) {
+            // รันจาก scheduler: ข้อความใน console ไม่มีใครเห็น จึงต้องลง laravel.log ด้วย
+            report($error);
             $this->error('ส่งเมลไม่สำเร็จ: '.$error->getMessage());
 
             return self::FAILURE;

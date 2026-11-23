@@ -8,6 +8,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Log;
 
 class MachineLoadService
 {
@@ -185,6 +186,7 @@ class MachineLoadService
                 'settingsError' => null,
             ];
         } catch (\Throwable $e) {
+            Log::warning('FormMLA: load machine load settings failed', ['error' => $e->getMessage()]);
             return [
                 'workCenters' => collect(),
                 'holidays' => collect(),
@@ -707,6 +709,7 @@ class MachineLoadService
                 ->get()
                 ->keyBy(fn($row) => $this->machineKey($row->source_site, $row->workcenter_id, $row->workmachine_id));
         } catch (\Throwable $e) {
+            Log::warning('FormMLA: load work center settings failed', ['error' => $e->getMessage()]);
             return collect();
         }
     }
@@ -721,6 +724,7 @@ class MachineLoadService
                 ->map(fn($rows) => $rows->pluck('holiday_date')->map(fn($d) => Carbon::parse($d)->toDateString())->all())
                 ->all();
         } catch (\Throwable $e) {
+            Log::warning('FormMLA: load holiday settings failed', ['error' => $e->getMessage()]);
             return [];
         }
     }
@@ -921,6 +925,7 @@ class MachineLoadService
                     'label' => $source['site'] . ' / ' . $this->masterLabel($row->workcenternumber ?? null, $row->description ?? null, 'WC', $row->id),
                 ]);
             } catch (\Throwable $e) {
+                Log::warning('FormMLA: load ERP work center options failed', ['site' => $source['site'] ?? null, 'error' => $e->getMessage()]);
                 return collect();
             }
         })->values();
@@ -948,6 +953,7 @@ class MachineLoadService
                     'label' => $source['site'] . ' / ' . $this->masterLabel($row->machinenumber ?? null, $row->description ?? null, 'MC', $row->id),
                 ]);
             } catch (\Throwable $e) {
+                Log::warning('FormMLA: load ERP machine options failed', ['site' => $source['site'] ?? null, 'error' => $e->getMessage()]);
                 return collect();
             }
         })->values();

@@ -343,6 +343,7 @@ class StockWithdrawalPlanController extends Controller
         try {
             $result = $this->sendDueMail($service, auth()->id());
         } catch (\Throwable $e) {
+            report($e);
             return back()->withErrors(['mail' => 'ส่งเมลไม่สำเร็จ: '.$e->getMessage()]);
         }
 
@@ -528,6 +529,7 @@ class StockWithdrawalPlanController extends Controller
                 StockWithdrawalPlanItem::query()->whereIn('id',$items->pluck('id'))->update(['special_mail_sent_at'=>$now]);
             });
         } catch (\Throwable $e) {
+            report($e);
             $now=now('Asia/Bangkok');
             DB::connection('sqlsrv_menam')->table('stock_withdrawal_alert_logs')->insert(array_merge(['run_at'=>$now,'recipient'=>$recipient,'sent_by'=>auth()->id(),'item_count'=>$items->count(),'status'=>'FAILED','mail_type'=>'SPECIAL','attachment_name'=>$attachments[0]['name'],'error_message'=>mb_substr($e->getMessage(),0,2000),'payload'=>json_encode(['manual'=>true]),'created_at'=>$now,'updated_at'=>$now],$riskCounts));
             return back()->withErrors(['mail'=>'ส่งเมลด่วนไม่สำเร็จ: '.$e->getMessage()]);
