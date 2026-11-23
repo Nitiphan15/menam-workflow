@@ -30,7 +30,7 @@ class GpsTripTrackingViewTest extends TestCase
                         'product' => 'สินค้าทดสอบ',
                         'part_number' => 'PART-01',
                         'quantity' => 2.5,
-                        'unit' => 'ตัน',
+                        'unit' => 'kg',
                     ]],
                 ]],
             ]],
@@ -65,6 +65,6 @@ class GpsTripTrackingViewTest extends TestCase
         $item = $vehicles[0]['deliveries'][0]['items'][0] ?? [];
         $this->assertSame('SO-TEST-01', $item['so_number'] ?? null);
         $this->assertSame(2.5, $item['quantity'] ?? null);
-        $this->assertSame('ตัน', $item['unit'] ?? null);
+        $this->assertSame('kg', $item['unit'] ?? null);
     }
 }

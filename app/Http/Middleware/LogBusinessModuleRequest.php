@@ -17,7 +17,19 @@ class LogBusinessModuleRequest
         $module = ModuleLogContext::moduleForRouteName($routeName);
 
         if ($module === null) {
-            return $next($request);
+            // module อื่น ๆ: ไม่ทำ audit log แต่ติดป้าย module ให้ทุก log ใน request นี้ (ใช้กรองในหน้า Error Log)
+            $label = ModuleLogContext::labelForRouteName($routeName);
+            if ($label === null) {
+                return $next($request);
+            }
+
+            Log::withContext(['module' => $label]);
+
+            try {
+                return $next($request);
+            } finally {
+                Log::withoutContext();
+            }
         }
 
         $requestId = ModuleLogContext::requestId($request);

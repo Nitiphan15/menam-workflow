@@ -24,6 +24,7 @@ class DeliveryConfirmationStatusTest extends TestCase
         return [
             'confirm' => ['CONFIRM', 'Confirm Delivery', 'success', true],
             'postpone' => ['POSTPONE', 'Request Postpone', 'warning', true],
+            'waiting plan' => ['WAITING_PLAN', 'รอจัดแผน', 'info text-dark', false],
             'cancelled' => ['CANCELLED', 'ยกเลิกการยืนยัน', 'danger', false],
             'reconfirm' => ['RECONFIRM', 'รอคอนเฟิร์มใหม่', 'secondary', false],
             'empty' => [null, '-', 'light text-dark border', false],

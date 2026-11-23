@@ -117,7 +117,7 @@ class GpsTripQueueService
                                             'product' => trim((string) ($item->part_desc ?: $item->part_number ?: '-')),
                                             'part_number' => trim((string) ($item->part_number ?? '')),
                                             'quantity' => $quantity,
-                                            'unit' => $pieceQuantity ? 'ชิ้น' : 'ตัน',
+                                            'unit' => $pieceQuantity ? 'ชิ้น' : 'kg', // delivery_plan_data.qty is KG
                                         ];
                                     })->values()->all(),
                                 ];

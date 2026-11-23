@@ -82,6 +82,7 @@ class MachineLoadController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
         } catch (\Throwable $e) {
+            report($e);
             return redirect()->route('machine-load.settings')->with('error', 'Cannot save machine setting: ' . $e->getMessage());
         }
 
@@ -95,6 +96,7 @@ class MachineLoadController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
         } catch (\Throwable $e) {
+            report($e);
             return redirect()->route('machine-load.settings')->with('error', 'Cannot update machine setting: ' . $e->getMessage());
         }
 
@@ -106,6 +108,7 @@ class MachineLoadController extends Controller
         try {
             $service->deleteWorkCenter($id);
         } catch (\Throwable $e) {
+            report($e);
             return redirect()->route('machine-load.settings')->with('error', 'Cannot delete machine setting: ' . $e->getMessage());
         }
 
@@ -124,6 +127,7 @@ class MachineLoadController extends Controller
         try {
             $service->saveHoliday($validated);
         } catch (\Throwable $e) {
+            report($e);
             return redirect()->route('machine-load.settings')->with('error', 'Cannot save holiday: ' . $e->getMessage());
         }
 
@@ -135,6 +139,7 @@ class MachineLoadController extends Controller
         try {
             $service->deleteHoliday($id);
         } catch (\Throwable $e) {
+            report($e);
             return redirect()->route('machine-load.settings')->with('error', 'Cannot delete holiday: ' . $e->getMessage());
         }
 
