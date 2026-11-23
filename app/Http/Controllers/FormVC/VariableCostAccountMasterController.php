@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class VariableCostAccountMasterController extends Controller
 {
@@ -183,6 +184,7 @@ class VariableCostAccountMasterController extends Controller
                     });
                 $rows = $rows->concat($siteRows);
             } catch (\Throwable $e) {
+                Log::warning('FormVC: load ERP account list failed', ['site' => $site, 'error' => $e->getMessage()]);
                 // Keep the page usable even if one ERP site is temporarily unreachable.
             }
         }

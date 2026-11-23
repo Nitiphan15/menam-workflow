@@ -266,6 +266,9 @@ return [
 
                     ['icon' => 'fa-solid fa-truck-loading', 'text' => 'จัดรถส่งสินค้า', 'route' => 'dp.dashboard.logistics-summary', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-truck', 'text' => 'ตารางรถขนส่ง', 'route' => 'dp.dashboard.truck-board', 'permission' => ['DPA']],
+                    ['icon' => 'fa-solid fa-location-dot', 'text' => 'GPS Trip Tracking', 'route' => 'dp.gps-trip-tracking.index', 'permission' => ['DP', 'DPA']],
+                    ['icon' => 'fa-solid fa-chart-line', 'text' => 'GPS Dashboard (วางแผน)', 'route' => 'dp.gps-dashboard.index', 'permission' => ['DP', 'DPA']],
+                    ['icon' => 'fa-solid fa-map-pin', 'text' => 'พิกัดลูกค้า (GPS)', 'route' => 'dp.gps-locations.index', 'permission' => ['DP', 'DPA']],
                     ['icon' => 'fa-solid fa-truck-moving', 'text' => 'Master รถ', 'route' => 'dp.master.trucks', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-id-card', 'text' => 'Master พนักงานขับรถ', 'route' => 'dp.master.drivers', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-people-carry-box', 'text' => 'Master เด็กรถ', 'route' => 'dp.master.helpers', 'permission' => ['DPA']],
@@ -419,6 +422,7 @@ return [
                     ['icon' => 'fa-key', 'text' => 'เพิ่มสิทธิ์', 'route' => 'adminweb.roles.create', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-key', 'text' => 'กำหนดสิทธิ์ให้ User', 'route' => 'adminweb.user-permissions.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-list-check', 'text' => 'ประวัติการใช้งาน (Log)', 'route' => 'adminweb.activity-logs.index', 'permission' => 'ADMINWEB'],
+                    ['icon' => 'fa-bug', 'text' => 'Error Log', 'route' => 'adminweb.error-logs.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-envelope-circle-check', 'text' => 'กู้ PO Step 3 / ส่งเมล', 'route' => 'adminweb.po-step3-recovery.index', 'permission' => 'ADMINWEB'],
                     ['text' => 'ดูแลระบบ', 'header' => true],
                     ['icon' => 'fa-broom', 'text' => 'ล้าง Cache', 'route' => 'adminweb.cache.clear', 'permission' => 'ADMINWEB'],

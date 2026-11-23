@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Services\FormWOS\DeadstockExcelBackfillService;
 use App\Services\FormWOS\DeadstockSnapshotImportService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class BackfillDeadstockSnapshotsFromExcel extends Command
 {
@@ -47,6 +48,7 @@ class BackfillDeadstockSnapshotsFromExcel extends Command
                 ));
                 $importedFiles++;
             } catch (\Throwable $e) {
+                Log::warning('Deadstock backfill skipped file', ['file' => basename($file), 'error' => $e->getMessage()]);
                 $this->warn('Skipped ' . basename($file) . ': ' . $e->getMessage());
                 $skippedFiles++;
             }

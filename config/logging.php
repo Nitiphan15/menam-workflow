@@ -53,7 +53,8 @@ return [
     'channels' => [
         'stack' => [
             'driver' => 'stack',
-            'channels' => ['single'],
+            // daily = แยกไฟล์ตามวัน และเก็บไว้ LOG_DAILY_DAYS วัน (กันไฟล์ laravel.log โตไม่หยุด)
+            'channels' => explode(',', env('LOG_STACK', 'daily')),
             'ignore_exceptions' => false,
         ],
 
@@ -67,7 +68,15 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
-            'days' => 14,
+            'days' => (int) env('LOG_DAILY_DAYS', 14),
+        ],
+
+        // JavaScript error จาก browser ผู้ใช้ (POST /client-errors) แยกไฟล์จาก laravel.log
+        'client_errors' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/client-errors.log'),
+            'level' => 'debug',
+            'days' => (int) env('LOG_DAILY_DAYS', 14),
         ],
 
         'slack' => [

@@ -1,0 +1,17 @@
+{
+    "app/Http/Controllers/FormDP/DeliveryPlanInquiryController.php": {
+        "before_sha256": "01d6de5b66702264feb56e650cfdb9cd3c35b0bcd478fef52fa4762aaac24f4d",
+        "after_sha256": "1301b8a08c4eef7626f5a8f71e4087a4062fb23ff7b3103c6f764fd70330468c",
+        "note": "fix garbled Thai 403 message (line 277)"
+    },
+    "config/app.php": {
+        "before_sha256": "d50bb31540c02236bd9fddbef25239c5a1e4d95161c647b116e1db4d9106a4b5",
+        "after_sha256": "05dccae70c965c2604973f2cbe9deb391d23b1449c382f79b09889dbd0297d62",
+        "note": "default APP_VERSION 1.10.4 -> 1.10.5"
+    },
+    "resources/views/home.blade.php": {
+        "before_sha256": "2d33b54a999bdfc770179cbf27c1c353f2063be74abda923293ed6cb8e6794bd",
+        "after_sha256": "1ad517b818d4be499c4d375acc14485d53338930152fc5430d19c7d9a3301b36",
+        "note": "latest update + release history v1.10.5"
+    }
+}

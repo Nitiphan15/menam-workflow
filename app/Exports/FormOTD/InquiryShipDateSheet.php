@@ -198,6 +198,7 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
 
         $q = $this->baseQuery()
             ->selectRaw("
+                d.ord_id,
                 d.due_date,
                 d.delivery_type,
                 CONVERT(varchar(10), d.ship_posted_at, 23) as ship_posted_at,
@@ -297,7 +298,10 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
                 ->orderBy('d.part_number');
         }
 
-        $rows = $q->get();
+        // One delivery plan must appear once even if joined master data contains duplicates.
+        $rows = $q->get()
+            ->unique(fn ($row) => (string) $row->ord_id)
+            ->values();
 
         if ($this->isConfirmByPlannerSheet()) {
             $rows = $this->withPlannerConfirmationStatus($rows);
@@ -668,7 +672,10 @@ class InquiryShipDateSheet implements FromCollection, WithTitle, WithHeadings, W
     {
         $q = DB::connection('sqlsrv_menam')
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')
+                    ->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
             ->leftJoin('parts as p', function ($join) {

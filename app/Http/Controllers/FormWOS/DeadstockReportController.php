@@ -34,6 +34,7 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\Process\Process;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Illuminate\Support\Facades\Log;
 
 class DeadstockReportController extends Controller
 {
@@ -1000,6 +1001,7 @@ class DeadstockReportController extends Controller
                     $review->save();
                     $this->logDeadstockReviewChange($review, $before, 'import', (int) ($row['row_number'] ?? 0), $isNew ? 'created' : 'updated', $changedFields);
                 } catch (\Throwable $e) {
+                    Log::warning('FormWOS: deadstock import row failed', ['row' => $this->deadstockImportRowLabel($row), 'error' => $e->getMessage()]);
                     $stats['error']++;
                     $importErrors[] = $this->deadstockImportRowLabel($row) . ' save error: ' . $e->getMessage();
                     continue;
@@ -1667,6 +1669,7 @@ class DeadstockReportController extends Controller
 
                 $output = trim($process->getOutput() . PHP_EOL . $process->getErrorOutput());
             } catch (\Throwable $e) {
+                Log::warning('FormWOS: deadstock mail-daily process failed', ['date' => $dateLabel, 'error' => $e->getMessage()]);
                 $outputs[] = "[{$dateLabel}] " . $e->getMessage();
                 if (count($outputs) > $detailLimit) {
                     array_shift($outputs);
@@ -1714,6 +1717,7 @@ class DeadstockReportController extends Controller
             try {
                 $result = $importService->importFile($file);
             } catch (\Throwable $e) {
+                Log::warning('FormWOS: deadstock snapshot import failed', ['date' => $dateLabel, 'error' => $e->getMessage()]);
                 $outputs[] = "[{$dateLabel}] import error: " . $e->getMessage();
                 if (count($outputs) > $detailLimit) {
                     array_shift($outputs);
@@ -1740,6 +1744,7 @@ class DeadstockReportController extends Controller
                     ? $reviewService->compareMonth($month, false)
                     : ['active' => 0, 'changed' => 0, 'cleared' => 0];
             } catch (\Throwable $e) {
+                Log::warning('FormWOS: deadstock snapshot compare failed', ['date' => $dateLabel, 'error' => $e->getMessage()]);
                 $outputs[] = "[{$dateLabel}] compare error: " . $e->getMessage();
                 if (count($outputs) > $detailLimit) {
                     array_shift($outputs);
@@ -1795,6 +1800,7 @@ class DeadstockReportController extends Controller
         try {
             $sync = $reviewService->syncCurrentDeadstock($month, $importService);
         } catch (\Throwable $e) {
+            report($e);
             return back()->with('error', 'ดึง deadstock ปัจจุบันจาก ERP ไม่สำเร็จ: ' . $e->getMessage());
         }
 
@@ -1806,6 +1812,7 @@ class DeadstockReportController extends Controller
                     "ผล compare เดือนล่าสุดหลัง sync: คงค้าง {$counts['active']} / เปลี่ยนแปลง {$counts['changed']} / เคลียร์แล้ว {$counts['cleared']}"
                 );
             } catch (\Throwable $e) {
+                report($e);
                 session()->flash('error', "เพิ่มรายการแล้ว แต่ compare ไม่สำเร็จ: {$e->getMessage()}");
             }
         }
