@@ -81,3 +81,10 @@
 .gloc-shared { color: #9a5b00; font-weight: 700; }
 .gloc-score { display: inline-block; min-width: 2.8rem; padding: .05rem .4rem; border-radius: 999px; background: #eef1f4; font-weight: 700; font-size: .75rem; text-align: center; }
 .gloc-score.is-high { background: #e9f7f3; color: #08735d; }
+.gloc-suggest-table td { vertical-align: top; }
+.gloc-suggest-options { display: flex; flex-direction: column; gap: .35rem; }
+.gloc-suggest-option { display: flex; gap: .45rem; align-items: flex-start; padding: .3rem .45rem; border-radius: .45rem; border: 1px solid #e2e8f0; cursor: pointer; }
+.gloc-suggest-option small { display: block; color: #64748b; font-size: .72rem; }
+.gloc-suggest-option.is-high { border-color: #8fd3c1; background: #f3fbf8; }
+.gloc-suggest-option.is-medium { border-color: #f1d49a; background: #fffcf3; }
+.gloc-source-tag { display: inline !important; padding: 0 .35rem; border-radius: 999px; background: #eef2f6; color: #475569 !important; }

@@ -397,6 +397,125 @@
         }
     });
 
+    // ---------- automatic pin suggestions (DTC POI / Longdo / repeated truck stops) ----------
+    const SOURCE_LABEL = { dtc_poi: 'จุด DTC', longdo: 'Longdo', stops: 'จุดที่รถจอดซ้ำ' };
+    const LEVEL_LABEL = { high: 'สูง', medium: 'กลาง', low: 'ต่ำ' };
+    let suggestRows = [];
+
+    function suggestVisible() {
+        const level = el('gloc-suggest-level')?.value || 'medium';
+        const keyword = String(el('gloc-suggest-search')?.value || '').trim().toLowerCase();
+        return suggestRows.filter((row) => {
+            const top = row.candidates[0]?.confidence || 'none';
+            const levelOk = level === 'all' || (level === 'high' ? top === 'high' : ['high', 'medium'].includes(top));
+            return levelOk && (!keyword || row.name.toLowerCase().includes(keyword));
+        });
+    }
+
+    function evidenceText(c) {
+        const parts = [];
+        if (c.name_score !== null) parts.push(`ชื่อคล้าย ${c.name_score}%`);
+        if (c.queue_days) parts.push(`รถจอดใกล้ ${c.stayed_days}/${c.queue_days} วันที่อยู่ในคิว`);
+        if (c.specific_percent !== null) parts.push(`เฉพาะลูกค้านี้ ${c.specific_percent}%`);
+        if (c.shared) parts.push('⚠ จุดเดียวกับลูกค้าอื่น');
+        if (c.address) parts.push(c.address);
+        return parts.join(' · ');
+    }
+
+    function renderSuggest() {
+        const rows = suggestVisible();
+        const body = el('gloc-suggest-body');
+        body.innerHTML = rows.length ? `<table class="table table-sm align-middle gloc-bulk-table gloc-suggest-table">
+            <thead><tr><th style="width:2.2rem"></th><th>ลูกค้า</th><th>พิกัดแนะนำ (เลือก 1 จุด)</th></tr></thead>
+            <tbody>${rows.map((row) => {
+                const key = `${row.company}|${row.customer_id}`;
+                const options = row.candidates.length ? row.candidates.map((c, i) => `<label class="gloc-suggest-option is-${c.confidence}">
+                        <input type="radio" name="pick-${escapeHtml(key)}" value="${i}" ${i === 0 ? 'checked' : ''}>
+                        <span><b>${escapeHtml(c.label)}</b> <span class="gloc-score">${LEVEL_LABEL[c.confidence]}</span> <small class="gloc-source-tag">${SOURCE_LABEL[c.source]}</small>
+                        <small>${escapeHtml(evidenceText(c))} · <a href="https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lon}" target="_blank" rel="noopener noreferrer">ดูแผนที่</a></small></span>
+                    </label>`).join('') : `<span class="gloc-muted">ยังไม่มีพิกัดแนะนำ${row.longdo_searched ? ' (ค้น Longdo แล้วไม่พบ)' : ''}</span>`;
+                return `<tr data-key="${escapeHtml(key)}">
+                    <td>${row.candidates.length ? `<input type="checkbox" data-suggest-save ${row.candidates[0].confidence === 'high' ? 'checked' : ''} aria-label="บันทึก ${escapeHtml(row.name)}">` : ''}</td>
+                    <td><b>${escapeHtml(row.name)}</b><small>${escapeHtml(row.company)} · #${row.customer_id} · ${row.line_count} รายการ · อยู่ในคิวที่มี GPS ${row.queue_days} วัน${row.longdo_available && !row.longdo_searched ? ' · ยังไม่ได้ค้น Longdo' : ''}</small></td>
+                    <td class="gloc-suggest-options">${options}</td>
+                </tr>`;
+            }).join('')}</tbody></table>` : '<div class="gloc-muted">ไม่มีลูกค้าตามเงื่อนไขนี้</div>';
+        updateSuggestCount();
+    }
+
+    function updateSuggestCount() {
+        const checked = document.querySelectorAll('#gloc-suggest-body input[data-suggest-save]:checked').length;
+        el('gloc-suggest-count').textContent = `เลือก ${checked} ราย · แสดง ${suggestVisible().length} จาก ${suggestRows.length} ราย`;
+        el('gloc-suggest-save').disabled = checked === 0;
+    }
+
+    function renderLongdoUsage(usage) {
+        if (!usage) return;
+        el('gloc-suggest-usage').textContent = usage.enabled ? `Longdo รอบนี้ ${usage.month_total.toLocaleString()} / ${usage.monthly_limit.toLocaleString()} · วันนี้ ${usage.today}` : 'Longdo ยังไม่ได้ตั้งค่า (ค้นได้เฉพาะจุด DTC และจุดจอดรถ)';
+        el('gloc-suggest-longdo').disabled = !usage.enabled;
+    }
+
+    async function loadSuggest() {
+        el('gloc-suggest-body').innerHTML = '<div class="gloc-muted"><i class="fas fa-spinner fa-spin me-1"></i> กำลังรวบรวมพิกัดแนะนำ...</div>';
+        try {
+            const response = await fetch(root.dataset.pinSuggestionsUrl, { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+            suggestRows = payload.rows || [];
+            renderLongdoUsage(payload.longdo);
+            renderSuggest();
+        } catch (error) {
+            el('gloc-suggest-body').innerHTML = `<div class="gloc-flash is-error">โหลดไม่สำเร็จ: ${escapeHtml(error.message)}</div>`;
+        }
+    }
+
+    el('gloc-suggest-open')?.addEventListener('click', () => {
+        window.bootstrap?.Modal.getOrCreateInstance(el('gloc-suggest-modal'))?.show();
+        loadSuggest();
+    });
+    el('gloc-suggest-level')?.addEventListener('change', renderSuggest);
+    el('gloc-suggest-search')?.addEventListener('input', renderSuggest);
+    el('gloc-suggest-body')?.addEventListener('change', updateSuggestCount);
+
+    el('gloc-suggest-longdo')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        const keys = suggestVisible().filter((row) => row.longdo_available && !row.longdo_searched).slice(0, 10).map((row) => `${row.company}|${row.customer_id}`);
+        if (!keys.length) { flash('ลูกค้าที่แสดงอยู่ค้น Longdo ครบแล้ว'); return; }
+        button.disabled = true;
+        try {
+            const payload = await postJson(root.dataset.pinLongdoUrl, { keys });
+            const fresh = new Map((payload.rows || []).map((row) => [`${row.company}|${row.customer_id}`, row]));
+            suggestRows = suggestRows.map((row) => fresh.get(`${row.company}|${row.customer_id}`) || row);
+            renderLongdoUsage(payload.longdo);
+            renderSuggest();
+            flash(`ค้น Longdo ${keys.length} ราย (ใช้ ${payload.requests} request)`);
+        } catch (error) {
+            flash(`ค้น Longdo ไม่สำเร็จ: ${error.message}`, false);
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    el('gloc-suggest-save')?.addEventListener('click', async (event) => {
+        const items = [...document.querySelectorAll('#gloc-suggest-body tr[data-key]')].filter((tr) => tr.querySelector('input[data-suggest-save]:checked')).map((tr) => {
+            const row = suggestRows.find((r) => `${r.company}|${r.customer_id}` === tr.dataset.key);
+            const picked = Number(tr.querySelector('input[type="radio"]:checked')?.value || 0);
+            const c = row?.candidates[picked];
+            return row && c ? { company: row.company, customer_id: row.customer_id, lat: c.lat, lon: c.lon, label: c.label, source: c.source, dtc_poi_id: c.dtc_poi_id, radius_m: c.radius_m } : null;
+        }).filter(Boolean);
+        if (!items.length || !window.confirm(`บันทึกพิกัดให้ลูกค้า ${items.length} ราย?`)) return;
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+            const payload = await postJson(root.dataset.pinSaveUrl, { items });
+            flash(`${payload.message} · กำลังโหลดหน้าใหม่`);
+            window.setTimeout(() => window.location.reload(), 1200);
+        } catch (error) {
+            flash(`บันทึกไม่สำเร็จ: ${error.message}`, false);
+            button.disabled = false;
+        }
+    });
+
     // ---------- pin suggestions from real truck stops ----------
     let stopLayer = null;
     let stopCandidates = [];
