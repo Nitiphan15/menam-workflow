@@ -237,6 +237,20 @@ Excel:
 
 ---
 
+## Production Sync, Testing and Branch Lifecycle
+
+Full details are in `AGENTS.md` (shared with Codex). Summary:
+
+- Production (`M:\htdocs\menam-online`) can be ahead of git. Compare with the production copy before deploying any
+  file from git; deploy only via a `docs/deploy-patches/<version>-<topic>/` package built from the production file.
+- Run the whole Unit suite in an isolated sandbox (sqlite in-memory) **before** every merge, not after.
+- Every branch must end within 2 weeks: merged via PR, or PR closed with a reason — then delete the branch
+  (keep an `archive/<branch>` tag if history matters). Never stack a branch on an unmerged branch.
+  Code deployed to production must be in a PR the same day.
+- Before starting new work, report branches older than 14 days without an open PR.
+
+---
+
 ## Command / Bash Rules
 
 Safe commands:

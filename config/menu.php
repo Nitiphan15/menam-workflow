@@ -8,6 +8,15 @@ return [
 
     'show_guest_menu_when_auth' => true,
     'hide_guest_menu_routes_when_auth' => ['login', 'stock-withdrawal.part-alert'],
+    // เมนูสาธารณะที่ยังแสดงใน sidebar หลัง login (ที่เหลืออยู่ในหน้า "เมนูทั้งหมด" /menus)
+    // ใส่ route ของเมนูเดี่ยว หรือ route ของ child ตัวใดตัวหนึ่งในกลุ่ม → แสดงทั้งกลุ่ม
+    // เลือกจาก user_activity_logs 90 วัน (2026-11-19): ใช้โดย 15–30 จาก 60 คน ที่เหลือ ≤ 8 คน
+    'auth_sidebar_public_routes' => [
+        'dp.inquiry',            // Delivery Plan
+        'deadstock.dashboard',   // Deadstock
+        'wos.sales_unit_summary', // Sales Report
+        'pkg.packaging.usage',   // Packaging
+    ],
 
     'menu' => [
         'guest' => [
@@ -99,25 +108,7 @@ return [
 
         'auth' => [
             ['icon' => 'fa fa-home', 'text' => 'หน้าหลัก', 'route' => 'home'],
-            [
-                'icon' => 'fa-boxes-stacked',
-                'text' => 'Deadstock',
-                // ไม่กำหนด permission: เปิดให้ทุกคนที่ login เห็น (ดูได้เหมือน guest, action ค่อยเช็ค auth)
-                'children' => [
-                    ['icon' => 'fa-boxes-stacked', 'text' => 'Deadstock Dashboard', 'route' => 'deadstock.dashboard'],
-                    ['icon' => 'fa-clipboard-check', 'text' => 'Deadstock Monthly Review', 'route' => 'deadstock.review'],
-                ],
-            ],
-            [
-                'icon' => 'fa-screwdriver-wrench',
-                'text' => 'DIE Tracking',
-                // ไม่กำหนด permission: เปิดให้ทุกคนที่ login เห็น (route die.* เป็น public อยู่แล้ว)
-                'children' => [
-                    ['icon' => 'fa-gauge-high',  'text' => 'Dashboard',       'route' => 'die.index'],
-                    ['icon' => 'fa-database',    'text' => 'Die Master',      'route' => 'die.master'],
-                    ['icon' => 'fa-file-lines',  'text' => 'WO Detail Sheet', 'route' => 'die.wo-detail'],
-                ],
-            ],
+            ['icon' => 'fa fa-grip', 'text' => 'เมนูทั้งหมด', 'route' => 'menus.index'],
         ],
 
         'wlm' => [
@@ -199,6 +190,8 @@ return [
                     ['icon' => 'fa-tasks', 'text' => 'เอกสารที่ต้องทำ', 'route' => 'po.myActions', 'permission' => 'PO'],
                     ['icon' => 'fa-route', 'text' => 'ติดตาม PO แผนกของฉัน', 'route' => 'po.departmentTracking', 'permission' => 'POV'],
                     ['icon' => 'fa-list', 'text' => 'รายการ PO', 'route' => 'po.index', 'permission' => 'POPUR'],
+                    ['icon' => 'fa-file-pdf', 'text' => 'รวมไฟล์ PDF', 'route' => 'po.pdf-merge.index', 'permission' => 'POPUR'],
+                    ['icon' => 'fa-users-gear', 'text' => 'PO Approver Master', 'route' => 'po.approver-master.index', 'permission' => 'POM'],
                 ],
             ],
         ],
@@ -273,6 +266,9 @@ return [
 
                     ['icon' => 'fa-solid fa-truck-loading', 'text' => 'จัดรถส่งสินค้า', 'route' => 'dp.dashboard.logistics-summary', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-truck', 'text' => 'ตารางรถขนส่ง', 'route' => 'dp.dashboard.truck-board', 'permission' => ['DPA']],
+                    ['icon' => 'fa-solid fa-location-dot', 'text' => 'GPS Trip Tracking', 'route' => 'dp.gps-trip-tracking.index', 'permission' => ['DP', 'DPA']],
+                    ['icon' => 'fa-solid fa-chart-line', 'text' => 'GPS Dashboard (วางแผน)', 'route' => 'dp.gps-dashboard.index', 'permission' => ['DP', 'DPA']],
+                    ['icon' => 'fa-solid fa-map-pin', 'text' => 'พิกัดลูกค้า (GPS)', 'route' => 'dp.gps-locations.index', 'permission' => ['DP', 'DPA']],
                     ['icon' => 'fa-solid fa-truck-moving', 'text' => 'Master รถ', 'route' => 'dp.master.trucks', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-id-card', 'text' => 'Master พนักงานขับรถ', 'route' => 'dp.master.drivers', 'permission' => ['DPA']],
                     ['icon' => 'fa-solid fa-people-carry-box', 'text' => 'Master เด็กรถ', 'route' => 'dp.master.helpers', 'permission' => ['DPA']],
@@ -288,6 +284,12 @@ return [
                 'route' => 'dp.production-status',
                 'permission' => 'TDP',
 
+            ],
+            [
+                'icon' => 'fa-solid fa-boxes-stacked',
+                'text' => 'WIP Monitoring',
+                'route' => 'wip.index',
+                'permission' => 'TDP',
             ],
         ],
 
@@ -421,6 +423,7 @@ return [
                     ['icon' => 'fa-key', 'text' => 'กำหนดสิทธิ์ให้ User', 'route' => 'adminweb.user-permissions.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-list-check', 'text' => 'ประวัติการใช้งาน (Log)', 'route' => 'adminweb.activity-logs.index', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-bug', 'text' => 'Error Log', 'route' => 'adminweb.error-logs.index', 'permission' => 'ADMINWEB'],
+                    ['icon' => 'fa-envelope-circle-check', 'text' => 'กู้ PO Step 3 / ส่งเมล', 'route' => 'adminweb.po-step3-recovery.index', 'permission' => 'ADMINWEB'],
                     ['text' => 'ดูแลระบบ', 'header' => true],
                     ['icon' => 'fa-broom', 'text' => 'ล้าง Cache', 'route' => 'adminweb.cache.clear', 'permission' => 'ADMINWEB'],
                     ['icon' => 'fa-rotate', 'text' => 'Dump Autoload', 'route' => 'adminweb.autoload.dump', 'permission' => 'ADMINWEB'],

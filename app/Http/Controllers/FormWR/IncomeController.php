@@ -75,6 +75,7 @@ class IncomeController extends Controller
             $sql = <<<SQL
                 SELECT
                     oe.ordnumber AS po_no,
+                    orderitems.id AS orderitem_id,
                     oe.transdate AS po_date,
                     oe.reqdate   AS req_date,
                     oe.shipped_or_received,
@@ -115,6 +116,7 @@ class IncomeController extends Controller
                 WHERE {$where} 
                 GROUP BY
                     oe.ordnumber,
+                    orderitems.id,
                     oe.transdate,
                     oe.reqdate,
                     oe.shipped_or_received,
@@ -770,6 +772,7 @@ class IncomeController extends Controller
             $sql = <<<SQL
         SELECT
             oe.ordnumber AS po_no,
+            orderitems.id AS orderitem_id,
             oe.transdate AS po_date,
             oe.reqdate   AS req_date,
             orderitems.qty                    AS qty_order,
@@ -794,7 +797,7 @@ class IncomeController extends Controller
         LEFT JOIN receiveitems ON orderitems.id = receiveitems.orderitems_id
         WHERE {$where}
         GROUP BY
-            oe.ordnumber, oe.transdate, oe.reqdate,
+            oe.ordnumber, orderitems.id, oe.transdate, oe.reqdate,
             orderitems.qty, vendor.name, parts.partnumber, parts.description,
             oe.curr, orderitems.sellprice
         ORDER BY parts.partnumber

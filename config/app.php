@@ -35,6 +35,9 @@ return [
     // เปิด/ปิดการบันทึก activity log (null = ใช้ค่าเริ่มต้น: บันทึกเฉพาะเมื่อไม่ใช่ environment local)
     'activity_log_enabled' => env('ACTIVITY_LOG_ENABLED', null),
 
+    // จำนวนวันที่เก็บ user_activity_logs ก่อน activity-log:prune ลบ (ขั้นต่ำ 90 วัน)
+    'activity_log_retention_days' => (int) env('ACTIVITY_LOG_RETENTION_DAYS', 365),
+
     /*
     |--------------------------------------------------------------------------
     | Application Debug Mode

@@ -61,6 +61,18 @@
                     <pre class="bg-dark text-light p-3 rounded small mt-2 mb-0" style="max-height: 280px; overflow:auto;">{{ session('erp_sync_output') }}</pre>
                 </details>
             @endif
+            @if (session('sales_submit_unlock_success'))
+                <div class="alert alert-success py-2 mb-2">{{ session('sales_submit_unlock_success') }}</div>
+            @endif
+            @if (session('sales_submit_unlock_info'))
+                <div class="alert alert-info py-2 mb-2">{{ session('sales_submit_unlock_info') }}</div>
+            @endif
+            @if (session('sales_submit_lock_success'))
+                <div class="alert alert-success py-2 mb-2">{{ session('sales_submit_lock_success') }}</div>
+            @endif
+            @if (session('sales_submit_lock_info'))
+                <div class="alert alert-info py-2 mb-2">{{ session('sales_submit_lock_info') }}</div>
+            @endif
             @if ($canDpa)
                 @php
                     $tnShipForNav = request('ship_from') ?: (request('ship_to') ?: now()->toDateString());
@@ -224,6 +236,8 @@
                             </button>
                         </form>
                     @endif
+
+                    @include('formdp.partials.sales-submission-control')
 
                     <div class="dropdown">
                         <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle"
@@ -949,7 +963,7 @@
                                         @endif
                                     </td>
 
-                                    <td class="text-center">
+                                    <td class="text-center dp-action-cell">
                                         @php
                                             $shipDateKey = $shipDateOnly ?: '';
                                             $soLineKey = (string) ($r->so_number ?? '') . '|' . $shipDateKey;
@@ -1011,7 +1025,7 @@
                                                                 แก้ไข
                                                             </button>
                                                         @else
-                                                            <a class="btn btn-sm btn-outline-primary action-primary"
+                                                            <a class="btn btn-sm btn-outline-primary action-primary jsEditPlanLink"
                                                                 href="{{ route('dp.day', ['date' => $shipDateOnly ?: now()->toDateString()]) }}?edit={{ $r->ord_id }}">
                                                                 แก้ไข
                                                             </a>
@@ -2149,7 +2163,7 @@
 @endsection
 
 @section('styles')
-    <link rel="stylesheet" href="{{ asset('css/formdp/inquiry.css') }}?v=20260609_action_compact_v1">
+    <link rel="stylesheet" href="{{ asset('css/formdp/inquiry.css') }}?v=20261119_edit_link_v1">
 @endsection
 
 @push('scripts')
@@ -2198,7 +2212,7 @@
                     return;
                 }
 
-                Swal.fire({
+                (window.ScrollSafeSwal || window.Swal).fire({
                     title: 'ดึงข้อมูล ERP?',
                     text: 'ระบบจะดึงข้อมูล Sale Order และ Work Order จาก ERP ตอนนี้',
                     icon: 'question',
@@ -2211,7 +2225,7 @@
                     focusCancel: true
                 }).then(function(result) {
                     if (result.isConfirmed) {
-                        Swal.fire({
+                        (window.ScrollSafeSwal || window.Swal).fire({
                             title: 'กำลังดึงข้อมูล',
                             text: 'กรุณารอสักครู่',
                             allowOutsideClick: false,
@@ -2228,5 +2242,5 @@
         });
     </script>
 
-    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20260629_bulk_unassign_v1"></script>
+    <script src="{{ asset('js/formdp/inquiry.js') }}?v=20261119_v1.10.2"></script>
 @endpush

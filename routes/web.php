@@ -41,6 +41,7 @@ use App\Http\Controllers\Admin\UserPermissionController;
 use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\ErrorLogController;
 use App\Http\Controllers\ClientErrorController;
+use App\Http\Controllers\Admin\PoStep3RecoveryController;
 //WR
 use App\Http\Controllers\FormWR\IncomeController;
 use App\Http\Controllers\FormWR\WireRodDeadstockController;
@@ -85,7 +86,11 @@ use App\Http\Controllers\FormDP\DeliveryPlanController;
 use App\Http\Controllers\FormDP\DeliveryPlanInquiryController;
 use App\Http\Controllers\FormGP\GratingPerformanceController;
 use App\Http\Controllers\FormDP\ProductionStatusTrackingController;
+use App\Http\Controllers\FormWIP\WipMonitoringController;
 use App\Http\Controllers\FormDP\TruckMasterController;
+use App\Http\Controllers\FormDP\GpsTripTrackingController;
+use App\Http\Controllers\FormDP\GpsCustomerLocationController;
+use App\Http\Controllers\FormDP\GpsDashboardController;
 //Forecast
 use App\Http\Controllers\FormFC\ForecastRmController;
 use App\Http\Controllers\FormFC\ForecastRmDivisionController;
@@ -155,6 +160,16 @@ Route::get('/api/wr/items', [IncomeController::class, 'itemsSuggest'])->name('wr
 Route::get('/api/wr/po',    [IncomeController::class, 'poSuggest'])->name('wr.autocomplete.po');
 
 
+// WIP & Stock Pending Monitoring (Prototype)
+Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
+  Route::get('/wip', [WipMonitoringController::class, 'index'])->name('wip.index');
+  Route::get('/wip/list', [WipMonitoringController::class, 'list'])->name('wip.list');
+  Route::get('/wip/export', [WipMonitoringController::class, 'export'])->name('wip.export');
+  Route::get('/wip/{site}/{workorder}', [WipMonitoringController::class, 'detail'])
+    ->whereNumber('workorder')
+    ->name('wip.detail');
+});
+
 Route::middleware(['auth', 'permission.any:DP,DPA'])->group(function () {
   Route::get('/dp/production-status', [ProductionStatusTrackingController::class, 'index'])->name('dp.production-status');
   Route::get('/dp/production-status/export', [ProductionStatusTrackingController::class, 'export'])->name('dp.production-status.export');
@@ -200,6 +215,9 @@ Route::get('/dp/line/{id}/history', [DeliveryPlanController::class, 'history'])
   ->name('dp.history');
 
 Route::view('/home', 'home')->name('home');
+Route::get('/menus', [\App\Http\Controllers\MenuController::class, 'index'])
+  ->middleware('auth')
+  ->name('menus.index');
 Route::get('/organization', [DepartmentOrganizationController::class, 'index'])
   ->name('organization.index');
 
@@ -491,6 +509,60 @@ Route::middleware(['auth'])
   ->name('dp.')
   ->group(function () {
 
+    Route::middleware(['permission.any:DP,DPA'])->group(function () {
+      Route::get('/gps-trip-tracking', [GpsTripTrackingController::class, 'index'])
+        ->name('gps-trip-tracking.index');
+      Route::get('/gps-trip-tracking/demo-data', [GpsTripTrackingController::class, 'demoData'])
+        ->name('gps-trip-tracking.demo-data');
+      // Lazy sync: DTC is called at most once per sync interval for all viewers (see DtcGpsService::liveSnapshot).
+      Route::get('/gps-trip-tracking/live', [GpsTripTrackingController::class, 'live'])
+        ->middleware('throttle:20,1')
+        ->name('gps-trip-tracking.live');
+      Route::get('/gps-trip-tracking/route/{gpsId}', [GpsTripTrackingController::class, 'route'])
+        ->where('gpsId', '[A-Za-z0-9]{6,30}')
+        ->middleware('throttle:10,1')
+        ->name('gps-trip-tracking.route');
+
+      // GPS planner dashboard (late arrival / late return / trends)
+      Route::get('/gps-dashboard', [GpsDashboardController::class, 'index'])
+        ->name('gps-dashboard.index');
+      Route::post('/gps-dashboard/refresh', [GpsDashboardController::class, 'refresh'])
+        ->middleware(['can:DPA', 'throttle:3,1'])
+        ->name('gps-dashboard.refresh');
+
+      // GPS Phase 1: customer locations (view DP/DPA, edit DPA only)
+      Route::get('/gps-locations', [GpsCustomerLocationController::class, 'index'])
+        ->name('gps-locations.index');
+      Route::get('/gps-locations/customer/{company}/{customerId}', [GpsCustomerLocationController::class, 'show'])
+        ->where(['company' => '[A-Za-z0-9_-]{1,10}', 'customerId' => '[0-9]+'])
+        ->name('gps-locations.show');
+      Route::middleware(['can:DPA'])->group(function () {
+        Route::post('/gps-locations', [GpsCustomerLocationController::class, 'store'])
+          ->name('gps-locations.store');
+        Route::post('/gps-locations/{id}/deactivate', [GpsCustomerLocationController::class, 'deactivate'])
+          ->whereNumber('id')
+          ->name('gps-locations.deactivate');
+        Route::post('/gps-locations/import-poi', [GpsCustomerLocationController::class, 'importPois'])
+          ->middleware('throttle:2,1')
+          ->name('gps-locations.import-poi');
+        Route::post('/gps-locations/refresh-schema', [GpsCustomerLocationController::class, 'refreshSchema'])
+          ->name('gps-locations.refresh-schema');
+        Route::get('/gps-locations/bulk-candidates', [GpsCustomerLocationController::class, 'bulkCandidates'])
+          ->middleware('throttle:10,1')
+          ->name('gps-locations.bulk-candidates');
+        Route::post('/gps-locations/bulk-confirm', [GpsCustomerLocationController::class, 'bulkConfirm'])
+          ->name('gps-locations.bulk-confirm');
+        // Uses up to 3 DTC getHistory requests (cached routes are free).
+        Route::get('/gps-locations/customer/{company}/{customerId}/stop-suggestions', [GpsCustomerLocationController::class, 'stopSuggestions'])
+          ->where(['company' => '[A-Za-z0-9_-]{1,10}', 'customerId' => '[0-9]+'])
+          ->middleware('throttle:4,1')
+          ->name('gps-locations.stop-suggestions');
+      });
+      Route::post('/gps-trip-tracking/test-dtc', [GpsTripTrackingController::class, 'testDtcConnection'])
+        ->middleware(['can:ADMINWEB', 'throttle:1,1'])
+        ->name('gps-trip-tracking.test-dtc');
+    });
+
     // ใช้ได้เฉพาะ DP
     Route::middleware(['can:DP'])->group(function () {
       Route::get('/', [DeliveryPlanController::class, 'index'])->name('index');
@@ -589,6 +661,10 @@ Route::middleware(['auth'])
         ->name('dashboard.truck-board.trip.close');
       Route::post('/dashboard/truck-board/send-mail', [DeliveryPlanInquiryController::class, 'sendAssignedTruckBoardMail'])
         ->name('dashboard.truck-board.send-mail');
+      Route::post('/inquiry/unlock-sales-submission', [DeliveryPlanInquiryController::class, 'unlockSalesSubmission'])
+        ->name('inquiry.unlock-sales-submission');
+      Route::post('/inquiry/lock-sales-submission', [DeliveryPlanInquiryController::class, 'lockSalesSubmission'])
+        ->name('inquiry.lock-sales-submission');
 
       Route::get('/master/trucks', [TruckMasterController::class, 'trucks'])->name('master.trucks');
       Route::post('/master/trucks', [TruckMasterController::class, 'saveTruck'])->name('master.trucks.store');
@@ -1002,6 +1078,12 @@ Route::middleware(['auth', 'can:ADMINWEB'])
   ->name('adminweb.')
   ->group(function () {
 
+    Route::get('/po-step3-recovery', [PoStep3RecoveryController::class, 'index'])
+        ->name('po-step3-recovery.index');
+    Route::post('/po-step3-recovery', [PoStep3RecoveryController::class, 'send'])
+        ->middleware('throttle:5,1')
+        ->name('po-step3-recovery.send');
+
     // Clear cache ผ่านเว็บ (ไม่ต้อง SSH) — เฉพาะ ADMINWEB
     Route::get('/cache/clear', function () {
         $ok = [];
@@ -1159,9 +1241,9 @@ Route::middleware(['auth', 'can:ADMINWEB'])
 
     // ประวัติการใช้งาน (Activity Log)
     Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity-logs.index');
-
     // Error log (อ่านไฟล์ storage/logs แบบอ่านอย่างเดียว)
     Route::get('/error-logs', [ErrorLogController::class, 'index'])->name('error-logs.index');
+    Route::get('/activity-logs/changes', [ActivityLogController::class, 'changes'])->name('activity-logs.changes');
   });
 
 // รับ JavaScript error จาก browser (public/js/client-error-reporter.js) — จำกัด 30 ครั้ง/นาที/ผู้ใช้

@@ -10,6 +10,7 @@ use App\Mail\DeliveryPlanMail;
 use App\Models\FormDP\DeliveryConfirmation;
 use App\Services\FormDP\DeliveryConfirmationService;
 use App\Services\FormDP\DeliveryPlanActivityLogger;
+use App\Services\FormDP\DeliveryPlanSubmissionLockService;
 use App\Support\FormDP\PieceSalePolicy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -101,6 +102,61 @@ class DeliveryPlanInquiryController extends Controller
         }
 
         return round($lineQty * $kgPerLine, 3);
+    }
+
+    /**
+     * เติมข้อมูลจากตาราง parts ให้แต่ละแถว (จับคู่ด้วย part_number แบบไม่สนตัวพิมพ์/ช่องว่างหัวท้าย)
+     *
+     * ใช้แทนการ LEFT JOIN parts ด้วย partnumber (nvarchar(max) + COLLATE) ใน query หลัก
+     * ซึ่งทำให้ SQL Server ทำ hash join กับ parts ทั้งตาราง และขอ memory grant ก้อนใหญ่
+     * จนต้องรอคิว (RESOURCE_SEMAPHORE) นานเมื่อ server memory ตึง
+     *
+     * @param iterable $rows      แถวผลลัพธ์ (stdClass) ที่มี part_number
+     * @param array    $fieldMap  [ชื่อ property ในแถว => ชื่อคอลัมน์ใน parts] (ชื่อคอลัมน์เป็นค่าคงที่ในโค้ดเท่านั้น)
+     * @param array    $defaults  [ชื่อ property => ค่าเมื่อไม่พบ part หรือค่าเป็น NULL] (แทน ISNULL(p.x, 0))
+     */
+    private function attachPartMasterFields(
+        $rows,
+        array $fieldMap = [
+            'part_f1' => 'f1',
+            'part_f2' => 'f2',
+            'part_f3' => 'f3',
+            'part_master_desc' => 'description',
+        ],
+        array $defaults = []
+    ): void {
+        $normalize = fn ($v) => strtoupper(trim((string) $v));
+
+        $partNumbers = collect($rows)
+            ->map(fn ($r) => trim((string) ($r->part_number ?? '')))
+            ->filter()
+            ->unique(fn ($v) => strtoupper($v))
+            ->values();
+
+        $columns = array_values(array_unique(array_merge(['partnumber'], array_values($fieldMap))));
+
+        $partMap = [];
+        foreach ($partNumbers->chunk(500) as $chunk) {
+            $parts = $this->conn()
+                ->table('parts')
+                ->select($columns)
+                ->whereIn('partnumber', $chunk->values()->all())
+                ->get();
+
+            foreach ($parts as $p) {
+                $key = $normalize($p->partnumber);
+                if ($key !== '' && !isset($partMap[$key])) {
+                    $partMap[$key] = $p;
+                }
+            }
+        }
+
+        foreach ($rows as $r) {
+            $p = $partMap[$normalize($r->part_number ?? '')] ?? null;
+            foreach ($fieldMap as $property => $column) {
+                $r->{$property} = $p->{$column} ?? ($defaults[$property] ?? null);
+            }
+        }
     }
 
     private function applyTrackingStockFgToRows($rows, string $property): void
@@ -216,7 +272,8 @@ class DeliveryPlanInquiryController extends Controller
 
     public function exportPlannerConfirmed(Request $request)
     {
-        if (!$this->isPlannerDepartment($request->user())) {
+        $user = $request->user();
+        if ($user === null || !method_exists($user, 'isPlannerDepartment') || !$user->isPlannerDepartment()) {
             abort(403, 'Export นี้สำหรับแผนก Planner เท่านั้น');
         }
 
@@ -231,16 +288,6 @@ class DeliveryPlanInquiryController extends Controller
             new PlannerConfirmedInquiryExport($filters),
             'Inquiry_Confirm_By_Planner.xlsx'
         );
-    }
-
-    private function isPlannerDepartment($user): bool
-    {
-        if ($user === null) {
-            return false;
-        }
-
-        return strcasecmp(trim((string) ($user->department ?? '')), 'Planner') === 0
-            || (int) ($user->id ?? 0) === 2;
     }
 
     public function exportPdf(Request $request)
@@ -287,16 +334,12 @@ class DeliveryPlanInquiryController extends Controller
 
         $q = $this->conn()
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("d.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (onhand/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->selectRaw("
                 d.ord_id,
                 d.sales_id,
@@ -317,8 +360,6 @@ class DeliveryPlanInquiryController extends Controller
                 d.line_qty,
                 CONVERT(varchar(10), d.ship_posted_at, 23) as ship_posted_at,
                 d.revision_number,
-                p.onhand as stock_qty,
-                p.f3 as part_type,
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
                     NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
@@ -406,11 +447,18 @@ class DeliveryPlanInquiryController extends Controller
                 ->orderBy('d.part_number');
         }
 
-        $rows = $q->get();
+        // tie-break ให้ลำดับ/เลขรายการใน PDF คงที่เมื่อค่าที่เรียงเท่ากัน
+        $q->orderBy('d.ord_id');
+
+        $rows = $q->get()
+            ->unique(fn ($row) => (string) $row->ord_id)
+            ->values();
 
         if ($rows->isEmpty()) {
             return ['pdfRows' => []];
         }
+
+        $this->attachPartMasterFields($rows, ['stock_qty' => 'onhand', 'part_type' => 'f3']);
 
         $this->applyTrackingStockFgToRows($rows, 'stock_qty');
 
@@ -761,18 +809,14 @@ class DeliveryPlanInquiryController extends Controller
 
         $q = $this->conn()
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
             ->leftJoin('users as u_create', 'u_create.id', '=', 'd.created_by')
             ->leftJoin('users as u_revise', 'u_revise.id', '=', 'd.revise_by')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("d.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (id/f1/f2/f3/description) ดึงแยกด้วย attachPartMasterFields() หลัง paginate เพื่อลด memory grant
             ->leftJoin('revision_master as rv', 'rv.revision_number', '=', 'd.revision_number')
             ->leftJoinSub($assignSumSub, 'tas', function ($join) {
                 $join->on('tas.ord_id', '=', 'd.ord_id');
@@ -808,12 +852,7 @@ class DeliveryPlanInquiryController extends Controller
                 'd.line_qty',
                 'd.delivery_type',
                 'd.part_number',
-                'p.id as parts_id',
                 'd.part_desc',
-                'p.f1 as part_f1',
-                'p.f2 as part_f2',
-                'p.f3 as part_f3',
-                'p.description as part_master_desc',
                 'd.mfg_no',
                 'd.sell_by_line',
                 'd.qty',
@@ -966,7 +1005,18 @@ class DeliveryPlanInquiryController extends Controller
                 ->orderBy('d.part_number');
         }
 
+        // tie-break ให้ pagination คงที่ (กันแถวซ้ำ/หายข้ามหน้าเมื่อค่าที่เรียงเท่ากัน)
+        $q->orderBy('d.ord_id');
+
         $rows = $q->paginate(100)->withQueryString();
+
+        $this->attachPartMasterFields($rows->items(), [
+            'parts_id' => 'id',
+            'part_f1' => 'f1',
+            'part_f2' => 'f2',
+            'part_f3' => 'f3',
+            'part_master_desc' => 'description',
+        ]);
 
         $soLines = collect($rows->items())
             ->groupBy(function ($r) {
@@ -1011,6 +1061,10 @@ class DeliveryPlanInquiryController extends Controller
 
         $this->applyTrackingStockFgToRows($rows->items(), 'stock_qty_rt');
 
+        // วันที่ Logistics กด "ปลดล็อกให้ Sales" แล้ว → เปิดให้แก้รายการที่จัดรถแล้วได้
+        $assignedEditUnlockByDate = [];
+        $assignedEditLock = app(DeliveryPlanSubmissionLockService::class);
+
         foreach ($rows as $r) {
             $totalQty = (float) ($r->qty ?? 0);
             $assignedSum = (float) ($r->assigned_weight_sum ?? 0);
@@ -1025,6 +1079,15 @@ class DeliveryPlanInquiryController extends Controller
                 strtoupper(trim((string) ($r->special_dispatch_status ?? ''))) === 'OPEN'
                 && strtoupper(trim((string) ($r->special_dispatch_type ?? ''))) !== 'POSTPONED';
             $r->edit_locked = $assignedSum > 0 || $specialDispatchIsOpen;
+            if ($r->edit_locked && ! empty($r->ship_posted_at)) {
+                $rowShipDate = Carbon::parse($r->ship_posted_at)->toDateString();
+                if (! array_key_exists($rowShipDate, $assignedEditUnlockByDate)) {
+                    $assignedEditUnlockByDate[$rowShipDate] = $assignedEditLock->isUnlockedForAssignedEdit($rowShipDate);
+                }
+                if ($assignedEditUnlockByDate[$rowShipDate]) {
+                    $r->edit_locked = false;
+                }
+            }
             $specialType = strtoupper(trim((string) ($r->special_dispatch_type ?? '')));
             $r->special_dispatch_label = self::SPECIAL_DISPATCH_TYPES[$specialType] ?? '';
 
@@ -1171,6 +1234,11 @@ class DeliveryPlanInquiryController extends Controller
             $mailSentLogs = [];
         }
 
+        $submissionLock = app(DeliveryPlanSubmissionLockService::class);
+        $salesSubmissionStatusDate = Carbon::parse($shipFrom ?: now())->toDateString();
+        $salesSubmissionLocked = $submissionLock->isLocked($salesSubmissionStatusDate);
+        $lockedSalesSubmissionDates = $submissionLock->lockedDates();
+
         return view('formdp.inquiry', compact(
             'rows',
             'groups',
@@ -1182,7 +1250,10 @@ class DeliveryPlanInquiryController extends Controller
             'revColorMap',
             'specialDispatchTypes',
             'autocompleteSources',
-            'mailSentLogs'
+            'mailSentLogs',
+            'salesSubmissionStatusDate',
+            'salesSubmissionLocked',
+            'lockedSalesSubmissionDates'
         ));
     }
 
@@ -1787,7 +1858,9 @@ class DeliveryPlanInquiryController extends Controller
 
             $loadRows = function ($source, bool $useTemporalPeriod) use ($conn, $ordId, $fields) {
                 return $conn->table($source)
-                    ->leftJoin('dbo.customer as c', 'c.id', '=', 'x.customer_id')
+                    ->leftJoin('dbo.customer as c', function ($join) {
+                        $join->on('c.id', '=', 'x.customer_id')->whereRaw("c.company = COALESCE(NULLIF(x.company, ''), 'MSW')");
+                    })
                     ->leftJoin('dbo.employees as e', 'e.id', '=', 'x.sales_id')
                     ->leftJoin('dbo.users as u_rev', 'u_rev.id', '=', 'x.revise_by')
                     ->leftJoin('dbo.users as u_create', 'u_create.id', '=', 'x.created_by')
@@ -2052,6 +2125,7 @@ class DeliveryPlanInquiryController extends Controller
             }
 
             $userId = auth()->check() ? (int) auth()->id() : null;
+
             $conn->table('delivery_plan_data')
                 ->where('ord_id', $ordId)
                 ->update([
@@ -2771,7 +2845,7 @@ class DeliveryPlanInquiryController extends Controller
         $sql = "
             WITH x AS (
                 SELECT
-                    ord_id, customer_id, customer_name, sales_id, so_number, delivery_type,
+                    ord_id, customer_id, customer_name, company, sales_id, so_number, delivery_type,
                     part_number, part_desc, mfg_no,
                     qty, stock_qty, address,
                     due_date, window_at, window_text, ship_posted_at, due_date_remark,
@@ -2796,7 +2870,7 @@ class DeliveryPlanInquiryController extends Controller
                 u.user_code AS revise_user_code,
                 u.name      AS revise_user_name
             FROM x
-            LEFT JOIN dbo.customer        c  ON c.id = x.customer_id
+            LEFT JOIN dbo.customer        c  ON c.id = x.customer_id AND c.company = COALESCE(NULLIF(x.company, ''), 'MSW')
             LEFT JOIN dbo.sales_master    s  ON s.sales_id = x.sales_id
             LEFT JOIN dbo.revision_master rv ON rv.revision_number = x.revision_number
             LEFT JOIN dbo.users           u  ON u.id = x.revise_by
@@ -3283,16 +3357,12 @@ class DeliveryPlanInquiryController extends Controller
 
         $rows = $this->conn()
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("d.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (onhand/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->selectRaw("
                 d.ord_id,
                 d.so_number,
@@ -3312,8 +3382,6 @@ class DeliveryPlanInquiryController extends Controller
                 d.line_qty,
                 d.ship_posted_at,
                 d.revision_number,
-                p.onhand as stock_qty,
-                p.f3 as part_type,
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
                     NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
@@ -3335,14 +3403,19 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('c.name')
             ->orderBy('d.delivery_type')
             ->orderBy('d.part_number')
+            ->orderBy('d.ord_id') // tie-break ให้ลำดับในเมลคงที่
             ->get();
 
+        // One delivery plan must appear once in each mail attachment.
+        $rows = $rows->unique(fn ($row) => (string) $row->ord_id)->values();
 
         if ($rows->isEmpty()) {
             return back()->withErrors([
                 'mail' => "ไม่พบข้อมูลสำหรับวันที่ {$shipDate} และ revision {$revision}"
             ])->withInput();
         }
+
+        $this->attachPartMasterFields($rows, ['stock_qty' => 'onhand', 'part_type' => 'f3']);
 
         $this->applyTrackingStockFgToRows($rows, 'stock_qty');
 
@@ -3684,16 +3757,12 @@ class DeliveryPlanInquiryController extends Controller
 
         $rows = $this->conn()
             ->table('delivery_plan_data as d')
-            ->leftJoin('customer as c', 'c.id', '=', 'd.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'd.customer_id')->whereRaw("c.company = COALESCE(NULLIF(d.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'd.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'd.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("d.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (onhand/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->selectRaw("
                 d.ord_id,
                 d.so_number,
@@ -3713,8 +3782,6 @@ class DeliveryPlanInquiryController extends Controller
                 d.line_qty,
                 d.ship_posted_at,
                 d.revision_number,
-                p.onhand as stock_qty,
-                p.f3 as part_type,
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(s.sales_name COLLATE DATABASE_DEFAULT)), ''),
                     NULLIF(LTRIM(RTRIM(e.name COLLATE DATABASE_DEFAULT)), ''),
@@ -3736,9 +3803,12 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('c.name')
             ->orderBy('d.delivery_type')
             ->orderBy('d.part_number')
+            ->orderBy('d.ord_id') // tie-break ให้ลำดับใน PDF คงที่
             ->get();
 
         abort_if($rows->isEmpty(), 404, "Delivery Plan PDF data not found for {$shipDate} revision {$revision}");
+
+        $this->attachPartMasterFields($rows, ['stock_qty' => 'onhand', 'part_type' => 'f3']);
 
         $this->applyTrackingStockFgToRows($rows, 'stock_qty');
 
@@ -3940,14 +4010,10 @@ class DeliveryPlanInquiryController extends Controller
             })
             ->leftJoin('delivery_plan_truck_assign as ta', 'ta.id', '=', 'la.id')
             ->leftJoin('delivery_plan_truck_master as mt', 'mt.id', '=', 'ta.truck_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw('p.partnumber COLLATE DATABASE_DEFAULT'),
-                    '=',
-                    DB::raw('dp.part_number COLLATE DATABASE_DEFAULT')
-                );
+            // parts (onhand) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
             })
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
             ->selectRaw("
             dp.ord_id,
@@ -3968,7 +4034,6 @@ class DeliveryPlanInquiryController extends Controller
                 NULLIF(LTRIM(RTRIM(dp.customer_name COLLATE DATABASE_DEFAULT)), ''),
                 c.name COLLATE DATABASE_DEFAULT
             ) as customer_name,
-            ISNULL(p.onhand, 0) as stock_fg,
             ISNULL(ta.assigned_weight, 0) as assigned_weight,
 
             ta.truck_source,
@@ -4014,6 +4079,8 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('dp.window_text', 'asc')
             ->orderBy('dp.so_number', 'asc')
             ->get();
+
+        $this->attachPartMasterFields($rows, ['stock_fg' => 'onhand'], ['stock_fg' => 0]);
 
         $totalCount   = $rows->count();
         $assignCount  = $rows->where('status', 'ASSIGN')->count();
@@ -4171,6 +4238,7 @@ class DeliveryPlanInquiryController extends Controller
                 ON dp.ord_id = ta.ord_id
             LEFT JOIN customer c
                 ON c.id = dp.customer_id
+                AND c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')
             LEFT JOIN workorder wo
                 ON LTRIM(RTRIM(wo.workordernumber)) COLLATE DATABASE_DEFAULT
                 = LTRIM(RTRIM(dp.mfg_no)) COLLATE DATABASE_DEFAULT
@@ -4296,7 +4364,9 @@ class DeliveryPlanInquiryController extends Controller
             ->leftJoinSub($assignSumSub, 'tas', function ($join) {
                 $join->on('tas.ord_id', '=', 'dp.ord_id');
             })
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
             ->whereRaw('CAST(dp.ship_posted_at AS date) = ?', [$shipDate])
@@ -4374,7 +4444,10 @@ class DeliveryPlanInquiryController extends Controller
             return $names->isNotEmpty() ? $names->implode(', ') : '';
         };
 
+        // One delivery-plan item must appear once in the logistics queue.
         $rows = collect($rows)
+            ->unique(fn ($row) => (string) $row->ord_id)
+            ->values()
             ->map(function ($r) use ($resolveAttachDocs) {
                 $qty = (float) ($r->qty ?? 0);
                 $assigned = (float) ($r->assigned_weight_sum ?? 0);
@@ -4558,7 +4631,9 @@ class DeliveryPlanInquiryController extends Controller
             $candRows = $this->conn()
                 ->table('delivery_plan_data as dp')
                 ->leftJoinSub($candAssignSub, 'tas', fn($j) => $j->on('tas.ord_id', '=', 'dp.ord_id'))
-                ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+                ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
                 ->whereRaw('CAST(dp.ship_posted_at AS date) = ?', [$shipDate])
                 ->whereRaw("UPPER(ISNULL(dp.status, 'NEW')) NOT IN ('VOID', 'VOIDED', 'CANCEL', 'CANCELED', 'CANCELLED', 'POSTPONED')")
                 // ไม่ตัดงานพิเศษที่เปิดอยู่ออกแล้ว — ให้ดึงมารวมจัดรถปกติได้ (จัดแล้ว special เดิมจะถูก mark SUPERSEDED อัตโนมัติ)
@@ -4765,16 +4840,13 @@ class DeliveryPlanInquiryController extends Controller
             })
             ->leftJoin('delivery_plan_truck_assign as ta', 'ta.id', '=', 'la.latest_assign_id')
             ->leftJoin('delivery_plan_truck_master as tm', 'tm.id', '=', 'ta.truck_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (f1/f2/f3/description) ดึงแยกด้วย attachPartMasterFields() ด้านล่าง
+            // ไม่ join ที่นี่ เพราะ join ด้วย partnumber nvarchar(max) + COLLATE ทำให้ SQL Server ขอ memory grant ก้อนใหญ่
             ->selectRaw("
             dp.ord_id,
             dp.sales_id,
@@ -4785,10 +4857,6 @@ class DeliveryPlanInquiryController extends Controller
             dp.delivery_type,
             dp.part_number,
             dp.part_desc,
-            p.f1 as part_f1,
-            p.f2 as part_f2,
-            p.f3 as part_f3,
-            p.description as part_master_desc,
             dp.mfg_no,
             dp.qty,
             dp.line_qty,
@@ -4860,17 +4928,38 @@ class DeliveryPlanInquiryController extends Controller
                     ->whereColumn('sx.ord_id', 'dp.ord_id')
                     ->whereIn('sx.status', ['OPEN', 'CLOSED']);
             })
-            ->orderByRaw("
-            CASE
-                WHEN ta.id IS NULL THEN 1
-                ELSE 0
-            END
-        ")
-            ->orderBy('ta.assigned_at')
-            ->orderByRaw('ISNULL(ta.trip_no, 1)')
-            ->orderBy('dp.window_at')
-            ->orderBy('dp.so_number')
             ->get();
+
+        // เรียงใน PHP แทน ORDER BY ใน SQL (ลด memory grant บน SQL Server)
+        // ลำดับเดิม: ยังไม่จัดรถไว้ท้าย, assigned_at, trip_no, window_at, so_number (NULL มาก่อนแบบ SQL Server ASC)
+        // Keep split trips, but remove duplicate rows produced by joined master data.
+        $rows = $rows
+            ->unique(fn ($row) => implode('|', [
+                (string) $row->ord_id,
+                (string) ($row->truck_assign_id ?? 'none'),
+                (string) ($row->trip_no ?? 1),
+            ]))
+            ->values()
+            ->sort(function ($a, $b) {
+            $cmpNullFirst = function ($x, $y) {
+                if ($x === null || $x === '') {
+                    return ($y === null || $y === '') ? 0 : -1;
+                }
+                if ($y === null || $y === '') {
+                    return 1;
+                }
+                return strcmp((string) $x, (string) $y);
+            };
+
+            return (($a->truck_assign_id === null ? 1 : 0) <=> ($b->truck_assign_id === null ? 1 : 0))
+                ?: $cmpNullFirst($a->assigned_at, $b->assigned_at)
+                ?: ((int) $a->trip_no <=> (int) $b->trip_no)
+                ?: $cmpNullFirst($a->window_at, $b->window_at)
+                ?: $cmpNullFirst($a->so_number, $b->so_number)
+                ?: ((int) $a->ord_id <=> (int) $b->ord_id); // tie-break ให้ลำดับคงที่ (เดิม SQL ไม่รับประกันลำดับเมื่อค่าเท่ากัน)
+        })->values();
+
+        $this->attachPartMasterFields($rows);
 
         $allMfgNos = [];
 
@@ -5068,13 +5157,20 @@ class DeliveryPlanInquiryController extends Controller
         $specialGroups = $this->getSpecialDispatchGroups($shipDate);
 
         $assignMailAlreadySent = $this->truckAssignMailAlreadySent($shipDate);
+        $submissionLock = app(DeliveryPlanSubmissionLockService::class);
+        $salesSubmissionStatusDate = $shipDate;
+        $salesSubmissionLocked = $submissionLock->isLocked($shipDate);
+        $lockedSalesSubmissionDates = $submissionLock->lockedDates();
 
         return view('formdp.truck-board', compact(
             'shipDate',
             'summary',
             'truckGroups',
             'specialGroups',
-            'assignMailAlreadySent'
+            'assignMailAlreadySent',
+            'salesSubmissionStatusDate',
+            'salesSubmissionLocked',
+            'lockedSalesSubmissionDates'
         ));
     }
 
@@ -5083,16 +5179,12 @@ class DeliveryPlanInquiryController extends Controller
         $rows = $this->conn()
             ->table('delivery_plan_special_dispatch as sd')
             ->join('delivery_plan_data as dp', 'dp.ord_id', '=', 'sd.ord_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (f1/f2/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->whereRaw('CAST(dp.ship_posted_at AS date) = ?', [$shipDate])
             ->whereRaw("UPPER(ISNULL(dp.status, 'NEW')) NOT IN ('VOID', 'VOIDED', 'CANCEL', 'CANCELED', 'CANCELLED')")
             ->whereIn('sd.status', ['OPEN', 'CLOSED'])
@@ -5135,9 +5227,6 @@ class DeliveryPlanInquiryController extends Controller
                 dp.edit_remark,
                 dp.attach_docs,
                 dp.attach_docs_other,
-                p.f1 as part_f1,
-                p.f2 as part_f2,
-                p.f3 as part_f3,
                 COALESCE(
                     NULLIF(LTRIM(RTRIM(dp.customer_name COLLATE DATABASE_DEFAULT)), ''),
                     c.name COLLATE DATABASE_DEFAULT
@@ -5153,6 +5242,11 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('dp.window_at')
             ->orderBy('dp.so_number')
             ->get();
+
+        // One special dispatch must appear once even if joined master data is duplicated.
+        $rows = $rows->unique(fn ($row) => (string) $row->id)->values();
+
+        $this->attachPartMasterFields($rows, ['part_f1' => 'f1', 'part_f2' => 'f2', 'part_f3' => 'f3']);
 
         // เตรียม attach_docs master เพื่อแปลง code → ชื่อ
         $docMaster = $this->conn()
@@ -5220,22 +5314,19 @@ class DeliveryPlanInquiryController extends Controller
             ->table('delivery_plan_truck_assign as ta')
             ->join('delivery_plan_data as dp', 'dp.ord_id', '=', 'ta.ord_id')
             ->leftJoin('delivery_plan_truck_master as tm', 'tm.id', '=', 'ta.truck_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (f1/f2/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->where('ta.truck_source', $truckSource)
             ->whereRaw('CAST(ta.ship_posted_at AS date) = ?', [$shipDate])
             ->whereRaw('ISNULL(ta.trip_no, 1) = ?', [$tripNo])
             ->when($truckSource === 'MASTER', fn($q) => $q->where('ta.truck_id', $truckId))
             ->when($truckSource === 'MANUAL', fn($q) => $q->where('ta.manual_plate_no', $manualPlateNo))
             ->selectRaw("
+                ta.id as truck_assign_id,
                 dp.ord_id,
                 dp.ship_posted_at,
                 dp.window_at,
@@ -5243,9 +5334,6 @@ class DeliveryPlanInquiryController extends Controller
                 dp.delivery_type,
                 dp.part_number,
                 dp.part_desc,
-                p.f1 as part_f1,
-                p.f2 as part_f2,
-                p.f3 as part_f3,
                 dp.mfg_no,
                 dp.qty,
                 dp.line_qty,
@@ -5293,7 +5381,11 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('dp.ord_id')
             ->get();
 
+        $rows = $rows->unique(fn ($row) => (string) $row->truck_assign_id)->values();
+
         abort_if($rows->isEmpty(), 404, 'Truck trip not found');
+
+        $this->attachPartMasterFields($rows, ['part_f1' => 'f1', 'part_f2' => 'f2', 'part_f3' => 'f3']);
 
         $mfgTokens = $rows->flatMap(function ($r) {
             return collect(explode(',', (string) ($r->mfg_no ?? '')))
@@ -5560,6 +5652,59 @@ class DeliveryPlanInquiryController extends Controller
         }
     }
 
+    public function unlockSalesSubmission(Request $request, DeliveryPlanSubmissionLockService $submissionLock)
+    {
+        $user = auth()->user();
+        $canUnlock = auth()->check()
+            && (($user->is_superadmin ?? 0) == 1
+                || (method_exists($user, 'hasRoleCode') && $user->hasRoleCode('DPA')));
+
+        abort_unless($canUnlock, 403);
+
+        $validated = $request->validateWithBag('salesSubmissionControl', [
+            'ship_date' => ['required', 'date'],
+            'remark' => ['required', 'string', 'max:500'],
+        ], [
+            'ship_date.required' => 'กรุณาระบุวันที่ส่งสินค้า',
+            'remark.required' => 'กรุณาระบุเหตุผลที่อนุญาตให้ Sales แก้ไข',
+        ]);
+
+        $shipDate = Carbon::parse($validated['ship_date'])->toDateString();
+        $unlocked = $submissionLock->unlock(
+            $shipDate,
+            isset($user->id) ? (int) $user->id : null,
+            $user->name ?? $user->email ?? null,
+            $validated['remark'] ?? null
+        );
+
+        if (! $unlocked) {
+            return back()->with('sales_submit_unlock_info', 'วันที่ '.Carbon::parse($shipDate)->format('d/m/Y').' ไม่ได้ถูกล็อกอยู่');
+        }
+
+        return back()->with('sales_submit_unlock_success', 'อนุญาตให้ Sales Submit วันที่ '.Carbon::parse($shipDate)->format('d/m/Y').' แล้ว');
+    }
+
+    public function lockSalesSubmission(Request $request, DeliveryPlanSubmissionLockService $submissionLock)
+    {
+        $user = auth()->user();
+        $canLock = auth()->check()
+            && (($user->is_superadmin ?? 0) == 1
+                || (method_exists($user, 'hasRoleCode') && $user->hasRoleCode('DPA')));
+        abort_unless($canLock, 403);
+
+        $validated = $request->validateWithBag('salesSubmissionControl', [
+            'ship_date' => ['required', 'date'],
+            'remark' => ['nullable', 'string', 'max:500'],
+        ]);
+        $shipDate = Carbon::parse($validated['ship_date'])->toDateString();
+        $locked = $submissionLock->lock($shipDate, isset($user->id) ? (int) $user->id : null,
+            $user->name ?? $user->email ?? null, $validated['remark'] ?? null);
+        if (! $locked) {
+            return back()->with('sales_submit_lock_info', 'วันที่ '.Carbon::parse($shipDate)->format('d/m/Y').' ถูกล็อกอยู่แล้ว');
+        }
+        return back()->with('sales_submit_lock_success', 'ล็อก Sales Submit วันที่ '.Carbon::parse($shipDate)->format('d/m/Y').' แล้ว');
+    }
+
     private function buildAssignedTruckBoardDocumentData(Request $request): array
     {
         $data = $request->validate([
@@ -5572,21 +5717,18 @@ class DeliveryPlanInquiryController extends Controller
             ->table('delivery_plan_truck_assign as ta')
             ->join('delivery_plan_data as dp', 'dp.ord_id', '=', 'ta.ord_id')
             ->leftJoin('delivery_plan_truck_master as tm', 'tm.id', '=', 'ta.truck_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (f1/f2/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->whereRaw('CAST(ta.ship_posted_at AS date) = ?', [$shipDate])
             ->whereIn(DB::raw("UPPER(ISNULL(dp.status, 'NEW'))"), ['ASSIGN', 'CLOSED'])
             ->selectRaw("
+                ta.id as truck_assign_id,
                 dp.ord_id, dp.ship_posted_at, dp.window_at, dp.so_number, dp.delivery_type,
-                dp.part_number, dp.part_desc, p.f1 as part_f1, p.f2 as part_f2, p.f3 as part_f3,
+                dp.part_number, dp.part_desc,
                 dp.mfg_no, dp.qty, dp.line_qty, dp.sell_by_line, dp.address, dp.remark,
                 dp.edit_remark, dp.attach_docs, dp.attach_docs_other,
                 COALESCE(
@@ -5613,6 +5755,11 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('dp.window_at')
             ->orderBy('dp.so_number')
             ->get();
+
+        // Keep split trips, but include each truck assignment only once.
+        $rows = $rows->unique(fn ($row) => (string) $row->truck_assign_id)->values();
+
+        $this->attachPartMasterFields($rows, ['part_f1' => 'f1', 'part_f2' => 'f2', 'part_f3' => 'f3']);
 
         $attachDocMap = $this->conn()
             ->table('attach_docs_master')
@@ -5723,24 +5870,21 @@ class DeliveryPlanInquiryController extends Controller
             ->table('delivery_plan_truck_assign as ta')
             ->join('delivery_plan_data as dp', 'dp.ord_id', '=', 'ta.ord_id')
             ->leftJoin('delivery_plan_truck_master as tm', 'tm.id', '=', 'ta.truck_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('sales_master as s', 's.sales_id', '=', 'dp.sales_id')
             ->leftJoin('employees as e', 'e.id', '=', 'dp.sales_id')
-            ->leftJoin('parts as p', function ($join) {
-                $join->on(
-                    DB::raw("p.partnumber COLLATE SQL_Latin1_General_CP1_CI_AS"),
-                    '=',
-                    DB::raw("dp.part_number COLLATE SQL_Latin1_General_CP1_CI_AS")
-                );
-            })
+            // parts (f1/f2/f3) ดึงแยกด้วย attachPartMasterFields() หลัง get() เพื่อลด memory grant
             ->where('ta.truck_source', $truckSource)
             ->whereRaw('CAST(ta.ship_posted_at AS date) = ?', [$shipDate])
             ->whereRaw('ISNULL(ta.trip_no, 1) = ?', [$tripNo])
             ->when($truckSource === 'MASTER', fn($q) => $q->where('ta.truck_id', $truckId))
             ->when($truckSource === 'MANUAL', fn($q) => $q->where('ta.manual_plate_no', $manualPlateNo))
             ->selectRaw("
+                ta.id as truck_assign_id,
                 dp.ord_id, dp.ship_posted_at, dp.window_at, dp.so_number, dp.delivery_type,
-                dp.part_number, dp.part_desc, p.f1 as part_f1, p.f2 as part_f2, p.f3 as part_f3,
+                dp.part_number, dp.part_desc,
                 dp.mfg_no, dp.qty, dp.line_qty, dp.sell_by_line, dp.address, dp.remark,
                 dp.edit_remark, dp.attach_docs, dp.attach_docs_other,
                 COALESCE(
@@ -5767,7 +5911,11 @@ class DeliveryPlanInquiryController extends Controller
             ->orderBy('dp.ord_id')
             ->get();
 
+        $rows = $rows->unique(fn ($row) => (string) $row->truck_assign_id)->values();
+
         abort_if($rows->isEmpty(), 404, 'Truck trip not found');
+
+        $this->attachPartMasterFields($rows, ['part_f1' => 'f1', 'part_f2' => 'f2', 'part_f3' => 'f3']);
 
         $mfgTokens = $rows->flatMap(function ($r) {
             return collect(explode(',', (string) ($r->mfg_no ?? '')))
@@ -5955,7 +6103,9 @@ class DeliveryPlanInquiryController extends Controller
         $rows = $this->conn()
             ->table('delivery_plan_truck_assign as ta')
             ->join('delivery_plan_data as dp', 'dp.ord_id', '=', 'ta.ord_id')
-            ->leftJoin('customer as c', 'c.id', '=', 'dp.customer_id')
+            ->leftJoin('customer as c', function ($join) {
+                $join->on('c.id', '=', 'dp.customer_id')->whereRaw("c.company = COALESCE(NULLIF(dp.company, ''), 'MSW')");
+            })
             ->leftJoin('workorder as wo', function ($join) {
                 $join->on(
                     DB::raw('wo.workordernumber COLLATE DATABASE_DEFAULT'),
@@ -6439,7 +6589,7 @@ class DeliveryPlanInquiryController extends Controller
             $rows = $this->conn()
                 ->table('delivery_plan_data')
                 ->whereIn('ord_id', $ordIds->all())
-                ->get(['ord_id', 'status']);
+                ->get(['ord_id', 'status', 'mfg_no', 'so_number', 'ship_posted_at']);
 
             if ($rows->count() !== $ordIds->count()) {
                 throw ValidationException::withMessages(['ord_ids' => ['พบรายการไม่ครบตามที่เลือก']]);
@@ -6505,6 +6655,7 @@ class DeliveryPlanInquiryController extends Controller
                     'LOGISTICS'
                 );
             }
+
             if ($dispatchType === 'POSTPONED') {
                 foreach ($rows as $row) {
                     app(DeliveryConfirmationService::class)->resetAfterPlanPostpone(

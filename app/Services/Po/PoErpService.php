@@ -58,16 +58,16 @@ class PoErpService
         ?string $status = null,
         ?string $source = null,
         ?array $workflowIds = null,
-    ): Collection
-    {
+        bool $includeCompletedStatuses = false,
+    ): Collection {
         $wantedSource = self::normalizeSource($source);
         $sources = $wantedSource ? [$wantedSource] : array_keys(self::ERP_CONNECTIONS);
 
         $rows = collect($sources)
             ->flatMap(function (string $erpSource) use ($dateFrom, $dateTo, $search) {
                 return $this->baseListQuery($erpSource)
-                    ->when($dateFrom, fn ($q) => $q->whereDate('oe.transdate', '>=', $dateFrom))
-                    ->when($dateTo, fn ($q) => $q->whereDate('oe.transdate', '<=', $dateTo))
+                    ->when($dateFrom, fn($q) => $q->whereDate('oe.transdate', '>=', $dateFrom))
+                    ->when($dateTo, fn($q) => $q->whereDate('oe.transdate', '<=', $dateTo))
                     ->when($search, function ($q) use ($search) {
                         $kw = trim($search);
                         $q->where(function ($sub) use ($kw) {
@@ -90,7 +90,7 @@ class PoErpService
                         return $row;
                     });
             })
-            ->sortByDesc(fn ($row) => (string) ($row->transdate ?? ''))
+            ->sortByDesc(fn($row) => (string) ($row->transdate ?? ''))
             ->values();
 
         $existing = PoHeader::query()
@@ -132,36 +132,32 @@ class PoErpService
             ];
         })->when($department, function (Collection $items) use ($department) {
             return $items->filter(
-                fn ($row) => strcasecmp((string) $row->department_group, trim($department)) === 0
+                fn($row) => strcasecmp((string) $row->department_group, trim($department)) === 0
             )->values();
         })->when($status, function (Collection $items) use ($status) {
             $wanted = strtoupper(trim($status));
             return $items->filter(
-                fn ($row) => strtoupper((string) $row->status_code) === $wanted
+                fn($row) => strtoupper((string) $row->status_code) === $wanted
             )->values();
         })->when($wantedSource, function (Collection $items) use ($wantedSource) {
             return $items->filter(
-                fn ($row) => self::normalizeSource($row->site) === $wantedSource
+                fn($row) => self::normalizeSource($row->site) === $wantedSource
             )->values();
         })->when(is_array($workflowIds), function (Collection $items) use ($workflowIds) {
             $allowed = collect($workflowIds)
-                ->filter(fn ($id) => $id !== null && $id !== '')
-                ->map(fn ($id) => (int) $id)
+                ->filter(fn($id) => $id !== null && $id !== '')
+                ->map(fn($id) => (int) $id)
                 ->unique()
                 ->values();
 
             return $allowed->isEmpty()
                 ? collect()
-                : $items->filter(fn ($row) => $allowed->contains((int) ($row->workflow_id ?? 0)))->values();
-        })->filter(function ($row) use ($status) {
+                : $items->filter(fn($row) => $allowed->contains((int) ($row->workflow_id ?? 0)))->values();
+        })->filter(function ($row) use ($status, $includeCompletedStatuses) {
             $rowStatus = strtoupper((string) $row->status_code);
             $wantedStatus = strtoupper(trim((string) $status));
 
-            if ($wantedStatus !== '') {
-                return $rowStatus !== 'APPROVED';
-            }
-
-            return !in_array($rowStatus, ['APPROVED', 'CLOSED'], true);
+            return $this->isListStatusVisible($rowStatus, $wantedStatus, $includeCompletedStatuses);
         });
     }
 
@@ -378,11 +374,11 @@ class PoErpService
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
             ->where('h.action_type', 'APPROVE')
-            ->when($latestReopenId, fn ($query) => $query->where('h.id', '>', $latestReopenId))
+            ->when($latestReopenId, fn($query) => $query->where('h.id', '>', $latestReopenId))
             ->orderBy('h.created_at')
             ->orderBy('h.id')
             ->get($selects)
-            ->map(fn ($row) => $this->decorateSignatureRow($row))
+            ->map(fn($row) => $this->decorateSignatureRow($row))
             ->keyBy('step_no');
 
         return [
@@ -415,12 +411,12 @@ class PoErpService
             ->leftJoin('users as u', 'u.id', '=', 'h.actor_user_id')
             ->where('h.wf_form_id', $workflowId)
             ->whereIn('h.action_type', ['SUBMIT', 'APPROVE'])
-            ->when($latestReopenId, fn ($query) => $query->where('h.id', '>', $latestReopenId))
+            ->when($latestReopenId, fn($query) => $query->where('h.id', '>', $latestReopenId))
             ->orderBy('h.created_at')
             ->orderBy('h.id')
             ->get($selects);
 
-        $logs = $logs->map(fn ($row) => $this->decorateSignatureRow($row));
+        $logs = $logs->map(fn($row) => $this->decorateSignatureRow($row));
 
         $approvals = $logs->where('action_type', 'APPROVE');
 
@@ -573,6 +569,8 @@ class PoErpService
             ->whereDate('oe.transdate', '>=', '2026-04-01')
             ->whereRaw("oe.ordnumber ~ '^POR?[0-9]'")
             ->where('oe.shipped_or_received', false)
+            ->whereNotNull('oe.f1')
+            ->whereRaw("BTRIM(oe.f1) <> ''")
             ->whereNotExists(function ($query) {
                 $query->select(DB::raw(1))
                     ->from('ap')

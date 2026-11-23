@@ -53,7 +53,12 @@ class ErrorLogViewerTest extends TestCase
 
     private function user(int $id = 5): User
     {
-        $user = new User();
+        $user = new class extends User {
+            public function hasRoleCode(string|array $codes, int $departmentId = null): bool
+            {
+                return false;
+            }
+        };
         $user->id = $id;
         $user->name = 'Tester';
 

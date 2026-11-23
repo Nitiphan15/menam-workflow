@@ -52,14 +52,14 @@
                                         ])
                                         @if (!empty($poItem['approval_remarks']))
                                             <div style="margin-top:18px; padding-top:16px; border-top:1px solid #dce8f1;">
-                                                <div style="font-size:15px; font-weight:700; color:#35485c; margin-bottom:10px;">Approval Remarks</div>
+                                                <div style="font-size:18px; font-weight:700; color:#35485c; margin-bottom:12px;">Approval Remarks</div>
                                                 @foreach ($poItem['approval_remarks'] as $remark)
                                                     <div style="margin-top:10px; padding:12px 14px; background:#ffffff; border:1px solid #e3ebf2; border-radius:10px;">
-                                                        <div style="font-size:13px; font-weight:700; color:#2f5f8f;">
+                                                        <div style="font-size:16px; font-weight:700; color:#2f5f8f;">
                                                             Step {{ $remark['step_no'] ?? '-' }} — {{ $remark['step_label'] ?? '-' }}
                                                         </div>
-                                                        <div style="margin-top:5px; font-size:14px; line-height:1.7; color:#35485c; white-space:pre-line;">{{ $remark['comment'] ?? '' }}</div>
-                                                        <div style="margin-top:6px; font-size:12px; color:#718096;">
+                                                        <div style="margin-top:7px; font-size:18px; line-height:1.7; color:#35485c; white-space:pre-line;">{{ $remark['comment'] ?? '' }}</div>
+                                                        <div style="margin-top:8px; font-size:14px; color:#718096;">
                                                             {{ $remark['actor_name'] ?? '-' }}
                                                             @if (!empty($remark['approved_at']))
                                                                 · {{ \Illuminate\Support\Carbon::parse($remark['approved_at'])->format('d-M-Y H:i') }}

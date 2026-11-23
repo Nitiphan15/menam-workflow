@@ -63,6 +63,7 @@ class SalesUnitSummaryController extends Controller
         'STD BAR',
         'Steel bar',
         'Steel wire',
+        'สินค้าจ้างผลิต',
         'FG GRATING',
     ];
 
@@ -79,6 +80,7 @@ class SalesUnitSummaryController extends Controller
         'Steel wire' => 10000,
         'TIG' => 17000,
         'WIRE' => 117000,
+        'สินค้าจ้างผลิต' => 5000,
         'FG GRATING' => 1700000,
     ];
 

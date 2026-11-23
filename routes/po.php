@@ -5,6 +5,22 @@ use App\Http\Controllers\Po\PoController;
 use App\Http\Controllers\Po\PoApprovalController;
 use App\Http\Controllers\Po\PoLookupController;
 use App\Http\Controllers\Po\PoExportController;
+use App\Http\Controllers\Po\PoPdfMergeController;
+use App\Http\Controllers\Po\PoApproverMasterController;
+
+Route::middleware(['auth', 'permission.any:POM'])
+    ->prefix('po')
+    ->name('po.')
+    ->group(function () {
+        Route::get('/approver-master', [PoApproverMasterController::class, 'index'])->name('approver-master.index');
+        Route::post('/approver-master', [PoApproverMasterController::class, 'store'])->name('approver-master.store');
+        Route::put('/approver-master/{mapping}', [PoApproverMasterController::class, 'update'])
+            ->whereNumber('mapping')
+            ->name('approver-master.update');
+        Route::delete('/approver-master/{mapping}', [PoApproverMasterController::class, 'destroy'])
+            ->whereNumber('mapping')
+            ->name('approver-master.destroy');
+    });
 
 Route::middleware(['auth', 'permission.any:POV'])
     ->prefix('po')
@@ -76,11 +92,14 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
             Route::get('/export/list', [PoExportController::class, 'list'])->name('export.list');
             Route::post('/print/selected', [PoExportController::class, 'printSelected'])->name('print.selected');
             Route::get('/print/department', [PoExportController::class, 'printDepartment'])->name('print.department');
+            Route::get('/pdf-merge', [PoPdfMergeController::class, 'index'])->name('pdf-merge.index');
+            Route::post('/pdf-merge', [PoPdfMergeController::class, 'merge'])->name('pdf-merge.merge');
         });
 
         Route::get('/{id}/attachments/{attachmentId}', [PoController::class, 'attachment'])->name('attachments.show');
         Route::post('/{id}/approve', [PoApprovalController::class, 'approve'])->name('approve');
         Route::post('/{id}/reject', [PoApprovalController::class, 'reject'])->name('reject');
+        Route::post('/{id}/cancel-by-manager', [PoApprovalController::class, 'cancelByManager'])->name('cancelByManager');
         Route::post('/{id}/send-back', [PoApprovalController::class, 'sendBack'])->name('sendBack');
         Route::get('/{id}/print', [PoExportController::class, 'print'])->name('print');
         Route::get('/{id}', [PoController::class, 'show'])->name('show');

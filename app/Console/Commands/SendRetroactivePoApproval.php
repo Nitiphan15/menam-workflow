@@ -11,7 +11,7 @@ class SendRetroactivePoApproval extends Command
         {ordnumber : Exact PO number}
         {--send : Dispatch the email; omission performs validation only}';
 
-    protected $description = 'Validate and send one deduplicated retroactive Factory Step 3 approval email';
+    protected $description = 'Validate and send one deduplicated retroactive Step 3 approval email';
 
     public function handle(RetroactivePoApprovalMailService $service): int
     {
@@ -28,8 +28,11 @@ class SendRetroactivePoApproval extends Command
             return self::SUCCESS;
         }
 
-        $approver = $context['approver'];
-        $this->line("Ready: {$ordnumber} -> {$approver->name} <{$approver->email}>");
+        $recipients = $context['approvers']
+            ->reject(fn ($approver) => $approver->already_dispatched)
+            ->map(fn ($approver) => "{$approver->name} <{$approver->email}>")
+            ->implode(', ');
+        $this->line("Ready: {$ordnumber} -> {$recipients}");
         if (!$this->option('send')) {
             $this->info('Validation only. Add --send to dispatch.');
             return self::SUCCESS;

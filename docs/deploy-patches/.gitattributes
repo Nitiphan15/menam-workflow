@@ -1,0 +1,2 @@
+# Deploy packages must stay byte-identical to their manifest.json sha256 values.
+* -text

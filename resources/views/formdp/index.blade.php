@@ -158,6 +158,8 @@
 
                             <input type="hidden" id="customerId" name="lines[0][customer_id]"
                                 value="{{ old('lines.0.customer_id', $ln0['customer_id'] ?? '') }}">
+                            <input type="hidden" id="customerCompany" name="lines[0][company]"
+                                value="{{ old('lines.0.company', $ln0['company'] ?? 'MSW') }}">
 
                             <input type="text" class="form-control dp-input" id="customerInput"
                                 name="lines[0][customer_name]"
@@ -1125,6 +1127,7 @@
                 const partNo = document.getElementById('partNo');
                 const partDesc = document.getElementById('partDesc');
                 const customerId = document.getElementById('customerId');
+                const customerCompany = document.getElementById('customerCompany');
                 const customerInput = document.getElementById('customerInput');
                 const customerHelp = document.getElementById('customerHelp');
 
@@ -1154,6 +1157,7 @@
                     }
                     if (isSpecial && customerId) {
                         customerId.value = '';
+                        if (customerCompany) customerCompany.value = 'MSW';
                     }
 
                     if (soInput) {
@@ -1232,6 +1236,7 @@
                 const stockFg = document.getElementById('stockFg');
 
                 const customerId = document.getElementById('customerId');
+                const customerCompany = document.getElementById('customerCompany');
                 const customerInput = document.getElementById('customerInput');
 
                 const salesIdInput = document.getElementById('salesIdInput');
@@ -1265,6 +1270,7 @@
                     const ccode = (it.customernumber || it.customer_code || '').toString().trim();
 
                     if (customerId) customerId.value = cid;
+                    if (customerCompany) customerCompany.value = (it.company || 'MSW').toString().toUpperCase() === 'MSWPLUS' ? 'MSWPLUS' : 'MSW';
                     if (customerInput) {
                         customerInput.value = (ccode ? `${ccode} — ` : '') + (cname || '');
                     }
@@ -1333,7 +1339,7 @@
 
                         return `
                     <button type="button" class="dp-suggest-item" data-idx="${idx}">
-                        <div class="dp-suggest-title">${esc(it.ordnumber || '')}</div>
+                        <div class="dp-suggest-title"><span class="badge ${it.company_label === 'PLUS' ? 'bg-warning text-dark' : 'bg-primary'} me-1">${esc(it.company_label || 'WIRE')}</span>${esc(it.ordnumber || '')}</div>
                         <div class="dp-suggest-sub">
                             ${esc(it.part_number || '')}${it.part_desc ? ' — ' + esc(it.part_desc) : ''}
                         </div>
@@ -1402,6 +1408,7 @@
             (function customerAutocomplete() {
                 const inp = document.getElementById('customerInput');
                 const hid = document.getElementById('customerId');
+                const companyHid = document.getElementById('customerCompany');
                 const dd = document.getElementById('customerSuggest');
                 const salesIdEl = document.getElementById('salesIdInput');
                 const salesTextEl = document.getElementById('salesInput');
@@ -1429,9 +1436,10 @@
                         <button type="button" class="dp-suggest-item"
                             data-id="${esc(it.id)}"
                             data-text="${esc(it.text)}"
+                            data-company="${esc(it.company ?? 'MSW')}"
                             data-sales-id="${esc(it.sales_id ?? '')}"
                             data-sales-text="${esc(it.sales_text ?? '')}">
-                            <div class="dp-suggest-title">${esc(it.text)}</div>
+                            <div class="dp-suggest-title"><span class="badge ${it.company_label === 'PLUS' ? 'bg-warning text-dark' : 'bg-primary'} me-1">${esc(it.company_label || 'WIRE')}</span>${esc(it.text)}</div>
                             ${it.sales_text ? `<div class="dp-suggest-sub">${esc(it.sales_text)}</div>` : ''}
                         </button>
                     `).join('');
@@ -1443,6 +1451,7 @@
                             const el = e.currentTarget;
                             inp.value = el.dataset.text || '';
                             hid.value = el.dataset.id || '';
+                            if (companyHid) companyHid.value = el.dataset.company === 'MSWPLUS' ? 'MSWPLUS' : 'MSW';
 
                             if (!salesTouched) {
                                 const sid = el.dataset.salesId || '';
@@ -1461,6 +1470,7 @@
                     const q = (inp.value || '').trim();
                     if (q === '') {
                         hid.value = '';
+                        if (companyHid) companyHid.value = 'MSW';
                         return closeDd();
                     }
                     if (q.length < 2) return closeDd();
@@ -1471,6 +1481,7 @@
 
                 inp.addEventListener('input', () => {
                     hid.value = '';
+                    if (companyHid) companyHid.value = 'MSW';
                     clearTimeout(t);
                     t = setTimeout(() => lookup().catch(closeDd), 250);
                 });

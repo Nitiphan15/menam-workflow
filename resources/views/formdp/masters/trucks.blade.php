@@ -52,6 +52,12 @@
                         <label class="form-label small mb-1">หมายเหตุ</label>
                         <input class="form-control form-control-sm" name="remark">
                     </div>
+                    @if ($hasDtcGpsColumn ?? false)
+                        <div class="col-md-2">
+                            <label class="form-label small mb-1">GPS DTC</label>
+                            @include('formdp.masters.partials.dtc-gps-select', ['current' => old('dtc_gps_id'), 'formId' => null])
+                        </div>
+                    @endif
                     <div class="col-md-1">
                         <label class="form-label small mb-1">สถานะ</label>
                         <select class="form-select form-select-sm" name="status">
@@ -96,6 +102,9 @@
                             </th>
                             <th class="text-end">ยาว</th>
                             <th>หมายเหตุ</th>
+                            @if ($hasDtcGpsColumn ?? false)
+                                <th style="width:190px;">GPS DTC</th>
+                            @endif
                             <th style="width:120px;">สถานะ</th>
                             <th style="width:150px;"></th>
                         </tr>
@@ -158,6 +167,9 @@
                                             form="{{ $editFormId }}" value="{{ $row->car_length }}"></td>
                                     <td><input class="form-control form-control-sm" name="remark"
                                             form="{{ $editFormId }}" value="{{ $row->remark }}"></td>
+                                    @if ($hasDtcGpsColumn ?? false)
+                                        <td>@include('formdp.masters.partials.dtc-gps-select', ['current' => $row->dtc_gps_id ?? null, 'formId' => $editFormId])</td>
+                                    @endif
                                     <td>
                                         <select class="form-select form-select-sm" name="status"
                                             form="{{ $editFormId }}">
@@ -176,7 +188,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="text-center text-muted">ไม่มีข้อมูล</td>
+                                <td colspan="{{ ($hasDtcGpsColumn ?? false) ? 10 : 9 }}" class="text-center text-muted">ไม่มีข้อมูล</td>
                             </tr>
                         @endforelse
                     </tbody>

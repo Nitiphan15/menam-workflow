@@ -263,6 +263,28 @@ class DeliveryConfirmationResetTest extends TestCase
         $this->assertNull($latest['WIRE|W400']->new_delivery_date);
     }
 
+    public function test_waiting_plan_is_saved_but_remains_pending(): void
+    {
+        $row = app(DeliveryConfirmationService::class)->save(
+            'W401',
+            'WIRE',
+            'SO-4',
+            DeliveryConfirmation::STATUS_WAITING_PLAN,
+            null,
+            '2026-11-20',
+            'รอ Planner จัดแผน',
+            401
+        );
+
+        $this->assertSame(DeliveryConfirmation::STATUS_WAITING_PLAN, $row->confirmation_status);
+        $this->assertFalse(DeliveryConfirmation::isActiveStatus($row->confirmation_status));
+        $this->assertNull($row->new_delivery_date);
+        $this->assertDatabaseHas('dp_delivery_confirmation', [
+            'ord_id' => 401,
+            'confirmation_status' => DeliveryConfirmation::STATUS_WAITING_PLAN,
+        ], 'sqlsrv_menam');
+    }
+
     public function test_all_plan_change_entry_points_reset_tracking_confirmation(): void
     {
         $root = dirname(__DIR__, 2);
@@ -292,6 +314,8 @@ class DeliveryConfirmationResetTest extends TestCase
             "!\$confStatus || \$confStatus === 'CONFIRM' ? 'selected' : ''",
             $trackingView
         );
-        $this->assertStringContainsString('<option value="">รอจัดแผน</option>', $trackingView);
+        // production: "รอจัดแผน" is an explicit WAITING_PLAN status (not counted as active)
+        $this->assertStringContainsString('<option value="WAITING_PLAN"', $trackingView);
+        $this->assertStringContainsString("\$confStatus === 'WAITING_PLAN' ? 'selected' : ''", $trackingView);
     }
 }

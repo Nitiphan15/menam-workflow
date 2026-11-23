@@ -17,6 +17,13 @@ class Kernel extends ConsoleKernel
     {
         // $schedule->command('inspire')->hourly();
 
+        // ลบ activity log ที่เก่ากว่า app.activity_log_retention_days (ค่าเริ่มต้น 365 วัน)
+        $schedule->command('activity-log:prune')
+            ->dailyAt('02:30')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(120);
+
         // แจ้งเตือน Planner เรื่องงาน WOCR ที่ยังไม่ได้ดำเนินการ ทุกเช้าวันทำการ 08:00
         $schedule->command('wocr:pending-digest')
             ->weekdays()
@@ -60,6 +67,22 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Bangkok')
             ->onOneServer()
             ->withoutOverlapping(55);
+
+        // WIP Monitoring: sync สถานะ WO (WMSOne + ERP) ลง wip_* ทุก 15 นาที
+        // ถ้ายังไม่ได้สร้างตาราง (database/sql/create_wip_monitoring_snapshot.sql) command จะข้ามเอง
+        $schedule->command('wip:snapshot')
+            ->everyFifteenMinutes()
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(14);
+
+        // GPS planner dashboard: summarize yesterday's DTC routes (≈1 request per GPS truck)
+        // ถ้ายังไม่ได้รัน database/sql/formdp_gps_dashboard.sql command จะข้ามเอง
+        $schedule->command('gps:summarize-day --yesterday')
+            ->dailyAt('00:30')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(60);
 
         $this->alertOnFailure($schedule);
     }

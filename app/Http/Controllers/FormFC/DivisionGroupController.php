@@ -216,24 +216,24 @@ class DivisionGroupController extends Controller
 
         $groups = $this->masterTableExists()
             ? DB::connection($this->fcConn)
-                ->table($this->masterTable)
-                ->where('is_active', 1)
-                ->orderBy('sort_order')
-                ->orderBy('group_code')
-                ->pluck('group_name')
-                ->map(fn($value) => trim((string) $value))
-                ->filter()
-                ->unique()
-                ->values()
+            ->table($this->masterTable)
+            ->where('is_active', 1)
+            ->orderBy('sort_order')
+            ->orderBy('group_code')
+            ->pluck('group_name')
+            ->map(fn($value) => trim((string) $value))
+            ->filter()
+            ->unique()
+            ->values()
             : $rows
-                ->pluck('group_name')
-                ->map(fn($value) => trim((string) $value))
-                ->filter()
-                ->unique()
-                ->sort()
-                ->values();
+            ->pluck('group_name')
+            ->map(fn($value) => trim((string) $value))
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
 
-        return view('formfc.division_group', [
+        return view('formfc.division.group', [
             'division' => $division,
             'rows' => $rows,
             'groups' => $groups,

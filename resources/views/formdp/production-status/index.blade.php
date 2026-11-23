@@ -59,7 +59,12 @@
         };
         $clearSiteQuery = request()->except(['page', 'site']);
         $movementQuery = fn($value) => array_merge(request()->except(['page']), ['movement_filter' => $value]);
-        $processQuery = fn($value) => array_merge(request()->except(['page']), ['process_filter' => $value]);
+        $rawProcessFilters = $filters['process_filter'] ?? [];
+        $processFilterValues = collect(is_array($rawProcessFilters) ? $rawProcessFilters : [$rawProcessFilters])
+            ->map(fn($value) => trim((string) $value))
+            ->filter()
+            ->values();
+        $processQuery = fn($value) => array_merge(request()->except(['page']), ['process_filter' => [$value]]);
         $divisionQuery = fn($value) => array_merge(request()->except(['page']), ['keyword' => $value]);
         $clearProcessQuery = request()->except(['page', 'process_filter']);
         $confirmationQuery = fn($value) => array_merge(request()->except(['page']), ['confirmation_filter' => $value]);
@@ -949,7 +954,9 @@
             <form method="GET" action="{{ route('dp.production-status') }}" class="p-3">
                 <input type="hidden" name="completion_filter" value="{{ $filters['completion_filter'] ?? 'all' }}">
                 <input type="hidden" name="status_filter" value="{{ $filters['status_filter'] ?? 'all' }}">
-                <input type="hidden" name="process_filter" value="{{ $filters['process_filter'] ?? '' }}">
+                @foreach ($processFilterValues as $processFilterValue)
+                    <input type="hidden" name="process_filter[]" value="{{ $processFilterValue }}">
+                @endforeach
                 <input type="hidden" name="movement_filter" value="{{ $filters['movement_filter'] ?? 'all' }}">
                 <input type="hidden" name="confirmation_filter" value="{{ $confirmationFilterValue }}">
                 <input type="hidden" name="delivery_type" value="{{ $deliveryTypeFilterValue }}">
@@ -1379,9 +1386,9 @@
         <details class="pst-lane mb-3 pst-collapsible" data-storage-key="pst-process-summary-open" open>
             <summary class="pst-lane-head pst-collapsible-summary">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <span>งานในแต่ละขั้นตอน</span>
-                    @if (!empty($filters['process_filter']))
-                        <span class="badge bg-primary">{{ $filters['process_filter'] }}</span>
+                    <span>งานที่มีแต่ละสถานีใน Routing</span>
+                    @if ($processFilterValues->isNotEmpty())
+                        <span class="badge bg-primary">{{ $processFilterValues->implode(', ') }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status', $clearProcessQuery) }}"
                             onclick="event.stopPropagation()">ล้าง</a>
@@ -1425,7 +1432,8 @@
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span>Dashboard Summary</span>
                     <form method="GET" action="{{ route('dp.production-status') }}"
-                        class="d-inline-flex align-items-center gap-1" title="Quick action: กรองตามสถานีงาน">
+                        class="d-inline-flex align-items-center gap-1 pst-process-filter-form"
+                        title="Quick action: กรองตามสถานีงาน (เลือกได้หลายสถานี)">
                         @foreach (request()->except(['page', 'process_filter']) as $name => $value)
                             @if (is_scalar($value))
                                 <input type="hidden" name="{{ $name }}" value="{{ $value }}">
@@ -1434,19 +1442,22 @@
                         <label for="pstQuickProcessFilter" class="small text-nowrap mb-0">
                             <i class="fas fa-filter me-1"></i>สถานีงาน
                         </label>
-                        <select id="pstQuickProcessFilter" name="process_filter"
-                            class="form-select form-select-sm" style="width:190px" onchange="this.form.submit()">
-                            <option value="">ทุกสถานีงาน</option>
+                        <select id="pstQuickProcessFilter" name="process_filter[]" multiple
+                            class="form-select form-select-sm" style="width:260px"
+                            data-placeholder="ทุกสถานีงาน">
                             @foreach ($processOptions ?? [] as $processOption)
                                 <option value="{{ $processOption['value'] }}"
-                                    @selected(($filters['process_filter'] ?? '') === $processOption['value'])>
+                                    @selected($processFilterValues->contains($processOption['value']))>
                                     {{ $processOption['label'] }} ({{ number_format($processOption['count']) }})
                                 </option>
                             @endforeach
                         </select>
+                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">
+                            กรอง
+                        </button>
                     </form>
-                    @if (!empty($filters['process_filter']))
-                        <span class="badge bg-primary">ขั้นตอน: {{ $filters['process_filter'] }}</span>
+                    @if ($processFilterValues->isNotEmpty())
+                        <span class="badge bg-primary">ขั้นตอน: {{ $processFilterValues->implode(', ') }}</span>
                         <a class="btn btn-sm btn-outline-secondary"
                             href="{{ route('dp.production-status', $clearProcessQuery) }}">ล้างขั้นตอน</a>
                     @endif
@@ -1499,6 +1510,12 @@
                         href="{{ route('dp.production-status', $statusQuery('at_risk')) }}">
                         <i class="fas fa-bolt me-1"></i> At Risk
                         <span class="ms-1">{{ number_format($summary['at_risk'] ?? 0) }}</span>
+                    </a>
+                    <a class="btn btn-sm {{ $confirmationFilterValue === 'pending' ? 'btn-secondary' : 'btn-outline-secondary' }}"
+                        href="{{ route('dp.production-status', $confirmationQuery($confirmationFilterValue === 'pending' ? 'all' : 'pending')) }}"
+                        title="ดูรายการที่ยังไม่ได้ยืนยันหรือขอเลื่อนการส่ง">
+                        <i class="fas fa-circle-question me-1"></i> ยังไม่ Confirm/เลื่อน
+                        <span class="ms-1">{{ number_format($summary['pending_confirmation'] ?? 0) }}</span>
                     </a>
                     <a class="btn btn-sm {{ $confirmationFilterValue === 'postpone' ? 'btn-warning' : 'btn-outline-warning' }}"
                         href="{{ route('dp.production-status', $confirmationQuery($confirmationFilterValue === 'postpone' ? 'all' : 'postpone')) }}"
@@ -1774,7 +1791,9 @@
                                                 <option value="POSTPONE"
                                                     {{ $confStatus === 'POSTPONE' ? 'selected' : '' }}>ขอเลื่อนการส่ง
                                                 </option>
-                                                <option value="">รอจัดแผน</option>
+                                                <option value="WAITING_PLAN"
+                                                    {{ $confStatus === 'WAITING_PLAN' ? 'selected' : '' }}>รอจัดแผน
+                                                </option>
                                             </select>
                                             <input type="date" class="form-control form-control-sm pst-confirm-date"
                                                 value="{{ $confNewDate }}"
@@ -1896,6 +1915,44 @@
             const HIST_URL = @json(route('dp.production-status.confirm.history'));
             const CSRF = @json(csrf_token());
 
+            function captureScrollPosition() {
+                const tableWrap = document.querySelector('.pst-table-wrap');
+                return {
+                    x: window.scrollX,
+                    y: window.scrollY,
+                    tableX: tableWrap ? tableWrap.scrollLeft : 0,
+                    tableY: tableWrap ? tableWrap.scrollTop : 0,
+                };
+            }
+
+            function restoreScrollPosition(position) {
+                if (!position) return;
+                const restore = () => {
+                    window.scrollTo(position.x, position.y);
+                    const tableWrap = document.querySelector('.pst-table-wrap');
+                    if (tableWrap) {
+                        tableWrap.scrollLeft = position.tableX;
+                        tableWrap.scrollTop = position.tableY;
+                    }
+                };
+                restore();
+                requestAnimationFrame(() => requestAnimationFrame(restore));
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const processSelect = document.getElementById('pstQuickProcessFilter');
+                if (processSelect && window.TomSelect && !processSelect.tomselect) {
+                    new TomSelect(processSelect, {
+                        plugins: ['remove_button'],
+                        closeAfterSelect: false,
+                        hideSelected: true,
+                        maxOptions: 1000,
+                        placeholder: processSelect.dataset.placeholder || 'ทุกสถานีงาน',
+                        dropdownParent: 'body'
+                    });
+                }
+            });
+
             const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
                 '&': '&amp;',
                 '<': '&lt;',
@@ -1916,6 +1973,7 @@
                         timerProgressBar: true,
                         heightAuto: false,
                         scrollbarPadding: false,
+                        returnFocus: false,
                     });
                 } else if (window.toastr) {
                     ok ? toastr.success(msg) : toastr.error(msg);
@@ -1928,6 +1986,7 @@
                 if (!window.Swal) {
                     return Promise.resolve(window.confirm(opts.text || 'ยืนยัน?'));
                 }
+                const scrollPosition = captureScrollPosition();
                 return Swal.fire({
                     title: opts.title || 'ยืนยันการบันทึก',
                     html: opts.html || opts.text || '',
@@ -1940,7 +1999,11 @@
                     reverseButtons: true,
                     heightAuto: false,
                     scrollbarPadding: false,
-                }).then(r => r.isConfirmed);
+                    returnFocus: false,
+                }).then(r => {
+                    restoreScrollPosition(scrollPosition);
+                    return r.isConfirmed;
+                });
             }
 
             function pendingForms() {
@@ -2182,10 +2245,6 @@
                 saveBtn.addEventListener('click', async function() {
                     const status = select.value;
                     const remark = remarkInp ? remarkInp.value.trim() : '';
-                    if (!status) {
-                        notify('กรุณาเลือกสถานะ', false);
-                        return;
-                    }
                     if (status === 'POSTPONE' && !dateInp.value) {
                         notify('กรุณาระบุ New Delivery Date', false);
                         return;
@@ -2211,7 +2270,7 @@
                             '<div class="mt-2 text-success"><b>ยืนยันส่งได้ตามกำหนดเดิม</b></div>' +
                             remarkLine +
                             '</div>';
-                    } else {
+                    } else if (status === 'POSTPONE') {
                         html = '<div class="text-start">' +
                             '<div><b>MFG:</b> ' + mfg + '</div>' +
                             '<div><b>วันส่งเดิม:</b> ' + fmt(origShip) + '</div>' +
@@ -2219,15 +2278,23 @@
                                 .value) + '</div>' +
                             remarkLine +
                             '</div>';
+                    } else {
+                        html = '<div class="text-start">' +
+                            '<div><b>MFG:</b> ' + mfg + '</div>' +
+                            '<div><b>วันส่งเดิม:</b> ' + fmt(origShip) + '</div>' +
+                            '<div class="mt-2 text-info"><b>บันทึกเป็นรอจัดแผน</b></div>' +
+                            '<div class="small text-muted">รายการนี้ยังคงเป็นงานค้างและยังไม่ถือว่า Confirm</div>' +
+                            remarkLine +
+                            '</div>';
                     }
 
                     const ok = await confirmDialog({
                         title: status === 'CONFIRM' ? 'ยืนยันการส่งมอบ' :
-                            'ยืนยันขอเลื่อนส่ง',
+                            (status === 'POSTPONE' ? 'ยืนยันขอเลื่อนส่ง' : 'บันทึกรอจัดแผน'),
                         html: html,
-                        icon: status === 'CONFIRM' ? 'success' : 'warning',
+                        icon: status === 'CONFIRM' ? 'success' : (status === 'POSTPONE' ? 'warning' : 'info'),
                         confirmText: 'บันทึก',
-                        confirmColor: status === 'CONFIRM' ? '#198754' : '#fd7e14',
+                        confirmColor: status === 'CONFIRM' ? '#198754' : (status === 'POSTPONE' ? '#fd7e14' : '#0dcaf0'),
                     });
                     if (!ok) return;
 
@@ -2238,6 +2305,7 @@
                             allowOutsideClick: false,
                             heightAuto: false,
                             scrollbarPadding: false,
+                            returnFocus: false,
                             didOpen: () => Swal.showLoading(),
                         });
                     }
@@ -2306,9 +2374,10 @@
                                     esc(d.remark) + '</div>';
                             }
                             display.innerHTML = html;
-                            form.dataset.saved = '1';
-                            form.dataset.active = '1';
-                            if (cancelBtn) cancelBtn.style.display = '';
+                            const isActive = d.is_active === true;
+                            form.dataset.saved = isActive ? '1' : '0';
+                            form.dataset.active = isActive ? '1' : '0';
+                            if (cancelBtn) cancelBtn.style.display = isActive ? '' : 'none';
                             refreshPendingCount();
                         })
                         .catch(() => {
@@ -2349,6 +2418,7 @@
                                 reverseButtons: true,
                                 heightAuto: false,
                                 scrollbarPadding: false,
+                                returnFocus: false,
                                 inputValidator: value => !String(value || '').trim() ?
                                     'กรุณาระบุเหตุผลที่ยกเลิก' : null,
                             });
@@ -2481,13 +2551,13 @@
                     const pending = pendingForms();
                     const forms = pending.filter(f => (f.querySelector('.pst-confirm-status') || {})
                         .value === 'CONFIRM');
-                    const postponeCount = pending.length - forms.length;
+                    const excludedCount = pending.length - forms.length;
 
                     if (forms.length === 0) {
                         if (pending.length === 0) {
                             notify('ทุกรายการในหน้านี้บันทึกแล้ว ไม่มีอะไรต้องยืนยันเพิ่ม', false);
                         } else {
-                            notify('รายการที่ยังไม่ยืนยันทั้งหมดเลือกเป็น Request Postpone — กรุณากด Save แยกแต่ละแถว เพราะต้องระบุวันส่งใหม่',
+                            notify('ไม่มีรายการที่เลือก Confirm Delivery — สถานะรอจัดแผนหรือ Request Postpone ต้องกด Save แยกแต่ละแถว',
                                 false);
                         }
                         return;
@@ -2496,11 +2566,11 @@
                     let html = '<div class="text-start">' +
                         '<div>จะบันทึก <b class="text-success">Confirm Delivery</b> จำนวน <b>' + forms
                         .length + '</b> รายการ</div>';
-                    if (postponeCount > 0) {
+                    if (excludedCount > 0) {
                         html += '<div class="text-warning small mt-2">' +
                             '<i class="fas fa-triangle-exclamation me-1"></i>' +
-                            'ข้าม ' + postponeCount +
-                            ' รายการที่เลือก Request Postpone (ต้องกรอกวันใหม่ + Save แยก)' +
+                            'ข้าม ' + excludedCount +
+                            ' รายการที่เลือกสถานะอื่น (ต้อง Save แยก)' +
                             '</div>';
                     }
                     html += '</div>';
@@ -2521,6 +2591,7 @@
                             allowOutsideClick: false,
                             heightAuto: false,
                             scrollbarPadding: false,
+                            returnFocus: false,
                             didOpen: () => Swal.showLoading(),
                         });
                     }

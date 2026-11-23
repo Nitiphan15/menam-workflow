@@ -105,9 +105,17 @@
             display: inline-block;
         }
 
-        .board-jump-chip .chip-dot.status-open { background: #16a34a; }
-        .board-jump-chip .chip-dot.status-closed { background: #64748b; }
-        .board-jump-chip .chip-dot.status-unassigned { background: #f59e0b; }
+        .board-jump-chip .chip-dot.status-open {
+            background: #16a34a;
+        }
+
+        .board-jump-chip .chip-dot.status-closed {
+            background: #64748b;
+        }
+
+        .board-jump-chip .chip-dot.status-unassigned {
+            background: #f59e0b;
+        }
 
         .board-jump-chip .chip-pct {
             opacity: .7;
@@ -125,13 +133,21 @@
         }
 
         @keyframes chipFlash {
-            0%   { box-shadow: 0 0 0 0 rgba(29, 78, 216, .55); }
-            70%  { box-shadow: 0 0 0 12px rgba(29, 78, 216, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(29, 78, 216, 0); }
+            0% {
+                box-shadow: 0 0 0 0 rgba(29, 78, 216, .55);
+            }
+
+            70% {
+                box-shadow: 0 0 0 12px rgba(29, 78, 216, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(29, 78, 216, 0);
+            }
         }
 
         /* ย่อการ์ดรถ: ซ่อนทุก section ของการ์ดยกเว้น header */
-        .truck-card.is-collapsed > *:not(.truck-header) {
+        .truck-card.is-collapsed>*:not(.truck-header) {
             display: none !important;
         }
 
@@ -413,25 +429,38 @@
     <div class="truck-board-page py-3">
         <div class="container-fluid">
 
+            @if (session('sales_submit_unlock_success'))
+                <div class="alert alert-success py-2">{{ session('sales_submit_unlock_success') }}</div>
+            @endif
+            @if (session('sales_submit_unlock_info'))
+                <div class="alert alert-info py-2">{{ session('sales_submit_unlock_info') }}</div>
+            @endif
+            @if (session('sales_submit_lock_success'))
+                <div class="alert alert-success py-2">{{ session('sales_submit_lock_success') }}</div>
+            @endif
+            @if (session('sales_submit_lock_info'))
+                <div class="alert alert-info py-2">{{ session('sales_submit_lock_info') }}</div>
+            @endif
+
             <div class="top-bar pb-3">
                 @include('formdp.partials.transport-nav', [
-                    'tnActive'   => 'board',
+                    'tnActive' => 'board',
                     'tnShipDate' => $shipDate,
-                    'tnSo'       => request('q', ''),
+                    'tnSo' => request('q', ''),
                     'tnCustomer' => '',
-                    'tnMfg'      => '',
+                    'tnMfg' => '',
                 ])
 
                 @php
                     $activeFilters = [];
                     $filterLabels = [
-                        'so'       => 'SO',
-                        'mfg'      => 'MFG',
+                        'so' => 'SO',
+                        'mfg' => 'MFG',
                         'customer' => 'Customer',
-                        'shipto'   => 'Ship To',
-                        'ord_id'   => 'Ord ID',
-                        'q'        => 'ค้นหา',
-                        'status'   => 'สถานะ',
+                        'shipto' => 'Ship To',
+                        'ord_id' => 'Ord ID',
+                        'q' => 'ค้นหา',
+                        'status' => 'สถานะ',
                         'divsales' => 'Sales',
                     ];
                     foreach ($filterLabels as $fkey => $flabel) {
@@ -484,18 +513,18 @@
                         </form>
                         @if ($canDpa)
                             <div class="btn-group btn-group-sm">
-                            <a href="{{ route('dp.dashboard.truck-board.export.print', ['ship_date' => $shipDate]) }}"
-                                class="btn btn-outline-primary" target="_blank">
-                                <i class="fas fa-print me-1"></i> Export จัดรถทั้งหมด
-                            </a>
-                            <a href="{{ route('dp.dashboard.truck-board.export.pdf', ['ship_date' => $shipDate]) }}"
-                                class="btn btn-outline-primary">PDF</a>
-                            <a href="{{ route('dp.dashboard.truck-board.export.excel', ['ship_date' => $shipDate]) }}"
-                                class="btn btn-outline-primary">Excel</a>
+                                <a href="{{ route('dp.dashboard.truck-board.export.print', ['ship_date' => $shipDate]) }}"
+                                    class="btn btn-outline-primary" target="_blank">
+                                    <i class="fas fa-print me-1"></i> Export จัดรถทั้งหมด
+                                </a>
+                                <a href="{{ route('dp.dashboard.truck-board.export.pdf', ['ship_date' => $shipDate]) }}"
+                                    class="btn btn-outline-primary">PDF</a>
+                                <a href="{{ route('dp.dashboard.truck-board.export.excel', ['ship_date' => $shipDate]) }}"
+                                    class="btn btn-outline-primary">Excel</a>
                             </div>
                             <form method="POST" action="{{ route('dp.dashboard.truck-board.send-mail') }}"
                                 id="assignMailForm" class="jsAssignMailForm d-inline"
-                                data-already-sent="{{ ($assignMailAlreadySent ?? false) ? '1' : '0' }}"
+                                data-already-sent="{{ $assignMailAlreadySent ?? false ? '1' : '0' }}"
                                 data-ship-text="{{ \Carbon\Carbon::parse($shipDate)->format('d-m-y') }}">
                                 @csrf
                                 <input type="hidden" name="ship_date" value="{{ $shipDate }}">
@@ -514,6 +543,8 @@
                         </a>
                     </div>
                 </div>
+
+                @include('formdp.partials.sales-submission-control')
 
                 <div class="row g-3 mb-3">
                     <div class="col-6 col-md-4 col-xl">
@@ -576,7 +607,8 @@
                         <button type="button" class="btn btn-outline-primary active"
                             data-board-filter="all">ทั้งหมด</button>
                         <button type="button" class="btn btn-outline-primary" data-board-filter="open">รอบเปิด</button>
-                        <button type="button" class="btn btn-outline-primary" data-board-filter="closed">ปิดแล้ว</button>
+                        <button type="button" class="btn btn-outline-primary"
+                            data-board-filter="closed">ปิดแล้ว</button>
                         <button type="button" class="btn btn-outline-primary"
                             data-board-filter="unassigned">ยังไม่จัดรถ</button>
                         <button type="button" class="btn btn-outline-primary"
@@ -604,21 +636,24 @@
                     <div class="d-flex flex-wrap align-items-center gap-2 mb-2 small text-muted">
                         <i class="fas fa-truck me-1"></i> คลิก chip เพื่อกระโดดไปการ์ดรถ
                         <span class="ms-auto">
-                            แสดง <span id="boardQuickVisibleCount" class="fw-semibold">{{ count($truckGroups) }}</span>/{{ count($truckGroups) }} รถ
+                            แสดง <span id="boardQuickVisibleCount"
+                                class="fw-semibold">{{ count($truckGroups) }}</span>/{{ count($truckGroups) }} รถ
                         </span>
                     </div>
                     <div class="board-jump-chips d-flex flex-wrap gap-1">
                         @foreach ($truckGroups as $truck)
                             @php
                                 $chipKey = 'truck-' . md5($truck->truck_label . '|' . $loop->index);
-                                $chipStatus = $truck->is_unassigned ? 'unassigned' : ($truck->is_closed ? 'closed' : 'open');
+                                $chipStatus = $truck->is_unassigned
+                                    ? 'unassigned'
+                                    : ($truck->is_closed
+                                        ? 'closed'
+                                        : 'open');
                                 $chipQty = (float) ($truck->total_assigned ?? 0);
                                 $chipMax = (float) ($truck->max_load ?? 0);
-                                $chipPct = $chipMax > 0 ? min(100, round($chipQty / $chipMax * 100)) : null;
+                                $chipPct = $chipMax > 0 ? min(100, round(($chipQty / $chipMax) * 100)) : null;
                             @endphp
-                            <button type="button"
-                                class="board-jump-chip jsBoardJump"
-                                data-target="{{ $chipKey }}"
+                            <button type="button" class="board-jump-chip jsBoardJump" data-target="{{ $chipKey }}"
                                 data-board-status="{{ $chipStatus }}"
                                 title="{{ $truck->truck_label }} · {{ $fmtWeight($chipQty) }}{{ $chipMax > 0 ? ' / ' . $fmtWeight($chipMax) : '' }}">
                                 <span class="chip-dot status-{{ $chipStatus }}"></span>
@@ -661,20 +696,22 @@
                             @php
                                 $firstSpecial = $specialRows->first();
                                 $specialGroupKey = 'special-' . md5((string) $dispatchType);
-                                $cancelableSpecialRows = $specialRows->filter(fn($row) => $canDpa && ($row->can_cancel_special ?? false))->values();
+                                $cancelableSpecialRows = $specialRows
+                                    ->filter(fn($row) => $canDpa && ($row->can_cancel_special ?? false))
+                                    ->values();
                             @endphp
                             <div class="mb-3">
                                 <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
                                     <div class="fw-semibold">
                                         {{ $firstSpecial->dispatch_label ?? $dispatchType }}
-                                        <span class="text-muted">({{ number_format($specialRows->count()) }} รายการ)</span>
+                                        <span class="text-muted">({{ number_format($specialRows->count()) }}
+                                            รายการ)</span>
                                     </div>
                                     @if ($cancelableSpecialRows->isNotEmpty())
                                         <button type="button"
                                             class="btn btn-sm btn-outline-danger fw-semibold jsBoardCancelSpecialSelectedBtn"
                                             data-group-key="{{ $specialGroupKey }}"
-                                            data-label="{{ e($firstSpecial->dispatch_label ?? $dispatchType) }}"
-                                            disabled>
+                                            data-label="{{ e($firstSpecial->dispatch_label ?? $dispatchType) }}" disabled>
                                             <i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก
                                         </button>
                                     @endif
@@ -685,8 +722,10 @@
                                             <tr>
                                                 @if ($cancelableSpecialRows->isNotEmpty())
                                                     <th style="width:46px;" class="text-center">
-                                                        <input type="checkbox" class="form-check-input jsBoardCancelSpecialSelectAll"
-                                                            data-group-key="{{ $specialGroupKey }}" title="เลือกรายการงานพิเศษทั้งหมดในกลุ่มนี้">
+                                                        <input type="checkbox"
+                                                            class="form-check-input jsBoardCancelSpecialSelectAll"
+                                                            data-group-key="{{ $specialGroupKey }}"
+                                                            title="เลือกรายการงานพิเศษทั้งหมดในกลุ่มนี้">
                                                     </th>
                                                 @endif
                                                 <th style="width:70px;">#</th>
@@ -744,7 +783,8 @@
                                                     <td>
                                                         <div>{{ $row->dp_status ?: '-' }}</div>
                                                         @if (strtoupper((string) ($row->dispatch_type ?? '')) === 'POSTPONED')
-                                                            <div class="small {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'text-primary' : 'text-muted' }}">
+                                                            <div
+                                                                class="small {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'text-primary' : 'text-muted' }}">
                                                                 {{ ($row->special_origin ?? '') === 'LOGISTICS' ? 'เลื่อนโดย Logistics' : 'เลื่อนโดย Sales/DP' }}
                                                             </div>
                                                         @endif
@@ -757,7 +797,7 @@
                                                             <button type="button"
                                                                 class="btn btn-sm btn-outline-danger mb-1 jsBoardCancelSpecialOneBtn"
                                                                 data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
-                                                                data-label="{{ e(($row->mfg_no ?: $row->so_number ?: 'ord_id=' . (int) ($row->ord_id ?? 0))) }}">
+                                                                data-label="{{ e($row->mfg_no ?: $row->so_number ?: 'ord_id=' . (int) ($row->ord_id ?? 0)) }}">
                                                                 ยกเลิก
                                                             </button>
                                                         @endif
@@ -814,8 +854,7 @@
                 @endphp
                 <div id="{{ $cardKey }}"
                     class="card truck-card {{ $truck->is_unassigned ? 'unassigned' : '' }} mb-4 jsBoardTruckCard"
-                    data-card-key="{{ $cardKey }}"
-                    data-board-status="{{ $boardStatus }}"
+                    data-card-key="{{ $cardKey }}" data-board-status="{{ $boardStatus }}"
                     data-board-search="{{ e(mb_strtolower($truckSearchText)) }}">
                     <div class="truck-header">
                         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
@@ -888,8 +927,7 @@
                                     <button type="button"
                                         class="btn btn-sm btn-outline-danger fw-semibold jsBoardUnassignSelectedBtn"
                                         data-card-key="{{ $cardKey }}"
-                                        data-truck-label="{{ e($truck->truck_label) }}"
-                                        disabled>
+                                        data-truck-label="{{ e($truck->truck_label) }}" disabled>
                                         <i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก
                                     </button>
                                     <button type="button"
@@ -982,8 +1020,7 @@
                                         title="ดูรายการนี้ใน Inquiry">
                                         @if ($canUnassignTruck)
                                             <td class="text-center">
-                                                <input type="checkbox"
-                                                    class="form-check-input jsBoardUnassignCheck"
+                                                <input type="checkbox" class="form-check-input jsBoardUnassignCheck"
                                                     data-card-key="{{ $cardKey }}"
                                                     data-ord-id="{{ (int) ($row->ord_id ?? 0) }}"
                                                     data-so="{{ e($row->so_number ?? '') }}"
@@ -1088,8 +1125,8 @@
                         </div>
                         <div class="mb-2">
                             <label class="form-label fw-semibold" for="boardRemarkUnassign">เหตุผลยกเลิกรถ</label>
-                            <textarea class="form-control" name="remark_unassign" id="boardRemarkUnassign" rows="3"
-                                maxlength="500" placeholder="กรอกเหตุผล" required></textarea>
+                            <textarea class="form-control" name="remark_unassign" id="boardRemarkUnassign" rows="3" maxlength="500"
+                                placeholder="กรอกเหตุผล" required></textarea>
                             <div class="form-text">จำเป็นต้องกรอกเหตุผล และระบบจะบันทึกไว้ใน remark ของรายการ</div>
                         </div>
                         <div class="alert alert-warning small mb-0">
@@ -1097,7 +1134,8 @@
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                            data-bs-dismiss="modal">ปิด</button>
                         <button type="submit" class="btn btn-warning btn-sm">ยืนยันยกเลิก</button>
                     </div>
                 </form>
@@ -1123,16 +1161,19 @@
                             <div class="fw-semibold" id="boardCancelSpecialInfo">-</div>
                         </div>
                         <div class="mb-2">
-                            <label class="form-label fw-semibold" for="boardCancelSpecialRemark">เหตุผลยกเลิกงานพิเศษ</label>
-                            <textarea class="form-control" name="cancel_remark" id="boardCancelSpecialRemark" rows="3"
-                                maxlength="500" placeholder="กรอกเหตุผล" required></textarea>
+                            <label class="form-label fw-semibold"
+                                for="boardCancelSpecialRemark">เหตุผลยกเลิกงานพิเศษ</label>
+                            <textarea class="form-control" name="cancel_remark" id="boardCancelSpecialRemark" rows="3" maxlength="500"
+                                placeholder="กรอกเหตุผล" required></textarea>
                         </div>
                         <div class="alert alert-warning small mb-0">
-                            ยกเลิกได้เฉพาะงานพิเศษที่ยังเปิดอยู่ ถ้าเป็นงานเลื่อนจาก Sales/DP ที่สร้างแถวใหม่แล้ว ระบบจะไม่อนุญาตให้ยกเลิกจากหน้านี้
+                            ยกเลิกได้เฉพาะงานพิเศษที่ยังเปิดอยู่ ถ้าเป็นงานเลื่อนจาก Sales/DP ที่สร้างแถวใหม่แล้ว
+                            ระบบจะไม่อนุญาตให้ยกเลิกจากหน้านี้
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">ปิด</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                            data-bs-dismiss="modal">ปิด</button>
                         <button type="submit" class="btn btn-danger btn-sm">ยืนยันยกเลิกงานพิเศษ</button>
                     </div>
                 </form>
@@ -1142,15 +1183,17 @@
 
     @if ($canDpa)
         <script>
-            document.addEventListener('DOMContentLoaded', function () {
+            document.addEventListener('DOMContentLoaded', function() {
                 var boardUnassignModalEl = document.getElementById('boardUnassignTruckModal');
-                var boardUnassignModal = boardUnassignModalEl && window.bootstrap ? new bootstrap.Modal(boardUnassignModalEl) : null;
+                var boardUnassignModal = boardUnassignModalEl && window.bootstrap ? new bootstrap.Modal(
+                    boardUnassignModalEl) : null;
                 var boardUnassignForm = document.getElementById('boardUnassignTruckForm');
                 var boardUnassignOrdIds = document.getElementById('boardUnassignOrdIds');
                 var boardUnassignInfo = document.getElementById('boardUnassignTruckInfo');
                 var boardRemarkUnassign = document.getElementById('boardRemarkUnassign');
                 var boardCancelSpecialModalEl = document.getElementById('boardCancelSpecialModal');
-                var boardCancelSpecialModal = boardCancelSpecialModalEl && window.bootstrap ? new bootstrap.Modal(boardCancelSpecialModalEl) : null;
+                var boardCancelSpecialModal = boardCancelSpecialModalEl && window.bootstrap ? new bootstrap.Modal(
+                    boardCancelSpecialModalEl) : null;
                 var boardCancelSpecialForm = document.getElementById('boardCancelSpecialForm');
                 var boardCancelSpecialOrdIds = document.getElementById('boardCancelSpecialOrdIds');
                 var boardCancelSpecialInfo = document.getElementById('boardCancelSpecialInfo');
@@ -1169,13 +1212,15 @@
                     alert(message);
                 }
 
-                document.querySelectorAll('.jsBoardUnassignTruckBtn').forEach(function (btn) {
-                    btn.addEventListener('click', function () {
+                document.querySelectorAll('.jsBoardUnassignTruckBtn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
                         if (!boardUnassignForm || !boardUnassignModal || !boardUnassignOrdIds) return;
 
                         var ordIds = String(btn.dataset.ordIds || '')
                             .split(',')
-                            .map(function (id) { return id.trim(); })
+                            .map(function(id) {
+                                return id.trim();
+                            })
                             .filter(Boolean);
 
                         if (ordIds.length === 0) {
@@ -1184,7 +1229,7 @@
                         }
 
                         boardUnassignOrdIds.innerHTML = '';
-                        ordIds.forEach(function (ordId) {
+                        ordIds.forEach(function(ordId) {
                             var hidden = document.createElement('input');
                             hidden.type = 'hidden';
                             hidden.name = 'ord_ids[]';
@@ -1194,7 +1239,8 @@
 
                         if (boardUnassignInfo) {
                             var truckLabel = btn.dataset.truckLabel || '-';
-                            boardUnassignInfo.textContent = truckLabel + ' | ' + ordIds.length + ' รายการ';
+                            boardUnassignInfo.textContent = truckLabel + ' | ' + ordIds.length +
+                                ' รายการ';
                         }
                         if (boardRemarkUnassign) boardRemarkUnassign.value = '';
                         boardUnassignModal.show();
@@ -1204,9 +1250,13 @@
                 function openBoardSelectedUnassign(ordIds, label) {
                     if (!boardUnassignForm || !boardUnassignModal || !boardUnassignOrdIds) return;
                     var cleanOrdIds = (ordIds || [])
-                        .map(function (id) { return String(id || '').trim(); })
+                        .map(function(id) {
+                            return String(id || '').trim();
+                        })
                         .filter(Boolean)
-                        .filter(function (id, index, all) { return all.indexOf(id) === index; });
+                        .filter(function(id, index, all) {
+                            return all.indexOf(id) === index;
+                        });
 
                     if (cleanOrdIds.length === 0) {
                         warnBoardUnassign('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
@@ -1214,7 +1264,7 @@
                     }
 
                     boardUnassignOrdIds.innerHTML = '';
-                    cleanOrdIds.forEach(function (ordId) {
+                    cleanOrdIds.forEach(function(ordId) {
                         var hidden = document.createElement('input');
                         hidden.type = 'hidden';
                         hidden.name = 'ord_ids[]';
@@ -1223,7 +1273,8 @@
                     });
 
                     if (boardUnassignInfo) {
-                        boardUnassignInfo.textContent = (label || 'รายการที่เลือก') + ' | ' + cleanOrdIds.length + ' รายการ';
+                        boardUnassignInfo.textContent = (label || 'รายการที่เลือก') + ' | ' + cleanOrdIds.length +
+                            ' รายการ';
                     }
                     if (boardRemarkUnassign) boardRemarkUnassign.value = '';
                     boardUnassignModal.show();
@@ -1231,14 +1282,21 @@
 
                 function syncBoardSelectedUnassign(cardKey) {
                     var checks = Array.from(document.querySelectorAll('.jsBoardUnassignCheck'))
-                        .filter(function (check) { return check.dataset.cardKey === cardKey; });
-                    var selected = checks.filter(function (check) { return check.checked; });
-                    var selectedBtn = document.querySelector('.jsBoardUnassignSelectedBtn[data-card-key="' + cardKey + '"]');
-                    var selectAll = document.querySelector('.jsBoardUnassignSelectAll[data-card-key="' + cardKey + '"]');
+                        .filter(function(check) {
+                            return check.dataset.cardKey === cardKey;
+                        });
+                    var selected = checks.filter(function(check) {
+                        return check.checked;
+                    });
+                    var selectedBtn = document.querySelector('.jsBoardUnassignSelectedBtn[data-card-key="' + cardKey +
+                        '"]');
+                    var selectAll = document.querySelector('.jsBoardUnassignSelectAll[data-card-key="' + cardKey +
+                    '"]');
 
                     if (selectedBtn) {
                         selectedBtn.disabled = selected.length === 0;
-                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected.length ? ' (' + selected.length + ')' : '');
+                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected
+                            .length ? ' (' + selected.length + ')' : '');
                     }
 
                     if (selectAll) {
@@ -1247,31 +1305,40 @@
                     }
                 }
 
-                document.querySelectorAll('.jsBoardUnassignCheck').forEach(function (check) {
-                    check.addEventListener('change', function () {
+                document.querySelectorAll('.jsBoardUnassignCheck').forEach(function(check) {
+                    check.addEventListener('change', function() {
                         syncBoardSelectedUnassign(check.dataset.cardKey || '');
                     });
                 });
 
-                document.querySelectorAll('.jsBoardUnassignSelectAll').forEach(function (selectAll) {
-                    selectAll.addEventListener('change', function () {
+                document.querySelectorAll('.jsBoardUnassignSelectAll').forEach(function(selectAll) {
+                    selectAll.addEventListener('change', function() {
                         var cardKey = selectAll.dataset.cardKey || '';
-                        document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]').forEach(function (check) {
+                        document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey +
+                            '"]').forEach(function(check) {
                             check.checked = selectAll.checked;
                         });
                         syncBoardSelectedUnassign(cardKey);
                     });
                 });
 
-                document.querySelectorAll('.jsBoardUnassignSelectedBtn').forEach(function (btn) {
-                    btn.addEventListener('click', function () {
+                document.querySelectorAll('.jsBoardUnassignSelectedBtn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
                         var cardKey = btn.dataset.cardKey || '';
-                        var checks = Array.from(document.querySelectorAll('.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]'))
-                            .filter(function (check) { return check.checked; });
-                        var ordIds = checks.map(function (check) { return check.dataset.ordId || ''; });
+                        var checks = Array.from(document.querySelectorAll(
+                                '.jsBoardUnassignCheck[data-card-key="' + cardKey + '"]'))
+                            .filter(function(check) {
+                                return check.checked;
+                            });
+                        var ordIds = checks.map(function(check) {
+                            return check.dataset.ordId || '';
+                        });
                         var preview = checks
                             .slice(0, 4)
-                            .map(function (check) { return check.dataset.mfg || check.dataset.so || check.dataset.ordId || ''; })
+                            .map(function(check) {
+                                return check.dataset.mfg || check.dataset.so || check.dataset
+                                    .ordId || '';
+                            })
                             .filter(Boolean)
                             .join(', ');
                         var label = btn.dataset.truckLabel || 'รายการที่เลือก';
@@ -1281,14 +1348,15 @@
                 });
 
                 if (boardUnassignForm) {
-                    boardUnassignForm.addEventListener('submit', function (e) {
+                    boardUnassignForm.addEventListener('submit', function(e) {
                         if (!boardRemarkUnassign || boardRemarkUnassign.value.trim() === '') {
                             e.preventDefault();
                             warnBoardUnassign('กรุณากรอกเหตุผลยกเลิกรถ');
                             boardRemarkUnassign?.focus();
                             return;
                         }
-                        if (!boardUnassignOrdIds || boardUnassignOrdIds.querySelectorAll('input[name="ord_ids[]"]').length === 0) {
+                        if (!boardUnassignOrdIds || boardUnassignOrdIds.querySelectorAll(
+                                'input[name="ord_ids[]"]').length === 0) {
                             e.preventDefault();
                             warnBoardUnassign('กรุณาเลือกรายการที่ต้องการยกเลิกรถ');
                         }
@@ -1298,9 +1366,13 @@
                 function openBoardCancelSpecial(ordIds, label) {
                     if (!boardCancelSpecialForm || !boardCancelSpecialModal || !boardCancelSpecialOrdIds) return;
                     var cleanOrdIds = (ordIds || [])
-                        .map(function (id) { return String(id || '').trim(); })
+                        .map(function(id) {
+                            return String(id || '').trim();
+                        })
                         .filter(Boolean)
-                        .filter(function (id, index, all) { return all.indexOf(id) === index; });
+                        .filter(function(id, index, all) {
+                            return all.indexOf(id) === index;
+                        });
 
                     if (cleanOrdIds.length === 0) {
                         warnBoardUnassign('กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก');
@@ -1308,7 +1380,7 @@
                     }
 
                     boardCancelSpecialOrdIds.innerHTML = '';
-                    cleanOrdIds.forEach(function (ordId) {
+                    cleanOrdIds.forEach(function(ordId) {
                         var hidden = document.createElement('input');
                         hidden.type = 'hidden';
                         hidden.name = 'ord_ids[]';
@@ -1317,7 +1389,8 @@
                     });
 
                     if (boardCancelSpecialInfo) {
-                        boardCancelSpecialInfo.textContent = (label || 'งานพิเศษที่เลือก') + ' | ' + cleanOrdIds.length + ' รายการ';
+                        boardCancelSpecialInfo.textContent = (label || 'งานพิเศษที่เลือก') + ' | ' + cleanOrdIds
+                            .length + ' รายการ';
                     }
                     if (boardCancelSpecialRemark) boardCancelSpecialRemark.value = '';
                     boardCancelSpecialModal.show();
@@ -1325,14 +1398,21 @@
 
                 function syncBoardCancelSpecialSelection(groupKey) {
                     var checks = Array.from(document.querySelectorAll('.jsBoardCancelSpecialCheck'))
-                        .filter(function (check) { return check.dataset.groupKey === groupKey && !check.disabled; });
-                    var selected = checks.filter(function (check) { return check.checked; });
-                    var selectedBtn = document.querySelector('.jsBoardCancelSpecialSelectedBtn[data-group-key="' + groupKey + '"]');
-                    var selectAll = document.querySelector('.jsBoardCancelSpecialSelectAll[data-group-key="' + groupKey + '"]');
+                        .filter(function(check) {
+                            return check.dataset.groupKey === groupKey && !check.disabled;
+                        });
+                    var selected = checks.filter(function(check) {
+                        return check.checked;
+                    });
+                    var selectedBtn = document.querySelector('.jsBoardCancelSpecialSelectedBtn[data-group-key="' +
+                        groupKey + '"]');
+                    var selectAll = document.querySelector('.jsBoardCancelSpecialSelectAll[data-group-key="' +
+                        groupKey + '"]');
 
                     if (selectedBtn) {
                         selectedBtn.disabled = selected.length === 0;
-                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected.length ? ' (' + selected.length + ')' : '');
+                        selectedBtn.innerHTML = '<i class="fas fa-check-square me-1"></i> ยกเลิกที่เลือก' + (selected
+                            .length ? ' (' + selected.length + ')' : '');
                     }
 
                     if (selectAll) {
@@ -1341,31 +1421,40 @@
                     }
                 }
 
-                document.querySelectorAll('.jsBoardCancelSpecialCheck').forEach(function (check) {
-                    check.addEventListener('change', function () {
+                document.querySelectorAll('.jsBoardCancelSpecialCheck').forEach(function(check) {
+                    check.addEventListener('change', function() {
                         syncBoardCancelSpecialSelection(check.dataset.groupKey || '');
                     });
                 });
 
-                document.querySelectorAll('.jsBoardCancelSpecialSelectAll').forEach(function (selectAll) {
-                    selectAll.addEventListener('change', function () {
+                document.querySelectorAll('.jsBoardCancelSpecialSelectAll').forEach(function(selectAll) {
+                    selectAll.addEventListener('change', function() {
                         var groupKey = selectAll.dataset.groupKey || '';
-                        document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]').forEach(function (check) {
+                        document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' +
+                            groupKey + '"]').forEach(function(check) {
                             if (!check.disabled) check.checked = selectAll.checked;
                         });
                         syncBoardCancelSpecialSelection(groupKey);
                     });
                 });
 
-                document.querySelectorAll('.jsBoardCancelSpecialSelectedBtn').forEach(function (btn) {
-                    btn.addEventListener('click', function () {
+                document.querySelectorAll('.jsBoardCancelSpecialSelectedBtn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
                         var groupKey = btn.dataset.groupKey || '';
-                        var checks = Array.from(document.querySelectorAll('.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]'))
-                            .filter(function (check) { return check.checked && !check.disabled; });
-                        var ordIds = checks.map(function (check) { return check.dataset.ordId || ''; });
+                        var checks = Array.from(document.querySelectorAll(
+                                '.jsBoardCancelSpecialCheck[data-group-key="' + groupKey + '"]'))
+                            .filter(function(check) {
+                                return check.checked && !check.disabled;
+                            });
+                        var ordIds = checks.map(function(check) {
+                            return check.dataset.ordId || '';
+                        });
                         var preview = checks
                             .slice(0, 4)
-                            .map(function (check) { return check.dataset.mfg || check.dataset.so || check.dataset.ordId || ''; })
+                            .map(function(check) {
+                                return check.dataset.mfg || check.dataset.so || check.dataset
+                                    .ordId || '';
+                            })
                             .filter(Boolean)
                             .join(', ');
                         var label = btn.dataset.label || 'งานพิเศษที่เลือก';
@@ -1374,21 +1463,23 @@
                     });
                 });
 
-                document.querySelectorAll('.jsBoardCancelSpecialOneBtn').forEach(function (btn) {
-                    btn.addEventListener('click', function () {
-                        openBoardCancelSpecial([btn.dataset.ordId || ''], btn.dataset.label || 'งานพิเศษที่เลือก');
+                document.querySelectorAll('.jsBoardCancelSpecialOneBtn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        openBoardCancelSpecial([btn.dataset.ordId || ''], btn.dataset.label ||
+                            'งานพิเศษที่เลือก');
                     });
                 });
 
                 if (boardCancelSpecialForm) {
-                    boardCancelSpecialForm.addEventListener('submit', function (e) {
+                    boardCancelSpecialForm.addEventListener('submit', function(e) {
                         if (!boardCancelSpecialRemark || boardCancelSpecialRemark.value.trim() === '') {
                             e.preventDefault();
                             warnBoardUnassign('กรุณากรอกเหตุผลยกเลิกงานพิเศษ');
                             boardCancelSpecialRemark?.focus();
                             return;
                         }
-                        if (!boardCancelSpecialOrdIds || boardCancelSpecialOrdIds.querySelectorAll('input[name="ord_ids[]"]').length === 0) {
+                        if (!boardCancelSpecialOrdIds || boardCancelSpecialOrdIds.querySelectorAll(
+                                'input[name="ord_ids[]"]').length === 0) {
                             e.preventDefault();
                             warnBoardUnassign('กรุณาเลือกรายการงานพิเศษที่ต้องการยกเลิก');
                         }
@@ -1397,9 +1488,9 @@
 
                 function askSend(sent, t) {
                     var title = sent ? 'ยืนยันส่งซ้ำ' : 'ยืนยันส่งเมลจัดรถ';
-                    var text = sent
-                        ? ('เคยส่งเมลจัดรถของวันที่ ' + t + ' แล้ว ต้องการส่งซ้ำอีกครั้งหรือไม่?')
-                        : ('ต้องการส่งเมลจัดรถของวันที่ ' + t + ' หรือไม่?');
+                    var text = sent ?
+                        ('เคยส่งเมลจัดรถของวันที่ ' + t + ' แล้ว ต้องการส่งซ้ำอีกครั้งหรือไม่?') :
+                        ('ต้องการส่งเมลจัดรถของวันที่ ' + t + ' หรือไม่?');
                     if (!window.Swal) {
                         return Promise.resolve(window.confirm(text));
                     }
@@ -1413,7 +1504,9 @@
                         confirmButtonColor: sent ? '#f59e0b' : '#22c55e',
                         cancelButtonColor: '#64748b',
                         reverseButtons: true,
-                    }).then(function (r) { return r.isConfirmed; });
+                    }).then(function(r) {
+                        return r.isConfirmed;
+                    });
                 }
 
                 function doSend(form, sent) {
@@ -1426,18 +1519,20 @@
                             text: 'กรุณารอสักครู่',
                             allowOutsideClick: false,
                             allowEscapeKey: false,
-                            didOpen: function () { Swal.showLoading(); },
+                            didOpen: function() {
+                                Swal.showLoading();
+                            },
                         });
                     }
                     form.submit();
                 }
 
-                document.querySelectorAll('.jsAssignMailForm').forEach(function (form) {
-                    form.addEventListener('submit', function (e) {
+                document.querySelectorAll('.jsAssignMailForm').forEach(function(form) {
+                    form.addEventListener('submit', function(e) {
                         if (form.dataset.confirmed === '1') return; // ผ่านการยืนยันแล้ว
                         e.preventDefault();
                         var sent = form.dataset.alreadySent === '1';
-                        askSend(sent, form.dataset.shipText || '').then(function (ok) {
+                        askSend(sent, form.dataset.shipText || '').then(function(ok) {
                             if (ok) doSend(form, sent);
                         });
                     });
@@ -1446,7 +1541,7 @@
                 @if (session('assign_mail_confirm'))
                     var dupForm = document.querySelector('.jsAssignMailForm');
                     if (dupForm) {
-                        askSend(true, @json(session('assign_mail_confirm'))).then(function (ok) {
+                        askSend(true, @json(session('assign_mail_confirm'))).then(function(ok) {
                             if (ok) doSend(dupForm, true);
                         });
                     }
@@ -1608,7 +1703,9 @@
             searchClear?.addEventListener('click', () => {
                 if (!searchInput) return;
                 searchInput.value = '';
-                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                searchInput.dispatchEvent(new Event('input', {
+                    bubbles: true
+                }));
                 searchInput.focus();
             });
 
@@ -1621,7 +1718,10 @@
                     if (target.classList.contains('is-collapsed')) {
                         target.classList.remove('is-collapsed');
                     }
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
                     chip.classList.add('is-target-flash');
                     setTimeout(() => chip.classList.remove('is-target-flash'), 900);
                 });
@@ -1641,9 +1741,9 @@
             collapseAllBtn?.addEventListener('click', () => {
                 allCollapsed = !allCollapsed;
                 cards.forEach((c) => c.classList.toggle('is-collapsed', allCollapsed));
-                collapseAllBtn.innerHTML = allCollapsed
-                    ? '<i class="fas fa-expand-alt me-1"></i> ขยาย'
-                    : '<i class="fas fa-compress-alt me-1"></i> ย่อ/ขยาย';
+                collapseAllBtn.innerHTML = allCollapsed ?
+                    '<i class="fas fa-expand-alt me-1"></i> ขยาย' :
+                    '<i class="fas fa-compress-alt me-1"></i> ย่อ/ขยาย';
             });
 
             syncChips();

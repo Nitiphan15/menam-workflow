@@ -62,7 +62,7 @@ class ProductionStatusTrackingController extends Controller
             'site' => ['nullable', 'string', 'max:10'],
             'so_number' => ['nullable', 'string', 'max:80'],
             'ord_id' => ['nullable', 'integer', 'min:1'],
-            'confirmation_status' => ['required', 'in:CONFIRM,POSTPONE'],
+            'confirmation_status' => ['required', 'in:CONFIRM,POSTPONE,WAITING_PLAN'],
             'new_delivery_date' => ['nullable', 'date'],
             'original_ship_date' => ['nullable', 'date'],
             'remark' => ['nullable', 'string', 'max:500'],
@@ -96,6 +96,7 @@ class ProductionStatusTrackingController extends Controller
                 'confirmation_status' => $row->confirmation_status,
                 'status_label' => \App\Models\FormDP\DeliveryConfirmation::statusLabel($row->confirmation_status),
                 'badge_class' => \App\Models\FormDP\DeliveryConfirmation::statusBadgeClass($row->confirmation_status),
+                'is_active' => \App\Models\FormDP\DeliveryConfirmation::isActiveStatus($row->confirmation_status),
                 'new_delivery_date' => optional($row->new_delivery_date)->format('Y-m-d'),
                 'new_delivery_date_display' => optional($row->new_delivery_date)->format('d/m/Y'),
                 'confirmed_at' => $row->confirmed_at?->format('Y-m-d H:i'),
@@ -199,6 +200,10 @@ class ProductionStatusTrackingController extends Controller
 
     private function validatedFilters(Request $request): array
     {
+        if ($request->has('process_filter') && !is_array($request->input('process_filter'))) {
+            $request->merge(['process_filter' => [$request->input('process_filter')]]);
+        }
+
         $validated = $request->validate([
             'ship_from' => ['nullable', 'date'],
             'ship_to' => ['nullable', 'date'],
@@ -214,8 +219,9 @@ class ProductionStatusTrackingController extends Controller
             'status_filter' => ['nullable', 'in:all,delayed,at_risk'],
             'movement_filter' => ['nullable', 'in:all,stale,not_started,moving,completed,no_route'],
             'risk_status' => ['nullable', 'in:HIGH,MEDIUM,NORMAL,NO_ROUTE'],
-            'process_filter' => ['nullable', 'string', 'max:80'],
-            'confirmation_filter' => ['nullable', 'in:all,postpone'],
+            'process_filter' => ['nullable', 'array', 'max:20'],
+            'process_filter.*' => ['string', 'max:80'],
+            'confirmation_filter' => ['nullable', 'in:all,pending,postpone'],
         ]);
 
         $completionFilter = strtolower(trim((string) ($validated['completion_filter'] ?? 'all'))) ?: 'all';
@@ -240,7 +246,12 @@ class ProductionStatusTrackingController extends Controller
             'status_filter' => $statusFilter,
             'movement_filter' => strtolower(trim((string) ($validated['movement_filter'] ?? 'all'))) ?: 'all',
             'risk_status' => strtoupper(trim((string) ($validated['risk_status'] ?? ''))),
-            'process_filter' => trim((string) ($validated['process_filter'] ?? '')),
+            'process_filter' => collect($validated['process_filter'] ?? [])
+                ->map(fn($value) => trim((string) $value))
+                ->filter()
+                ->unique(fn($value) => mb_strtolower($value))
+                ->values()
+                ->all(),
             'confirmation_filter' => strtolower(trim((string) ($validated['confirmation_filter'] ?? 'all'))) ?: 'all',
         ];
     }
