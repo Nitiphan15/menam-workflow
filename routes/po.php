@@ -7,6 +7,7 @@ use App\Http\Controllers\Po\PoLookupController;
 use App\Http\Controllers\Po\PoExportController;
 use App\Http\Controllers\Po\PoPdfMergeController;
 use App\Http\Controllers\Po\PoApproverMasterController;
+use App\Http\Controllers\Po\PoApprovalReportController;
 
 Route::middleware(['auth', 'permission.any:POM'])
     ->prefix('po')
@@ -56,6 +57,15 @@ Route::middleware(['auth', 'permission.any:POV'])
         Route::get('/department-tracking/{id}', [PoController::class, 'departmentTrackingShow'])
             ->whereNumber('id')
             ->name('departmentTracking.show');
+    });
+
+Route::middleware(['auth', 'permission.any:POV,POPUR'])
+    ->prefix('po')
+    ->name('po.')
+    ->group(function () {
+        Route::get('/approval-report', [PoApprovalReportController::class, 'index'])->name('approvalReport.index');
+        Route::get('/approval-report/excel', [PoApprovalReportController::class, 'exportExcel'])->name('approvalReport.excel');
+        Route::get('/approval-report/pdf', [PoApprovalReportController::class, 'exportPdf'])->name('approvalReport.pdf');
     });
 
 Route::middleware(['auth', 'permission.any:PO,POPUR'])
