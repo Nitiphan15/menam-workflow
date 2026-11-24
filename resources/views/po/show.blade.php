@@ -200,6 +200,15 @@
                 @if (!$readOnly)
                     <a href="{{ route('po.print', $po->id) }}" class="btn btn-outline-dark">Download PDF</a>
                 @endif
+                @php
+                    $poSetPdfCount = \App\Services\Po\PoPdfBundleService::selectFiles($po->attachments)['files']->count();
+                @endphp
+                @if (\App\Services\Po\PoPdfBundleService::isApproved($po) && $poSetPdfCount > 0)
+                    <a href="{{ route($readOnly ? 'po.departmentTracking.poSet' : 'po.poSet', $po->id) }}"
+                        class="btn btn-danger" title="PO + PR/เอกสาร PDF แนบ {{ $poSetPdfCount }} ไฟล์ รวมเป็นไฟล์เดียว">
+                        <i class="fas fa-file-pdf me-1"></i> ดาวน์โหลดชุด PO (PO+PR)
+                    </a>
+                @endif
                 <a href="{{ $readOnly ? route('po.departmentTracking') : route('po.index') }}" class="btn btn-outline-secondary">กลับหน้ารายการ</a>
             </div>
         </div>

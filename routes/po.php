@@ -57,6 +57,9 @@ Route::middleware(['auth', 'permission.any:POV'])
         Route::get('/department-tracking/{id}', [PoController::class, 'departmentTrackingShow'])
             ->whereNumber('id')
             ->name('departmentTracking.show');
+        Route::get('/department-tracking/{id}/po-set', [PoPdfMergeController::class, 'departmentTrackingBundle'])
+            ->whereNumber('id')
+            ->name('departmentTracking.poSet');
     });
 
 Route::middleware(['auth', 'permission.any:POV,POPUR'])
@@ -104,9 +107,11 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
             Route::get('/print/department', [PoExportController::class, 'printDepartment'])->name('print.department');
             Route::get('/pdf-merge', [PoPdfMergeController::class, 'index'])->name('pdf-merge.index');
             Route::post('/pdf-merge', [PoPdfMergeController::class, 'merge'])->name('pdf-merge.merge');
+            Route::post('/pdf-merge/po-set', [PoPdfMergeController::class, 'bundleByNumber'])->name('pdf-merge.poSet');
         });
 
         Route::get('/{id}/attachments/{attachmentId}', [PoController::class, 'attachment'])->name('attachments.show');
+        Route::get('/{id}/po-set', [PoPdfMergeController::class, 'bundle'])->whereNumber('id')->name('poSet');
         Route::post('/{id}/approve', [PoApprovalController::class, 'approve'])->name('approve');
         Route::post('/{id}/reject', [PoApprovalController::class, 'reject'])->name('reject');
         Route::post('/{id}/cancel-by-manager', [PoApprovalController::class, 'cancelByManager'])->name('cancelByManager');

@@ -24,6 +24,13 @@ class Kernel extends ConsoleKernel
             ->onOneServer()
             ->withoutOverlapping(120);
 
+        // ลบไฟล์ชั่วคราว PDF ของ PO Online (รวม PDF / ชุด PO / Download PDF) ที่ค้างเกิน 24 ชม.
+        $schedule->command('po:clean-temp-pdfs')
+            ->dailyAt('03:00')
+            ->timezone('Asia/Bangkok')
+            ->onOneServer()
+            ->withoutOverlapping(30);
+
         // แจ้งเตือน Planner เรื่องงาน WOCR ที่ยังไม่ได้ดำเนินการ ทุกเช้าวันทำการ 08:00
         $schedule->command('wocr:pending-digest')
             ->weekdays()

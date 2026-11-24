@@ -16,7 +16,7 @@ class PdfMergeService
 
     public function __construct(?string $qpdfBinary = null, ?int $qpdfTimeout = null)
     {
-        $this->qpdfBinary = $qpdfBinary ?? $this->configValue('services.pdf.qpdf_binary', 'qpdf');
+        $this->qpdfBinary = $qpdfBinary ?? $this->resolveQpdfBinary((string) $this->configValue('services.pdf.qpdf_binary', 'qpdf'));
         $this->qpdfTimeout = $qpdfTimeout ?? (int) $this->configValue('services.pdf.qpdf_timeout', 60);
     }
 
@@ -31,6 +31,7 @@ class PdfMergeService
         }
 
         $normalizedPaths = [];
+        $pdf = null;
 
         try {
             $preparedPaths = $this->prepareSources($sourcePaths, $sourceLabels, $targetPath, $normalizedPaths);
@@ -64,6 +65,9 @@ class PdfMergeService
 
             return $totalPages;
         } finally {
+            // FPDI keeps the source files open; on Windows they cannot be deleted until it is released.
+            $pdf = null;
+            gc_collect_cycles();
             foreach ($normalizedPaths as $path) {
                 @unlink($path);
             }
@@ -82,6 +86,20 @@ class PdfMergeService
 
         foreach ($sourcePaths as $index => $sourcePath) {
             $label = $this->sourceLabel($sourceLabels, $sourcePaths, $index);
+
+            // FPDI copies only the page content stream, so text/notes/form values a user
+            // adds in a PDF reader (annotations) would be dropped. Bake them into the page first.
+            $flattenedPath = dirname($targetPath) . DIRECTORY_SEPARATOR
+                . pathinfo($targetPath, PATHINFO_FILENAME) . '-flat-' . $index . '.pdf';
+            if ($this->flattenAnnotations($sourcePath, $flattenedPath)) {
+                $normalizedPaths[] = $flattenedPath;
+                $sourcePath = $flattenedPath;
+            } elseif ($this->hasAnnotations($sourcePath)) {
+                throw new RuntimeException(
+                    "ไฟล์ {$label} มีข้อความ/หมายเหตุที่เพิ่มจากโปรแกรมอ่าน PDF แต่ระบบรวมข้อความนั้นไม่สำเร็จ (ตรวจสอบ QPDF_BINARY) "
+                    . 'เพื่อไม่ให้ข้อความหาย กรุณา Print เป็น PDF ใหม่ (Microsoft Print to PDF) แล้วรวมอีกครั้ง'
+                );
+            }
 
             try {
                 $this->assertReadableByFpdi($sourcePath);
@@ -110,6 +128,68 @@ class PdfMergeService
         }
 
         return $preparedPaths;
+    }
+
+    /**
+     * Flatten annotations (typed text, comments, stamps, form values) into the page content with QPDF.
+     * Returns false when QPDF is not available or cannot process the file; the caller decides what to do.
+     */
+    private function flattenAnnotations(string $sourcePath, string $targetPath): bool
+    {
+        if (trim($this->qpdfBinary) === '') {
+            return false;
+        }
+
+        $process = new Process([
+            $this->qpdfBinary,
+            '--flatten-annotations=all',
+            '--generate-appearances',
+            '--object-streams=disable',
+            $sourcePath,
+            $targetPath,
+        ]);
+        $process->setTimeout(max(10, $this->qpdfTimeout));
+
+        try {
+            $process->run();
+        } catch (Throwable) {
+            @unlink($targetPath);
+
+            return false;
+        }
+
+        // QPDF exit code 3 = succeeded with warnings.
+        if (!in_array($process->getExitCode(), [0, 3], true) || !is_file($targetPath) || filesize($targetPath) === 0) {
+            @unlink($targetPath);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Cheap check on the raw bytes; compressed object streams can hide it, so this is a safety net only. */
+    private function hasAnnotations(string $sourcePath): bool
+    {
+        $handle = @fopen($sourcePath, 'rb');
+        if (!$handle) {
+            return false;
+        }
+
+        try {
+            $tail = '';
+            while (!feof($handle)) {
+                $chunk = $tail . (string) fread($handle, 1048576);
+                if (str_contains($chunk, '/Annots') || str_contains($chunk, '/AcroForm')) {
+                    return true;
+                }
+                $tail = substr($chunk, -16);
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return false;
     }
 
     private function assertReadableByFpdi(string $sourcePath): void
@@ -165,6 +245,24 @@ class PdfMergeService
         $label = trim((string) ($sourceLabels[$index] ?? ''));
 
         return $label !== '' ? $label : basename((string) ($sourcePaths[$index] ?? 'PDF'));
+    }
+
+    /** Use the QPDF copy shipped in tools/qpdf when QPDF_BINARY is not set (bare "qpdf" may not be on PATH). */
+    private function resolveQpdfBinary(string $configured): string
+    {
+        if ($configured !== '' && $configured !== 'qpdf') {
+            return $configured;
+        }
+
+        try {
+            $bundled = function_exists('base_path')
+                ? base_path('tools/qpdf/qpdf-12.4.0-msvc64/bin/qpdf.exe')
+                : '';
+        } catch (Throwable) {
+            $bundled = '';
+        }
+
+        return $bundled !== '' && is_file($bundled) ? $bundled : $configured;
     }
 
     private function configValue(string $key, mixed $default): mixed
