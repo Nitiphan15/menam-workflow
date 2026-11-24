@@ -29,11 +29,11 @@ class PoSubmitAttachmentService
         $now = now();
         $directory = "po/{$now->year}/{$now->format('m')}/{$now->format('d')}";
         $safePoNumber = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $po->ordnumber);
-        $fileName = sprintf('%s_PO_Submit_v%02d.pdf', $safePoNumber, $version);
+        $fileName = self::fileNameFor($safePoNumber, $version);
         $path = "{$directory}/{$fileName}";
         while (Storage::disk('public')->exists($path)) {
             $version++;
-            $fileName = sprintf('%s_PO_Submit_v%02d.pdf', $safePoNumber, $version);
+            $fileName = self::fileNameFor($safePoNumber, $version);
             $path = "{$directory}/{$fileName}";
         }
 
@@ -47,7 +47,7 @@ class PoSubmitAttachmentService
                 'file_ext' => 'pdf',
                 'mime_type' => 'application/pdf',
                 'file_size' => strlen($body),
-                'remark' => 'ดาวน์โหลดอัตโนมัติจาก ERP ตอน Purchase Submit',
+                'remark' => 'Auto Attachment from Purchase Submit',
                 'workflow_step_no' => 1,
                 'attachment_type' => 'PO_SUBMIT',
                 'attachment_source' => 'ERP',
@@ -59,6 +59,14 @@ class PoSubmitAttachmentService
             Storage::disk('public')->delete($path);
             throw $exception;
         }
+    }
+
+    /** First version: PO2026110229_PO.pdf; later revisions: PO2026110229_PO_v02.pdf, _v03 … */
+    public static function fileNameFor(string $safePoNumber, int $version): string
+    {
+        return $version <= 1
+            ? "{$safePoNumber}_PO.pdf"
+            : sprintf('%s_PO_v%02d.pdf', $safePoNumber, $version);
     }
 
     private function erpPdfUrl(PoHeader $po, string $source): string

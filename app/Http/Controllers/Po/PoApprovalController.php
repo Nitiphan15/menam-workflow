@@ -50,13 +50,13 @@ class PoApprovalController extends Controller
             abort_unless(
                 $po->attachments()->where('attachment_type', 'PO_SUBMIT')->where('attachment_source', 'MANUAL')->exists(),
                 422,
-                'กรุณาแนบไฟล์และเลือกชนิด PO สำหรับ Submit ก่อนใช้ manual fallback'
+                'กรุณาแนบไฟล์และเลือกชนิด PO Submit ก่อนใช้ manual fallback'
             );
         } else {
             $sessionId = $this->erpSessionId();
             if (!$sessionId) {
                 session([$failureSessionKey => true]);
-                abort(422, 'กรุณาเชื่อมต่อ ERP ก่อน Submit หรือแนบ PO สำหรับ Submit แล้วเลือก manual fallback');
+                abort(422, 'กรุณาเชื่อมต่อ ERP ก่อน Submit หรือแนบ PO Submit แล้วเลือก manual fallback');
             }
             try {
                 app(PoSubmitAttachmentService::class)->attachFromErp($po, $sessionId, (int) auth()->id());

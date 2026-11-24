@@ -425,7 +425,7 @@
                                     <label class="form-label mt-2">ชนิดไฟล์</label>
                                     <select name="attachment_type" class="form-select">
                                         <option value="SUPPORTING">เอกสารประกอบ</option>
-                                        <option value="PO_SUBMIT">PO สำหรับ Submit (ใช้เมื่อ ERP ดาวน์โหลดไม่ได้)</option>
+                                        <option value="PO_SUBMIT">PO Submit (ใช้เมื่อ ERP ดาวน์โหลดไม่ได้)</option>
                                     </select>
                                     <div class="form-text">รองรับหลายไฟล์ เช่น PR, ใบเสนอราคา หรือเอกสารประกอบอื่น ๆ</div>
                                 </div>
@@ -507,7 +507,7 @@
                                                         target="_blank">{{ $displayFileName }}</a></td>
                                                 <td>
                                                     @if (($attachment->attachment_type ?? '') === 'PO_SUBMIT')
-                                                        <span class="badge text-bg-primary">PO สำหรับ Submit</span>
+                                                        <span class="badge text-bg-primary">PO Submit</span>
                                                         @if ($attachment->po_version)
                                                             <span class="badge text-bg-light">v{{ $attachment->po_version }}</span>
                                                         @endif
