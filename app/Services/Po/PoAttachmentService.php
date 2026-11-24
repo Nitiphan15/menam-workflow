@@ -25,6 +25,8 @@ class PoAttachmentService
         int $userId,
         bool $keepOriginalName = false,
         ?int $workflowStepNo = null,
+        string $attachmentType = 'SUPPORTING',
+        string $attachmentSource = 'MANUAL',
     ): int
     {
         $today = now();
@@ -32,6 +34,9 @@ class PoAttachmentService
         $safePoNumber = preg_replace('/[^A-Za-z0-9_-]+/', '_', (string) $po->ordnumber);
         $sequence = $po->attachments()->count() + 1;
         $appended = 0;
+        $poVersion = $attachmentType === 'PO_SUBMIT'
+            ? (int) $po->attachments()->where('attachment_type', 'PO_SUBMIT')->max('po_version') + 1
+            : null;
 
         foreach ($files as $index => $file) {
             if (!$file instanceof UploadedFile || !$file->isValid()) {
@@ -63,6 +68,9 @@ class PoAttachmentService
                     'file_size' => $file->getSize(),
                     'remark' => $remarks[$index] ?? null,
                     'workflow_step_no' => $workflowStepNo,
+                    'attachment_type' => $attachmentType,
+                    'attachment_source' => $attachmentSource,
+                    'po_version' => $poVersion,
                     'created_at' => now(),
                     'created_by' => $userId,
                 ]);
@@ -72,6 +80,9 @@ class PoAttachmentService
             }
 
             $appended++;
+            if ($poVersion !== null) {
+                $poVersion++;
+            }
         }
 
         return $appended;

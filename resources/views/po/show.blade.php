@@ -422,6 +422,11 @@
                                 <div class="mb-3">
                                     <label class="form-label">เลือกไฟล์แนบ</label>
                                     <input type="file" name="files[]" class="form-control mb-2" multiple>
+                                    <label class="form-label mt-2">ชนิดไฟล์</label>
+                                    <select name="attachment_type" class="form-select">
+                                        <option value="SUPPORTING">เอกสารประกอบ</option>
+                                        <option value="PO_SUBMIT">PO Submit (ใช้เมื่อ ERP ดาวน์โหลดไม่ได้)</option>
+                                    </select>
                                     <div class="form-text">รองรับหลายไฟล์ เช่น PR, ใบเสนอราคา หรือเอกสารประกอบอื่น ๆ</div>
                                 </div>
 
@@ -449,6 +454,7 @@
                                 <thead class="table-light">
                                     <tr>
                                         <th>File</th>
+                                        <th>ชนิด / Version</th>
                                         <th>Remark</th>
                                         <th>Uploaded By</th>
                                         @if ($canEditAttachment)
@@ -471,7 +477,7 @@
 
                                     @forelse ($attachmentGroups as $stepNo => $attachments)
                                         <tr class="table-secondary">
-                                            <th colspan="{{ $canEditAttachment ? 4 : 3 }}">
+                                            <th colspan="{{ $canEditAttachment ? 5 : 4 }}">
                                                 {{ $attachmentStepLabels[(int) $stepNo] ?? "Workflow Step {$stepNo}" }}
                                                 <span class="badge text-bg-light ms-1">{{ $attachments->count() }} files</span>
                                             </th>
@@ -499,6 +505,20 @@
                                             <tr>
                                                 <td><a href="{{ route($readOnly ? 'po.departmentTracking.attachments.show' : 'po.attachments.show', [$po->id, $attachment->id]) }}"
                                                         target="_blank">{{ $displayFileName }}</a></td>
+                                                <td>
+                                                    @if (($attachment->attachment_type ?? '') === 'PO_SUBMIT')
+                                                        <span class="badge text-bg-primary">PO Submit</span>
+                                                        @if ($attachment->po_version)
+                                                            <span class="badge text-bg-light">v{{ $attachment->po_version }}</span>
+                                                        @endif
+                                                        <div class="small text-muted mt-1">
+                                                            {{ ($attachment->attachment_source ?? '') === 'ERP' ? 'ERP Auto' : 'Manual' }}
+                                                            · {{ $attachment->created_at?->format('d/m/Y H:i') ?: '-' }}
+                                                        </div>
+                                                    @else
+                                                        <span class="badge text-bg-secondary">เอกสารประกอบ</span>
+                                                    @endif
+                                                </td>
                                                 <td>{{ $attachment->remark ?: '-' }}</td>
                                                 <td>{{ $attachment->creator?->name ?: ($attachment->created_by ?: '-') }}</td>
                                                 @if ($canEditAttachment)
@@ -520,7 +540,7 @@
                                         @endforeach
                                     @empty
                                         <tr>
-                                            <td colspan="{{ $canEditAttachment ? 4 : 3 }}" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>
+                                            <td colspan="{{ $canEditAttachment ? 5 : 4 }}" class="text-center text-muted">ยังไม่มีไฟล์แนบ</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -541,11 +561,20 @@
                                     <label class="form-label">Comment</label>
                                     <textarea name="comment" class="form-control" rows="3" placeholder="หมายเหตุสำหรับการส่งเข้า workflow"></textarea>
                                 </div>
+                                @if ($manualFallbackAvailable && $po->attachments->contains(fn ($attachment) => ($attachment->attachment_type ?? '') === 'PO_SUBMIT' && ($attachment->attachment_source ?? '') === 'MANUAL'))
+                                    <div class="alert alert-warning py-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" value="1"
+                                                name="use_manual_po_fallback" id="useManualPoFallback">
+                                            <label class="form-check-label" for="useManualPoFallback">
+                                                ERP ดาวน์โหลดไม่ได้ — ใช้ PO ที่แนบเองแทน
+                                            </label>
+                                        </div>
+                                        <div class="small mt-1">เลือกเฉพาะเมื่อเชื่อมต่อ ERP แล้วแต่ยังดาวน์โหลดไม่ได้</div>
+                                    </div>
+                                @endif
                                 <button class="btn btn-success w-100">ส่งเข้าระบบอนุมัติ</button>
                             </form>
-                        @elseif (blank($po->workflow_id) && $po->attachments->isEmpty())
-                            <div class="alert alert-warning mb-0">เอกสารนี้ยังไม่มี attachment
-                                จึงยังส่งเข้าระบบอนุมัติไม่ได้</div>
                         @elseif ($canApprove)
                             <form method="POST" action="{{ route('po.approve', $po->id) }}" class="mb-2"
                                 enctype="multipart/form-data">
