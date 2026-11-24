@@ -474,12 +474,11 @@ class DeliveryPlanController extends Controller
                             'lines.0.mfg_no' => 'ไม่พบ MFG No: '.implode(', ', $mfgValidation['missing']),
                         ]);
                 }
-            } elseif (!$isPieceSale) {
-                // D8 / ขายเป็นชิ้น: ไม่ใช้ workorder.qty เป็นเพดาน ให้ไปใช้ ordered_qty ของ SO ด้านล่าง
-                $maxAllowed = $mfgValidation['qty'];
             }
         }
 
+        // MFG ใช้ตรวจเลขและ Part เท่านั้น จำนวนส่งต้องยึด ordered_qty ของ Sales Order
+        // สำหรับทุก Division เพื่อไม่ให้ workorder.qty เขียนทับเพดานที่ผู้ใช้เลือกจาก SO
         if (!$isNonSoMode && $maxAllowed === null) {
             $so = $this->conn()->table('saleorder')
                 ->where('ordnumber', $ordnumber)
