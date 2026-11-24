@@ -9,6 +9,7 @@ use App\Support\SqlServerDb;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Maatwebsite\Excel\Facades\Excel;
 
 /**
@@ -21,15 +22,28 @@ class PoApprovalReportController extends Controller
     // DomPDF needs ~0.5 MB per detail row (500 rows ≈ 260 MB, ~4 s); full list is in Excel.
     private const PDF_ROW_LIMIT = 500;
     private const PDF_MEMORY_LIMIT = '512M';
+    private const TABLE_PAGE_SIZE = 100;
 
     public function __construct(private readonly PoApprovalReportService $reportService) {}
 
     public function index(Request $request)
     {
         [$filters, $scope, $scopeLabel] = $this->resolve($request);
+        $report = $this->reportService->build($filters, $scope);
+
+        // Cards and charts use every row; only the detail table is paged (Excel/PDF stay complete).
+        $page = max(1, (int) $request->query('page', 1));
+        $rowsPage = new LengthAwarePaginator(
+            array_slice($report['rows'], ($page - 1) * self::TABLE_PAGE_SIZE, self::TABLE_PAGE_SIZE),
+            count($report['rows']),
+            self::TABLE_PAGE_SIZE,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()],
+        );
 
         return view('po.approval-report', [
-            'report' => $this->reportService->build($filters, $scope),
+            'report' => $report,
+            'rowsPage' => $rowsPage,
             'filters' => $filters,
             'scopeLabel' => $scopeLabel,
             'statusLabels' => PoApprovalReportService::STATUS_LABELS,

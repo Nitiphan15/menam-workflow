@@ -218,7 +218,15 @@
         {{-- Detail report --}}
         <div class="card shadow-sm border-0">
             <div class="card-body">
-                <h6 class="mb-2">รายงานการอนุมัติ ({{ number_format(count($report['rows'])) }} ใบ)</h6>
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <h6 class="mb-0">รายงานการอนุมัติ ({{ number_format(count($report['rows'])) }} ใบ)</h6>
+                    @if ($rowsPage->hasPages())
+                        <span class="small text-muted">
+                            แสดง {{ number_format($rowsPage->firstItem()) }}–{{ number_format($rowsPage->lastItem()) }}
+                            · ดาวน์โหลด Excel เพื่อดูครบทุกใบ
+                        </span>
+                    @endif
+                </div>
                 <div class="table-responsive por-table-wrap">
                     <table class="table table-sm table-bordered table-hover por-table mb-0">
                         <thead>
@@ -230,7 +238,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse ($report['rows'] as $row)
+                            @forelse ($rowsPage as $row)
                                 <tr>
                                     <td class="text-nowrap">
                                         @if ($row['linkable'])
@@ -265,6 +273,9 @@
                         </tbody>
                     </table>
                 </div>
+                @if ($rowsPage->hasPages())
+                    <div class="mt-3 d-flex justify-content-center">{{ $rowsPage->onEachSide(1)->links() }}</div>
+                @endif
             </div>
         </div>
     </div>
