@@ -49,13 +49,14 @@ class PoApprovalReportExport implements WithMultipleSheets
             $row['reject_count'],
             $row['waiting_hours'],
             $row['waiting_for'],
+            $row['erp_note'] ?? '',
         ], $this->report['rows']);
 
         return $this->sheet('รายงานอนุมัติ', [
             'PO No', 'Site', 'วันที่ PO', 'แผนก', 'ผู้ขอ', 'ยอดเงิน', 'สกุลเงิน', 'สถานะ',
             'Submit', 'Purchase อนุมัติ (ชื่อ เวลา)', 'Purchase (ชม.)',
             'หัวหน้าแผนก อนุมัติ (ชื่อ เวลา)', 'หัวหน้าแผนก (ชม.)',
-            'อนุมัติครบ', 'รวม (ชม.)', 'SLA', 'ถูกส่งกลับ (ครั้ง)', 'รอมาแล้ว (ชม.)', 'รอใคร',
+            'อนุมัติครบ', 'รวม (ชม.)', 'SLA', 'ถูกส่งกลับ (ครั้ง)', 'รอมาแล้ว (ชม.)', 'รอใคร', 'สถานะใน ERP',
         ], $rows, [
             'A' => NumberFormat::FORMAT_TEXT,
             'F' => '#,##0.00',
@@ -82,6 +83,7 @@ class PoApprovalReportExport implements WithMultipleSheets
             ['รออนุมัติ', $s['pending']],
             ['ส่งกลับแก้ไข', $s['rejected']],
             ['ยกเลิก', $s['cancelled']],
+            ['ปิด/รับของใน ERP แล้ว (ค้างใน PO Online ไม่นับเป็นรออนุมัติ)', $s['erp_done'] ?? 0],
             ['', ''],
             ['เวลาอนุมัติเฉลี่ย (ชม.) Submit → อนุมัติครบ', $hours($s['avg_hours'])],
             ['ค่ามัธยฐาน (ชม.)', $hours($s['median_hours'])],

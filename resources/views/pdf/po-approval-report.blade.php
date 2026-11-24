@@ -56,7 +56,7 @@
         <tr>
             <td><div class="v">{{ number_format($s['total']) }}</div><div class="l">PO ทั้งหมด</div></td>
             <td><div class="v">{{ number_format($s['approved']) }}</div><div class="l">อนุมัติครบ</div></td>
-            <td><div class="v">{{ number_format($s['pending']) }}</div><div class="l">รออนุมัติ</div></td>
+            <td><div class="v">{{ number_format($s['pending']) }}</div><div class="l">รออนุมัติ@if ($s['erp_done'] ?? 0) (ไม่นับ {{ number_format($s['erp_done']) }} ใบที่ปิดใน ERP)@endif</div></td>
             <td><div class="v">{{ number_format($s['rejected']) }}</div><div class="l">ส่งกลับแก้ไข</div></td>
             <td><div class="v">{{ $fmt($s['avg_hours']) }}</div><div class="l">เวลาอนุมัติเฉลี่ย</div></td>
             <td><div class="v">{{ $fmt($s['median_hours']) }}</div><div class="l">มัธยฐาน</div></td>
@@ -106,7 +106,7 @@
                     <td class="nw">{{ $row['ordnumber'] }}</td>
                     <td>{{ $row['site'] }}</td>
                     <td>{{ $row['department'] }}</td>
-                    <td>{{ $row['status_label'] }}@if ($row['current_step_label']) ({{ $row['current_step_label'] }})@endif</td>
+                    <td>{{ $row['status_label'] }}@if ($row['current_step_label']) ({{ $row['current_step_label'] }})@endif @if (!empty($row['erp_note']))<br>ERP: {{ $row['erp_note'] }}@endif</td>
                     <td class="nw">{{ $row['submitted_at'] }}</td>
                     <td>{!! nl2br(e($row['purchase_approvers'] ?: '-')) !!}</td>
                     <td class="r">{{ $row['purchase_hours'] ?? '-' }}</td>

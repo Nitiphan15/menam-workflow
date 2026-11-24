@@ -34,12 +34,18 @@ class PoApprovalReportService
         'pending' => 'รออนุมัติ',
         'rejected' => 'ส่งกลับแก้ไข',
         'cancelled' => 'ยกเลิก',
+        // Still REQUESTED in PO Online, but already received / invoiced / closed in ERP:
+        // nothing left to approve and the PO page no longer opens, so not counted as pending.
+        'erp_done' => 'ปิด/รับของใน ERP แล้ว',
         'other' => 'อื่น ๆ',
     ];
 
     private const CHUNK = 1000;
 
-    public function __construct(private readonly PoErpService $erpService) {}
+    public function __construct(
+        private readonly PoErpService $erpService,
+        private readonly PoErpCompletionLookup $erpCompletion,
+    ) {}
 
     /**
      * @param  array{date_from:string,date_to:string,site?:?string,department?:?string,status?:?string}  $filters
@@ -70,6 +76,8 @@ class PoApprovalReportService
         if (!empty($filters['department'])) {
             $headers = $headers->where('department_group', $filters['department'])->values();
         }
+
+        $this->markDoneInErp($headers);
 
         $wfIds = $headers->pluck('wf_id')->map(fn ($id) => (int) $id)->unique()->values();
         $histories = $this->histories($wfIds);
@@ -102,6 +110,27 @@ class PoApprovalReportService
                 ->all(),
             'department_options' => $departmentOptions,
         ];
+    }
+
+    /** Pending POs that ERP already finished become "erp_done" (one batched read-only ERP query per site). */
+    private function markDoneInErp(Collection $headers): void
+    {
+        $pending = $headers->where('status_key', 'pending');
+        if ($pending->isEmpty()) {
+            return;
+        }
+
+        $done = $this->erpCompletion->doneInErp(
+            $pending->map(fn (object $h) => ['ordnumber' => (string) $h->ordnumber, 'site' => $h->site])->values()->all()
+        );
+
+        foreach ($pending as $header) {
+            $note = $done[PoErpCompletionLookup::key($header->site, (string) $header->ordnumber)] ?? null;
+            if ($note !== null) {
+                $header->status_key = 'erp_done';
+                $header->erp_note = $note;
+            }
+        }
     }
 
     /**
@@ -187,6 +216,7 @@ class PoApprovalReportService
             'pending' => $rows->where('status_key', 'pending')->count(),
             'rejected' => $rows->where('status_key', 'rejected')->count(),
             'cancelled' => $rows->where('status_key', 'cancelled')->count(),
+            'erp_done' => $rows->where('status_key', 'erp_done')->count(),
             'avg_hours' => self::average($completed->pluck('total_hours')),
             'median_hours' => self::median($completed->pluck('total_hours')),
             'avg_purchase_hours' => self::average($rows->pluck('purchase_hours')),
@@ -209,6 +239,7 @@ class PoApprovalReportService
                 'pending' => $group->where('status_key', 'pending')->count(),
                 'rejected' => $group->where('status_key', 'rejected')->count(),
                 'cancelled' => $group->where('status_key', 'cancelled')->count(),
+                'erp_done' => $group->where('status_key', 'erp_done')->count(),
                 'avg_hours' => self::average($group->where('status_key', 'approved')->pluck('total_hours')),
             ])
             ->values()
@@ -394,9 +425,14 @@ class PoApprovalReportService
             'currency' => (string) ($header->curr ?? ''),
             'status_key' => $statusKey,
             'status_label' => self::STATUS_LABELS[$statusKey] ?? $statusKey,
-            'current_step_label' => $statusKey === 'pending'
-                ? ($currentStep === self::STEP_DEPARTMENT ? 'หัวหน้าแผนก' : 'Purchase')
-                : '',
+            'current_step_label' => match ($statusKey) {
+                'pending' => $currentStep === self::STEP_DEPARTMENT ? 'หัวหน้าแผนก' : 'Purchase',
+                'erp_done' => 'ค้างขั้น ' . ($currentStep === self::STEP_DEPARTMENT ? 'หัวหน้าแผนก' : 'Purchase') . ' ใน PO Online',
+                default => '',
+            },
+            'erp_note' => (string) ($header->erp_note ?? ''),
+            // The PO page reads only open, not-received POs from ERP, so it returns 404 for these.
+            'linkable' => $statusKey !== 'erp_done',
             'request_month' => $requestDt?->format('Y-m'),
             'submitted_sort' => $submittedAt?->timestamp ?? 0,
             'submitted_at' => $submittedAt?->format('d/m/Y H:i') ?? '',

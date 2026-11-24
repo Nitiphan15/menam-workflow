@@ -15,6 +15,7 @@
         'pending' => 'warning',
         'rejected' => 'danger',
         'cancelled' => 'secondary',
+        'erp_done' => 'info',
         'other' => 'light',
     ];
 @endphp
@@ -120,7 +121,13 @@
                 <div class="card por-card shadow-sm h-100"><div class="card-body">
                     <div class="por-label">รออนุมัติ</div>
                     <div class="por-value text-warning">{{ number_format($s['pending']) }}</div>
-                    <div class="por-sub">ดูรายการค้างด้านล่าง</div>
+                    <div class="por-sub">
+                        @if ($s['erp_done'] > 0)
+                            ไม่นับ {{ number_format($s['erp_done']) }} ใบที่ปิด/รับของใน ERP แล้ว
+                        @else
+                            ดูรายการค้างด้านล่าง
+                        @endif
+                    </div>
                 </div></div>
             </div>
             <div class="col-6 col-lg-2">
@@ -225,13 +232,22 @@
                         <tbody>
                             @forelse ($report['rows'] as $row)
                                 <tr>
-                                    <td class="text-nowrap"><a href="{{ route($detailRoute, $row['po_id']) }}">{{ $row['ordnumber'] }}</a></td>
+                                    <td class="text-nowrap">
+                                        @if ($row['linkable'])
+                                            <a href="{{ route($detailRoute, $row['po_id']) }}">{{ $row['ordnumber'] }}</a>
+                                        @else
+                                            <span title="ปิด/รับของใน ERP แล้ว หน้า PO จึงเปิดไม่ได้">{{ $row['ordnumber'] }}</span>
+                                        @endif
+                                    </td>
                                     <td>{{ $row['site'] }}</td>
                                     <td>{{ $row['department'] }}</td>
                                     <td>
                                         <span class="badge text-bg-{{ $statusBadge[$row['status_key']] ?? 'light' }}">{{ $row['status_label'] }}</span>
                                         @if ($row['current_step_label'])
                                             <div class="small text-muted">{{ $row['current_step_label'] }}</div>
+                                        @endif
+                                        @if ($row['erp_note'])
+                                            <div class="small text-info-emphasis">ERP: {{ $row['erp_note'] }}</div>
                                         @endif
                                     </td>
                                     <td class="text-nowrap">{{ $row['submitted_at'] }}</td>
@@ -272,6 +288,7 @@
                         bar('รออนุมัติ', 'pending', '#f59e0b'),
                         bar('ส่งกลับแก้ไข', 'rejected', '#dc2626'),
                         bar('ยกเลิก', 'cancelled', '#9ca3af'),
+                        bar('ปิด/รับของใน ERP แล้ว', 'erp_done', '#38bdf8'),
                     ],
                 },
                 options: { maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } },

@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Exports\Po\PoApprovalReportExport;
 use App\Services\Po\PoApprovalReportService;
+use App\Services\Po\PoErpCompletionLookup;
 use Carbon\Carbon;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -25,6 +26,7 @@ class PoApprovalReportServiceTest extends TestCase
         config()->set('database.connections.sqlsrv_menam', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => false]);
         DB::purge('sqlsrv_menam');
         Carbon::setTestNow('2026-11-24 12:00:00');
+        $this->fakeErpDone([]);
 
         $schema = Schema::connection('sqlsrv_menam');
         $schema->create('po_headers', function (Blueprint $t) {
@@ -125,6 +127,20 @@ class PoApprovalReportServiceTest extends TestCase
     {
         Carbon::setTestNow();
         parent::tearDown();
+    }
+
+    /** ERP is never called in tests: $done = ["wire::PO1003" => "รับของแล้ว"]. */
+    private function fakeErpDone(array $done): void
+    {
+        $this->app->instance(PoErpCompletionLookup::class, new class ($done) extends PoErpCompletionLookup {
+            public function __construct(private array $done) {}
+
+            public function doneInErp(array $pos): array
+            {
+                return $this->done;
+            }
+        });
+        $this->app->forgetInstance(PoApprovalReportService::class);
     }
 
     private function po(int $id, string $ordnumber, string $department, string $status, int $step, string $requestDt, array $histories): void
@@ -251,6 +267,63 @@ class PoApprovalReportServiceTest extends TestCase
 
         $second = $service->build($filters);
         $this->assertSame(501, $this->row($second, 'PO1001')['po_id'], 'must not serve rows cached from the previous database');
+    }
+
+    public function test_pending_po_already_received_in_erp_is_not_counted_as_pending(): void
+    {
+        $this->fakeErpDone(['wire::PO1003' => 'รับของแล้ว · ตั้งหนี้ (invoice) แล้ว']);
+        $report = $this->report();
+
+        $row = $this->row($report, 'PO1003');
+        $this->assertSame('erp_done', $row['status_key']);
+        $this->assertSame('ปิด/รับของใน ERP แล้ว', $row['status_label']);
+        $this->assertSame('ค้างขั้น หัวหน้าแผนก ใน PO Online', $row['current_step_label']);
+        $this->assertSame('รับของแล้ว · ตั้งหนี้ (invoice) แล้ว', $row['erp_note']);
+        $this->assertFalse($row['linkable']);
+        $this->assertTrue($this->row($report, 'PO1001')['linkable']);
+
+        $this->assertSame(0, $report['summary']['pending']);
+        $this->assertSame(1, $report['summary']['erp_done']);
+        $this->assertSame([], $report['pending']);
+        $this->assertSame(['PO1003'], array_column($this->report(null, ['status' => 'erp_done'])['rows'], 'ordnumber'));
+    }
+
+    public function test_erp_lookup_flags_received_invoiced_closed_and_missing_pos(): void
+    {
+        config()->set('database.connections.pgsqlw', ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']);
+        DB::purge('pgsqlw');
+        $erp = Schema::connection('pgsqlw');
+        $erp->create('oe', function (Blueprint $t) {
+            $t->id();
+            $t->string('ordnumber');
+            $t->date('transdate');
+            $t->boolean('closed')->default(false);
+            $t->boolean('cancelled')->default(false);
+            $t->boolean('shipped_or_received')->default(false);
+        });
+        $erp->create('ap', function (Blueprint $t) {
+            $t->id();
+            $t->string('ordnumber');
+        });
+        DB::connection('pgsqlw')->table('oe')->insert([
+            ['ordnumber' => 'PO_OPEN', 'transdate' => '2026-11-01', 'closed' => 0, 'cancelled' => 0, 'shipped_or_received' => 0],
+            ['ordnumber' => 'PO_RECV', 'transdate' => '2026-07-01', 'closed' => 0, 'cancelled' => 0, 'shipped_or_received' => 1],
+            ['ordnumber' => 'PO_CLOSED', 'transdate' => '2026-07-01', 'closed' => 1, 'cancelled' => 0, 'shipped_or_received' => 0],
+        ]);
+        DB::connection('pgsqlw')->table('ap')->insert([['ordnumber' => 'PO_RECV']]);
+
+        $done = (new PoErpCompletionLookup())->doneInErp([
+            ['ordnumber' => 'PO_OPEN', 'site' => 'wire'],
+            ['ordnumber' => 'PO_RECV', 'site' => 'wire'],
+            ['ordnumber' => 'PO_CLOSED', 'site' => 'Wire'],
+            ['ordnumber' => 'PO_GONE', 'site' => null],
+        ]);
+
+        $this->assertSame([
+            'wire::PO_RECV' => 'รับของแล้ว · ตั้งหนี้ (invoice) แล้ว',
+            'wire::PO_CLOSED' => 'ปิดใน ERP',
+            'wire::PO_GONE' => 'ไม่พบใน ERP',
+        ], $done);
     }
 
     public function test_format_hours(): void
