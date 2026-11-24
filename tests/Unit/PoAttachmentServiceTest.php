@@ -110,4 +110,46 @@ class PoAttachmentServiceTest extends TestCase
         Storage::disk('public')->assertExists('po/2026/08/14/PO2026080053-quotation.pdf');
         Storage::disk('public')->assertExists('po/2026/08/14/PO2026080053-quotation-2.pdf');
     }
+
+    public function test_manual_submit_po_is_typed_and_gets_next_version(): void
+    {
+        Carbon::setTestNow('2026-11-18 14:20:00');
+        Storage::fake('public');
+
+        $versionBuilder = Mockery::mock(Builder::class);
+        $versionBuilder->shouldReceive('max')->once()->with('po_version')->andReturn(2);
+
+        $relation = Mockery::mock(HasMany::class);
+        $relation->shouldReceive('count')->once()->andReturn(3);
+        $relation->shouldReceive('where')->once()->with('attachment_type', 'PO_SUBMIT')->andReturn($versionBuilder);
+
+        $po = Mockery::mock(PoHeader::class)->makePartial();
+        $po->id = 77;
+        $po->ordnumber = 'PO2026110010';
+        $po->shouldReceive('attachments')->twice()->andReturn($relation);
+
+        $builder = Mockery::mock(Builder::class);
+        $builder->shouldReceive('create')->once()->with(Mockery::on(function (array $attributes): bool {
+            return $attributes['attachment_type'] === 'PO_SUBMIT'
+                && $attributes['attachment_source'] === 'MANUAL'
+                && $attributes['po_version'] === 3
+                && $attributes['workflow_step_no'] === 1;
+        }))->andReturn(new PoAttached());
+
+        $attachmentModel = Mockery::mock(PoAttached::class);
+        $attachmentModel->shouldReceive('newQuery')->once()->andReturn($builder);
+
+        $service = new PoAttachmentService($attachmentModel);
+        $appended = $service->append(
+            $po,
+            [UploadedFile::fake()->create('manual-po.pdf', 10, 'application/pdf')],
+            [],
+            99,
+            workflowStepNo: 1,
+            attachmentType: 'PO_SUBMIT',
+        );
+
+        $this->assertSame(1, $appended);
+        Storage::disk('public')->assertExists('po/2026/11/18/PO2026110010_04.pdf');
+    }
 }

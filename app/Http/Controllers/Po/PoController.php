@@ -269,7 +269,6 @@ class PoController extends Controller
                     && $currentStepNo === 1
                 )
             )
-            && $po->attachments->isNotEmpty()
             && $canPurchaseOperate;
         $canEditAttachment = !$readOnly && $this->canDeleteAttachment($po);
         $canReopen = $po->status_code === 'CLOSED'
@@ -342,6 +341,7 @@ class PoController extends Controller
             999 => 'Closed',
             default => null,
         };
+        $manualFallbackAvailable = (bool) session("po_erp_submit_download_failed.{$po->id}", false);
 
         return view('po.show', compact(
             'po',
@@ -358,6 +358,7 @@ class PoController extends Controller
             'workflowHistories',
             'workflowRemarks',
             'currentStepName',
+            'manualFallbackAvailable',
             'readOnly',
         ));
     }
@@ -443,6 +444,7 @@ class PoController extends Controller
             'files.*' => 'file|max:20480',
             'file_remark' => 'nullable|array',
             'file_remark.*' => 'nullable|string|max:500',
+            'attachment_type' => 'nullable|in:PO_SUBMIT,SUPPORTING',
         ]);
 
         $po->notes = $request->input('notes', $po->notes);
@@ -478,6 +480,7 @@ class PoController extends Controller
                 $request->input('file_remark', []),
                 (int) auth()->id(),
                 workflowStepNo: 1,
+                attachmentType: (string) $request->input('attachment_type', 'SUPPORTING'),
             );
         }
 

@@ -12,6 +12,7 @@ use App\Models\WF\WfFormAuthorize;
 use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
 use App\Services\Po\PoNotificationDispatcher;
+use App\Services\Po\PoSubmitAttachmentService;
 use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
@@ -31,20 +32,47 @@ class PoApprovalController extends Controller
 
     public function submit(Request $request, $id)
     {
+        $data = $request->validate([
+            'comment' => ['nullable', 'string', 'max:1000'],
+            'use_manual_po_fallback' => ['nullable', 'boolean'],
+        ]);
         $po = PoHeader::query()->with('workflow')->findOrFail($id);
         $isResubmission = !blank($po->workflow_id)
             && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_REJECTED;
 
         abort_if($po->workflow_id && !$isResubmission, 422, 'PO already submitted');
-        abort_if(!$po->attachments()->exists(), 422, 'Please attach document before submitting PO');
 
         $po = $this->erpService->syncHeaderFromErp($po->ordnumber, auth()->id(), $po->site);
+        $useManualFallback = (bool) ($data['use_manual_po_fallback'] ?? false);
+        $failureSessionKey = "po_erp_submit_download_failed.{$po->id}";
+        if ($useManualFallback) {
+            abort_unless(session($failureSessionKey, false), 422, 'กรุณาลองดาวน์โหลด PO จาก ERP ก่อนใช้ manual fallback');
+            abort_unless(
+                $po->attachments()->where('attachment_type', 'PO_SUBMIT')->where('attachment_source', 'MANUAL')->exists(),
+                422,
+                'กรุณาแนบไฟล์และเลือกชนิด PO สำหรับ Submit ก่อนใช้ manual fallback'
+            );
+        } else {
+            $sessionId = $this->erpSessionId();
+            if (!$sessionId) {
+                session([$failureSessionKey => true]);
+                abort(422, 'กรุณาเชื่อมต่อ ERP ก่อน Submit หรือแนบ PO สำหรับ Submit แล้วเลือก manual fallback');
+            }
+            try {
+                app(PoSubmitAttachmentService::class)->attachFromErp($po, $sessionId, (int) auth()->id());
+                session()->forget($failureSessionKey);
+            } catch (Throwable $exception) {
+                session([$failureSessionKey => true]);
+                throw $exception;
+            }
+        }
+
         if ($isResubmission) {
             $wfId = (int) $po->workflow_id;
             WorkflowEngine::resubmit(
                 wfId: $wfId,
                 actorUserId: (int) auth()->id(),
-                comment: $request->input('comment'),
+                comment: $data['comment'] ?? null,
                 initialStepNo: 2,
                 appCode: 'po',
             );
@@ -65,7 +93,7 @@ class PoApprovalController extends Controller
                         'document_department_name' => (string) $po->f1,
                         'submitter_department_id' => $submitterDepartmentId,
                     ],
-                    'submit_comment' => $request->input('comment'),
+                    'submit_comment' => $data['comment'] ?? null,
                     'initial_step_no' => 2,
                 ],
             );
@@ -80,8 +108,20 @@ class PoApprovalController extends Controller
 
         $this->notifyPendingApprovers(collect([$po]));
         $this->notifySubmittersOnSubmitted(collect([$po]));
+        session()->forget($failureSessionKey);
 
         return redirect()->route('po.show', $po->id)->with('ok', 'ส่ง PO เข้า workflow และแจ้งผู้อนุมัติเรียบร้อยแล้ว');
+    }
+
+    private function erpSessionId(): ?string
+    {
+        if (session('po_erp_reconnect_required', false)) {
+            return null;
+        }
+
+        $sessionId = trim((string) session('po_erp_phpsessid', ''));
+
+        return $sessionId !== '' ? $sessionId : config('services.erp.phpsessid');
     }
 
     public function reopen(Request $request, $id)
