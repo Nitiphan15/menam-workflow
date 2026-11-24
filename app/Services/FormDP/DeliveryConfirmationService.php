@@ -58,6 +58,18 @@ class DeliveryConfirmationService
             ->values();
     }
 
+    public function canonicalMfgValue(?string $value): string
+    {
+        return $this->parseMfgTargets($value)
+            ->map(fn(array $target) => ($target['site'] === 'PLUS' ? '+' : '').$target['mfg_no'])
+            ->implode(', ');
+    }
+
+    public function normalizedMfgKey(?string $value): string
+    {
+        return preg_replace('/\s+/u', '', $this->canonicalMfgValue($value)) ?? '';
+    }
+
     public function save(
         string $mfgNo,
         ?string $site,

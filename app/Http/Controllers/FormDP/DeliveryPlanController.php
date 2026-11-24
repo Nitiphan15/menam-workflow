@@ -709,7 +709,8 @@ class DeliveryPlanController extends Controller
 
                     'part_number'        => trim((string)($ln['part_no'] ?? '')),
                     'part_desc'          => trim((string)($ln['part_desc'] ?? '')),
-                    'mfg_no'             => trim((string)($ln['mfg_no'] ?? '')),
+                    'mfg_no'             => app(DeliveryConfirmationService::class)
+                        ->canonicalMfgValue($ln['mfg_no'] ?? ''),
                     'qty'                => $qtyKg,
                     'stock_qty'          => $this->toNumberOrNull($ln['stock_fg'] ?? null),
                     'address'            => trim((string)($ln['delivery_location'] ?? '')),
@@ -940,7 +941,13 @@ class DeliveryPlanController extends Controller
             ]);
 
         if ($soNumber !== '') $q->where('d.so_number', $soNumber);
-        if ($mfgNo !== '')    $q->where('d.mfg_no', $mfgNo);
+        if ($mfgNo !== '') {
+            $mfgKey = app(DeliveryConfirmationService::class)->normalizedMfgKey($mfgNo);
+            $q->whereRaw(
+                "REPLACE(UPPER(ISNULL(d.mfg_no, '')), ' ', '') = ?",
+                [$mfgKey]
+            );
+        }
         if ($excludeOrd !== '') $q->where('d.ord_id', '!=', $excludeOrd);
 
         $rows = $q->orderByDesc('d.ord_id')->limit(20)->get();

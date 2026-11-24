@@ -378,7 +378,7 @@
                             <span class="form-check-label">บันทึกแล้วกรอก SO เดิมต่อ</span>
                         </label>
                         <div class="d-flex gap-2">
-                            <button class="btn btn-primary px-4" type="submit">บันทึก</button>
+                            <button class="btn btn-primary px-4" type="submit" id="dpSubmitButton">บันทึก</button>
                             <button class="btn btn-outline-secondary" type="button" id="btnResetLine">ล้างฟอร์ม</button>
                         </div>
                     </div>
@@ -677,10 +677,27 @@
                 if (!form) return;
 
                 let dupConfirmed = false;
+                let duplicateCheckInFlight = false;
                 const checkUrl = @json(route('dp.duplicateCheck'));
+                const submitButton = document.getElementById('dpSubmitButton');
+                const submitButtonHtml = submitButton?.innerHTML || 'บันทึก';
+
+                function setDuplicateCheckBusy(busy) {
+                    duplicateCheckInFlight = busy;
+                    if (!submitButton) return;
+                    submitButton.disabled = busy;
+                    submitButton.innerHTML = busy
+                        ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>กำลังตรวจสอบ...'
+                        : submitButtonHtml;
+                }
 
                 form.addEventListener('submit', async (ev) => {
                     if (dupConfirmed) return;
+                    if (duplicateCheckInFlight) {
+                        ev.preventDefault();
+                        ev.stopImmediatePropagation();
+                        return;
+                    }
                     const hasId = ord && (ord.value || '').trim() !== '';
                     if (isEdit || hasId) return; // create-mode only
 
@@ -696,6 +713,7 @@
 
                     ev.preventDefault();
                     ev.stopImmediatePropagation();
+                    setDuplicateCheckBusy(true);
 
                     let items = [];
                     try {
@@ -755,6 +773,8 @@
                         if (window.confirm(`พบรายการที่เคยบันทึก ${items.length} รายการ ต้องการบันทึกซ้ำหรือไม่?`)) {
                             dupConfirmed = true;
                             form.submit();
+                        } else {
+                            setDuplicateCheckBusy(false);
                         }
                         return;
                     }
@@ -777,6 +797,8 @@
                         if (result.isConfirmed) {
                             dupConfirmed = true;
                             form.submit();
+                        } else {
+                            setDuplicateCheckBusy(false);
                         }
                     });
                 });
