@@ -47,7 +47,7 @@ class PoApprovalReportService
      */
     public function build(array $filters, ?array $scope = null): array
     {
-        $key = 'po_approval_report:' . md5(json_encode([$filters, $scope]));
+        $key = 'po_approval_report:' . md5(json_encode([$filters, $scope, self::databaseFingerprint()]));
 
         return Cache::remember($key, now()->addMinutes(10), fn () => $this->buildUncached($filters, $scope));
     }
@@ -292,9 +292,24 @@ class PoApprovalReportService
         });
     }
 
+    /**
+     * The cache store is shared when the same app switches between DEV and PROD databases
+     * (DB_PROFILE). PO ids differ per database, so cached rows must never cross databases.
+     */
+    public static function databaseFingerprint(): string
+    {
+        $connection = SqlServerDb::connectionName();
+
+        return implode('|', [
+            $connection,
+            (string) config("database.connections.{$connection}.host"),
+            (string) config("database.connections.{$connection}.database"),
+        ]);
+    }
+
     private function poHeadersHaveSiteColumn(): bool
     {
-        return Cache::remember('po_approval_report:has_site_column', now()->addHour(), fn () => Schema::connection(SqlServerDb::connectionName())
+        return Cache::remember('po_approval_report:has_site_column:' . md5(self::databaseFingerprint()), now()->addHour(), fn () => Schema::connection(SqlServerDb::connectionName())
             ->hasColumn('po_headers', 'site'));
     }
 

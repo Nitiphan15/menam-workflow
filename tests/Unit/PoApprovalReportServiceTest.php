@@ -237,6 +237,22 @@ class PoApprovalReportServiceTest extends TestCase
         $this->assertStringContainsString('1 วัน 9 ชม.', $html);
     }
 
+    public function test_cached_report_is_not_reused_after_switching_database(): void
+    {
+        $filters = ['date_from' => '2026-11-01', 'date_to' => '2026-11-24', 'site' => null, 'department' => null, 'status' => null];
+        $service = app(PoApprovalReportService::class);
+
+        $first = $service->build($filters);
+        $this->assertSame(1, $this->row($first, 'PO1001')['po_id']);
+
+        // Same app, other database (DB_PROFILE switch): same PO number lives under another id.
+        config()->set('database.connections.sqlsrv_menam.database', 'other_db.sqlite');
+        DB::connection('sqlsrv_menam')->table('po_headers')->where('ordnumber', 'PO1001')->update(['id' => 501]);
+
+        $second = $service->build($filters);
+        $this->assertSame(501, $this->row($second, 'PO1001')['po_id'], 'must not serve rows cached from the previous database');
+    }
+
     public function test_format_hours(): void
     {
         $this->assertSame('-', PoApprovalReportService::formatHours(null));
