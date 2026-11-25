@@ -4,16 +4,80 @@ namespace App\Services\Po;
 
 use App\Models\Po\PoAttached;
 use App\Models\Po\PoHeader;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 class PoSubmitAttachmentService
 {
+    public const RESULT_ATTACHED = 'attached';
+    public const RESULT_EXISTING = 'existing';
+    public const RESULT_BUSY = 'busy';
+
     public function __construct(
         private readonly PoErpService $erpService,
         private readonly PoErpPdfDownloader $downloader,
         private readonly PoAttached $attachmentModel,
     ) {}
+
+    public function usableAttachment(PoHeader $po, ?string $source = null): ?PoAttached
+    {
+        $query = $po->attachments()->where('attachment_type', 'PO_SUBMIT');
+        if ($source !== null) {
+            $query->where('attachment_source', strtoupper($source));
+        }
+
+        return $query
+            ->orderByDesc('po_version')
+            ->orderByDesc('id')
+            ->get()
+            ->first(function (PoAttached $attachment): bool {
+                $path = trim((string) $attachment->file_path);
+
+                return $path !== '' && Storage::disk('public')->exists($path);
+            });
+    }
+
+    /** @return array{status:string, attachment:?PoAttached} */
+    public function attachIfMissing(PoHeader $po, string $sessionId, int $userId): array
+    {
+        $context = [
+            'po_id' => (int) $po->id,
+            'ordnumber' => (string) $po->ordnumber,
+            'site' => (string) $po->site,
+            'user_id' => $userId,
+        ];
+        Log::info('PO auto attachment started', $context);
+
+        $result = Cache::lock("po:auto-attachment:{$po->id}", 90)->get(function () use ($po, $sessionId, $userId, $context) {
+            $existing = $this->usableAttachment($po, 'ERP');
+            if ($existing) {
+                Log::info('PO auto attachment already exists', $context + [
+                    'attachment_id' => (int) $existing->id,
+                    'po_version' => (int) $existing->po_version,
+                ]);
+
+                return ['status' => self::RESULT_EXISTING, 'attachment' => $existing];
+            }
+
+            $attachment = $this->attachFromErp($po, $sessionId, $userId);
+            Log::info('PO auto attachment succeeded', $context + [
+                'attachment_id' => (int) $attachment->id,
+                'po_version' => (int) $attachment->po_version,
+            ]);
+
+            return ['status' => self::RESULT_ATTACHED, 'attachment' => $attachment];
+        });
+
+        if ($result === false) {
+            Log::info('PO auto attachment busy', $context);
+
+            return ['status' => self::RESULT_BUSY, 'attachment' => null];
+        }
+
+        return $result;
+    }
 
     public function attachFromErp(PoHeader $po, string $sessionId, int $userId): PoAttached
     {

@@ -23,7 +23,7 @@ class PoErpPdfDownloader
                     continue;
                 }
                 throw ValidationException::withMessages([
-                    'erp_phpsessid' => 'ติดต่อ ERP ไม่สำเร็จ กรุณาลองดาวน์โหลดอีกครั้ง ระบบยังเก็บ ERP session ไว้',
+                    'erp_download' => 'ติดต่อ CPA ไม่สำเร็จหลังลอง 2 ครั้ง ระบบยังเก็บ session ไว้ กรุณาลอง Submit อีกครั้ง',
                 ]);
             }
 
@@ -47,7 +47,7 @@ class PoErpPdfDownloader
                 // Do not silently reuse an expired shared fallback session.
                 session(['po_erp_reconnect_required' => true]);
                 throw ValidationException::withMessages([
-                    'erp_phpsessid' => 'ERP ขอให้เข้าสู่ระบบใหม่ หรือบัญชีไม่มีสิทธิ์เข้ารายงาน กรุณาเชื่อมต่อ ERP อีกครั้งและตรวจชุดข้อมูล Wire/Plus',
+                    'erp_connection' => 'CPA ขอให้เข้าสู่ระบบใหม่ หรือบัญชีไม่มีสิทธิ์รายงาน กรุณา Login CPA ใหม่และตรวจ Company ให้ตรงกับ Wire/Plus',
                 ]);
             }
 
@@ -56,7 +56,7 @@ class PoErpPdfDownloader
             }
 
             throw ValidationException::withMessages([
-                'erp_phpsessid' => 'ERP ไม่ได้ส่งไฟล์ PDF กลับมา กรุณาลองใหม่ หากยังพบปัญหาให้ตรวจสิทธิ์รายงาน ชุดข้อมูล Wire/Plus และการตั้งค่ารายงาน ERP (ระบบยังเก็บ session ไว้)',
+                'erp_download' => 'CPA ตอบกลับมาแต่ไม่ใช่ไฟล์ PDF กรุณาตรวจสิทธิ์รายงาน, Company Wire/Plus และการตั้งค่ารายงาน แล้วลองใหม่',
             ]);
         }
     }

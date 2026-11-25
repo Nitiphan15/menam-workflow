@@ -89,6 +89,9 @@ Route::middleware(['auth', 'permission.any:PO,POPUR'])
             Route::post('/remind-department-head', [PoApprovalController::class, 'remindDepartmentHead'])->name('remindDepartmentHead');
             Route::post('/notify-selected-step-three', [PoApprovalController::class, 'notifySelectedStepThree'])->name('notifySelectedStepThree');
             Route::post('/{id}/submit', [PoApprovalController::class, 'submit'])->name('submit');
+            Route::post('/{id}/auto-attach-po', [PoController::class, 'autoAttachPo'])
+                ->whereNumber('id')
+                ->name('autoAttachPo');
             Route::post('/{id}/reopen', [PoApprovalController::class, 'reopen'])->name('reopen');
             Route::post('/{id}/cancel', [PoApprovalController::class, 'cancel'])->name('cancel');
 
