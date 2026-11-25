@@ -65,6 +65,7 @@ use App\Http\Controllers\FormCCR\CostCenterReportController;
 use App\Http\Controllers\FormAccounting\LossProvisionController;
 use App\Http\Controllers\FormAccounting\CustomerPaymentTermController;
 use App\Http\Controllers\FormAccounting\InvoiceMfgProfitController;
+use App\Http\Controllers\FormAccounting\ProductGroupProfitController;
 //FormPKG
 use App\Http\Controllers\FormPKG\PackagingUsageController;
 use App\Http\Controllers\FormPKG\PackagingMasterController;
@@ -902,6 +903,8 @@ Route::prefix('accounting')
     Route::delete('/customer-payment-terms/{customerPaymentTerm}', [CustomerPaymentTermController::class, 'destroy'])->name('cpt.destroy');
     Route::get('/invoice-mfg-profit', [InvoiceMfgProfitController::class, 'index'])->middleware(['auth', 'permission.any:MG'])->name('invoice-mfg-profit.index');
     Route::get('/invoice-mfg-profit/export', [InvoiceMfgProfitController::class, 'export'])->middleware(['auth', 'permission.any:MG'])->name('invoice-mfg-profit.export');
+    Route::get('/product-group-profit', [ProductGroupProfitController::class, 'index'])->middleware(['auth', 'permission.any:MG'])->name('product-group-profit.index');
+    Route::get('/product-group-profit/export', [ProductGroupProfitController::class, 'export'])->middleware(['auth', 'permission.any:MG'])->name('product-group-profit.export');
   });
 
 //ฟอร์มวางแผน
