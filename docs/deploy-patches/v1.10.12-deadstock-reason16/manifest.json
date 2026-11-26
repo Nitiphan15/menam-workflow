@@ -1,0 +1,14 @@
+{
+  "app/Support/FormWOS/DeadstockReasonMap.php": {
+    "before_sha256": "2f46a0785a9b205856df940eac726b9edc55904e84f2030b392cc77fc5fd4026",
+    "after_sha256": "6c164f1d62b8560d95c5dff0b7ad422becb2c4b9310e2dd142414143b3fa447a"
+  },
+  "config/app.php": {
+    "before_sha256": "5a0cd380418b0cee07f774a8d336480f2a80f0b57a2512bc9b5d615f493ab053",
+    "after_sha256": "c10ebe652c72e8fa8d59c79985b7838a94fdcae61889ee79c38c0c83942f32ae"
+  },
+  "resources/views/home.blade.php": {
+    "before_sha256": "b1c3bcaa242b9c7b7cca78aef812c7031c4c631790444062dbfff6f357513a2e",
+    "after_sha256": "96f8abce47786db52a65a450aa1c990dd6a9b97ec85f72443c0673660b79bdea"
+  }
+}
