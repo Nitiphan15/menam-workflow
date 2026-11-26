@@ -372,7 +372,7 @@
 {{-- DESKTOP SIDEBAR (แสดงเฉพาะ md ขึ้นไป) --}}
 <div class="col-md-3 col-lg-2 px-0 h-100 d-none d-md-block sidebar-col">
 
-    <div class="sidebar h-100 p-3 overflow-auto">
+    <div class="sidebar h-100 p-3 d-flex flex-column overflow-hidden" data-sidebar-surface="desktop">
         <div class="sidebar-head">
             <div class="sidebar-toprow">
                 <button type="button" class="sidebar-topbtn" id="sidebarToggleBtn" aria-label="Toggle sidebar">
@@ -390,7 +390,17 @@
             </div>
         </div>
 
-        <nav class="nav flex-column">
+        <div class="sidebar-search-wrap mb-3">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="search" class="form-control sidebar-menu-search" placeholder="ค้นหาเมนู..." aria-label="ค้นหาเมนู">
+                <button type="button" class="btn btn-outline-secondary sidebar-search-clear" aria-label="ล้างคำค้น" title="ล้างคำค้น"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sidebar-menu-suggestions d-none" role="listbox" aria-label="เมนูแนะนำ"></div>
+            <div class="sidebar-search-empty small text-white-50 mt-2 d-none">ไม่พบเมนูที่ค้นหา</div>
+        </div>
+
+        <nav class="nav flex-column sidebar-menu-scroll flex-grow-1 overflow-auto">
             @php
                 $currentGroup = null;
                 $sectionOpen = false;
@@ -449,6 +459,7 @@
                                 @elseif (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
                                     <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
+                                        data-menu-group="{{ $nextGroup }}"
                                         title="{{ $child['text'] }}">
                                         <i class="fas {{ $child['icon'] }} me-1"></i>
                                         <span class="nav-text">{{ $child['text'] }}</span>
@@ -460,6 +471,7 @@
                 @else
                     <a href="{{ route($item['route'], $item['query'] ?? []) }}"
                         class="nav-link has-tooltip {{ $plainItemIsActive($item) ? 'active' : '' }}"
+                        data-menu-group="{{ $nextGroup }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
                         <span class="nav-text">{{ $item['text'] }}</span>
@@ -495,12 +507,22 @@
 
     </div>
 
-    <div class="offcanvas-body sidebar p-3 overflow-auto">
+    <div class="offcanvas-body sidebar p-3 d-flex flex-column overflow-hidden" data-sidebar-surface="mobile">
         <div class="text-center mb-3 brand">
             <img src="{{ asset('assets/logo_sidebar.png') }}" alt="Logo" class="img-fluid mb-2">
         </div>
 
-        <nav class="nav flex-column">
+        <div class="sidebar-search-wrap mb-3">
+            <div class="input-group input-group-sm">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="search" class="form-control sidebar-menu-search" placeholder="ค้นหาเมนู..." aria-label="ค้นหาเมนู">
+                <button type="button" class="btn btn-outline-light sidebar-search-clear" aria-label="ล้างคำค้น" title="ล้างคำค้น"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="sidebar-menu-suggestions d-none" role="listbox" aria-label="เมนูแนะนำ"></div>
+            <div class="sidebar-search-empty small text-white-50 mt-2 d-none">ไม่พบเมนูที่ค้นหา</div>
+        </div>
+
+        <nav class="nav flex-column sidebar-menu-scroll flex-grow-1 overflow-auto">
             @php
                 $currentGroup = null;
                 $sectionOpen = false;
@@ -558,6 +580,7 @@
                                 @elseif (empty($child['permission']) || (auth()->check() && auth()->user()->hasRoleCode($child['permission'])))
                                     <a href="{{ route($child['route'], $child['query'] ?? []) }}"
                                         class="nav-link has-tooltip {{ request()->routeIs($child['route'], $child['route'] . '.*') ? 'active' : '' }}"
+                                        data-menu-group="{{ $nextGroup }}"
                                         title="{{ $child['text'] }}">
                                         <i class="fas {{ $child['icon'] }} me-1"></i>
                                         <span class="nav-text">{{ $child['text'] }}</span>
@@ -569,6 +592,7 @@
                 @else
                     <a href="{{ route($item['route'], $item['query'] ?? []) }}"
                         class="nav-link has-tooltip {{ $plainItemIsActive($item) ? 'active' : '' }}"
+                        data-menu-group="{{ $nextGroup }}"
                         title="{{ $item['text'] }}">
                         <i class="fas fa-fw {{ $item['icon'] }}"></i>
                         <span class="nav-text">{{ $item['text'] }}</span>
@@ -635,10 +659,95 @@
         isolation: isolate;
     }
 
+    .sidebar[data-sidebar-surface] {
+        overflow: hidden !important;
+    }
+
     .sidebar .nav {
         position: relative;
         z-index: 1;
         padding-top: 6px;
+    }
+
+    .sidebar-search-wrap {
+        position: relative;
+        flex: 0 0 auto;
+        z-index: 20;
+        margin-left: -4px;
+        margin-right: -4px;
+        padding: 8px 4px 10px;
+        background: #2f4357;
+        box-shadow: 0 8px 12px rgba(47, 67, 87, .9);
+    }
+
+    .sidebar-menu-scroll {
+        min-height: 0;
+        flex-wrap: nowrap !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain;
+        scrollbar-color: rgba(255, 255, 255, .28) transparent;
+        scrollbar-width: thin;
+    }
+
+    .sidebar-menu-scroll > * {
+        flex-shrink: 0;
+    }
+
+    .sidebar-search-wrap .input-group {
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .14);
+    }
+
+    .sidebar-search-wrap .input-group-text,
+    .sidebar-search-wrap .form-control,
+    .sidebar-search-wrap .btn {
+        border-color: rgba(255, 255, 255, .18);
+    }
+
+    .sidebar-menu-suggestions {
+        position: absolute;
+        top: 52px;
+        left: 2px;
+        right: 8px;
+        max-height: min(420px, 55vh);
+        overflow-y: auto;
+        padding: 6px;
+        border: 1px solid rgba(255, 255, 255, .14);
+        border-radius: 9px;
+        background: #fff;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, .3);
+    }
+
+    .sidebar-menu-suggestion {
+        display: block;
+        padding: 8px 10px;
+        border-radius: 7px;
+        color: #243447;
+        text-decoration: none;
+    }
+
+    .sidebar-menu-suggestion:hover,
+    .sidebar-menu-suggestion.is-selected {
+        color: #13263a;
+        background: #e9f2fb;
+    }
+
+    .sidebar-menu-suggestion-name {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.25;
+    }
+
+    .sidebar-menu-suggestion-group {
+        display: block;
+        margin-top: 2px;
+        color: #6b7785;
+        font-size: 11px;
+    }
+
+    .sidebar-search-hidden {
+        display: none !important;
     }
 
     .sidebar-section {
@@ -694,11 +803,18 @@
     /* ================================
    Scrollbar style
    ================================ */
-    .sidebar::-webkit-scrollbar {
+    .sidebar::-webkit-scrollbar,
+    .sidebar-menu-scroll::-webkit-scrollbar {
         width: 6px;
     }
 
-    .sidebar::-webkit-scrollbar-thumb {
+    .sidebar::-webkit-scrollbar-track,
+    .sidebar-menu-scroll::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .sidebar::-webkit-scrollbar-thumb,
+    .sidebar-menu-scroll::-webkit-scrollbar-thumb {
         background: rgba(255, 255, 255, .25);
         border-radius: 10px;
     }
@@ -709,8 +825,8 @@
    - เลยไม่เกิด horizontal scroll
    ================================ */
     .sidebar-head {
-        position: sticky;
-        top: 0;
+        position: relative;
+        flex: 0 0 auto;
         z-index: 60;
 
         background: #2f4357;
@@ -898,6 +1014,10 @@
             display: none !important;
         }
 
+        body.sidebar-collapsed .sidebar-search-wrap {
+            display: none !important;
+        }
+
         body.sidebar-collapsed .sidebar-title {
             display: none !important;
         }
@@ -983,6 +1103,13 @@
             overflow-y: visible;
         }
 
+        .offcanvas [data-sidebar-surface="mobile"] {
+            height: calc(100vh - 56px);
+            min-height: 0;
+            max-height: calc(100vh - 56px);
+            overflow: hidden !important;
+        }
+
         .offcanvas-header.sidebar {
             background: #34495E;
             border-bottom: 1px solid rgba(255, 255, 255, .12);
@@ -1023,9 +1150,206 @@
                 });
             }
 
+            function setCollapseState(collapse, expanded) {
+                if (!collapse) return;
+                collapse.classList.toggle('show', expanded);
+                const trigger = collapse.previousElementSibling;
+                if (trigger) {
+                    trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                    trigger.classList.toggle('collapsed', !expanded);
+                    trigger.classList.toggle('is-collapsed', !expanded);
+                }
+            }
+
+            function rememberOriginalState(collapse) {
+                if (collapse && collapse.dataset.searchOriginalShow === undefined) {
+                    collapse.dataset.searchOriginalShow = collapse.classList.contains('show') ? '1' : '0';
+                }
+            }
+
+            function restoreOriginalState(collapse) {
+                if (!collapse || collapse.dataset.searchOriginalShow === undefined) return;
+                setCollapseState(collapse, collapse.dataset.searchOriginalShow === '1');
+                delete collapse.dataset.searchOriginalShow;
+            }
+
+            function setupSearch(sidebar) {
+                const input = sidebar.querySelector('.sidebar-menu-search');
+                const clear = sidebar.querySelector('.sidebar-search-clear');
+                const empty = sidebar.querySelector('.sidebar-search-empty');
+                const suggestions = sidebar.querySelector('.sidebar-menu-suggestions');
+                const sectionButtons = [...sidebar.querySelectorAll('.sidebar-section-toggle')];
+                if (!input) return;
+                const menuLinks = [...sidebar.querySelectorAll('a[data-menu-group][href]')].map(link => {
+                    const submenu = link.closest('.submenu');
+                    const parent = submenu?.closest('.collapse')?.previousElementSibling?.querySelector('.nav-text')?.textContent?.trim();
+                    return {
+                        href: link.href,
+                        name: link.querySelector('.nav-text')?.textContent?.trim() || link.textContent.trim(),
+                        group: [link.dataset.menuGroup, parent].filter(Boolean).join(' › '),
+                    };
+                });
+                let matchedSuggestions = [];
+                let selectedSuggestion = -1;
+
+                const renderSuggestions = query => {
+                    if (!suggestions) return;
+                    suggestions.replaceChildren();
+                    selectedSuggestion = -1;
+                    matchedSuggestions = query
+                        ? menuLinks.filter(item => `${item.name} ${item.group}`.toLocaleLowerCase('th-TH').includes(query)).slice(0, 10)
+                        : [];
+
+                    matchedSuggestions.forEach((item, index) => {
+                        const link = document.createElement('a');
+                        link.href = item.href;
+                        link.className = 'sidebar-menu-suggestion';
+                        link.setAttribute('role', 'option');
+                        link.dataset.suggestionIndex = index;
+
+                        const name = document.createElement('span');
+                        name.className = 'sidebar-menu-suggestion-name';
+                        name.textContent = item.name;
+                        const group = document.createElement('span');
+                        group.className = 'sidebar-menu-suggestion-group';
+                        group.textContent = item.group;
+                        link.append(name, group);
+                        suggestions.appendChild(link);
+                    });
+
+                    suggestions.classList.toggle('d-none', matchedSuggestions.length === 0);
+                };
+
+                const selectSuggestion = index => {
+                    if (!matchedSuggestions.length) return;
+                    selectedSuggestion = (index + matchedSuggestions.length) % matchedSuggestions.length;
+                    suggestions.querySelectorAll('.sidebar-menu-suggestion').forEach((link, linkIndex) => {
+                        link.classList.toggle('is-selected', linkIndex === selectedSuggestion);
+                    });
+                    suggestions.querySelector(`[data-suggestion-index="${selectedSuggestion}"]`)?.scrollIntoView({ block: 'nearest' });
+                };
+
+                const filter = () => {
+                    const query = input.value.trim().toLocaleLowerCase('th-TH');
+                    let totalMatches = 0;
+
+                    sectionButtons.forEach(button => {
+                        const section = document.querySelector(button.dataset.bsTarget);
+                        if (!section) return;
+                        const topLinks = [...section.querySelectorAll(':scope > .nav-link')];
+                        let sectionMatches = 0;
+
+                        topLinks.forEach(link => {
+                            const submenu = link.nextElementSibling?.classList.contains('collapse') ? link.nextElementSibling : null;
+                            const childLinks = submenu ? [...submenu.querySelectorAll('.nav-link')] : [];
+                            const ownMatch = !query || link.textContent.toLocaleLowerCase('th-TH').includes(query);
+                            let childMatches = 0;
+
+                            childLinks.forEach(child => {
+                                const match = ownMatch || !query || child.textContent.toLocaleLowerCase('th-TH').includes(query);
+                                child.classList.toggle('sidebar-search-hidden', !match);
+                                if (match) childMatches++;
+                            });
+
+                            const matched = ownMatch || childMatches > 0;
+                            link.classList.toggle('sidebar-search-hidden', !matched);
+                            if (matched) sectionMatches++;
+                            if (submenu) {
+                                if (query) {
+                                    rememberOriginalState(submenu);
+                                    setCollapseState(submenu, matched);
+                                } else {
+                                    restoreOriginalState(submenu);
+                                }
+                            }
+                        });
+
+                        const matched = !query || sectionMatches > 0;
+                        button.classList.toggle('sidebar-search-hidden', !matched);
+                        section.classList.toggle('sidebar-search-hidden', !matched);
+                        if (query) {
+                            rememberOriginalState(section);
+                            if (matched) setCollapseState(section, true);
+                        } else {
+                            restoreOriginalState(section);
+                        }
+                        totalMatches += sectionMatches;
+                    });
+
+                    empty?.classList.toggle('d-none', !query || totalMatches > 0);
+                    clear?.classList.toggle('invisible', !query);
+                    renderSuggestions(query);
+                };
+
+                input.addEventListener('input', filter);
+                input.addEventListener('keydown', event => {
+                    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        selectSuggestion(selectedSuggestion + (event.key === 'ArrowDown' ? 1 : -1));
+                        return;
+                    }
+                    if (event.key === 'Enter' && selectedSuggestion >= 0) {
+                        event.preventDefault();
+                        window.location.assign(matchedSuggestions[selectedSuggestion].href);
+                        return;
+                    }
+                    if (event.key === 'Escape') {
+                        input.value = '';
+                        filter();
+                        input.blur();
+                    }
+                });
+                clear?.addEventListener('click', () => {
+                    input.value = '';
+                    filter();
+                    input.focus();
+                });
+                input.addEventListener('focus', () => {
+                    if (input.value.trim()) renderSuggestions(input.value.trim().toLocaleLowerCase('th-TH'));
+                });
+                input.addEventListener('blur', () => setTimeout(() => suggestions?.classList.add('d-none'), 150));
+                filter();
+            }
+
+            function setupScrollMemory(sidebar) {
+                const surface = sidebar.dataset.sidebarSurface || 'desktop';
+                const scrollKey = `menamSidebarScroll:${surface}`;
+                const scrollContainer = sidebar.querySelector('.sidebar-menu-scroll') || sidebar;
+                let timer;
+                const save = () => localStorage.setItem(scrollKey, JSON.stringify({ top: scrollContainer.scrollTop }));
+                scrollContainer.addEventListener('scroll', () => {
+                    clearTimeout(timer);
+                    timer = setTimeout(save, 120);
+                }, { passive: true });
+
+                const restore = () => {
+                    let saved = null;
+                    try { saved = JSON.parse(localStorage.getItem(scrollKey) || 'null'); } catch (_) {}
+                    if (saved) scrollContainer.scrollTop = Number(saved.top) || 0;
+                    const active = sidebar.querySelector('.submenu .nav-link.active') || sidebar.querySelector('.nav-link.active');
+                    if (!active) return;
+                    const box = scrollContainer.getBoundingClientRect();
+                    const activeBox = active.getBoundingClientRect();
+                    if (activeBox.top < box.top + 80 || activeBox.bottom > box.bottom - 24) {
+                        scrollContainer.scrollTop += activeBox.top - box.top - (box.height / 2) + (activeBox.height / 2);
+                    }
+                    save();
+                };
+
+                if (surface === 'mobile') {
+                    document.getElementById('mobileSidebar')?.addEventListener('shown.bs.offcanvas', () => requestAnimationFrame(restore));
+                } else {
+                    requestAnimationFrame(restore);
+                }
+            }
+
             document.addEventListener('DOMContentLoaded', function() {
                 apply(localStorage.getItem(key) === '1');
                 initTooltips();
+                document.querySelectorAll('[data-sidebar-surface]').forEach(sidebar => {
+                    setupSearch(sidebar);
+                    setupScrollMemory(sidebar);
+                });
             });
 
             document.addEventListener('click', function(e) {
