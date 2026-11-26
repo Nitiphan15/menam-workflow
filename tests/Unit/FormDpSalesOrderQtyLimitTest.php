@@ -4,26 +4,30 @@ namespace Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 
-class FormDpD8PieceQtyLimitTest extends TestCase
+class FormDpSalesOrderQtyLimitTest extends TestCase
 {
-    public function test_d8_piece_qty_keeps_so_limit_when_mfg_is_selected(): void
+    public function test_mfg_does_not_override_sales_order_qty_limit_for_any_division(): void
     {
         $root = dirname(__DIR__, 2);
         $controller = file_get_contents($root.'/app/Http/Controllers/FormDP/DeliveryPlanController.php');
         $blade = file_get_contents($root.'/resources/views/formdp/index.blade.php');
 
-        $this->assertStringContainsString("elseif (!\$isPieceSale)", $controller);
         $this->assertStringContainsString(
-            'ไม่ใช้ workorder.qty เป็นเพดาน ให้ไปใช้ ordered_qty ของ SO',
+            'จำนวนส่งต้องยึด ordered_qty ของ Sales Order',
+            $controller
+        );
+        $this->assertStringNotContainsString(
+            "\$maxAllowed = \$mfgValidation['qty']",
             $controller
         );
         $this->assertStringNotContainsString(
             'sellByLineQtyInput.value = String(Math.round(mfgQty))',
             $blade
         );
-        $this->assertMatchesRegularExpression(
-            "/if \(isPieceSale\(\)\) \{.*?qtyKg\.value = '0';.*?\} else \{.*?setQtyLimit\(mfgQty, 'MFG'\);/s",
+        $this->assertStringNotContainsString(
+            "setQtyLimit(mfgQty, 'MFG')",
             $blade
         );
+        $this->assertStringNotContainsString('qtyKg.value = String(mfgQty)', $blade);
     }
 }

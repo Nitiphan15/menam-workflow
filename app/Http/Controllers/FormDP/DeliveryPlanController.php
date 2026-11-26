@@ -474,12 +474,11 @@ class DeliveryPlanController extends Controller
                             'lines.0.mfg_no' => 'ไม่พบ MFG No: '.implode(', ', $mfgValidation['missing']),
                         ]);
                 }
-            } elseif (!$isPieceSale) {
-                // D8 / ขายเป็นชิ้น: ไม่ใช้ workorder.qty เป็นเพดาน ให้ไปใช้ ordered_qty ของ SO ด้านล่าง
-                $maxAllowed = $mfgValidation['qty'];
             }
         }
 
+        // MFG ใช้ตรวจเลขและ Part เท่านั้น จำนวนส่งต้องยึด ordered_qty ของ Sales Order
+        // สำหรับทุก Division เพื่อไม่ให้ workorder.qty เขียนทับเพดานที่ผู้ใช้เลือกจาก SO
         if (!$isNonSoMode && $maxAllowed === null) {
             $so = $this->conn()->table('saleorder')
                 ->where('ordnumber', $ordnumber)
@@ -710,7 +709,8 @@ class DeliveryPlanController extends Controller
 
                     'part_number'        => trim((string)($ln['part_no'] ?? '')),
                     'part_desc'          => trim((string)($ln['part_desc'] ?? '')),
-                    'mfg_no'             => trim((string)($ln['mfg_no'] ?? '')),
+                    'mfg_no'             => app(DeliveryConfirmationService::class)
+                        ->canonicalMfgValue($ln['mfg_no'] ?? ''),
                     'qty'                => $qtyKg,
                     'stock_qty'          => $this->toNumberOrNull($ln['stock_fg'] ?? null),
                     'address'            => trim((string)($ln['delivery_location'] ?? '')),
@@ -941,7 +941,13 @@ class DeliveryPlanController extends Controller
             ]);
 
         if ($soNumber !== '') $q->where('d.so_number', $soNumber);
-        if ($mfgNo !== '')    $q->where('d.mfg_no', $mfgNo);
+        if ($mfgNo !== '') {
+            $mfgKey = app(DeliveryConfirmationService::class)->normalizedMfgKey($mfgNo);
+            $q->whereRaw(
+                "REPLACE(UPPER(ISNULL(d.mfg_no, '')), ' ', '') = ?",
+                [$mfgKey]
+            );
+        }
         if ($excludeOrd !== '') $q->where('d.ord_id', '!=', $excludeOrd);
 
         $rows = $q->orderByDesc('d.ord_id')->limit(20)->get();
