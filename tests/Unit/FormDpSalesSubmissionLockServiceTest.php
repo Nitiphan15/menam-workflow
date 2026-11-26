@@ -93,7 +93,7 @@ class FormDpSalesSubmissionLockServiceTest extends TestCase
     public function test_logistics_can_lock_and_unlock_without_sending_mail(): void
     {
         $service = app(DeliveryPlanSubmissionLockService::class);
-        $shipDate = '2026-11-24';
+        $shipDate = now()->addDay()->toDateString();
 
         $this->assertFalse($service->isLocked($shipDate));
         $this->assertTrue($service->lock($shipDate, 202, 'Logistics Test', 'manual relock'));
