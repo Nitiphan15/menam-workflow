@@ -26,3 +26,10 @@
 ## Rollback
 
 คัดลอกไฟล์ทั้ง 3 จากโฟลเดอร์ `deploy-backups/deadstock-reason16-v1.10.12-*` กลับตำแหน่งเดิม แล้วเปิด `/adminweb/cache/clear`
+
+## Deploy log
+
+- 2026-11-26 10:50 deploy โดย Codex ตามคำสั่งผู้ใช้
+- before/after SHA-256 ตรงครบ 3 ไฟล์ และตั้ง LastWriteTime เป็นเวลา deploy
+- backup: `M:\htdocs\menam-online\deploy-backups\deadstock-reason16-v1.10.12-20261126-105046`
+- PHP syntax บน Production ผ่านทั้ง 3 ไฟล์
