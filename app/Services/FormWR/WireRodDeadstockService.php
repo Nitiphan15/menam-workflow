@@ -92,7 +92,9 @@ class WireRodDeadstockService
                 'created_at' => now('Asia/Bangkok'),
             ]);
 
-            foreach ($rows->chunk(300) as $chunk) {
+            // SQL Server allows at most 2,100 bound parameters per statement.
+            // Snapshot rows contain 29 columns, so keep each insert well below the limit.
+            foreach ($rows->chunk(50) as $chunk) {
                 $db->table('wr_ds_snapshot_items')->insert($chunk->map(fn ($r) => [
                     'snapshot_id' => $snapshotId, 'lifecycle_id' => $r->lifecycle_id,
                     'site_code' => $r->site_code, 'serial_number' => $r->serial_number,
