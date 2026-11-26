@@ -10,7 +10,7 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class ProductGroupProfitController extends Controller
 {
-    private const FILTERS = ['date_from','date_to','sales_site','production_site','product_group','invoice','partnumber'];
+    private const FILTERS = ['date_from','date_to','sales_site','production_site','product_group','invoice','partnumber','issues_only'];
 
     public function index(Request $request, ProductGroupProfitService $service)
     {

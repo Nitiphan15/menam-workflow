@@ -34,6 +34,15 @@ class ProductGroupProfitServiceTest extends TestCase
         $this->assertNull((new ProductGroupProfitService())->summarize($rows)['margin']);
     }
 
+    public function test_issue_only_filter_accepts_boolean_query_values(): void
+    {
+        $service = new ProductGroupProfitService();
+
+        $this->assertTrue($service->filters(['issues_only' => '1'])['issues_only']);
+        $this->assertFalse($service->filters(['issues_only' => '0'])['issues_only']);
+        $this->assertFalse($service->filters([])['issues_only']);
+    }
+
     public function test_missing_cost_makes_aggregate_profit_unknown_instead_of_guessing_zero_cost(): void
     {
         $rows = collect([(object) ['production_site'=>'WIRE','product_group'=>'CUT WIRE','quantity'=>10,'sales_thb'=>1000,'total_cost'=>null,'data_issue'=>'ไม่พบต้นทุน','sales_site_invoice_key'=>'WIRE|INV1']]);

@@ -24,6 +24,7 @@ class ProductGroupProfitService
             'product_group' => trim((string) ($input['product_group'] ?? '')),
             'invoice' => strtoupper(trim((string) ($input['invoice'] ?? ''))),
             'partnumber' => strtoupper(trim((string) ($input['partnumber'] ?? ''))),
+            'issues_only' => filter_var($input['issues_only'] ?? false, FILTER_VALIDATE_BOOLEAN),
         ];
     }
 
@@ -98,6 +99,9 @@ class ProductGroupProfitService
         }
         if ($filters['product_group'] !== '') {
             $rows = $rows->where('product_group', $filters['product_group']);
+        }
+        if ($filters['issues_only']) {
+            $rows = $rows->whereNotNull('data_issue');
         }
 
         return $rows->sortBy(['production_site', 'product_group', 'invoice_date', 'invoice_no', 'invoice_item_id'])->values();
