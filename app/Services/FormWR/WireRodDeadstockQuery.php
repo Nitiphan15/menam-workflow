@@ -72,7 +72,23 @@ class WireRodDeadstockQuery
         if (filled($filters['purchase_from'] ?? null)) $q->whereDate('c.purchase_date', '>=', $filters['purchase_from']);
         if (filled($filters['purchase_to'] ?? null)) $q->whereDate('c.purchase_date', '<=', $filters['purchase_to']);
         if (filter_var($filters['became_dead'] ?? false, FILTER_VALIDATE_BOOLEAN)) $q->where('c.became_dead_stock', 1);
+        self::applyAging($q, 'c.stock_age_days', $filters['aging'] ?? null);
 
         return $q;
+    }
+
+    public static function applyAging($query, string $column, mixed $aging): void
+    {
+        if (! filled($aging)) return;
+        if ($aging === 'unknown') {
+            $query->whereNull($column);
+            return;
+        }
+        $bucket = \App\Support\FormWR\WireRodDeadstockRule::AGING_BUCKETS[$aging] ?? null;
+        if (! $bucket) return;
+        // 0-90 also takes negative ages (future purchase date), matching WireRodDeadstockRule::agingBucket().
+        if ($bucket['min'] > 0) $query->where($column, '>=', $bucket['min']);
+        else $query->whereNotNull($column);
+        if ($bucket['max'] !== null) $query->where($column, '<=', $bucket['max']);
     }
 }

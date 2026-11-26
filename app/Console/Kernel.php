@@ -64,25 +64,6 @@ class Kernel extends ConsoleKernel
         // Deadstock schedules are owned by mail-daily/routes/deadstock-schedule.php.
         // Keep the commands here: they use this application's review services/database.
 
-        $schedule->command('wr-deadstock:sync')
-            ->hourlyAt(0)
-            ->timezone('Asia/Bangkok')
-            ->onOneServer()
-            ->withoutOverlapping(55);
-
-        $schedule->command('wr-deadstock:sync --snapshot=DAILY')
-            ->dailyAt('08:03')
-            ->timezone('Asia/Bangkok')
-            ->onOneServer()
-            ->withoutOverlapping(55);
-
-        $schedule->command('wr-deadstock:sync --snapshot=MONTH_END')
-            ->dailyAt('23:30')
-            ->when(fn () => now('Asia/Bangkok')->isLastOfMonth())
-            ->timezone('Asia/Bangkok')
-            ->onOneServer()
-            ->withoutOverlapping(55);
-
         // WIP Monitoring: sync สถานะ WO (WMSOne + ERP) ลง wip_* ทุก 15 นาที
         // ถ้ายังไม่ได้สร้างตาราง (database/sql/create_wip_monitoring_snapshot.sql) command จะข้ามเอง
         $schedule->command('wip:snapshot')
