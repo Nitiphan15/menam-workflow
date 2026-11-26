@@ -105,6 +105,8 @@
                     <h3 class="h5 fw-bold mb-0" id="latest-update-title">อัปเดตล่าสุด</h3>
                 </div>
                 <ul class="text-muted mb-0">
+                    <li>PO Online: เปิดหน้า PO แล้วแนบ PO PDF จาก ERP อัตโนมัติผ่าน AJAX พร้อมปุ่มลองใหม่ สถานะแยกตามสาเหตุ และป้องกันคำขอซ้ำจากหลายแท็บ</li>
+                    <li>PO Online: ไม่สร้าง Workflow ถ้าดึง PO PDF ไม่สำเร็จ โดยยังใช้การแนบเองแบบเดิมได้ และจัด PO เป็นไฟล์ _01 ก่อนเอกสารผู้ใช้ _02, _03 พร้อม Remark รอบอัปโหลด</li>
                     <li>FormFC: Manager Export Excel แสดง Sales Remark ของแต่ละรายการตามหน้าจอ</li>
                     <li>PO Online: อีเมลรายการรออนุมัติแสดงชื่อขั้นตอนจริงแทนข้อความ Step 3</li>
                     <li>PO Online: แจ้งเตือนเอกสารรออนุมัติ Step 3 เวลา 08:00 และ 13:00 วันจันทร์-ศุกร์ แยกตามผู้อนุมัติ</li>
@@ -140,6 +142,18 @@
 
                 <div class="collapse" id="releaseHistory">
                     <div class="list-group list-group-flush mt-3">
+                        <div class="list-group-item px-0 py-3">
+                            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                                <span class="badge text-bg-primary">v 1.10.11</span>
+                                <strong>PO Online: แนบ PO จาก ERP อัตโนมัติตั้งแต่เปิดหน้า</strong>
+                            </div>
+                            <ul class="mb-0 text-muted">
+                                <li>ดึงและแนบ PO PDF ผ่าน AJAX เมื่อเปิดหน้า พร้อมปุ่มลองใหม่และข้อความระบุสาเหตุ เช่น ยังไม่ได้ Login CPA</li>
+                                <li>ล็อกคำขอซ้ำจากหลายแท็บ และไม่สร้าง Workflow หากไม่มี PO PDF ที่ใช้งานได้</li>
+                                <li>เรียง PO เป็น _01 ก่อนเอกสารผู้ใช้ _02, _03 และบันทึกเลขรอบอัปโหลดใน Remark</li>
+                            </ul>
+                        </div>
+
                         <div class="list-group-item px-0 py-3">
                             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                                 <span class="badge text-bg-primary">v 1.7.2</span>

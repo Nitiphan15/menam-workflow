@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class PoApprovalController extends Controller
@@ -40,31 +41,52 @@ class PoApprovalController extends Controller
         $isResubmission = !blank($po->workflow_id)
             && (string) ($po->workflow?->form_status ?? '') === WorkflowEngine::ST_REJECTED;
 
-        abort_if($po->workflow_id && !$isResubmission, 422, 'PO already submitted');
+        if ($po->workflow_id && !$isResubmission) {
+            throw ValidationException::withMessages([
+                'po_workflow' => 'PO นี้ถูกส่งเข้าระบบอนุมัติแล้ว กรุณารีเฟรชหน้าเพื่อตรวจสอบสถานะล่าสุด',
+            ]);
+        }
 
         $po = $this->erpService->syncHeaderFromErp($po->ordnumber, auth()->id(), $po->site);
         $useManualFallback = (bool) ($data['use_manual_po_fallback'] ?? false);
         $failureSessionKey = "po_erp_submit_download_failed.{$po->id}";
         if ($useManualFallback) {
-            abort_unless(session($failureSessionKey, false), 422, 'กรุณาลองดาวน์โหลด PO จาก ERP ก่อนใช้ manual fallback');
-            abort_unless(
-                $po->attachments()->where('attachment_type', 'PO_SUBMIT')->where('attachment_source', 'MANUAL')->exists(),
-                422,
-                'กรุณาแนบไฟล์และเลือกชนิด PO Submit ก่อนใช้ manual fallback'
-            );
+            if (!session($failureSessionKey, false)) {
+                throw ValidationException::withMessages([
+                    'manual_fallback' => 'ยังใช้ไฟล์แนบแทนไม่ได้ กรุณาลอง Submit เพื่อดาวน์โหลด PO จาก ERP ก่อน 1 ครั้ง',
+                ]);
+            }
+            if (!$po->attachments()->where('attachment_type', 'PO_SUBMIT')->where('attachment_source', 'MANUAL')->exists()) {
+                throw ValidationException::withMessages([
+                    'po_submit_attachment' => 'ไม่พบไฟล์ PO Submit ที่แนบเอง กรุณาอัปโหลด PDF และเลือกชนิดไฟล์ “PO Submit” ก่อน',
+                ]);
+            }
         } else {
-            $sessionId = $this->erpSessionId();
-            if (!$sessionId) {
-                session([$failureSessionKey => true]);
-                abort(422, 'กรุณาเชื่อมต่อ ERP ก่อน Submit หรือแนบ PO Submit แล้วเลือก manual fallback');
+            $submitAttachmentService = app(PoSubmitAttachmentService::class);
+            if (!$submitAttachmentService->usableAttachment($po, 'ERP')) {
+                $sessionId = $this->erpSessionId();
+                if (!$sessionId) {
+                    session([$failureSessionKey => true]);
+                    throw ValidationException::withMessages([
+                        'erp_connection' => session('po_erp_reconnect_required', false)
+                            ? 'CPA session หมดอายุหรือถูกยกเลิก กรุณา Login CPA ใหม่ แล้วลอง Submit อีกครั้ง'
+                            : 'ยังไม่ได้เชื่อมต่อ CPA กรุณา Login CPA หรือบันทึก CPA PHPSESSID ก่อน Submit',
+                    ]);
+                }
+                try {
+                    $result = $submitAttachmentService->attachIfMissing($po, $sessionId, (int) auth()->id());
+                    if ($result['status'] === PoSubmitAttachmentService::RESULT_BUSY) {
+                        throw ValidationException::withMessages([
+                            'erp_download' => 'กำลังแนบ PO จากหน้าต่างอื่น กรุณารอสักครู่แล้ว Submit อีกครั้ง',
+                        ]);
+                    }
+                    session()->forget($failureSessionKey);
+                } catch (Throwable $exception) {
+                    session([$failureSessionKey => true]);
+                    throw $exception;
+                }
             }
-            try {
-                app(PoSubmitAttachmentService::class)->attachFromErp($po, $sessionId, (int) auth()->id());
-                session()->forget($failureSessionKey);
-            } catch (Throwable $exception) {
-                session([$failureSessionKey => true]);
-                throw $exception;
-            }
+            session()->forget($failureSessionKey);
         }
 
         if ($isResubmission) {

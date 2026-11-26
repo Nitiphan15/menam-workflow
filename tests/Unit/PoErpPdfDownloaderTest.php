@@ -29,6 +29,7 @@ class PoErpPdfDownloaderTest extends TestCase
             $this->download();
             $this->fail('Expected validation error');
         } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('erp_download', $exception->errors());
             $this->assertSame('test-session', session('po_erp_phpsessid'));
             $this->assertFalse(session('po_erp_reconnect_required', false));
             Http::assertSentCount(1);
@@ -43,6 +44,7 @@ class PoErpPdfDownloaderTest extends TestCase
             $this->download();
             $this->fail('Expected validation error');
         } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('erp_connection', $exception->errors());
             $this->assertNull(session('po_erp_phpsessid'));
             $this->assertTrue(session('po_erp_reconnect_required'));
             Http::assertSentCount(1);
@@ -64,6 +66,7 @@ class PoErpPdfDownloaderTest extends TestCase
             $this->download();
             $this->fail('Expected validation error');
         } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('erp_download', $exception->errors());
             Http::assertSentCount(2);
             $this->assertSame('test-session', session('po_erp_phpsessid'));
         }
@@ -81,6 +84,7 @@ class PoErpPdfDownloaderTest extends TestCase
             $this->download();
             $this->fail('Expected validation error');
         } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('erp_download', $exception->errors());
             $this->assertSame(2, $attempts);
             $this->assertSame('test-session', session('po_erp_phpsessid'));
         }

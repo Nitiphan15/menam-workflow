@@ -77,4 +77,64 @@ class PoSubmitAttachmentServiceTest extends TestCase
         $this->assertSame('PO2026110229_PO_v02.pdf', PoSubmitAttachmentService::fileNameFor('PO2026110229', 2));
         $this->assertSame('PO2026110229_PO_v10.pdf', PoSubmitAttachmentService::fileNameFor('PO2026110229', 10));
     }
+
+    public function test_usable_attachment_requires_both_database_row_and_storage_file(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('po/test/PO1_PO.pdf', '%PDF-test');
+
+        $missing = (new PoAttached())->forceFill(['id' => 2, 'file_path' => 'po/test/missing.pdf', 'po_version' => 2]);
+        $usable = (new PoAttached())->forceFill(['id' => 1, 'file_path' => 'po/test/PO1_PO.pdf', 'po_version' => 1]);
+        $relation = Mockery::mock(HasMany::class);
+        $relation->shouldReceive('where')->once()->with('attachment_type', 'PO_SUBMIT')->andReturnSelf();
+        $relation->shouldReceive('orderByDesc')->once()->with('po_version')->andReturnSelf();
+        $relation->shouldReceive('orderByDesc')->once()->with('id')->andReturnSelf();
+        $relation->shouldReceive('get')->once()->andReturn(collect([$missing, $usable]));
+
+        $po = Mockery::mock(PoHeader::class)->makePartial();
+        $po->shouldReceive('attachments')->once()->andReturn($relation);
+        $service = new PoSubmitAttachmentService(
+            Mockery::mock(PoErpService::class),
+            Mockery::mock(PoErpPdfDownloader::class),
+            Mockery::mock(PoAttached::class),
+        );
+
+        $this->assertSame($usable, $service->usableAttachment($po));
+    }
+
+    public function test_locked_auto_attach_reuses_existing_file_without_downloading(): void
+    {
+        config(['cache.default' => 'array']);
+        Storage::fake('public');
+        Storage::disk('public')->put('po/test/PO1_PO.pdf', '%PDF-test');
+
+        $existing = (new PoAttached())->forceFill([
+            'id' => 5,
+            'file_path' => 'po/test/PO1_PO.pdf',
+            'po_version' => 1,
+        ]);
+        $relation = Mockery::mock(HasMany::class);
+        $relation->shouldReceive('where')->once()->with('attachment_type', 'PO_SUBMIT')->andReturnSelf();
+        $relation->shouldReceive('where')->once()->with('attachment_source', 'ERP')->andReturnSelf();
+        $relation->shouldReceive('orderByDesc')->twice()->andReturnSelf();
+        $relation->shouldReceive('get')->once()->andReturn(collect([$existing]));
+
+        $po = Mockery::mock(PoHeader::class)->makePartial();
+        $po->id = 100;
+        $po->ordnumber = 'PO1';
+        $po->site = 'wire';
+        $po->shouldReceive('attachments')->once()->andReturn($relation);
+        $downloader = Mockery::mock(PoErpPdfDownloader::class);
+        $downloader->shouldNotReceive('download');
+        $service = new PoSubmitAttachmentService(
+            Mockery::mock(PoErpService::class),
+            $downloader,
+            Mockery::mock(PoAttached::class),
+        );
+
+        $result = $service->attachIfMissing($po, 'session', 69);
+
+        $this->assertSame(PoSubmitAttachmentService::RESULT_EXISTING, $result['status']);
+        $this->assertSame($existing, $result['attachment']);
+    }
 }

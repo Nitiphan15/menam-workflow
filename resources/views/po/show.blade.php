@@ -129,14 +129,24 @@
         @if (session('ok'))
             <div class="alert alert-success">{{ session('ok') }}</div>
         @endif
-        @if ($errors->has('erp_phpsessid'))
-            <div class="alert alert-danger">{{ $errors->first('erp_phpsessid') }}</div>
-        @endif
-
         @if (!$readOnly)
         @can('POPUR')
             <div class="card po-cpa-card shadow-sm mb-3">
-                <div class="card-body d-flex flex-wrap align-items-end gap-2">
+                <div class="card-body">
+                    @if ($errors->has('erp_connection'))
+                        <div class="alert alert-danger py-2 mb-3" role="alert">
+                            <strong>การเชื่อมต่อ CPA:</strong> {{ $errors->first('erp_connection') }}
+                        </div>
+                    @elseif ($errors->has('erp_download'))
+                        <div class="alert alert-warning py-2 mb-3" role="alert">
+                            <strong>การดาวน์โหลด PO PDF:</strong> {{ $errors->first('erp_download') }}
+                        </div>
+                    @elseif ($errors->has('erp_phpsessid'))
+                        <div class="alert alert-danger py-2 mb-3" role="alert">
+                            <strong>CPA PHPSESSID:</strong> {{ $errors->first('erp_phpsessid') }}
+                        </div>
+                    @endif
+                    <div class="d-flex flex-wrap align-items-end gap-2">
                     <form method="POST" action="{{ route('po.erp.connect') }}" class="d-flex flex-wrap align-items-end gap-2">
                         @csrf
                         <div>
@@ -181,6 +191,7 @@
                         @method('DELETE')
                         <button type="submit" class="btn btn-sm btn-outline-secondary">Clear CPA Session</button>
                     </form>
+                    </div>
                 </div>
             </div>
         @endcan
@@ -405,6 +416,21 @@
                         <span class="badge text-bg-light">{{ number_format($po->attachments->count()) }} files</span>
                     </div>
                     <div class="card-body">
+                        @if ($canAutoAttachPo)
+                            <div id="poAutoAttachmentStatus" class="alert d-none" role="status"
+                                data-url="{{ route('po.autoAttachPo', $po->id) }}">
+                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                    <div>
+                                        <span class="spinner-border spinner-border-sm me-2 d-none" aria-hidden="true"></span>
+                                        <span data-message></span>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-warning d-none" data-retry>
+                                        <i class="fa-solid fa-rotate-right me-1"></i> ลองแนบไฟล์ PO อีกครั้ง
+                                    </button>
+                                </div>
+                            </div>
+                        @endif
+
                         @if (!$readOnly)
                         <div class="d-flex flex-wrap gap-2 mb-3">
                             <button type="button" class="btn btn-sm btn-outline-primary" data-po-edit-focus="notes">
@@ -437,6 +463,11 @@
                                         <option value="PO_SUBMIT">PO Submit (ใช้เมื่อ ERP ดาวน์โหลดไม่ได้)</option>
                                     </select>
                                     <div class="form-text">รองรับหลายไฟล์ เช่น PR, ใบเสนอราคา หรือเอกสารประกอบอื่น ๆ</div>
+                                    @if ($errors->has('po_submit_attachment'))
+                                        <div class="text-danger small mt-2" role="alert">
+                                            {{ $errors->first('po_submit_attachment') }}
+                                        </div>
+                                    @endif
                                 </div>
 
                                 @if ($po->attachments->isEmpty())
@@ -479,7 +510,9 @@
                                             3 => 'Head of Department Approve',
                                             0 => 'Existing Attachments',
                                         ];
-                                        $attachmentGroups = $po->attachments
+                                        $displayAttachments = \App\Services\Po\PoAttachmentService::orderForDisplay($po->attachments);
+                                        $displayAttachmentNumbers = \App\Services\Po\PoAttachmentService::displayPositions($displayAttachments);
+                                        $attachmentGroups = $displayAttachments
                                             ->groupBy(fn ($attachment) => (int) ($attachment->workflow_step_no ?? 0))
                                             ->sortBy(fn ($attachments, $stepNo) => array_search((int) $stepNo, [1, 2, 3, 0], true));
                                     @endphp
@@ -494,22 +527,11 @@
 
                                         @foreach ($attachments as $attachment)
                                             @php
-                                                $attachmentIndex = $po->attachments->search(fn ($item) => $item->getKey() === $attachment->getKey());
-                                                $attachmentExt =
-                                                    $attachment->file_ext ?:
-                                                    pathinfo((string) $attachment->file_name, PATHINFO_EXTENSION);
-                                                $fallbackName = sprintf(
-                                                    '%s_%02d%s',
-                                                    $po->ordnumber,
-                                                    $attachmentIndex + 1,
-                                                    $attachmentExt ? ".{$attachmentExt}" : '',
+                                                $displayFileName = \App\Services\Po\PoAttachmentService::displayFileName(
+                                                    $po,
+                                                    $attachment,
+                                                    (int) $displayAttachmentNumbers->get($attachment->getKey()),
                                                 );
-                                                $displayFileName = str_starts_with(
-                                                    (string) $attachment->file_name,
-                                                    (string) $po->ordnumber,
-                                                )
-                                                    ? $attachment->file_name
-                                                    : $fallbackName;
                                             @endphp
                                             <tr>
                                                 <td><a href="{{ route($readOnly ? 'po.departmentTracking.attachments.show' : 'po.attachments.show', [$po->id, $attachment->id]) }}"
@@ -564,6 +586,11 @@
                     <div class="card-header"><strong>Workflow</strong></div>
                     <div class="card-body">
                         @if ($canSubmit)
+                            @if ($errors->has('po_workflow'))
+                                <div class="alert alert-warning py-2" role="alert">
+                                    {{ $errors->first('po_workflow') }}
+                                </div>
+                            @endif
                             <form method="POST" action="{{ route('po.submit', $po->id) }}">
                                 @csrf
                                 <div class="mb-3">
@@ -580,6 +607,11 @@
                                             </label>
                                         </div>
                                         <div class="small mt-1">เลือกเฉพาะเมื่อเชื่อมต่อ ERP แล้วแต่ยังดาวน์โหลดไม่ได้</div>
+                                    </div>
+                                @endif
+                                @if ($errors->has('manual_fallback'))
+                                    <div class="text-danger small mb-2" role="alert">
+                                        {{ $errors->first('manual_fallback') }}
                                     </div>
                                 @endif
                                 <button class="btn btn-success w-100">ส่งเข้าระบบอนุมัติ</button>
@@ -841,6 +873,60 @@
             document.querySelector('[data-po-edit-focus="pdf-comments"]')?.addEventListener('click', () => {
                 focusTarget('[data-po-edit-target="pdf-comments"]');
             });
+
+            const autoAttachment = document.getElementById('poAutoAttachmentStatus');
+            if (autoAttachment) {
+                const message = autoAttachment.querySelector('[data-message]');
+                const spinner = autoAttachment.querySelector('.spinner-border');
+                const retry = autoAttachment.querySelector('[data-retry]');
+                const successKey = `po-auto-attachment-success-{{ $po->id }}`;
+
+                const showStatus = (style, text, loading = false, canRetry = false) => {
+                    autoAttachment.className = `alert alert-${style}`;
+                    message.textContent = text;
+                    spinner.classList.toggle('d-none', !loading);
+                    retry.classList.toggle('d-none', !canRetry);
+                    retry.disabled = loading;
+                };
+
+                const attachPo = async () => {
+                    showStatus('info', 'กำลังดาวน์โหลดและแนบไฟล์ PO จาก ERP...', true, false);
+
+                    try {
+                        const response = await fetch(autoAttachment.dataset.url, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                            },
+                        });
+                        const payload = await response.json().catch(() => ({}));
+                        if (!response.ok) {
+                            throw new Error(payload.message || 'ไม่สามารถแนบไฟล์ PO อัตโนมัติได้');
+                        }
+
+                        if (payload.status === 'attached') {
+                            sessionStorage.setItem(successKey, payload.message);
+                            window.location.reload();
+                            return;
+                        }
+
+                        showStatus('success', payload.message || 'มีไฟล์ PO แนบอยู่แล้ว');
+                    } catch (error) {
+                        showStatus('warning', error.message || 'ไม่สามารถแนบไฟล์ PO อัตโนมัติได้', false, true);
+                    }
+                };
+
+                retry.addEventListener('click', attachPo);
+                const successMessage = sessionStorage.getItem(successKey);
+                if (successMessage) {
+                    sessionStorage.removeItem(successKey);
+                    showStatus('success', successMessage);
+                } else {
+                    attachPo();
+                }
+            }
         })();
     </script>
 @endsection

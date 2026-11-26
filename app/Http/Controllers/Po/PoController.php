@@ -7,12 +7,15 @@ use App\Models\Po\PoHeader;
 use App\Models\WF\WfFormAuthorize;
 use App\Services\Po\PoAttachmentService;
 use App\Services\Po\PoErpService;
+use App\Services\Po\PoSubmitAttachmentService;
 use App\Services\WorkflowEngine;
 use App\Support\SqlServerDb;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class PoController extends Controller
 {
@@ -239,6 +242,88 @@ class PoController extends Controller
         return $this->renderShow($id);
     }
 
+    public function autoAttachPo($id)
+    {
+        abort_unless(Gate::allows('POPUR'), 403);
+
+        $po = PoHeader::query()->findOrFail($id);
+        if (!blank($po->workflow_id) || strtoupper((string) $po->status_code) !== 'DRAFT') {
+            return response()->json([
+                'status' => 'not_eligible',
+                'message' => 'PO นี้อยู่ระหว่างอนุมัติหรือไม่อยู่ในสถานะที่แนบ PO อัตโนมัติได้',
+            ], 409);
+        }
+
+        $service = app(PoSubmitAttachmentService::class);
+        if ($existing = $service->usableAttachment($po, 'ERP')) {
+            return response()->json($this->autoAttachmentResponse('existing', 'มีไฟล์ PO แนบอยู่แล้ว', $existing));
+        }
+
+        $sessionId = $this->erpSessionId();
+        if (!$sessionId) {
+            return response()->json([
+                'status' => 'erp_session_required',
+                'message' => session('po_erp_reconnect_required', false)
+                    ? 'CPA session หมดอายุ กรุณา Login CPA ใหม่แล้วลองอีกครั้ง'
+                    : 'ยังไม่ได้เชื่อมต่อ CPA กรุณา Login CPA แล้วลองอีกครั้ง',
+            ], 422);
+        }
+
+        try {
+            $result = $service->attachIfMissing($po, $sessionId, (int) auth()->id());
+        } catch (ValidationException $exception) {
+            return response()->json([
+                'status' => 'erp_download_failed',
+                'message' => collect($exception->errors())->flatten()->first() ?: 'ดาวน์โหลด PO PDF จาก CPA ไม่สำเร็จ',
+            ], 422);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'status' => 'attachment_failed',
+                'message' => 'บันทึกไฟล์ PO ไม่สำเร็จ กรุณาลองอีกครั้งหรือติดต่อผู้ดูแลระบบ',
+            ], 503);
+        }
+
+        if ($result['status'] === PoSubmitAttachmentService::RESULT_BUSY) {
+            return response()->json([
+                'status' => 'busy',
+                'message' => 'กำลังแนบ PO จากหน้าต่างอื่น กรุณารอสักครู่แล้วลองใหม่',
+            ], 409);
+        }
+
+        $message = $result['status'] === PoSubmitAttachmentService::RESULT_ATTACHED
+            ? 'แนบไฟล์ PO จาก ERP อัตโนมัติสำเร็จ'
+            : 'มีไฟล์ PO แนบอยู่แล้ว';
+
+        return response()->json($this->autoAttachmentResponse($result['status'], $message, $result['attachment']));
+    }
+
+    private function autoAttachmentResponse(string $status, string $message, $attachment): array
+    {
+        return [
+            'status' => $status,
+            'message' => $message,
+            'attachment' => [
+                'id' => (int) $attachment->id,
+                'file_name' => (string) $attachment->file_name,
+                'po_version' => (int) $attachment->po_version,
+                'source' => (string) $attachment->attachment_source,
+            ],
+        ];
+    }
+
+    private function erpSessionId(): ?string
+    {
+        if (session('po_erp_reconnect_required', false)) {
+            return null;
+        }
+
+        $sessionId = trim((string) session('po_erp_phpsessid', ''));
+
+        return $sessionId !== '' ? $sessionId : config('services.erp.phpsessid');
+    }
+
     private function renderShow($id, bool $readOnly = false)
     {
         $po = PoHeader::query()->with(['attachments.creator', 'workflow'])->findOrFail($id);
@@ -342,6 +427,9 @@ class PoController extends Controller
             default => null,
         };
         $manualFallbackAvailable = (bool) session("po_erp_submit_download_failed.{$po->id}", false);
+        $canAutoAttachPo = $canEditAttachment
+            && blank($po->workflow_id)
+            && strtoupper((string) $po->status_code) === 'DRAFT';
 
         return view('po.show', compact(
             'po',
@@ -359,6 +447,7 @@ class PoController extends Controller
             'workflowRemarks',
             'currentStepName',
             'manualFallbackAvailable',
+            'canAutoAttachPo',
             'readOnly',
         ));
     }
